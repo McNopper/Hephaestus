@@ -135,7 +135,8 @@ public final class FleetToolProvider implements ToolProvider {
         if ("done".equals(task.status)) {
             return McpToolResult.error("ticket " + ticketId + " is already done");
         }
-        if (control.jobs().containsKey(ticketId)) {
+        FleetJob tracked = control.jobs().get(ticketId);
+        if (tracked != null && tracked.state() == FleetJob.State.RUNNING) {
             return McpToolResult.error("ticket " + ticketId + " is already in flight"
                     + " - see fleet_jobs");
         }
