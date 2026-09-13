@@ -113,6 +113,11 @@ public final class SelfClaimPrompt {
                 .append(" (in-progress, assignee \"fleet\"). Do NOT call task_claim for this or any other ticket.\n");
         out.append("- Re-read the ticket any time with task_get(\"").append(ticket.id).append("\").\n");
         out.append("- Do the work described above, in this worktree.\n");
+        out.append("- Your WRITE SCOPE is exactly the file paths the acceptance criteria name")
+                .append(" (plus the ticket file itself): the executor contract's \"touched_files\" ARE those")
+                .append(" paths. Writing them is not just allowed - it is the task.\n");
+        out.append("- A run that only analyzes, plans or explains WITHOUT producing the named")
+                .append(" files/changes is a FAILED run: the merge-back refuses empty results.\n");
         out.append("- Verify the result against every acceptance criterion.\n");
         out.append("- Record every produced artifact with task_add_artifact (kind: file/git/path/url/doc) BEFORE finishing.\n");
         out.append("- When the work is done, move the ticket to review with task_update(status=\"in-review\").\n");
