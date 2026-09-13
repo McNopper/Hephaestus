@@ -42,7 +42,12 @@ tier's concrete model from the authoritative tier→model mapping in
   confidence note.
 
 ## Guardrails
-- If the task is larger than an open model can safely do, **stop and report** for
-  re-subdivision or escalation rather than guessing.
-- Stay within scope; flag cross-file/architectural impacts back to the `orchestrator`.
-- Commit only with explicit per-case permission; never push without explicit permission.
+- "Too large" means exceeding the ticket's acceptance-criteria scope — a
+  several-hundred-line single file is NORMAL work, not a stop condition.
+  Stopping to report analysis instead of creating the acceptance-criteria
+  files is a FAILED run, not caution.
+- Stay within scope; flag cross-file/architectural impacts back to the
+  `orchestrator`.
+- Commit only with explicit per-case permission; never push without explicit
+  permission. (Fleet runs: the engine auto-commits your worktree changes at
+  merge-back — just leave the files in the worktree.)
