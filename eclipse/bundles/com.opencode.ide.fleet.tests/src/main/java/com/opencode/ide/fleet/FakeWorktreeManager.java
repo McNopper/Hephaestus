@@ -23,6 +23,9 @@ final class FakeWorktreeManager implements WorktreeManager {
     final List<String> commitMessages = new ArrayList<>();
     MergeResult nextMergeResult = new MergeResult(true, List.of(), "merged");
 
+    /** When set, {@link #mergeBack} throws - proving the total-failure contract (R1). */
+    RuntimeException mergeBackFailure;
+
     /** Optional hook, invoked inside {@link #mergeBack} before the result is returned. */
     Runnable onMergeBack;
 
@@ -40,6 +43,9 @@ final class FakeWorktreeManager implements WorktreeManager {
 
     @Override
     public MergeResult mergeBack(Path repoRoot, String taskId) {
+        if (mergeBackFailure != null) {
+            throw mergeBackFailure;
+        }
         if (onMergeBack != null) {
             onMergeBack.run();
         }

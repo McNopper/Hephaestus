@@ -166,7 +166,9 @@ public class FleetControlTest {
         // box and this poll must not flake there (two CI failures 2026-08-28)
         long deadline = System.currentTimeMillis() + 90_000;
         while (System.currentTimeMillis() < deadline) {
-            if (gitOut(repo, "status", "--porcelain").isBlank()) {
+            // the exclude keeps the store's transient .lock out of the verdict
+            // (an in-flight transaction must not read as store dirt)
+            if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()) {
                 return expectedLastMessage.equals(gitOut(repo, "log", "-1", "--format=%s").trim());
             }
             Thread.sleep(100);

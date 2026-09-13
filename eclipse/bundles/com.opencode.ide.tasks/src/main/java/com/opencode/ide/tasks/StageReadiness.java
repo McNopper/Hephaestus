@@ -27,10 +27,11 @@ import java.util.Map;
  * design, test-implementation on implementation, ...).</p>
  *
  * <p>Precedence, first match wins (pinned by tests):
- * NOT_APPLICABLE (no/invalid stage) &gt; RUNNING (in-progress/in-review - an
- * active worker outranks the blocked flag, and the store's own send-back path
- * always lands in product-backlog so a genuinely blocked ticket is never
- * running) &gt; BLOCKED &gt; WAIT_UPSTREAM &gt; STALE &gt; READY. A ticket
+ * NOT_APPLICABLE (no/invalid stage) &gt; BLOCKED &gt; RUNNING (in-progress/
+ * in-review) &gt; WAIT_UPSTREAM &gt; STALE &gt; READY. BLOCKED outranks
+ * RUNNING because the fleet releases failed claims back to sprint-backlog -
+ * a blocked ticket has no live work on it, and a stale blocked claim must
+ * read as failed, never as running. A ticket
  * that already ran to {@code done} with unchanged inputs falls through to
  * NOT_APPLICABLE: the fixed Kind set has no FINISHED, and READY would re-dispatch
  * finished work. A sent-back ticket reports BLOCKED (that is exactly how the
@@ -102,15 +103,18 @@ public final class StageReadiness {
         if (!VStages.isValid(t.stage)) {
             return new Readiness(Kind.NOT_APPLICABLE, "ticket has no V stage");
         }
+        // BLOCKED outranks RUNNING (F-001): the fleet releases failed claims,
+        // so a blocked ticket never has live work on it - and a blocked claim
+        // that was never released must read as failed, not as running
+        if (t.blocked) {
+            return new Readiness(Kind.BLOCKED,
+                    "ticket is blocked" + (t.blocker == null ? "" : ": " + t.blocker));
+        }
         if ("in-progress".equals(t.status)) {
             return new Readiness(Kind.RUNNING, "stage '" + t.stage + "' work is in-progress");
         }
         if ("in-review".equals(t.status)) {
             return new Readiness(Kind.RUNNING, "stage '" + t.stage + "' work is in-review");
-        }
-        if (t.blocked) {
-            return new Readiness(Kind.BLOCKED,
-                    "ticket is blocked" + (t.blocker == null ? "" : ": " + t.blocker));
         }
         String upstream = upstreamStage(t.stage);
         if (upstream == null) {

@@ -281,6 +281,14 @@ public final class TaskFleet {
             recordTelemetry(project, taskId, job);
             com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
             return job;
+        } catch (RuntimeException e) {
+            // R1 total-failure contract: after the pre-claim, NO path may
+            // throw past this point - a thrown WorktreeException/UncheckedIo
+            // would strand the ticket in-progress and contradict this class's
+            // "blocked with a concrete reason on failure" promise
+            FleetJob failed = withState(job, FleetJob.State.FAILED, e.getMessage());
+            LOG.log(Level.WARNING, "fleet launch of ticket " + taskId + " failed unexpectedly", e);
+            return blocked(failed, project, taskId, "fleet: " + e.getMessage());
         } finally {
             if (permissions != null && permissionSession != null) {
                 permissions.sessionEnded(permissionSession);
@@ -369,8 +377,29 @@ public final class TaskFleet {
 
     private FleetJob blocked(FleetJob job, String project, String taskId, String blocker) {
         store.setBlocked(project, taskId, blocker, ASSIGNEE);
+        releaseClaim(project, taskId);
         jobsByTask.put(taskId, job);
         return job;
+    }
+
+    /**
+     * F-001: a failed run must read as FAILED, never RUNNING. The fleet
+     * releases its own in-progress claim back to sprint-backlog (the blocked
+     * flag + reason stay as the retry contract), so readiness, the board and
+     * any future auto-dispatcher see the truth instead of a zombie claim.
+     */
+    private void releaseClaim(String project, String taskId) {
+        try {
+            Task t = store.get(project, taskId);
+            if (t != null && "in-progress".equals(t.status) && ASSIGNEE.equals(t.assignee)) {
+                Map<String, Object> release = new java.util.HashMap<>();
+                release.put("status", "sprint-backlog");
+                release.put("assignee", null);
+                store.update(project, taskId, release);
+            }
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "releasing the fleet claim on " + taskId + " failed", e);
+        }
     }
 
     /**

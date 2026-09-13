@@ -128,14 +128,16 @@ public class AdvanceAfterFleetRunTest {
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
         assertTrue(after.blocked);
-        assertEquals("a failed run stays in-progress (blocked is orthogonal)",
-                "in-progress", after.status);
+        assertEquals("F-001: a failed run is released to sprint-backlog, never a zombie claim",
+                "sprint-backlog", after.status);
 
+        // a RELEASED failed run can still not advance: advance requires
+        // in-review/done - sprint-backlog+blocked is just as non-advanceable
         try {
             store.advance(PROJECT, id, "pm");
             fail("expected Invalid: an unfinished stage never advances");
         } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage(), expected.getMessage().contains("in-progress"));
+            assertTrue(expected.getMessage(), expected.getMessage().contains("sprint-backlog"));
             assertTrue(expected.getMessage(), expected.getMessage().contains("in-review"));
         }
         assertEquals("the rejected advance changes nothing",

@@ -124,8 +124,31 @@ public class TaskFleetTest {
         assertTrue(after.blocker, after.blocker.contains("merge conflicts"));
         assertTrue(after.blocker, after.blocker.contains("src/A.java"));
         assertTrue(after.blocker, after.blocker.contains("README.md"));
-        assertEquals("status itself is untouched (blocked is orthogonal)",
-                "in-progress", after.status);
+        assertEquals("F-001: a failed run releases the claim - never a zombie in-progress",
+                "sprint-backlog", after.status);
+        assertNull("the fleet assignee is released with the claim", after.assignee);
+    }
+
+    /**
+     * R1 total-failure contract: an exception thrown from mergeBack (the
+     * review's incident (a) - e.g. an interrupted git under shutdownNow) must
+     * land in blocked()+released, never escape and strand the ticket.
+     */
+    @Test
+    public void mergeBackThrowingBlocksAndReleasesInsteadOfStranding() {
+        String id = sprintTicket("developer");
+        sessionCompletes();
+        worktrees.mergeBackFailure = new RuntimeException("git killed mid-merge");
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("git killed mid-merge"));
+        Task after = store.get(PROJECT, id);
+        assertTrue(after.blocked);
+        assertTrue(after.blocker, after.blocker.contains("git killed mid-merge"));
+        assertEquals("sprint-backlog", after.status);
+        assertNull(after.assignee);
     }
 
     @Test

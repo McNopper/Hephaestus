@@ -108,12 +108,13 @@ public class StageReadinessTest {
     }
 
     @Test
-    public void precedenceRunningOutranksBlocked() {
+    public void precedenceBlockedOutranksRunning() {
         Task t = ticket("T-001", "system", "in-progress");
         t.blocked = true;
         t.blocker = "hit a wall mid-work";
-        assertEquals("an active worker is the operative fact; the store's own send-backs land in product-backlog, so a genuinely blocked ticket is never running",
-                StageReadiness.Kind.RUNNING, StageReadiness.evaluate(List.of(t)).get("T-001").kind());
+        assertEquals("F-001: the fleet releases failed claims, so a blocked ticket has no live"
+                        + " work - and a stale blocked claim must read as failed, never running",
+                StageReadiness.Kind.BLOCKED, StageReadiness.evaluate(List.of(t)).get("T-001").kind());
     }
 
     @Test
