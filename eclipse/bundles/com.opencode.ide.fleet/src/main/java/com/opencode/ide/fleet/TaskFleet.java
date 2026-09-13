@@ -26,9 +26,14 @@ import com.opencode.ide.tasks.TaskStore;
  * step: {@code in-review} plus a git artifact on success, {@code blocked}
  * with a concrete reason on failure (worktree kept for post-mortem).
  *
- * <p>Completion detection is pluggable via {@link SessionEvents} (SSE-driven
- * where an event stream is available, see {@link SseSessionEvents}); the
- * default constructors keep the {@link FleetRunner}'s own status polling.</p>
+ * <p>Completion detection is the internal WATCHDOG (2026-09-13 redesign): the
+ * prompt POST runs on its own daemon thread while a probe loop
+ * (busy/messages/complete) is authoritative — a finished session merges even
+ * if the POST response is stuck; BUSY workers and sessions waiting on a
+ * permission ask never trip the stall clock (stall = idle-and-silent, aborted
+ * at {@link FleetTuning#STALL_TIMEOUT}); a budget timeout aborts the session.
+ * The {@link SessionEvents} constructor seam is retained for compatibility
+ * but no longer participates in completion.</p>
  *
  * <p>On a MERGED job, best-effort telemetry (see {@link FleetTelemetry})
  * records the run's cost/token actuals as a ticket comment and merges new

@@ -50,7 +50,8 @@ import com.opencode.ide.tasks.TaskStore;
  * (double-checked get/lock/create), so a launch for root B never waits
  * behind a seconds-long server spawn for root A.</p>
  *
- * <p>Completion is SSE-driven: {@link SseSessionEvents} rides the primary
+ * <p>Completion is the fleet watchdog's probe loop (see TaskFleet); the
+ * {@link SseSessionEvents} built here rides the primary
  * connection's single {@code /event} stream via {@link OpencodeConnection}
  * listeners (with a one-poll fallback on stream drop), replacing the 1 Hz
  * status polling of the default engine path (ROADMAP H3.4).</p>

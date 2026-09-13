@@ -7,7 +7,7 @@ Source lives in the repo's `eclipse/` folder.
 
 ## Prerequisites
 
-- **opencode** installed and on PATH (`opencode --version` → 1.18.x). Tested with 1.18.16+.
+- **opencode** installed and on PATH (`opencode --version` → 1.18.x). Pinned and endpoint-verified against 1.18.21 (stable through 1.18.30 — see `ServerVersionPin`).
 - A JDK 17+ on the machine (the `build.ps1` wrapper auto-detects one;
   `JAVA_HOME` does not have to be valid).
 - **Node.js on PATH** — only needed for the chat web renderer/bridge checks that run inside
@@ -47,7 +47,7 @@ Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules
             -pl bundles/com.opencode.ide.mcp -pl bundles/com.opencode.ide.mcp.tests clean verify
 ```
 
-Both run the 1002 Java tests (plus 16 in the `opencode-tasks` mojo module); `verify` also runs
+Both run the 1048 Java tests (plus 16 in the `opencode-tasks` mojo module); `verify` also runs
 the 153 Node checks (51 renderer + 94 bridge + 8 mermaid against `components/chat-web`) when
 Node is available (`-DskipNodeChecks=true` to skip). Produces plugin JARs in
 `bundles\<name>\target\` and (full build) a p2 update site in

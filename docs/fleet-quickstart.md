@@ -22,7 +22,7 @@
 |---|---|---|
 | JDK 21+ | `java -version` | On PATH or via `JAVA_HOME`. The fleet bundles are JavaSE-21 (17+ covers only the `tasks` server). |
 | git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
-| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 1.18.21 — a mismatch warns, never fails. |
+| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 1.18.21 (verified stable through 1.18.30 — bump the pin in `ServerVersionPin` after rerunning the endpoint smoke); a mismatch warns, never fails. |
 | pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
 | Built jars | see below | The stdio servers load jars from `eclipse/bundles/*/target/`. |
 
@@ -140,7 +140,8 @@ For one machine you can ignore this. With several machines sharing the store's g
 repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim → push**:
 
 - `fleet_fleet_status_store` — one line: branch, ahead/behind, changed files.
-- `fleet_fleet_sync_store` — `add -A`, commit, `pull --rebase`, push (optional
+- `fleet_fleet_sync_store` — `add -A` (scoped to the store subtree — it can never
+  sweep unrelated repo WIP into a fleet commit), commit, `pull --rebase`, push (optional
   `message` for the commit). Runs automatically, best-effort, after every launch.
 - If sync reports `PULL_CONFLICT` (a rebase is wedged): `fleet_fleet_recover_store`
   aborts the rebase and **keeps local commits**; then sync again or resolve by
@@ -150,7 +151,7 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 
 | Symptom | Meaning | Recovery |
 |---|---|---|
-| job `FAILED`, ticket `blocked` with reason | submit failure, timeout, or merge conflict | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| job `FAILED`, ticket `blocked` with reason | submit failure; budget timeout (the session is aborted); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
 | worktree still in `.git/opencode-fleet/` | kept deliberately for post-mortem (also on success, until cleaned) | inspect it, then delete |
 | dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |
 | dispatch refused: "is blocked" | a blocker flag is set | read it via `tasks_task_get`, clear it first |

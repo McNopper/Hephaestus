@@ -36,10 +36,12 @@ public final class StoreSync {
 
     /**
      * Runs the sync discipline on the store working copy at {@code root}:
-     * {@code git add -A} (the root <em>is</em> the store directory, so its
-     * whole content is store content), {@code git commit -m <message>} —
-     * skipped when nothing is staged — then {@code git pull --rebase} (the
-     * tree is clean by then, so no stash games), then {@code git push}.
+     * {@code git add -A -- .} — <em>scoped to the store subtree</em> (a
+     * pathspec-less {@code add -A} stages the entire repository regardless of
+     * cwd, which would sweep host-repo WIP into a store commit; review
+     * F1/F4) — then {@code git commit -m <message>} — skipped when nothing
+     * is staged — then {@code git pull --rebase} (the tree is clean by then,
+     * so no stash games), then {@code git push}.
      * Committing before the pull keeps the conflict surface well-defined: a
      * conflicted pull is always a plain rebase conflict, and local edits are
      * never left in a stash when a later step fails.

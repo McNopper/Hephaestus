@@ -8,9 +8,12 @@
 ## The model
 
 The task store (`.opencode/tasks/`, one Markdown file per ticket) is **plain
-git-versioned text** — that is the entire distribution mechanism. N machines run
-one Eclipse + opencode server each; they share the board by sharing the store
-repository. The store is the **only** shared state:
+git-versioned text** — that is the entire distribution mechanism. Two layouts are
+supported: the store as a **subtree of the host repo** (the Hephaestus default — all
+store git discipline is path-scoped to `.opencode/tasks` and can never sweep the
+host repo's own WIP into a store commit) or a **dedicated store repo** whose root
+*is* the store. N machines run one Eclipse + opencode server each; they share the
+board by sharing the store's git history. The store is the **only** shared state:
 
 - each machine serves its own `eclipse-build` MCP endpoint and runs its own
   worktree sessions against its local clone of the *code* repo;
@@ -23,7 +26,7 @@ repository. The store is the **only** shared state:
 | Piece | Where | Behavior |
 |---|---|---|
 | Store status in the Board header | Board view | `store main · ahead 2 · 3 changed` (from `StoreGitStatus.load`, one `git status -b --porcelain`) — refreshes with the board |
-| *Sync store* action | Board view toolbar | commit local ticket changes → `pull --rebase` → `push` (`StoreSync.sync`); a pull conflict never auto-resolves — it offers `recover()` (abort the rebase, local commits intact) or manual git |
+| *Sync store* action | Board view toolbar | commit local ticket changes (**scoped to `.opencode/tasks`**) → `pull --rebase` → `push` (`StoreSync.sync`); a pull conflict never auto-resolves — it offers `recover()` (abort the rebase, local commits intact) or manual git |
 | `StoreGitStatus` / `StoreSync` | `com.opencode.ide.git` (Eclipse-free) | The primitives, unit-tested against real git in temp repos |
 
 ## Sharding vs single repo — the decision

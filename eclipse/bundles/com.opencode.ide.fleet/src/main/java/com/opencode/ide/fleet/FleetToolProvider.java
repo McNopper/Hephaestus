@@ -29,10 +29,12 @@ import com.opencode.ide.tools.ToolProvider;
  * <p>Tools: {@code fleet_dispatch} (async launch for one ticket - the engine
  * spawns its own {@code opencode serve} in the repo, isolates the work in a
  * git worktree and merges back), {@code fleet_jobs} (live job snapshot),
+ * {@code fleet_job_details} (live progress probe for one job: busy, message
+ * count, completion flag - the "are we moving?" answer),
  * {@code fleet_permissions}/{@code fleet_permissions_answer} (the chat path
  * of unattended sessions' permission asks - list and answer them without a
  * Board), {@code fleet_sync_store}/{@code fleet_status_store}/{@code fleet_recover_store}
- * (the distributed-fleet store discipline over the store's git repo).</p>
+ * (the distributed-fleet store discipline, path-scoped to the store subtree).</p>
  *
  * <p>Parameter names keep the {@code ticket_id}/{@code project} spellings of
  * the {@code task_*} pack. Error channel: {@link ParamError} for structural
@@ -324,7 +326,8 @@ public final class FleetToolProvider implements ToolProvider {
                 })));
         out.add(new McpTool("fleet_sync_store",
                 "Sync the task store's git repo (the distributed-fleet discipline): "
-                        + "add -A, commit, pull --rebase, push. On PULL_CONFLICT run "
+                        + "add -A (scoped to the store subtree - never touches the rest of the repo), "
+                        + "commit, pull --rebase, push. On PULL_CONFLICT run "
                         + "fleet_recover_store next.",
                 schema(new String[0], obj ->
                         obj.add("message", strP("commit message, default 'opencode fleet: store sync'")))));

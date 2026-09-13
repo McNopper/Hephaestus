@@ -33,7 +33,7 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `todos` | `{text, done}[]` | checklist items (`task_add_todo`/`task_toggle_todo`/`task_remove_todo`) |
 | `history` | append-only | state transitions |
 | `comments` | append-only | human/agent notes |
-| `created_at` / `updated_at` | timestamp (UTC, ms) | drives claim/backlog ordering |
+| `created_at` / `updated_at` | ISO-8601 instant (UTC, e.g. `2026-08-28T03:25:20.519Z`) | drives claim/backlog ordering |
 
 ### The store (Maven-ready Markdown storage)
 

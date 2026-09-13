@@ -23,8 +23,11 @@ import com.opencode.ide.git.WorktreeManager;
 /**
  * Headless one-task-per-worktree orchestration: creates the task worktree,
  * runs the task's optional {@link Bootstrap} shell command in a
- * directory-scoped opencode session, sends the prompt, polls for completion,
- * and merges the task branch back into the main worktree.
+ * directory-scoped opencode session, sends the prompt (on its own daemon
+ * thread via {@link #begin} — the TaskFleet watchdog, not the POST timeout,
+ * decides completion; the legacy {@code submit}/{@code awaitCompletion} pair
+ * remains for interactive callers), and merges the task branch back into the
+ * main worktree.
  *
  * <p>Pure Java, no Eclipse/OSGi - the later Fleet view drives this engine.
  * Merge-back is not synchronized internally; callers must serialize it (see

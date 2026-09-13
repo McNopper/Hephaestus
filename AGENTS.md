@@ -161,16 +161,23 @@ Concretely, a chat agent can already:
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
 - **dispatch the fleet** via the `fleet` server: `fleet_fleet_dispatch` (async launch for
   one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
-  ticket), `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_sync_store` /
-  `fleet_fleet_status_store` / `fleet_fleet_recover_store` (distributed-fleet store
-  discipline). The fleet spawns its own `opencode serve` on first dispatch and kills it on
-  shutdown; set `OPENCODE_SERVER_PASSWORD` to harden it (a generated password is the
-  planned default — ROADMAP Milestone P).
+  ticket; the watchdog aborts hung sessions and never budget-kills busy ones),
+  `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
+  progress probe: busy/messages/complete — "are we moving?"),
+  `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer
+  permission asks of unattended runs — once/always/reject),
+  `fleet_fleet_sync_store` / `fleet_fleet_status_store` / `fleet_fleet_recover_store`
+  (distributed-fleet store discipline, **scoped to `.opencode/tasks`** — never touches
+  the rest of the repo). The fleet spawns its own authenticated `opencode serve` on
+  first dispatch (a fresh password is generated when `OPENCODE_SERVER_PASSWORD` is
+  unset) and kills it on shutdown.
 - capture/compare renders via `mcp.graphics`.
 
-Not yet chat-triggerable (ROADMAP "Remaining work"): permission answering (unattended
-runs that hit a permission ask stall — do not dispatch blocked/risky tickets unattended),
-the auto-dispatch loop, and board rendering.
+Not yet chat-triggerable (ROADMAP "Remaining work"): *proactive* ask-surfacing inside
+the dispatching chat (answering works via `fleet_fleet_permissions*`), the
+auto-dispatch loop, and board rendering. For unattended runs, prefer making risky
+actions `deny` in the opencode permission config instead of `ask` — an unanswered ask
+holds the run until answered (the watchdog pauses, it does not decide).
 
 ## eclipse/ — the IDE harness
 
