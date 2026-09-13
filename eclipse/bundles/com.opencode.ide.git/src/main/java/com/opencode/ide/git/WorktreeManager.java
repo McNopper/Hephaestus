@@ -6,8 +6,7 @@ import java.util.Optional;
 
 /**
  * Gives each agent task its own git branch plus worktree and merges results
- * back into the main worktree. Merge-back is not synchronized internally;
- * callers (the fleet scheduler) must serialize it.
+ * back into the main worktree. All main-tree mutations are serialized internally per repo root (RepoGate).
  */
 public interface WorktreeManager {
 
@@ -29,6 +28,7 @@ public interface WorktreeManager {
 
     /**
      * Merges the task branch into the current branch of the main worktree.
+     * Serialized internally per repo root (RepoGate) - callers need no external lock.
      * On conflict the merge is aborted and the conflicted file paths are
      * returned; the main worktree is never left in a merging state.
      */

@@ -151,7 +151,7 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 
 | Symptom | Meaning | Recovery |
 |---|---|---|
-| job `FAILED`, ticket `blocked` with reason | submit failure; budget timeout (the session is aborted); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout (the session is aborted); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
 | worktree still in `.git/opencode-fleet/` | kept deliberately for post-mortem (also on success, until cleaned) | inspect it, then delete |
 | dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |
 | dispatch refused: "is blocked" | a blocker flag is set | read it via `tasks_task_get`, clear it first |

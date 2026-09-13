@@ -238,6 +238,42 @@ public class GitWorktreeManagerTest {
         assertEquals("main untouched", "", git("status", "--porcelain").trim());
     }
 
+    /**
+     * R2 (RepoGate): two concurrent main-tree mutations on ONE repo (a
+     * commitAll racing a store sync - the pre-claim vs auto-sync case) must
+     * serialize instead of intermittently losing git's index.lock race.
+     */
+    @Test(timeout = 60_000)
+    public void concurrentCommitAndSyncSerializeThroughTheRepoGate() throws Exception {
+        Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+        java.util.concurrent.atomic.AtomicInteger failures = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable committer = () -> {
+            try {
+                for (int i = 0; i < 5; i++) {
+                    Files.writeString(store.resolve("T-" + i + ".md"), "tick " + i + "\n",
+                            StandardCharsets.UTF_8);
+                    manager.commitAll(repo, ".opencode/tasks", "concurrent commit " + i);
+                }
+            } catch (Exception e) {
+                failures.incrementAndGet();
+            }
+        };
+        Runnable syncer = () -> {
+            try {
+                for (int i = 0; i < 5; i++) {
+                    StoreSync.sync(store, "concurrent sync " + i);
+                }
+            } catch (Exception e) {
+                failures.incrementAndGet();
+            }
+        };
+        Thread a = new Thread(committer, "gate-test-commit");
+        Thread b = new Thread(syncer, "gate-test-sync");
+        a.start(); b.start(); a.join(); b.join();
+        assertEquals("no git mutation lost the index.lock race", 0, failures.get());
+        assertEquals("", git("status", "--porcelain").trim());
+    }
+
     private void commitIn(Path worktree, String message) throws Exception {
         git(worktree, "add", ".");
         git(worktree, "commit", "-m", message);

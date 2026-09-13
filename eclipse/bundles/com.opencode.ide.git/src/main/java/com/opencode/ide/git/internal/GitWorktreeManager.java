@@ -40,6 +40,12 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     @Override
     public Worktree create(Path repoRoot, String taskId) {
+        // R2: worktree/branch creation mutates the shared repo - serialized
+        // by the repo gate so concurrent launches cannot race index.lock
+        return com.opencode.ide.git.RepoGate.with(repoRoot, () -> createGuarded(repoRoot, taskId));
+    }
+
+    private Worktree createGuarded(Path repoRoot, String taskId) {
         String branch = FleetGit.branchFor(requireTaskId(taskId));
         Path repo = repo(repoRoot);
         Path worktreePath = fleetRoot(repo).resolve(taskId);
@@ -99,6 +105,13 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     @Override
     public MergeResult mergeBack(Path repoRoot, String taskId) {
+        // R2: the merge mutates the shared main tree - serialized by the repo
+        // gate (this ALSO closes the cross-engine hole the old per-instance
+        // mergeLock left: Board and chat engines share this gate)
+        return com.opencode.ide.git.RepoGate.with(repoRoot, () -> mergeBackGuarded(repoRoot, taskId));
+    }
+
+    private MergeResult mergeBackGuarded(Path repoRoot, String taskId) {
         requireTaskId(taskId);
         Path repo = repo(repoRoot);
         Worktree task = find(repo, taskId)
@@ -193,6 +206,11 @@ public final class GitWorktreeManager implements WorktreeManager {
      */
     @Override
     public void commitAll(Path repoRoot, String pathSpec, String message) {
+        // R2: main-tree commits ride the repo gate
+        com.opencode.ide.git.RepoGate.with(repoRoot, () -> commitAllGuarded(repoRoot, pathSpec, message));
+    }
+
+    private void commitAllGuarded(Path repoRoot, String pathSpec, String message) {
         Path repo = repo(repoRoot);
         git(repo, "add", "-A", "--", pathSpec);
         GitOutput commit = run(repo, DEFAULT_TIMEOUT, "commit", "-m", message);

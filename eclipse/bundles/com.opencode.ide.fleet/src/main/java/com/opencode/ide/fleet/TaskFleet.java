@@ -5,7 +5,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -64,7 +63,6 @@ public final class TaskFleet {
     private final SessionEvents events;
     private final Supplier<OpencodeClient> telemetryClient;
     private final FleetPermissionBridge permissions;
-    private final ReentrantLock mergeLock = new ReentrantLock();
     private final Map<String, FleetJob> jobsByTask = new ConcurrentHashMap<>();
     /** Tickets with a launch currently running; guards against double launches (one set-add is atomic). */
     private final java.util.Set<String> inFlight = ConcurrentHashMap.newKeySet();
@@ -250,12 +248,11 @@ public final class TaskFleet {
                 return blocked(job, project, taskId, "fleet: " + job.detail());
             }
 
-            mergeLock.lock();
-            try {
-                job = runner.mergeBack(job);
-            } finally {
-                mergeLock.unlock();
-            }
+            // merge-back rides the RepoGate (repo-root-keyed, shared by all
+            // engines in this process) - the old per-instance mergeLock is
+            // gone: it only serialized THIS engine while the Board and a
+            // chat session each built their own
+            job = runner.mergeBack(job);
             com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge returned state=" + job.state());
             jobsByTask.put(taskId, job);
             if (job.state() != FleetJob.State.MERGED) {

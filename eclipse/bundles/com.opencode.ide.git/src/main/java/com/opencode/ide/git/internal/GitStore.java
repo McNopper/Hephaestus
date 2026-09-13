@@ -96,6 +96,25 @@ public final class GitStore {
         if (!isWorkTree(repo)) {
             return gitUnusable() ? Outcome.FAILED : Outcome.NOT_A_REPO;
         }
+        // R2: sync mutates the shared repo (commit/pull/push) - ride the repo
+        // gate keyed on the TRUE git toplevel (the store dir and the repo
+        // root are different keys; a per-dir key would not serialize against
+        // commitAll/mergeBack on the same repository)
+        Path gateKey = toplevelOf(repo);
+        return com.opencode.ide.git.RepoGate.with(gateKey != null ? gateKey : repo,
+                () -> syncGuarded(repo, message));
+    }
+
+    /** The git worktree top-level of {@code dir}, or null when git cannot say. */
+    private static Path toplevelOf(Path dir) {
+        GitOutput out = run(dir, "rev-parse", "--show-toplevel");
+        if (out.exitCode() == 0 && !out.stdout().isBlank()) {
+            return Path.of(out.stdout().trim()).toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+    private static Outcome syncGuarded(Path repo, String message) {
         // scoped to the store subtree: a pathspec-less `add -A` stages the
         // ENTIRE repository no matter the cwd (git >= 2.0) - from the store
         // dir that would sweep the host repo's unrelated WIP into a store
