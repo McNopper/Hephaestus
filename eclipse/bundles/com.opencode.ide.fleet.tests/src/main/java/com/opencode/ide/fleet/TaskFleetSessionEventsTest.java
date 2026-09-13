@@ -132,15 +132,16 @@ public class TaskFleetSessionEventsTest {
     }
 
     /**
-     * The watchdog's reason to exist: a session that streams nothing new for
-     * the stall threshold is ABORTED and fails within the threshold - not
-     * after the whole budget. Progress resets the clock, so slow workers
-     * survive (see {@link #progressResetsTheStallClock()}).
+     * The watchdog's reason to exist: a session that is IDLE and streams
+     * nothing new for the stall threshold is ABORTED and fails within the
+     * threshold - not after the whole budget. BUSY resets the clock (see
+     * {@link #busyWorkerIsNeverStallKilled()}), and so does a pending
+     * permission ask (see {@link #permissionWaitIsNotAStall()}).
      */
     @Test
-    public void stalledSessionIsAbortedAndBlocksTheTicket() {
+    public void idleAndSilentSessionIsAbortedAndBlocksTheTicket() {
         String id = sprintTicket("developer");
-        client.sessionType = "busy"; // stays busy, messages stay static
+        client.sessionType = "idle"; // idle, no assistant reply, messages static
         TaskFleet fleet = fleet().withStallTimeout(Duration.ofMillis(50));
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
@@ -151,6 +152,48 @@ public class TaskFleetSessionEventsTest {
         Task after = store.get(PROJECT, id);
         assertTrue(after.blocked);
         assertTrue(after.blocker, after.blocker.contains("stalled"));
+    }
+
+    /**
+     * Review F2: a BUSY session with static messages (one long tool call - a
+     * reactor build - or one long generation) is WORKING, not stalled: the
+     * busy flag resets the stall clock and the run may live to its budget.
+     */
+    @Test
+    public void busyWorkerIsNeverStallKilled() {
+        String id = sprintTicket("developer");
+        client.sessionType = "busy"; // busy, messages static (no new rows)
+        TaskFleet fleet = fleet().withStallTimeout(Duration.ofMillis(100));
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("timeout"));
+    }
+
+    /**
+     * Review F1: a session WAITING on a permission ask (an ask is a question
+     * for the human, not worker silence) must not be stall-killed - the run
+     * dies only if nobody ever answers, at the budget.
+     */
+    @Test
+    public void permissionWaitIsNotAStall() {
+        String id = sprintTicket("developer");
+        client.sessionType = "idle"; // idle and silent - would stall in seconds...
+        PermissionQueue queue = new PermissionQueue(null);
+        FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
+        client.blockOnSend = () -> queue.offer(new com.opencode.ide.client.activity.PermissionRequest(
+                "ses_1", "per_1", "bash", List.of("git push"), "git push",
+                com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
+        TaskFleet fleet = new TaskFleet(
+                new FleetRunner(bridge.watching(client), worktrees, () -> { }),
+                store, new RoleAgents(), null, null, bridge)
+                .withStallTimeout(Duration.ofMillis(100)); // ...but the pending ask pauses the clock
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("timeout"));
     }
 
     @Test
@@ -170,7 +213,6 @@ public class TaskFleetSessionEventsTest {
         assertEquals("busy but progressing workers are never stall-killed -"
                 + " they run to the budget", FleetJob.State.FAILED, job.state());
         assertTrue(job.detail(), job.detail().contains("timeout"));
-        assertTrue("never aborted", client.aborted.isEmpty());
     }
 
     @Test

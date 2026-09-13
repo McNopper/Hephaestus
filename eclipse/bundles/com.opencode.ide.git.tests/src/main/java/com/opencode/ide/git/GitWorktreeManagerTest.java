@@ -166,11 +166,46 @@ public class GitWorktreeManagerTest {
     @Test
     public void commitAllCommitsPendingChangesAndToleratesCleanTree() throws Exception {
         Files.writeString(repo.resolve("scratch.txt"), "fleet pre-claim\n", StandardCharsets.UTF_8);
-        manager.commitAll(repo, "fleet: pre-claim t1");
+        manager.commitAll(repo, ".", "fleet: pre-claim t1");
         assertEquals("", git("status", "--porcelain").trim());
         // nothing staged is fine (idempotent bookkeeping step)
-        manager.commitAll(repo, "fleet: pre-claim t1 again");
+        manager.commitAll(repo, ".", "fleet: pre-claim t1 again");
         assertEquals("", git("status", "--porcelain").trim());
+    }
+
+    /**
+     * Review F1/F4 (2026-09-13): fleet commits must be SCOPED to the store
+     * subtree - in the production layout (.opencode/tasks inside the host
+     * repo) a pathspec-less add would sweep the host repo's unrelated WIP
+     * into a fleet commit and push it.
+     */
+    @Test
+    public void commitAllIsScopedToTheStoreSubtree() throws Exception {
+        Files.writeString(repo.resolve("WIP.java"), "user work in progress\n", StandardCharsets.UTF_8);
+        Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+        Files.writeString(store.resolve("T-1.md"), "ticket\n", StandardCharsets.UTF_8);
+        manager.commitAll(repo, ".opencode/tasks", "fleet: pre-claim T-1");
+        assertEquals("out-of-store WIP must stay uncommitted",
+                "?? WIP.java", git("status", "--porcelain").trim());
+        assertTrue("the store file must be committed",
+                git("show", "--name-only", "--format=", "HEAD").contains("T-1.md"));
+    }
+
+    /**
+     * Review F5: a store write landing between the pre-claim and the merge
+     * (a PM comment, another ticket's telemetry) must not refuse the merge -
+     * the store subtree is committed first, then the branch merges.
+     */
+    @Test
+    public void peerStoreWriteDoesNotRefuseTheMerge() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        Files.writeString(wt.path().resolve("code.txt"), "worker change\n", StandardCharsets.UTF_8);
+        commitIn(wt.path(), "worker work");
+        Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+        Files.writeString(store.resolve("T-1.md"), "peer comment\n", StandardCharsets.UTF_8);
+        MergeResult result = manager.mergeBack(repo, "t1");
+        assertTrue(result.output(), result.merged());
+        assertTrue(Files.readString(repo.resolve("code.txt")).contains("worker change"));
     }
 
     /**

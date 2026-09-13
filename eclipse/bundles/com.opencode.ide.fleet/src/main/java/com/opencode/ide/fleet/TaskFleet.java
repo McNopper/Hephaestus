@@ -311,6 +311,9 @@ public final class TaskFleet {
             }
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) {
+                // don't leave the session running (and burning tokens) past
+                // the budget the dispatcher granted (review F6)
+                runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
                         "timeout after " + timeout + " awaiting session " + job.sessionId());
             }
@@ -320,6 +323,7 @@ public final class TaskFleet {
             } catch (OpencodeException | RuntimeException e) {
                 // probe failed: keep watching, do NOT reset the progress clock
             }
+            boolean permissionWait = permissions != null && permissions.pendingCount() > 0;
             if (activity != null) {
                 if (activity.messages() != lastMessages) {
                     lastMessages = activity.messages();
@@ -328,11 +332,21 @@ public final class TaskFleet {
                 if (activity.complete()) {
                     return withState(job, FleetJob.State.COMPLETED, null);
                 }
+                // BUSY resets the stall clock: a single long tool call (a
+                // reactor build, npm install) or one long generation emits no
+                // new message rows while legitimately working - busy-and-
+                // silent runs to the budget, only idle-and-silent is a hang
+                // (review F2). Same for a session WAITING on a permission
+                // answer: an ask is a question for the human, not a stall
+                // (review F1) - the run dies only if nobody ever answers.
+                if (activity.busy() || permissionWait) {
+                    lastProgress = System.nanoTime();
+                }
             }
             if (System.nanoTime() - lastProgress >= stallNanos) {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
-                        "stalled: no session activity for " + stallTimeout
+                        "stalled: session idle and silent for " + stallTimeout
                                 + ", session aborted (the prompt was delivered; the worker hung)");
             }
             runner.pauseBetweenProbes();

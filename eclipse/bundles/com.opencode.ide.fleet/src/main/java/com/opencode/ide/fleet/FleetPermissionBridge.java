@@ -70,6 +70,15 @@ public final class FleetPermissionBridge {
     }
 
     /**
+     * The bridge is a live view of the engine's permission queue; the
+     * watchdog pauses its stall clock while asks are pending (a session
+     * waiting for a human answer is WAITING, not hung - review finding).
+     */
+    public int pendingCount() {
+        return queue.pendingCount();
+    }
+
+    /**
      * Marks a session as fleet-watched: its permission requests are enqueued.
      * Idempotent; called by {@link #watching(OpencodeClient)} on session
      * creation.

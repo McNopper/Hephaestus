@@ -38,13 +38,16 @@ public interface WorktreeManager {
     WorktreeStatus status(Path repoRoot, String taskId);
 
     /**
-     * Commits every pending change in the main worktree ({@code add -A} +
-     * {@code commit}). The fleet commits its own store bookkeeping (the
-     * pre-claim) BEFORE creating the task branch, so the branch starts from
-     * the claim and the later merge-back is never refused over a dirty ticket
-     * file (Milestone V finding). A tree with nothing staged is not an error.
+     * Commits pending changes under {@code pathSpec} (relative to the repo
+     * root) in the main worktree ({@code add -A -- <pathSpec>} + commit). The
+     * fleet commits its own store bookkeeping (the pre-claim) BEFORE creating
+     * the task branch, so the branch starts from the claim and the later
+     * merge-back is never refused over a dirty ticket file (Milestone V
+     * finding). SCOPED on purpose: a pathspec-less add would stage the whole
+     * repo's unrelated WIP (review F1/F4). A tree with nothing staged is not
+     * an error.
      */
-    default void commitAll(Path repoRoot, String message) {
+    default void commitAll(Path repoRoot, String pathSpec, String message) {
         throw new UnsupportedOperationException("commitAll not implemented");
     }
 }

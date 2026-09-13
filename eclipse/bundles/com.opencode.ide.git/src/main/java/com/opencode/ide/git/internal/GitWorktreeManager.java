@@ -128,6 +128,20 @@ public final class GitWorktreeManager implements WorktreeManager {
                     "worker produced no changes (no commits on " + branch
                             + " and no pending worktree edits)");
         }
+        // peer tolerance (review F5): a store write that landed between the
+        // pre-claim and now (a PM comment, another ticket's telemetry) would
+        // leave main dirty and git would refuse the merge outright - commit
+        // the STORE SUBTREE only, then merge
+        try {
+            Path storeDir = repo.resolve(com.opencode.ide.git.FleetGit.STORE_PATH);
+            if (Files.isDirectory(storeDir)) {
+                git(repo, "add", "-A", "--", com.opencode.ide.git.FleetGit.STORE_PATH);
+                run(repo, DEFAULT_TIMEOUT, "commit", "-m", "fleet: store bookkeeping before merge of " + taskId);
+            }
+        } catch (WorktreeException ignored) {
+            // nothing staged ("nothing to commit") or a benign commit race -
+            // the merge itself is the gate that matters
+        }
         GitOutput merge = run(repo, MERGE_TIMEOUT, "merge", branch);
         String output = (merge.stdout() + merge.stderr()).trim();
         if (merge.exitCode() == 0) {
@@ -178,9 +192,9 @@ public final class GitWorktreeManager implements WorktreeManager {
      * @return null to reset the stanza accumulator
      */
     @Override
-    public void commitAll(Path repoRoot, String message) {
+    public void commitAll(Path repoRoot, String pathSpec, String message) {
         Path repo = repo(repoRoot);
-        git(repo, "add", "-A");
+        git(repo, "add", "-A", "--", pathSpec);
         GitOutput commit = run(repo, DEFAULT_TIMEOUT, "commit", "-m", message);
         if (commit.exitCode() != 0
                 && !(commit.stdout() + commit.stderr()).contains("nothing to commit")) {

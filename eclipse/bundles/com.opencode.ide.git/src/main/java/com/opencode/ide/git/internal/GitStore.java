@@ -94,7 +94,11 @@ public final class GitStore {
         if (!isWorkTree(repo)) {
             return gitUnusable() ? Outcome.FAILED : Outcome.NOT_A_REPO;
         }
-        GitOutput add = run(repo, "add", "-A");
+        // scoped to the store subtree: a pathspec-less `add -A` stages the
+        // ENTIRE repository no matter the cwd (git >= 2.0) - from the store
+        // dir that would sweep the host repo's unrelated WIP into a store
+        // commit and push it (review F1/F4, 2026-09-13)
+        GitOutput add = run(repo, "add", "-A", "--", ".");
         if (add.exitCode() != 0) {
             warn("git add -A", add);
             return Outcome.FAILED;

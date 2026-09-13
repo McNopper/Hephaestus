@@ -156,11 +156,13 @@ public class FleetRunner {
 
     /**
      * Delegates to {@link WorktreeManager#commitAll}: commits the fleet's own
-     * main-worktree bookkeeping (the pre-claim) so the task branch starts from
-     * it and merge-back is never refused over a dirty ticket file.
+     * main-worktree bookkeeping (the pre-claim), SCOPED to the task-store
+     * subtree so the task branch starts from it and merge-back is never
+     * refused over the dirty ticket file - and so nothing else in the repo is
+     * ever swept into a fleet commit.
      */
     public void commitMain(Path repoRoot, String message) {
-        worktrees.commitAll(repoRoot, message);
+        worktrees.commitAll(repoRoot, com.opencode.ide.git.FleetGit.STORE_PATH, message);
     }
 
     /**

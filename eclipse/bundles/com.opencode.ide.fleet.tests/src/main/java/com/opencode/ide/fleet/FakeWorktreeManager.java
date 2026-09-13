@@ -27,8 +27,8 @@ final class FakeWorktreeManager implements WorktreeManager {
     Runnable onMergeBack;
 
     @Override
-    public void commitAll(Path repoRoot, String message) {
-        commitMessages.add(message);
+    public void commitAll(Path repoRoot, String pathSpec, String message) {
+        commitMessages.add(message + " @" + pathSpec);
     }
 
     @Override
