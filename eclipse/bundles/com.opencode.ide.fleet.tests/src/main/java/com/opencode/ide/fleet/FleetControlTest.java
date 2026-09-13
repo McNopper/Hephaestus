@@ -171,6 +171,17 @@ public class FleetControlTest {
             }
             Thread.sleep(100);
         }
+        System.err.println("[storeClean] TIMEOUT diagnostics for " + repo);
+        System.err.println("[storeClean] status: " + gitOut(repo, "status", "--porcelain"));
+        System.err.println("[storeClean] log: " + gitOut(repo, "log", "--oneline", "-5"));
+        Thread.getAllStackTraces().forEach((thread, frames) -> {
+            if (thread.getName().startsWith("fleet-") || thread.getName().contains("pool")) {
+                System.err.println("[storeClean] thread " + thread.getName() + " state=" + thread.getState());
+                for (int i = 0; i < Math.min(6, frames.length); i++) {
+                    System.err.println("[storeClean]   at " + frames[i]);
+                }
+            }
+        });
         return false;
     }
 

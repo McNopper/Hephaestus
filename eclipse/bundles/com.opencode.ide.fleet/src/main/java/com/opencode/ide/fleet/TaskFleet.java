@@ -329,6 +329,13 @@ public final class TaskFleet {
                 // probe failed: keep watching, do NOT reset the progress clock
             }
             boolean permissionWait = permissions != null && permissions.pendingCount() > 0;
+            // a PENDING prompt POST means the turn is still in flight server-
+            // side: during one long generation the session is NOT in the busy
+            // map and no new message ROWS appear (live-proven 2026-09-13: a
+            // healthy build-agent stream was stall-killed at exactly 5 min).
+            // The provider/server chunk timeout deals with dead streams and
+            // unblocks the POST; the budget backstops the rest.
+            boolean promptInFlight = !submission.prompt().isDone();
             if (activity != null) {
                 if (activity.messages() != lastMessages) {
                     lastMessages = activity.messages();
@@ -344,9 +351,11 @@ public final class TaskFleet {
                 // (review F2). Same for a session WAITING on a permission
                 // answer: an ask is a question for the human, not a stall
                 // (review F1) - the run dies only if nobody ever answers.
-                if (activity.busy() || permissionWait) {
+                if (activity.busy() || permissionWait || promptInFlight) {
                     lastProgress = System.nanoTime();
                 }
+            } else if (promptInFlight || permissionWait) {
+                lastProgress = System.nanoTime();
             }
             if (System.nanoTime() - lastProgress >= stallNanos) {
                 runner.abort(job.sessionId());

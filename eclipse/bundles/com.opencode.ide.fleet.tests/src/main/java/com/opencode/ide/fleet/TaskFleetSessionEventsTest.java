@@ -196,6 +196,31 @@ public class TaskFleetSessionEventsTest {
         assertTrue(job.detail(), job.detail().contains("timeout"));
     }
 
+    /**
+     * Live-proven 2026-09-13 (W-005, third retry): during ONE long generation
+     * the session is absent from the busy map and no new message rows appear -
+     * the stall clock must pause while the prompt POST is still pending (the
+     * turn is in flight server-side). The budget, not the stall threshold, is
+     * the backstop for a POST that never returns.
+     */
+    @Test
+    public void inFlightGenerationIsNeverStallKilled() {
+        String id = sprintTicket("developer");
+        sessionCompletes(); // idle + assistant reply once the generation ends
+        client.blockOnSend = () -> {
+            try {
+                Thread.sleep(4_000); // one long generation in flight
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        TaskFleet fleet = fleet().withStallTimeout(Duration.ofMillis(100));
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+    }
+
     @Test
     public void progressResetsTheStallClock() {
         String id = sprintTicket("developer");
