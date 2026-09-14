@@ -172,16 +172,17 @@ public class FleetBootstrapTest {
     }
 
     @Test
-    public void bootstrapRunsThroughThePermissionWatchedClient() {
+    public void bootstrapRunsUnderTheRunnerLevelSessionWatch() {
         String id = sprintTicket();
         sessionCompletes();
-        // mirrors TaskFleetLauncher: the runner's client is bridge-wrapped,
-        // so runShell must delegate through the watching wrapper
+        // mirrors TaskFleetLauncher: the runner watches its sessions through
+        // the session-created callback, so the bootstrap shell call runs in
+        // an already permission-watched session
         FleetPermissionBridge bridge = new FleetPermissionBridge(new PermissionQueue(null));
-        TaskFleet watched = new TaskFleet(
-                new FleetRunner(bridge.watching(client), worktrees, () -> { }), store);
+        TaskFleet fleet = new TaskFleet(
+                new FleetRunner(client, worktrees, () -> { }, bridge::sessionStarted), store);
 
-        FleetJob job = watched.launch(PROJECT, id, REPO, TIMEOUT, Bootstrap.of("build", "npm install"));
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT, Bootstrap.of("build", "npm install"));
 
         assertEquals(FleetJob.State.MERGED, job.state());
         assertEquals(List.of("ses_1|build|npm install"), client.shellCalls);

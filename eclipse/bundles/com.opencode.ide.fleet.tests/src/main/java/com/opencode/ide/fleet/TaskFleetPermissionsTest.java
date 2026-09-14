@@ -14,7 +14,6 @@ import org.junit.rules.TemporaryFolder;
 
 import com.google.gson.JsonObject;
 import com.opencode.ide.client.model.OpencodeEvent;
-import com.opencode.ide.client.model.Session;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 
@@ -71,10 +70,10 @@ public class TaskFleetPermissionsTest {
     }
 
     private TaskFleet fleet() {
-        // the runner's client is wrapped so the session is watched from its
+        // the runner's session-created callback watches the session from its
         // creation - BEFORE the prompt call (mirrors TaskFleetLauncher)
         return new TaskFleet(
-                new FleetRunner(bridge.watching(client), worktrees, () -> { }),
+                new FleetRunner(client, worktrees, () -> { }, bridge::sessionStarted),
                 store, new RoleAgents(), null, bridge);
     }
 
@@ -113,12 +112,21 @@ public class TaskFleetPermissionsTest {
     }
 
     @Test
-    public void watchingClientRegistersCreatedSessions() throws Exception {
-        // sanity: the wrapped client transparently delegates session creation
-        Session session = bridge.watching(client).createSession("t", null);
-        assertEquals("ses_1", session.id());
+    public void runnerCallbackRegistersTheSessionBeforeThePromptIsSent() throws Exception {
+        List<String> order = new java.util.concurrent.CopyOnWriteArrayList<>();
+        client.blockOnSend = () -> order.add("prompt");
+        FleetRunner runner = new FleetRunner(client, worktrees, () -> { }, id -> {
+            bridge.sessionStarted(id);
+            order.add("watched:" + id);
+        });
+
+        runner.begin(new FleetTask("t1", "Fix the widget", "do the thing", null, null, REPO))
+                .prompt().get();
+
+        assertEquals("the session is watched before the prompt POST",
+                List.of("watched:ses_1", "prompt"), order);
         bridge.onEvent(askedEvent("ses_1", "per_x"));
-        assertEquals(1, queue.pendingCount());
+        assertEquals("the watched session's asks are queued", 1, queue.pendingCount());
         bridge.sessionEnded("ses_1");
         assertTrue(queue.pending().isEmpty());
     }

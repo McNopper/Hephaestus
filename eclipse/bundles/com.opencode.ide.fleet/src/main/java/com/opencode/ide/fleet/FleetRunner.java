@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -43,13 +44,24 @@ public class FleetRunner {
     private final WorktreeManager worktrees;
     private final Runnable sleeper;
     /**
+     * Session-created callback seam: invoked with each new session's id
+     * right after {@code createSession} returns and BEFORE the bootstrap
+     * and prompt are sent. It exists because permission watching (see
+     * {@link FleetPermissionBridge#sessionStarted}) needs the session id
+     * before the first prompt: the prompt POST blocks until the agent's
+     * final reply, and an unattended session that asks for permission waits
+     * mid-run inside that very call - so the session must be watched from
+     * the moment it is created, not after the launch returns. May be null.
+     */
+    private final Consumer<String> onSessionCreated;
+    /**
      * Submitted tasks by id, needed again at merge-back. Concurrent: one
      * runner is shared by every parallel launch thread of a fleet.
      */
     private final Map<String, FleetTask> tasks = new ConcurrentHashMap<>();
 
     public FleetRunner(OpencodeClient client, WorktreeManager worktrees) {
-        this(client, worktrees, FleetRunner::sleepPollInterval);
+        this(client, worktrees, FleetRunner::sleepPollInterval, null);
     }
 
     /**
@@ -57,9 +69,32 @@ public class FleetRunner {
      *                {@link #awaitCompletion} run instantly in tests
      */
     public FleetRunner(OpencodeClient client, WorktreeManager worktrees, Runnable sleeper) {
+        this(client, worktrees, sleeper, null);
+    }
+
+    /**
+     * @param onSessionCreated invoked with each new session's id before the
+     *                         first prompt is sent (permission watching -
+     *                         see the field comment); may be null
+     */
+    public FleetRunner(OpencodeClient client, WorktreeManager worktrees, Consumer<String> onSessionCreated) {
+        this(client, worktrees, FleetRunner::sleepPollInterval, onSessionCreated);
+    }
+
+    /**
+     * @param sleeper          invoked between completion polls; inject a no-op
+     *                         to make {@link #awaitCompletion} run instantly
+     *                         in tests
+     * @param onSessionCreated invoked with each new session's id before the
+     *                         first prompt is sent (permission watching -
+     *                         see the field comment); may be null
+     */
+    public FleetRunner(OpencodeClient client, WorktreeManager worktrees, Runnable sleeper,
+            Consumer<String> onSessionCreated) {
         this.client = client;
         this.worktrees = worktrees;
         this.sleeper = sleeper;
+        this.onSessionCreated = onSessionCreated;
     }
 
     /** One watchdog probe: message count + completion + busy + last-assistant-text snippet. */
@@ -104,6 +139,11 @@ public class FleetRunner {
             Session session = client.createSession(task.title(), worktree.path());
             final String sid = session.id();
             sessionId = sid;
+            // before anything else touches the session: permission watching
+            // needs the id before the first prompt (see onSessionCreated)
+            if (onSessionCreated != null && sid != null) {
+                onSessionCreated.accept(sid);
+            }
             runBootstrap(sid, task.bootstrap());
             tasks.put(task.taskId(), task);
             java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
@@ -219,6 +259,9 @@ public class FleetRunner {
         try {
             Session session = client.createSession(task.title(), worktree.path());
             sessionId = session.id();
+            if (onSessionCreated != null && sessionId != null) {
+                onSessionCreated.accept(sessionId);
+            }
             runBootstrap(sessionId, task.bootstrap());
             client.sendMessage(chatRequest(sessionId, task), promptTimeout);
             tasks.put(task.taskId(), task);

@@ -84,7 +84,7 @@ public final class TaskFleetLauncher implements FleetLauncher {
             (sessionId, permissionId, response, remember) -> OpencodeConnection.getInstance()
                     .getClient().respondToPermission(sessionId, permissionId, response, remember));
 
-    /** Feeds {@link #PERMISSIONS} from the primary event stream; sessions are watched via the wrapped runner client. */
+    /** Feeds {@link #PERMISSIONS} from the primary event stream; sessions are watched via the runner's session-created callback. */
     private static final FleetPermissionBridge PERMISSION_BRIDGE = new FleetPermissionBridge(PERMISSIONS);
 
     /** Guards the one-time bridge subscription (Eclipse-session lifetime, never unsubscribed). */
@@ -298,10 +298,11 @@ public final class TaskFleetLauncher implements FleetLauncher {
     private static TaskFleet createFleet(Suppliers current, Path storeRoot) {
         OpencodeClient client = current.clients().get();
         connectPermissionBridge();
-        // The runner's client is wrapped so its sessions are permission-watched
-        // from creation - the blocking prompt call is where unattended asks wait.
+        // The runner reports each session it creates through the
+        // session-created callback, so the bridge watches it from creation -
+        // BEFORE the prompt call, where unattended asks wait.
         return new TaskFleet(
-                new FleetRunner(PERMISSION_BRIDGE.watching(client), current.worktrees().get()),
+                new FleetRunner(client, current.worktrees().get(), PERMISSION_BRIDGE::sessionStarted),
                 new TaskStore(storeRoot),
                 new RoleAgents(),
                 null,

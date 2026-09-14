@@ -40,8 +40,8 @@ import com.opencode.ide.tasks.TaskStore;
  *
  * <p>Permission requests (unattended sessions asking for human approval, see
  * {@link FleetPermissionBridge}/{@link PermissionQueue}) are collected when
- * the runner's client is wrapped with
- * {@link FleetPermissionBridge#watching(OpencodeClient)} and the bridge is
+ * the runner's session-created callback is wired to the bridge ({@code new
+ * FleetRunner(client, worktrees, bridge::sessionStarted)}) and the bridge is
  * passed to the constructor: the job's session is watched from its creation
  * (before the prompt - the prompt call blocks while an ask is pending), and
  * when the launch ends (merged, failed, aborted) the session's pending
@@ -106,10 +106,9 @@ public final class TaskFleet {
      *                        a {@code null} supply skips telemetry - see
      *                        {@link FleetTelemetry}
      * @param permissions     collects the job sessions' permission requests
-     *                        (pair with
-     *                        {@link FleetPermissionBridge#watching(OpencodeClient)}
-     *                        around the runner's client); {@code null} = no
-     *                        permission collection
+     *                        (pair with the runner's session-created
+     *                        callback, {@code bridge::sessionStarted});
+     *                        {@code null} = no permission collection
      */
     public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents,
             Supplier<OpencodeClient> telemetryClient, FleetPermissionBridge permissions) {

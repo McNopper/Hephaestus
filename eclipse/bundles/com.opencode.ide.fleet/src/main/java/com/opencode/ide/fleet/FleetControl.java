@@ -118,16 +118,16 @@ public final class FleetControl implements AutoCloseable {
                 new ConnectionConfig(base, "opencode", password));
         PermissionQueue queue = new PermissionQueue(PermissionQueue.responderOf(client));
         FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
-        // the runner's client is wrapped so its sessions are watched from
-        // their creation - the blocking prompt call is where unattended asks
-        // wait; the watching client delegates everything, so one wrapped
-        // instance serves the whole engine (runner, polling, telemetry)
-        OpencodeClient watched = bridge.watching(client);
+        // the runner reports every session it creates through the
+        // session-created callback - watched from creation, BEFORE the
+        // prompt call (the blocking prompt call is where unattended asks
+        // wait); one raw client serves the whole engine (runner, polling,
+        // telemetry)
         TaskFleet fleet = new TaskFleet(
-                new FleetRunner(watched, FleetGit.defaultManager()),
+                new FleetRunner(client, FleetGit.defaultManager(), bridge::sessionStarted),
                 new TaskStore(root),
                 new RoleAgents(),
-                () -> watched,
+                () -> client,
                 bridge);
         FleetRunner engineRunner = new FleetRunner(client, FleetGit.defaultManager());
         OpencodeEventStream events = client.getGlobalEvents(bridge::onEvent, connected -> { });

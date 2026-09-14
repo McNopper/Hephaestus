@@ -186,7 +186,7 @@ public class TaskFleetWatchdogTest {
                 "ses_1", "per_1", "bash", List.of("git push"), "git push",
                 com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
         TaskFleet fleet = new TaskFleet(
-                new FleetRunner(bridge.watching(client), worktrees, () -> { }),
+                new FleetRunner(client, worktrees, () -> { }, bridge::sessionStarted),
                 store, new RoleAgents(), null, bridge)
                 .withStallTimeout(Duration.ofMillis(100)); // ...but the pending ask pauses the clock
 

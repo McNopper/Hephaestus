@@ -17,8 +17,7 @@ import com.opencode.ide.client.model.OpencodeEvent;
  * real stream): only watched sessions' {@code permission.asked} events are
  * enqueued, {@code permission.replied} clears them, {@code session.deleted}
  * ends a watched session, sessionEnded unwatches, malformed events never
- * throw, and the watching client wrapper registers sessions at creation time
- * (before the prompt is sent) plus the subscriber wiring.
+ * throw, plus the subscriber wiring.
  */
 public class FleetPermissionBridgeTest {
 
@@ -170,24 +169,6 @@ public class FleetPermissionBridgeTest {
         unsubscribe.run();
         subscriber.emit(asked("ses_1", "per_2"));
         assertEquals("unsubscribed: later events do not arrive", 1, queue.pendingCount());
-    }
-
-    @Test
-    public void watchingClientRegistersSessionsAtCreationBeforeThePrompt() throws Exception {
-        PermissionQueue queue = new PermissionQueue(null);
-        FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
-
-        // The runner creates the session through the wrapper; the very next
-        // thing it does is send the prompt - the ask arrives while that call
-        // blocks. The wrapper must have watched the session by then.
-        FakeClient delegate = new FakeClient();
-        com.opencode.ide.client.OpencodeClient watched = bridge.watching(delegate);
-        com.opencode.ide.client.model.Session session = watched.createSession("title", null);
-        assertEquals("ses_1", session.id());
-
-        // simulated event arriving while the prompt call is still in flight
-        bridge.onEvent(asked(session.id(), "per_1"));
-        assertEquals(1, queue.pendingCount());
     }
 
     private static List<String> ids(PermissionQueue queue) {
