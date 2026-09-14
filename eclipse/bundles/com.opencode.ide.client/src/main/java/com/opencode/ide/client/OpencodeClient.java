@@ -153,6 +153,11 @@ public interface OpencodeClient {
         throw new UnsupportedOperationException("abortSession");
     }
 
+    /** Deletes a session and its stored messages. */
+    default void deleteSession(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("deleteSession");
+    }
+
     /**
      * {@code POST /log} - write an entry into the opencode server log.
      *

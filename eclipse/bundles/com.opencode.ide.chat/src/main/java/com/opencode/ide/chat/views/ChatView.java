@@ -1,8 +1,6 @@
 package com.opencode.ide.chat.views;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.core.runtime.Status;
@@ -28,6 +26,7 @@ import com.opencode.ide.chat.internal.ChatLog;
 import com.opencode.ide.chat.internal.ChatPage;
 import com.opencode.ide.chat.internal.ChatServerConnection;
 import com.opencode.ide.chat.internal.ChatSessionController;
+import com.opencode.ide.chat.internal.ChatSelectorState;
 import com.opencode.ide.chat.internal.CommandComposer;
 import com.opencode.ide.client.ChatCapabilities;
 import com.opencode.ide.client.OpencodeClient;
@@ -35,7 +34,6 @@ import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.CommandInfo;
-import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.core.OpencodePreferences;
@@ -74,6 +72,7 @@ public class ChatView extends ViewPart {
     private Button sendButton;
     private Action abortAction;
     private Combo agentCombo;
+    private final ChatSelectorState selectors = new ChatSelectorState();
     private Combo modelCombo;
     private Combo variantCombo;
     private org.eclipse.swt.widgets.List commandPicker;
@@ -83,9 +82,6 @@ public class ChatView extends ViewPart {
 
     /** Escape dismissed the picker until the input text changes again. */
     private boolean pickerDismissed;
-
-    /** provider/model -> its variant names, for the variant combo. */
-    private final Map<String, List<String>> variantsByModel = new HashMap<>();
 
     /** Ambient services for the controller: background jobs, UI dispatch, logging, status. */
     private final ChatSessionController.Host host = new ChatSessionController.Host() {
@@ -179,10 +175,15 @@ public class ChatView extends ViewPart {
         agentCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         agentCombo.setToolTipText("Agent");
         agentCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+        agentCombo.addListener(SWT.Selection, e -> selectors.selectAgent(agentCombo.getText()));
         modelCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         modelCombo.setToolTipText("Model (provider/model) - pre-set to your preferred default (Preferences → OpenCode)");
         modelCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        modelCombo.addListener(SWT.Selection, e -> fillVariants());
+        modelCombo.addListener(SWT.Selection, e -> {
+            selectors.selectModel(selectedModel());
+            rememberSelectedModel();
+            fillVariants();
+        });
         variantCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         variantCombo.setToolTipText("Reasoning effort (model variant) - as in opencode");
         variantCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
@@ -313,64 +314,11 @@ public class ChatView extends ViewPart {
         if (agentCombo.isDisposed()) {
             return;
         }
-        agentCombo.removeAll();
-        int selectAt = 0;
-        if (agents != null) {
-            for (Agent a : agents) {
-                if (!a.isPrimary()) {
-                    continue;
-                }
-                agentCombo.add(a.name());
-                if ("build".equals(a.name())) {
-                    selectAt = agentCombo.getItemCount() - 1;
-                }
-            }
-        }
-        if (agentCombo.getItemCount() > 0) {
-            agentCombo.select(selectAt);
-        }
-
-        modelCombo.removeAll();
-        modelCombo.add("");
-        variantsByModel.clear();
-        if (providers != null && providers.providers() != null) {
-            for (Provider provider : providers.providers()) {
-                if (provider.models() == null) {
-                    continue;
-                }
-                for (var model : provider.models().values()) {
-                    if (model != null && model.id() != null) {
-                        String combined = provider.id() + "/" + model.id();
-                        modelCombo.add(combined);
-                        List<String> variants = model.variantNames();
-                        if (!variants.isEmpty()) {
-                            variantsByModel.put(combined, variants);
-                        }
-                    }
-                }
-            }
-        }
-        // preferred default (Preferences → OpenCode) wins when it exists on the live
-        // server; otherwise the server's /config default (validated by DefaultModels)
         OpencodePreferences prefs = new OpencodePreferences();
-        String[] preferred = prefs.getDefaultModelParts();
-        String[] effective = fallback;
-        if (preferred != null && modelCombo.indexOf(preferred[0] + "/" + preferred[1]) >= 0) {
-            effective = preferred;
-        }
-        controller.setDefaultModel(effective != null ? effective[0] : null,
-                effective != null ? effective[1] : null);
-        if (effective != null) {
-            String combined = effective[0] + "/" + effective[1];
-            int idx = modelCombo.indexOf(combined);
-            if (idx < 0) {
-                modelCombo.add(combined, 1);
-                idx = 1;
-            }
-            modelCombo.select(idx);
-        } else {
-            modelCombo.select(0);
-        }
+        selectors.load(agents, providers, prefs.getDefaultModelParts(), fallback);
+        agentCombo.setItems(selectors.agents().toArray(String[]::new));
+        agentCombo.select(selectors.agent() == null ? -1 : selectors.agents().indexOf(selectors.agent()));
+        renderModelSelection();
         fillVariants();
         // preselect the preferred reasoning variant when the selected model exposes it
         String preferredVariant = prefs.getDefaultVariant();
@@ -380,6 +328,19 @@ public class ChatView extends ViewPart {
                 variantCombo.select(variantIndex);
             }
         }
+    }
+
+    private void renderModelSelection() {
+        modelCombo.setItems(selectors.models().toArray(String[]::new));
+        modelCombo.select(selectors.models().indexOf(selectors.model()));
+        rememberSelectedModel();
+    }
+
+    private void rememberSelectedModel() {
+        String model = selectors.model();
+        int slash = model.indexOf('/');
+        controller.setDefaultModel(slash > 0 ? model.substring(0, slash) : null,
+                slash > 0 ? model.substring(slash + 1) : null);
     }
 
     /**
@@ -392,7 +353,7 @@ public class ChatView extends ViewPart {
             return;
         }
         String previous = selectedVariant();
-        List<String> variants = variantsByModel.getOrDefault(selectedModel(), List.of());
+        List<String> variants = selectors.variants();
         variantCombo.removeAll();
         variantCombo.add(VARIANT_DEFAULT);
         for (String variant : variants) {
@@ -424,17 +385,27 @@ public class ChatView extends ViewPart {
 
     /** Preselect a model. Used by the openChat command (new chat for a model). */
     public void preselectModel(String providerId, String modelId) {
-        if (providerId == null || modelId == null || modelCombo == null || modelCombo.isDisposed()) {
+        if (providerId == null || providerId.isBlank() || modelId == null || modelId.isBlank()) {
             return;
         }
-        String combined = providerId + "/" + modelId;
-        int idx = modelCombo.indexOf(combined);
-        if (idx < 0) {
-            modelCombo.add(combined, 1);
-            idx = 1;
+        selectors.selectModel(providerId + "/" + modelId);
+        if (modelCombo == null || modelCombo.isDisposed()) {
+            return;
         }
-        modelCombo.select(idx);
-        controller.setDefaultModel(providerId, modelId);
+        renderModelSelection();
+        fillVariants();
+    }
+
+    /** Retained across the asynchronous selector load. */
+    public void preselectAgent(String agentId) {
+        selectors.selectAgent(agentId);
+        if (agentId == null || agentId.isBlank() || agentCombo == null || agentCombo.isDisposed()) {
+            return;
+        }
+        int index = agentCombo.indexOf(agentId);
+        if (index >= 0) {
+            agentCombo.select(index);
+        }
     }
 
     // ---------- session resume / multiple windows ----------

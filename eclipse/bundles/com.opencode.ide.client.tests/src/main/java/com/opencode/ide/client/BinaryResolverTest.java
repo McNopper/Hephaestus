@@ -6,8 +6,11 @@ import static org.junit.Assert.assertNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.Set;
 
 import org.junit.Test;
+import org.junit.Assume;
 
 /**
  * Unit tests for {@link BinaryResolver#resolveBinary(String, String, boolean)} -
@@ -30,14 +33,47 @@ public class BinaryResolverTest {
     }
 
     @Test
-    public void resolvesBareBinaryOnPosixPath() throws IOException {
-        Path dir = Files.createTempDirectory("opencode-bin-test");
-        Files.createFile(dir.resolve("opencode"));
+    public void posixSkipsNonExecutableExplicitAndPathFiles() {
+        Path executable = Path.of("second", "opencode");
+        assertEquals(executable, BinaryResolver.resolveBinary("custom", "first:second", false,
+                path -> true, executable::equals));
+        assertNull(BinaryResolver.resolveBinary("custom", "first:second", false,
+                path -> true, path -> false));
+        assertNull(BinaryResolver.resolveBinary("custom", "first:second", false,
+                path -> false, path -> true));
+    }
+
+    @Test
+    public void posixExecutableExplicitWinsAndShellFallbackWorks() {
+        Path explicit = Path.of("custom");
+        assertEquals(explicit, BinaryResolver.resolveBinary("custom", "first:second", false,
+                path -> true, path -> true));
+        Path shell = Path.of("first", "opencode.sh");
+        assertEquals(shell, BinaryResolver.resolveBinary(null, "first:second", false,
+                path -> true, shell::equals));
+    }
+
+    @Test
+    public void windowsUsesSemicolonAndDoesNotRequireUnixExecuteBit() {
+        Path shim = Path.of("second", "opencode.cmd");
+        assertEquals(shim, BinaryResolver.resolveBinary(null, "first;second", true,
+                shim::equals, path -> { throw new AssertionError("Windows must not probe Unix execute permission"); }));
+    }
+
+    @Test
+    public void realPosixFilesystemRequiresExecutePermission() throws IOException {
+        Assume.assumeTrue(java.nio.file.FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
+        Path dir = Files.createTempDirectory("opencode-executable-test");
+        Path binary = dir.resolve("opencode");
         try {
-            Path resolved = BinaryResolver.resolveBinary(null, dir.toString(), false);
-            assertEquals(dir.resolve("opencode"), resolved);
+            Files.createFile(binary);
+            Files.setPosixFilePermissions(binary, Set.of(PosixFilePermission.OWNER_READ));
+            assertNull(BinaryResolver.resolveBinary(binary.toString(), dir.toString(), false));
+            Files.setPosixFilePermissions(binary,
+                    Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE));
+            assertEquals(binary, BinaryResolver.resolveBinary(null, dir.toString(), false));
         } finally {
-            Files.deleteIfExists(dir.resolve("opencode"));
+            Files.deleteIfExists(binary);
             Files.deleteIfExists(dir);
         }
     }

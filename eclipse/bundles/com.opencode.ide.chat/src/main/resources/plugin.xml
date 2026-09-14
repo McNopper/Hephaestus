@@ -26,6 +26,10 @@
             name="Model"
             optional="true"/>
       <commandParameter
+            id="com.opencode.ide.chat.openChat.agentId"
+            name="Agent"
+            optional="true"/>
+      <commandParameter
             id="com.opencode.ide.chat.openChat.sessionId"
             name="Session"
             optional="true"/>

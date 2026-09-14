@@ -1,6 +1,8 @@
 package com.opencode.ide.ui.model;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Path;
 
@@ -25,18 +27,37 @@ public class CwdCheckTest {
     @Test
     public void trailingSeparatorsAreIgnored() {
         assertEquals(CwdCheck.Kind.OK, CwdCheck.check("/w/foo/", Path.of("/w/foo")).kind());
-        assertEquals(CwdCheck.Kind.OK, CwdCheck.check("C:\\w\\foo\\", Path.of("C:\\w\\foo")).kind());
+        assertTrue(CwdCheck.sameDirectory("C:\\w\\foo\\", "C:\\w\\foo", true));
     }
 
     @Test
     public void separatorStylesAreIgnored() {
-        assertEquals(CwdCheck.Kind.OK, CwdCheck.check("/w/foo", Path.of("\\w\\foo")).kind());
+        assertTrue(CwdCheck.sameDirectory("/w/foo", "\\w\\foo", true));
     }
 
     @Test
     public void caseDifferencesAreIgnored() {
-        assertEquals(CwdCheck.Kind.OK, CwdCheck.check("C:\\W\\Foo", Path.of("c:\\w\\foo")).kind());
-        assertEquals(CwdCheck.Kind.OK, CwdCheck.check("/w/foo", Path.of("/W/FOO")).kind());
+        assertTrue(CwdCheck.sameDirectory("C:\\W\\Foo", "c:\\w\\foo", true));
+        assertTrue(CwdCheck.sameDirectory("/w/foo", "/W/FOO", true));
+    }
+
+    @Test
+    public void unixPreservesCaseBackslashesAndFilenameWhitespace() {
+        assertFalse(CwdCheck.sameDirectory("/w/Foo", "/w/foo", false));
+        assertFalse(CwdCheck.sameDirectory("/w/a\\b", "/w/a/b", false));
+        assertFalse(CwdCheck.sameDirectory("/w/foo\\", "/w/foo", false));
+        assertFalse(CwdCheck.sameDirectory("/w/foo ", "/w/foo", false));
+        assertTrue(CwdCheck.sameDirectory("/w/a\\b/", "/w/a\\b", false));
+        assertTrue(CwdCheck.sameDirectory("/w/foo///", "/w/foo", false));
+    }
+
+    @Test
+    public void rootsAndUnknownPathsAreNotConflated() {
+        assertTrue(CwdCheck.sameDirectory("/", "///", false));
+        assertTrue(CwdCheck.sameDirectory("C:\\", "c:/", true));
+        assertFalse(CwdCheck.sameDirectory("C:", "C:/", true));
+        assertFalse(CwdCheck.sameDirectory(null, null, false));
+        assertFalse(CwdCheck.sameDirectory("", "/", false));
     }
 
     // ---------- MISMATCH ----------

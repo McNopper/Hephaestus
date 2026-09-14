@@ -22,6 +22,7 @@ public class OpenChatHandler extends AbstractHandler {
         String providerId = event.getParameter("com.opencode.ide.chat.openChat.providerId");
         String modelId = event.getParameter("com.opencode.ide.chat.openChat.modelId");
         String sessionId = event.getParameter("com.opencode.ide.chat.openChat.sessionId");
+        String agentId = event.getParameter("com.opencode.ide.chat.openChat.agentId");
         IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindow(event);
         if (window != null) {
             IWorkbenchPage page = window.getActivePage();
@@ -29,7 +30,10 @@ public class OpenChatHandler extends AbstractHandler {
                 if (sessionId != null && !sessionId.isBlank()) {
                     ChatView.openResume(page, sessionId);
                 } else {
-                    ChatView.openNew(page, providerId, modelId);
+                    ChatView chat = ChatView.openNew(page, providerId, modelId);
+                    if (chat != null) {
+                        chat.preselectAgent(agentId);
+                    }
                 }
             }
         }

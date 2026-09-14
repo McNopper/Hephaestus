@@ -225,7 +225,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         String path = "/session/" + sessionId + "/abort";
         HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
         int status = response.statusCode();
-        if (status >= 500) {
+        if (status >= 400 && status != 404) {
             throw new OpencodeException("opencode POST " + path + " failed: HTTP " + status
                     + " - " + truncate(response.body(), 500));
         }
@@ -234,6 +234,15 @@ public final class HttpOpencodeClient implements OpencodeClient {
             ClientLog.warning("opencode POST " + path + " returned HTTP " + status
                     + " (treated as already idle): " + truncate(response.body(), 200));
         }
+    }
+
+    @Override
+    public void deleteSession(String sessionId) throws OpencodeException {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("sessionId must not be blank");
+        }
+        request("DELETE", "/session/" + java.net.URLEncoder.encode(sessionId,
+                java.nio.charset.StandardCharsets.UTF_8), null);
     }
 
     @Override

@@ -48,6 +48,7 @@ import com.opencode.ide.ui.model.AgentSessions;
 import com.opencode.ide.ui.model.CwdCheck;
 import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
+import com.opencode.ide.ui.model.ServerSelection;
 import com.opencode.ide.ui.model.WorkingSet;
 
 /**
@@ -223,6 +224,9 @@ public class ServerView extends ViewPart implements Refreshable {
         // (SessionDetailsView, auto-refreshing); a session in the Sessions
         // category -> resume it in a chat window (unchanged)
         viewer.addDoubleClickListener(e -> {
+            if (!selectedTarget().openSession()) {
+                return;
+            }
             Object selection = e.getSelection();
             Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
                     ? structured.getFirstElement()
@@ -236,16 +240,20 @@ public class ServerView extends ViewPart implements Refreshable {
 
         // the project/VCS header follows the selected connection (primary as the fallback)
         viewer.addSelectionChangedListener(event -> {
-            Object selection = event.getSelection();
-            Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
-                    ? structured.getFirstElement()
-                    : null;
-            if (first instanceof ServerNode node) {
+            ServerNode node = selectedOwner();
+            if (node != selectedServer) {
                 selectedServer = node;
                 updateProjectHeader();
             }
         });
 
+        createContextMenu();
+        contributeActions();
+        registerConnectionsListener();
+        refresh();
+    }
+
+    private void createContextMenu() {
         // context menu on session rows (Sessions category and agent-nested):
         // live output (agent-nested double-click) + the session details view
         org.eclipse.jface.action.MenuManager menu = new org.eclipse.jface.action.MenuManager();
@@ -292,6 +300,20 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         menu.add(copySessionId);
+        Action abort = new Action("Abort session") {
+            @Override
+            public void run() {
+                changeSession(false);
+            }
+        };
+        Action delete = new Action("Delete session...") {
+            @Override
+            public void run() {
+                changeSession(true);
+            }
+        };
+        menu.add(abort);
+        menu.add(delete);
         menu.add(new org.eclipse.jface.action.Separator());
         org.eclipse.jface.action.Action agentDetails =
                 new org.eclipse.jface.action.Action("Show agent details\u2026") {
@@ -305,20 +327,30 @@ public class ServerView extends ViewPart implements Refreshable {
                 };
         agentDetails.setToolTipText("Description, tools and model of this agent definition");
         menu.add(agentDetails);
+        Action newWithAgent = new Action("New session with this agent") {
+            @Override
+            public void run() {
+                Agent agent = selectedAgent();
+                if (selectedTarget().newAgentSession()) {
+                    openChatParameter("agentId", agent.name());
+                }
+            }
+        };
+        menu.add(newWithAgent);
         viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
         menu.addMenuListener(manager -> {
-            Session s = selectedSession();
-            liveOutput.setEnabled(s != null);
-            details.setEnabled(s != null);
-            openInChat.setEnabled(s != null);
-            copySessionId.setEnabled(s != null && s.id() != null);
-            agentDetails.setEnabled(selectedAgent() != null);
+            ServerSelection target = selectedTarget();
+            liveOutput.setEnabled(target.openSession());
+            details.setEnabled(target.openSession());
+            openInChat.setEnabled(target.openSession());
+            copySessionId.setEnabled(target.copySessionId());
+            abort.setEnabled(target.abortSession());
+            delete.setEnabled(target.deleteSession());
+            agentDetails.setEnabled(target.agentDetails());
+            newWithAgent.setEnabled(target.newAgentSession());
         });
         getSite().registerContextMenu(menu, viewer);
 
-        contributeActions();
-        registerConnectionsListener();
-        refresh();
     }
 
     /**
@@ -328,6 +360,9 @@ public class ServerView extends ViewPart implements Refreshable {
      * agent.
      */
     private Session selectedSession() {
+        if (viewer.getStructuredSelection().size() != 1) {
+            return null;
+        }
         Object selection = viewer.getStructuredSelection();
         Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
                 ? structured.getFirstElement()
@@ -338,8 +373,56 @@ public class ServerView extends ViewPart implements Refreshable {
         return first instanceof Session s ? s : null;
     }
 
+    /** Resolve the selected tree path, not a possibly equal row on another server. */
+    private ServerNode selectedOwner() {
+        if (!(viewer.getSelection() instanceof org.eclipse.jface.viewers.ITreeSelection selection)) {
+            return null;
+        }
+        var paths = selection.getPaths();
+        return paths.length == 1 && paths[0].getFirstSegment() instanceof ServerNode node ? node : null;
+    }
+
+    private ServerSelection selectedTarget() {
+        ServerNode owner = selectedOwner();
+        Session session = selectedSession();
+        return owner == null ? ServerSelection.EMPTY
+                : new ServerSelection(owner.client, owner.primary, session, selectedAgent(),
+                        session != null && ServerLabels.isBusy(owner.statuses, session));
+    }
+
+    private void changeSession(boolean delete) {
+        ServerSelection target = selectedTarget();
+        Session session = target.session();
+        ServerNode owner = selectedOwner();
+        if (delete ? !target.deleteSession() : !target.abortSession()) {
+            return;
+        }
+        String operation = delete ? "Delete" : "Abort";
+        if (!org.eclipse.jface.dialogs.MessageDialog.openConfirm(getSite().getShell(), operation + " session",
+                operation + " " + session.id() + " on " + owner.label + "?"
+                        + (delete ? "\nThis removes the session and its stored messages." : ""))) {
+            return;
+        }
+        ViewLoadSupport.load(operation + " opencode session", () -> {
+            target.changeSession(delete);
+            return session.id();
+        }, ignored -> {
+            if (viewer != null && !viewer.getControl().isDisposed()) {
+                refresh();
+            }
+        }, error -> {
+            if (viewer != null && !viewer.getControl().isDisposed()) {
+                org.eclipse.jface.dialogs.MessageDialog.openError(getSite().getShell(),
+                        operation + " failed", ViewLoadSupport.message(error));
+            }
+        });
+    }
+
     /** The selected agent definition row (Agents category), or {@code null}. */
     private Agent selectedAgent() {
+        if (viewer.getStructuredSelection().size() != 1) {
+            return null;
+        }
         Object selection = viewer.getStructuredSelection();
         Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
                 ? structured.getFirstElement()
@@ -411,6 +494,9 @@ public class ServerView extends ViewPart implements Refreshable {
 
     /** Opens the session details view for one session (secondary id = session id). */
     private void openSessionDetails(String sessionId) {
+        if (!selectedTarget().openSession()) {
+            return;
+        }
         try {
             getSite().getPage().showView(
                     "com.opencode.ide.ui.views.SessionDetailsView",
@@ -487,6 +573,13 @@ public class ServerView extends ViewPart implements Refreshable {
 
     /** Resumes the given session in a chat window (via the openChat command - no chat-bundle dependency). */
     private void openChatForSession(String sessionId) {
+        if (!selectedTarget().openSession()) {
+            return;
+        }
+        openChatParameter("sessionId", sessionId);
+    }
+
+    private void openChatParameter(String parameter, String value) {
         try {
             var commands = getViewSite().getService(org.eclipse.ui.commands.ICommandService.class);
             var command = commands.getCommand("com.opencode.ide.chat.openChat");
@@ -496,13 +589,13 @@ public class ServerView extends ViewPart implements Refreshable {
             var parameterized = new org.eclipse.core.commands.ParameterizedCommand(command,
                     new org.eclipse.core.commands.Parameterization[] {
                             new org.eclipse.core.commands.Parameterization(
-                                    command.getParameter("com.opencode.ide.chat.openChat.sessionId"), sessionId) });
+                                    command.getParameter("com.opencode.ide.chat.openChat." + parameter), value) });
             var handlers = getViewSite().getService(org.eclipse.ui.handlers.IHandlerService.class);
             handlers.executeCommand(parameterized, null);
         } catch (Exception e) {
             UiActivator.getDefault().getLog().log(
                     new org.eclipse.core.runtime.Status(org.eclipse.core.runtime.Status.ERROR,
-                            UiActivator.PLUGIN_ID, "Failed to open chat for session " + sessionId, e));
+                            UiActivator.PLUGIN_ID, "Failed to open chat for " + parameter + " " + value, e));
         }
     }
 
@@ -620,6 +713,11 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         roots = List.copyOf(nodes);
         current = nodes.stream().filter(n -> n.primary).findFirst().orElse(null);
+        if (selectedServer != null) {
+            String selectedUrl = selectedServer.url;
+            selectedServer = nodes.stream().filter(n -> java.util.Objects.equals(n.url, selectedUrl))
+                    .findFirst().orElse(null);
+        }
         // Subscribe once to live server events so the Sessions tree self-updates.
         if (eventListener == null) {
             eventListener = this::onEvent;
@@ -829,7 +927,10 @@ public class ServerView extends ViewPart implements Refreshable {
     private void updateProjectHeader() {
         ServerNode node = selectedServer != null ? selectedServer : current;
         if (node == null || node.client == null) {
-            return; // nothing selected / offline: keep the previous header
+            projectVcs = ProjectVcs.UNKNOWN;
+            setTitleToolTip("");
+            updateContentDescription();
+            return;
         }
         OpencodeClient client = node.client;
         ViewLoadSupport.load("Loading project VCS", () -> ProjectVcs.load(client, null),

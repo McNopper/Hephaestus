@@ -42,6 +42,19 @@ public class HttpOpencodeClientComponentTest {
     /** Settable body served by the stub for {@code GET /session/:id/todo}. */
     private static final AtomicReference<String> todoBody = new AtomicReference<>("[]");
 
+    @Test
+    public void deleteSessionUsesDeleteAndPropagatesFailure() throws Exception {
+        client.deleteSession("ses_delete");
+        assertEquals("DELETE", lastMethod.get());
+        assertEquals("/session/ses_delete", lastPath.get());
+        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.deleteSession("ses_error"));
+    }
+
+    @Test
+    public void abortDoesNotTreatAuthorizationFailureAsSuccess() {
+        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.abortSession("ses_denied"));
+    }
+
     @BeforeClass
     public static void startStub() throws IOException {
         server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -64,7 +77,7 @@ public class HttpOpencodeClientComponentTest {
             }
             if (path.endsWith("/abort")) {
                 // "…idle" ids answer 404 (already idle); everything else 200
-                int status = path.contains("idle") ? 404 : 200;
+                int status = path.contains("denied") ? 403 : path.contains("idle") ? 404 : 200;
                 byte[] bytes = (status == 404
                         ? "{\"error\":\"session is not active\"}" : "{}").getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");

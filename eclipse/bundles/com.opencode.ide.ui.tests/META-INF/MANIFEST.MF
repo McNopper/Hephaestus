@@ -8,4 +8,7 @@ Bundle-RequiredExecutionEnvironment: JavaSE-21
 Require-Bundle: com.opencode.ide.ui;bundle-version="0.1.0",
  com.opencode.ide.core;bundle-version="0.1.0",
  com.opencode.ide.client;bundle-version="0.1.0",
+ org.eclipse.ui,
+ org.eclipse.jface,
+ org.eclipse.swt,
  org.junit;bundle-version="4.13.0"
