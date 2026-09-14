@@ -3,6 +3,7 @@ package com.opencode.ide.board.internal;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -92,9 +93,13 @@ public class GitCliTest {
 
     @Test
     public void timeoutDestroysTheProcessQuickly() {
+        // a portable ~30s command: sleeps are shell builtins, so run the shell
+        List<String> command = File.separatorChar == '\\'
+                ? List.of("cmd", "/c", "ping", "-n", "30", "127.0.0.1")
+                : List.of("sleep", "30");
         long start = System.nanoTime();
         try {
-            GitCli.run(List.of("cmd", "/c", "ping", "-n", "30", "127.0.0.1"), Duration.ofMillis(300));
+            GitCli.run(command, Duration.ofMillis(300));
             fail("expected IllegalStateException");
         } catch (IllegalStateException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("timed out"));
