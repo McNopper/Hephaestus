@@ -37,11 +37,9 @@ recovery tooling is NEARLY.
 
 | Item | Size | Notes |
 |---|---|---|
-| **Worker reliability** | M | ~1/6 dispatches produce files (glm-5.3 low/executor). Options: (a) pin a stronger worker model per dispatch, (b) engine-level enforcement: parse the AC-named file paths and refuse runs that don't touch them, (c) accept the retry cost (the engine handles it cleanly). |
 | **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip + first-launch live check. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
 | **Auto-dispatch (Board Auto ▶)** | M | Manual only until the failure-release is proven in a real failure cycle; then wire chat-start (needs a running-set shared with `fleet_dispatch`). |
-| **U-002 GUI right-click batches** | S/M | Batches A (quick wins) and B (delete session, abort, agent-scoped new session); below fleet reliability in priority. |
-| **Tuning config surface** | S | `FleetTuning`/`ClientTuning`/`GitTuning` are wired; make them env-var or file overridable. |
+| **U-002 GUI Batch B** | S/M | Delete session (needs new client method `DELETE /session/:id`), abort actions, agent-scoped new session (`openChat agentId` param). Below fleet reliability. |
 
 ## Completed this session (2026-09-14)
 
@@ -50,6 +48,9 @@ recovery tooling is NEARLY.
 - ✅ launchGuarded decomposed into named stages (claimAndCommit → runSession → mergeAndRecord)
 - ✅ WatchingClient → runner-level onSessionCreated callback (net −488 lines)
 - ✅ All production-readiness P1s and P2s (G-001..G-006)
+- ✅ Worker reliability: AC-path enforcement (the engine verifies AC-named file paths in the diff before merge — analysis-only runs now refuse with "expected X, got Y")
+- ✅ GUI Batch A: context menus on all 5 views (Board: Launch/Take over/Open/Copy; Fleet: diff/folder/take-over/copy/abort; Server: Open-in-Chat/Copy/Agent-details; Repo: Copy path; SessionDetails: Copy text)
+- ✅ Tuning config surface: env-var overrides for all knob tables (FLEET_*, CLIENT_*, GIT_*)
 
 ## Parked / non-goals
 
