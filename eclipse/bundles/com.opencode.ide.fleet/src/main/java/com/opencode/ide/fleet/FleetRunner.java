@@ -217,6 +217,16 @@ public class FleetRunner {
         return worktrees.find(repoRoot, taskId);
     }
 
+    /**
+     * Names of the files the task branch changed relative to the main
+     * worktree's HEAD (committed branch changes plus uncommitted worktree
+     * edits) - the evidence {@link TaskFleet}'s acceptance-criterion path
+     * enforcement checks against the ticket before merging. Read-only.
+     */
+    public List<String> changedFiles(Path repoRoot, String taskId) {
+        return worktrees.changedFiles(repoRoot, taskId);
+    }
+
     /** The pause between watchdog probes; the runner's test sleeper seam. */
     void pauseBetweenProbes() {
         sleeper.run();

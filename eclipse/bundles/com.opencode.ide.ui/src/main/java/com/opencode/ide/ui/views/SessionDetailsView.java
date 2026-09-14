@@ -10,6 +10,7 @@ import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.action.IStatusLineManager;
 import org.eclipse.jface.action.IToolBarManager;
+import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.layout.TreeColumnLayout;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
@@ -140,6 +141,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         viewer.setInput(List.of()); // never a tree element as input (dev rule)
 
+        hookContextMenu();
         contributeActions();
         if (sessionId == null) {
             headerLabel.setText("No session selected — open this view via the Server view.");
@@ -315,6 +317,39 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         } finally {
             clipboard.dispose();
         }
+    }
+
+    /** Context menu on message rows: copy the full message text (per-show enablement). */
+    private void hookContextMenu() {
+        MenuManager manager = new MenuManager();
+        manager.setRemoveAllWhenShown(true);
+        manager.addMenuListener(menu -> {
+            Action copyText = new Action("Copy message text") {
+                @Override
+                public void run() {
+                    MessageRow row = selectedMessageRow();
+                    if (row != null) {
+                        copyToClipboard(row.text());
+                        showStatus("Message text copied");
+                    }
+                }
+            };
+            MessageRow row = selectedMessageRow();
+            copyText.setEnabled(row != null && row.text() != null && !row.text().isBlank());
+            menu.add(copyText);
+        });
+        viewer.getControl().setMenu(manager.createContextMenu(viewer.getControl()));
+    }
+
+    private MessageRow selectedMessageRow() {
+        if (viewer == null || viewer.getControl().isDisposed()) {
+            return null;
+        }
+        Object selection = viewer.getStructuredSelection();
+        Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
+                ? structured.getFirstElement()
+                : null;
+        return first instanceof MessageRow row ? row : null;
     }
 
     private void setAutoRefresh(boolean enabled) {

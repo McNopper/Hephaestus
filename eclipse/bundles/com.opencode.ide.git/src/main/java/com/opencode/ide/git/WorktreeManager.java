@@ -38,6 +38,17 @@ public interface WorktreeManager {
     WorktreeStatus status(Path repoRoot, String taskId);
 
     /**
+     * Names of the files the task branch changed relative to the main
+     * worktree's HEAD: committed branch changes since the fork point plus
+     * uncommitted worktree edits. Read-only; the fleet's
+     * acceptance-criterion path enforcement checks these against the
+     * ticket's criteria before merging.
+     */
+    default List<String> changedFiles(Path repoRoot, String taskId) {
+        throw new UnsupportedOperationException("changedFiles not implemented");
+    }
+
+    /**
      * Commits pending changes under {@code pathSpec} (relative to the repo
      * root) in the main worktree ({@code add -A -- <pathSpec>} + commit). The
      * fleet commits its own store bookkeeping (the pre-claim) BEFORE creating

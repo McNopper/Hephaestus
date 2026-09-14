@@ -75,6 +75,16 @@ final class FakeWorktreeManager implements WorktreeManager {
 
     final List<String> removedTaskIds = new ArrayList<>();
 
+    /** Files {@link #changedFiles} reports (the worker's diff); empty default = no evidence, the AC-path gate defers. */
+    List<String> nextChangedFiles = new ArrayList<>();
+    final List<String> changedFilesCalls = new ArrayList<>();
+
+    @Override
+    public List<String> changedFiles(Path repoRoot, String taskId) {
+        changedFilesCalls.add(taskId);
+        return List.copyOf(nextChangedFiles);
+    }
+
     @Override
     public void remove(Path repoRoot, String taskId, boolean force) {
         removedTaskIds.add((force ? "force:" : "") + taskId);

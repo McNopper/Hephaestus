@@ -275,6 +275,29 @@ public class GitWorktreeManagerTest {
         assertEquals("", git("status", "--porcelain").trim());
     }
 
+    /**
+     * AC-path gate evidence: changedFiles reports the branch's committed
+     * changes (from the fork point) plus pending worktree edits - and never
+     * main-side commits made after the fork.
+     */
+    @Test
+    public void changedFilesListsCommittedAndPendingWorkerChangesOnly() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        Files.writeString(wt.path().resolve("file.txt"), "worker edit\n", StandardCharsets.UTF_8);
+        commitIn(wt.path(), "worker commit");
+        Files.writeString(wt.path().resolve("pending.txt"), "pending\n", StandardCharsets.UTF_8);
+        Files.writeString(repo.resolve("main-side.txt"), "main edit\n", StandardCharsets.UTF_8);
+        commitIn(repo, "main moves on");
+
+        List<String> changed = manager.changedFiles(repo, "t1");
+
+        assertTrue(changed.toString(), changed.contains("file.txt"));
+        assertTrue(changed.toString(), changed.contains("pending.txt"));
+        assertFalse("main-side commits must not count as worker changes",
+                changed.contains("main-side.txt"));
+        assertEquals(changed.toString(), 2, changed.size());
+    }
+
     private void commitIn(Path worktree, String message) throws Exception {
         git(worktree, "add", ".");
         git(worktree, "commit", "-m", message);

@@ -223,6 +223,71 @@ public class TaskFleetTest {
                 .count());
     }
 
+    /**
+     * Worker-reliability gate: a ticket whose ACs name a file path must not
+     * merge when the worker touched only unrelated files - the refusal
+     * names both sides so the operator can act without a post-mortem.
+     */
+    @Test
+    public void analysisOnlyRunIsRefusedBeforeMergingWithSpecificMessage() {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
+                List.of("src/main/java/Foo.java exists", "runs"), List.of(), null, "H1"));
+        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+        sessionCompletes();
+        worktrees.nextChangedFiles = new ArrayList<>(List.of("src/main/java/Y.java"));
+
+        FleetJob job = fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("analysis-only run"));
+        assertTrue(job.detail(), job.detail()
+                .contains("no acceptance-criterion path in the diff"));
+        assertTrue(job.detail(), job.detail().contains("src/main/java/Foo.java"));
+        assertTrue(job.detail(), job.detail().contains("src/main/java/Y.java"));
+        Task after = store.get(PROJECT, t.id);
+        assertTrue(after.blocked);
+        assertTrue(after.blocker, after.blocker.contains("analysis-only run"));
+        assertEquals("sprint-backlog", after.status);
+        assertNull("the fleet assignee is released with the claim", after.assignee);
+        assertTrue("refused BEFORE the merge - main stays clean", worktrees.mergedTaskIds.isEmpty());
+        assertFalse("worktree kept for post-mortem", worktrees.removedTaskIds.contains("force:" + t.id));
+    }
+
+    /** An AC path satisfied by a changed file (exact or path-segment suffix) merges normally. */
+    @Test
+    public void acPathInDiffMergesNormally() {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
+                List.of("Foo.java exists"), List.of(), null, "H1"));
+        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+        sessionCompletes();
+        worktrees.nextChangedFiles = new ArrayList<>(List.of("src/main/java/Foo.java", "README.md"));
+
+        FleetJob job = fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertEquals("the gate probed the worker's diff once", List.of(t.id), worktrees.changedFilesCalls);
+        assertEquals("in-review", store.get(PROJECT, t.id).status);
+    }
+
+    /** Behavioral criteria (no path-like strings) never trip the gate. */
+    @Test
+    public void behavioralCriteriaSkipTheAcPathGate() {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
+                List.of("compiles", "deterministic output"), List.of(), null, "H1"));
+        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+        sessionCompletes();
+        worktrees.nextChangedFiles = new ArrayList<>(List.of("some/other/File.cpp"));
+
+        FleetJob job = fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertTrue("no AC paths -> no diff probe", worktrees.changedFilesCalls.isEmpty());
+        assertEquals("in-review", store.get(PROJECT, t.id).status);
+    }
+
     @Test
     public void agentMovedTicketToInReviewIsNotMovedAgain() {
         String id = sprintTicket("developer");

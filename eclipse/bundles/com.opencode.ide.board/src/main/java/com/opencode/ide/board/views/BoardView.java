@@ -22,6 +22,7 @@ import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.IStatusLineManager;
 import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.jface.action.MenuManager;
+import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.dialogs.InputDialog;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.TableColumnLayout;
@@ -40,6 +41,9 @@ import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
+import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.TextTransfer;
+import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.events.FocusAdapter;
 import org.eclipse.swt.events.FocusEvent;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -104,8 +108,9 @@ import com.opencode.ide.tasks.VStages;
  *
  * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red
  * blocked count in every pipeline column header. The context menu on a ticket
- * row offers "Advance stage →" / "Send back…" (the V-pipeline moves; failures
- * surface in the status line).</p>
+ * row mirrors the toolbar (Launch task / Take over / Open ticket… / Copy
+ * ticket id) and adds the V-pipeline moves "Advance stage →" / "Send back…"
+ * (failures surface in the status line).</p>
  *
  * <p>Threading: refreshes are single-flight — the snapshot (and sprint list)
  * is computed on a background thread and only the apply runs on the UI thread
@@ -435,6 +440,39 @@ public class BoardView extends ViewPart {
 
     private void fillContextMenu(IContributionManager manager) {
         TicketRow row = selectedRow();
+        Action launch = new Action("Launch task") {
+            @Override
+            public void run() {
+                launchSelected();
+            }
+        };
+        launch.setEnabled(canLaunch(row));
+        manager.add(launch);
+        Action takeOver = new Action("Take over") {
+            @Override
+            public void run() {
+                takeOverSelected();
+            }
+        };
+        takeOver.setEnabled(row != null);
+        manager.add(takeOver);
+        Action open = new Action("Open ticket\u2026") {
+            @Override
+            public void run() {
+                openDetails();
+            }
+        };
+        open.setEnabled(row != null);
+        manager.add(open);
+        Action copyId = new Action("Copy ticket id") {
+            @Override
+            public void run() {
+                copyTicketId(row);
+            }
+        };
+        copyId.setEnabled(row != null && row.id() != null);
+        manager.add(copyId);
+        manager.add(new Separator());
         Action advance = new Action("Advance stage \u2192") {
             @Override
             public void run() {
@@ -451,6 +489,20 @@ public class BoardView extends ViewPart {
         };
         sendBack.setEnabled(canSendBack(row));
         manager.add(sendBack);
+    }
+
+    /** Copies the ticket id to the clipboard and confirms in the status line. */
+    private void copyTicketId(TicketRow row) {
+        if (row == null || row.id() == null || boardArea == null || boardArea.isDisposed()) {
+            return;
+        }
+        Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
+        try {
+            clipboard.setContents(new Object[] { row.id() }, new Transfer[] { TextTransfer.getInstance() });
+            statusMessage("Copied: " + row.id());
+        } finally {
+            clipboard.dispose();
+        }
     }
 
     private static boolean canAdvance(TicketRow row) {
@@ -1058,13 +1110,17 @@ public class BoardView extends ViewPart {
             return;
         }
         TicketRow row = selectedRow();
-        boolean launchable = launcher != null
+        launchAction.setEnabled(canLaunch(row));
+        takeOverAction.setEnabled(row != null);
+    }
+
+    /** Launch enablement shared by the toolbar action and the context menu. */
+    private boolean canLaunch(TicketRow row) {
+        return launcher != null
                 && row != null
                 && ("sprint-backlog".equals(row.status()) || "in-progress".equals(row.status()))
                 && FleetJobsModel.getDefault().jobs().stream()
                         .noneMatch(j -> row.id().equals(j.taskId()) && j.state() == FleetJobHandle.State.RUNNING);
-        launchAction.setEnabled(launchable);
-        takeOverAction.setEnabled(row != null);
     }
 
     // ------------------------------------------------------------------

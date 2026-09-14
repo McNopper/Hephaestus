@@ -8,6 +8,7 @@ import java.util.Set;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IToolBarManager;
+import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.layout.TreeColumnLayout;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ColumnWeightData;
@@ -202,8 +203,44 @@ public class RepoView extends ViewPart implements Refreshable {
             }
         });
 
+        // context menu: copy the selected row's path (same behavior as double-click)
+        MenuManager menu = new MenuManager();
+        menu.setRemoveAllWhenShown(true);
+        menu.addMenuListener(manager -> {
+            Action copyPathAction = new Action("Copy path") {
+                @Override
+                public void run() {
+                    String path = selectedPath();
+                    if (path != null) {
+                        copyPath(path);
+                    }
+                }
+            };
+            copyPathAction.setEnabled(selectedPath() != null);
+            manager.add(copyPathAction);
+        });
+        viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
+
         contributeActions();
         refresh();
+    }
+
+    /** The selected row's path (file tree node or search result row), or {@code null}. */
+    private String selectedPath() {
+        if (viewer == null || viewer.getControl().isDisposed()) {
+            return null;
+        }
+        Object selection = viewer.getStructuredSelection();
+        Object first = (selection instanceof IStructuredSelection structured)
+                ? structured.getFirstElement()
+                : null;
+        if (first instanceof FileNode node) {
+            return node.path() == null || node.path().isBlank() ? null : node.path();
+        }
+        if (first instanceof Row row) {
+            return row.path() == null || row.path().isBlank() ? null : row.path();
+        }
+        return null;
     }
 
     private void contributeActions() {

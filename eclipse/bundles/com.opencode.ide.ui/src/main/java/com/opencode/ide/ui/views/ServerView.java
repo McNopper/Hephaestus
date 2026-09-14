@@ -271,11 +271,48 @@ public class ServerView extends ViewPart implements Refreshable {
         };
         details.setToolTipText("Open the transcript view (messages, parts, tools, tokens)");
         menu.add(details);
+        org.eclipse.jface.action.Action openInChat = new org.eclipse.jface.action.Action("Open in Chat") {
+            @Override
+            public void run() {
+                Session s = selectedSession();
+                if (s != null && s.id() != null) {
+                    openChatForSession(s.id());
+                }
+            }
+        };
+        openInChat.setToolTipText("Resume this session in a chat window");
+        menu.add(openInChat);
+        org.eclipse.jface.action.Action copySessionId = new org.eclipse.jface.action.Action("Copy session id") {
+            @Override
+            public void run() {
+                Session s = selectedSession();
+                if (s != null && s.id() != null) {
+                    copyToClipboard(s.id());
+                }
+            }
+        };
+        menu.add(copySessionId);
+        menu.add(new org.eclipse.jface.action.Separator());
+        org.eclipse.jface.action.Action agentDetails =
+                new org.eclipse.jface.action.Action("Show agent details\u2026") {
+                    @Override
+                    public void run() {
+                        Agent a = selectedAgent();
+                        if (a != null) {
+                            showAgentDetails(a);
+                        }
+                    }
+                };
+        agentDetails.setToolTipText("Description, tools and model of this agent definition");
+        menu.add(agentDetails);
         viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
         menu.addMenuListener(manager -> {
             Session s = selectedSession();
             liveOutput.setEnabled(s != null);
             details.setEnabled(s != null);
+            openInChat.setEnabled(s != null);
+            copySessionId.setEnabled(s != null && s.id() != null);
+            agentDetails.setEnabled(selectedAgent() != null);
         });
         getSite().registerContextMenu(menu, viewer);
 
@@ -299,6 +336,77 @@ public class ServerView extends ViewPart implements Refreshable {
             return nested.session();
         }
         return first instanceof Session s ? s : null;
+    }
+
+    /** The selected agent definition row (Agents category), or {@code null}. */
+    private Agent selectedAgent() {
+        Object selection = viewer.getStructuredSelection();
+        Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
+                ? structured.getFirstElement()
+                : null;
+        return first instanceof Agent agent ? agent : null;
+    }
+
+    /** Read-only agent definition dialog: mode, description, model, enabled tools. */
+    private void showAgentDetails(Agent agent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(agent.name() == null || agent.name().isBlank() ? "(unnamed)" : agent.name());
+        if (agent.mode() != null) {
+            sb.append("  \u2022  mode: ").append(agent.mode());
+        }
+        sb.append(agent.isNative() ? "  \u2022  built-in" : "  \u2022  user-defined");
+        if (agent.description() != null && !agent.description().isBlank()) {
+            sb.append("\n\n").append(agent.description().strip());
+        }
+        String model = agentModelLabel(agent.model());
+        if (model != null) {
+            sb.append("\n\nmodel: ").append(model);
+        } else {
+            sb.append("\n\nmodel: (server default)");
+        }
+        String tools = agentToolsLabel(agent.tools());
+        sb.append("\n\ntools: ").append(tools == null ? "(all / server default)" : tools);
+        org.eclipse.jface.dialogs.MessageDialog.openInformation(getSite().getShell(),
+                "Agent " + (agent.name() == null ? "" : agent.name()), sb.toString());
+    }
+
+    /** provider/modelID (+ variant) or null when the agent uses the server default. */
+    private static String agentModelLabel(Agent.ModelRef model) {
+        if (model == null) {
+            return null;
+        }
+        String id = model.modelID() == null || model.modelID().isBlank() ? "?" : model.modelID();
+        String label = model.providerID() == null || model.providerID().isBlank()
+                ? id : model.providerID() + "/" + id;
+        return model.variant() == null || model.variant().isBlank() ? label : label + " (" + model.variant() + ")";
+    }
+
+    /** The enabled tools (comma-separated, sorted), or null when unset/empty (= server default). */
+    private static String agentToolsLabel(Map<String, Boolean> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return null;
+        }
+        List<String> enabled = tools.entrySet().stream()
+                .filter(e -> Boolean.TRUE.equals(e.getValue()))
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+        return enabled.isEmpty() ? null : String.join(", ", enabled);
+    }
+
+    /** Copies text to the clipboard (UI thread — the context menu). */
+    private void copyToClipboard(String text) {
+        if (text == null || text.isBlank() || viewer == null || viewer.getControl().isDisposed()) {
+            return;
+        }
+        org.eclipse.swt.dnd.Clipboard clipboard = new org.eclipse.swt.dnd.Clipboard(
+                viewer.getControl().getDisplay());
+        try {
+            clipboard.setContents(new Object[] { text },
+                    new org.eclipse.swt.dnd.Transfer[] { org.eclipse.swt.dnd.TextTransfer.getInstance() });
+        } finally {
+            clipboard.dispose();
+        }
     }
 
     /** Opens the session details view for one session (secondary id = session id). */

@@ -13,7 +13,10 @@ import java.util.function.Consumer;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.action.Action;
+import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.IToolBarManager;
+import org.eclipse.jface.action.MenuManager;
+import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.TableColumnLayout;
 import org.eclipse.jface.viewers.ArrayContentProvider;
@@ -24,6 +27,9 @@ import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.TextTransfer;
+import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -54,7 +60,10 @@ import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
 /**
  * The Fleet view: one row per fleet job in the shared {@link FleetJobsModel}
  * (fed by the Board view's "Launch task"), with state coloring and
- * Open diff / Open folder / Take over actions (takeover is TUI-first: the
+ * Open diff / Open folder / Take over actions — in the toolbar AND in a row
+ * context menu that additionally offers Copy session id and Abort…
+ * (abort asks for confirmation, then POSTs on a background thread). Takeover
+ * is TUI-first: the
  * session is handed to the attached opencode TUI via {@link TakeoverRouter}
  * when one answers, else the worktree opens and the job is marked taken
  * over). Refreshes automatically on
@@ -164,6 +173,7 @@ public class FleetView extends ViewPart {
         viewer.getTable().setLinesVisible(true);
         viewer.setContentProvider(ArrayContentProvider.getInstance());
         viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
+        hookContextMenu();
         createColumn("Task", 40, row -> row.taskId(), false);
         createColumn("Session", 40, row -> row.sessionId(), false);
         createColumn("Worktree", 120, row -> row.worktree(), false);
@@ -366,6 +376,120 @@ public class FleetView extends ViewPart {
             return null;
         }
         return row;
+    }
+
+    /** Context menu on job rows (BoardView pattern): per-show enablement from the current selection. */
+    private void hookContextMenu() {
+        MenuManager manager = new MenuManager();
+        manager.setRemoveAllWhenShown(true);
+        manager.addMenuListener(this::fillContextMenu);
+        viewer.getControl().setMenu(manager.createContextMenu(viewer.getControl()));
+    }
+
+    private void fillContextMenu(IContributionManager manager) {
+        FleetJobHandle row = selectedRow();
+        Action openDiff = new Action("Open diff") {
+            @Override
+            public void run() {
+                openDiff();
+            }
+        };
+        openDiff.setEnabled(row != null && !diffRunning.get());
+        manager.add(openDiff);
+        Action openFolder = new Action("Open folder") {
+            @Override
+            public void run() {
+                openFolder();
+            }
+        };
+        openFolder.setEnabled(row != null);
+        manager.add(openFolder);
+        Action takeOver = new Action("Take over") {
+            @Override
+            public void run() {
+                takeOver();
+            }
+        };
+        takeOver.setEnabled(row != null);
+        manager.add(takeOver);
+        Action copySessionId = new Action("Copy session id") {
+            @Override
+            public void run() {
+                if (row != null) {
+                    copyText(row.sessionId());
+                }
+            }
+        };
+        copySessionId.setEnabled(row != null && row.sessionId() != null && !row.sessionId().isBlank());
+        manager.add(copySessionId);
+        manager.add(new Separator());
+        Action abort = new Action("Abort\u2026") {
+            @Override
+            public void run() {
+                abortSelected(row);
+            }
+        };
+        abort.setEnabled(row != null && row.sessionId() != null && !row.sessionId().isBlank());
+        manager.add(abort);
+    }
+
+    /** Copies non-blank text to the clipboard (UI thread — the context menu). */
+    private void copyText(String text) {
+        if (text == null || text.isBlank() || viewer == null || viewer.getControl().isDisposed()) {
+            return;
+        }
+        Clipboard clipboard = new Clipboard(viewer.getControl().getDisplay());
+        try {
+            clipboard.setContents(new Object[] { text }, new Transfer[] { TextTransfer.getInstance() });
+        } finally {
+            clipboard.dispose();
+        }
+    }
+
+    /**
+     * Aborts the selected row's session: a confirm dialog, then the abort
+     * POST on the takeover executor (blocking client call, off the UI thread
+     * — the takeOver pattern); the outcome dialog opens via asyncExec.
+     */
+    private void abortSelected(FleetJobHandle row) {
+        if (row == null || row.sessionId() == null || row.sessionId().isBlank()) {
+            return;
+        }
+        String sessionId = row.sessionId();
+        boolean confirmed = MessageDialog.openConfirm(getSite().getShell(), "Abort session",
+                "Abort the running agent of session " + sessionId + "?\n(ticket " + row.taskId() + ")");
+        if (!confirmed) {
+            return;
+        }
+        ExecutorService executor = takeoverExecutor;
+        if (executor == null) {
+            return;
+        }
+        executor.execute(() -> {
+            String error = null;
+            try {
+                OpencodeConnection.getInstance().getClient().abortSession(sessionId);
+            } catch (OpencodeException | RuntimeException e) {
+                error = e.getMessage();
+            }
+            final String failure = error;
+            Display display = Display.getDefault();
+            if (display == null || display.isDisposed()) {
+                return;
+            }
+            display.asyncExec(() -> {
+                if (viewer == null || viewer.getControl().isDisposed()) {
+                    return;
+                }
+                if (failure != null) {
+                    MessageDialog.openError(getSite().getShell(), "Abort session",
+                            "Aborting session " + sessionId + " failed: " + failure);
+                } else {
+                    MessageDialog.openInformation(getSite().getShell(), "Abort session",
+                            "Abort sent for session " + sessionId + ".");
+                }
+            });
+        });
     }
 
     private void updateActionEnablement() {

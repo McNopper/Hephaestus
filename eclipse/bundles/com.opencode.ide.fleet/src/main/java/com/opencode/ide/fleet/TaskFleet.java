@@ -54,6 +54,9 @@ public final class TaskFleet {
     private static final Logger LOG = Logger.getLogger(TaskFleet.class.getName());
     private static final Duration DEFAULT_TIMEOUT = FleetTuning.DEFAULT_TICKET_BUDGET;
     private static final String ASSIGNEE = "fleet";
+    /** Path-like strings inside acceptance criteria (e.g. {@code src/Foo.java}) - the AC-path gate's expected set. */
+    private static final java.util.regex.Pattern AC_PATH =
+            java.util.regex.Pattern.compile("[\\w/.-]+\\.\\w{1,5}");
 
     private final FleetRunner runner;
     private final TaskStore store;
@@ -325,6 +328,12 @@ public final class TaskFleet {
      *         with the ticket already blocked
      */
     private FleetJob mergeAndRecord(String project, String taskId, FleetJob job, Path baseWorktree) {
+        // worker-reliability gate BEFORE the merge: refuses analysis-only
+        // runs with an actionable message while main is still clean
+        FleetJob refused = enforceAcPaths(project, taskId, job, baseWorktree);
+        if (refused != null) {
+            return refused;
+        }
         // merge-back rides the RepoGate (repo-root-keyed, shared by all
         // engines in this process) - the old per-instance mergeLock is
         // gone: it only serialized THIS engine while the Board and a
@@ -356,6 +365,68 @@ public final class TaskFleet {
         reapMergedWorktree(baseWorktree, taskId);
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
         return job;
+    }
+
+    /**
+     * Worker-reliability gate (2026-09-14): the executor-tier worker
+     * sometimes "completes" with an assistant reply but produces no file
+     * changes; the zero-commit guard only catches the fully-empty case.
+     * When the ticket's acceptance criteria NAME file paths, the merge
+     * additionally requires at least one of those paths among the branch's
+     * changed files (committed plus pending) and refuses analysis-only
+     * runs with an actionable message BEFORE main is touched. Behavioral
+     * criteria without path-like strings skip the gate; so does an
+     * unreadable diff (fail-open - the zero-commit guard still applies),
+     * and an entirely empty diff defers to the zero-commit guard's own
+     * message. Matching is exact or path-segment suffix: an AC naming
+     * {@code Foo.java} is satisfied by {@code src/Foo.java}.
+     *
+     * @return {@code null} to proceed to the merge; otherwise the FAILED
+     *         job with the ticket already blocked + released (worktree
+     *         kept for post-mortem)
+     */
+    private FleetJob enforceAcPaths(String project, String taskId, FleetJob job, Path baseWorktree) {
+        List<String> expected = acPaths(store.get(project, taskId).acceptanceCriteria);
+        if (expected.isEmpty()) {
+            return null;
+        }
+        List<String> changed;
+        try {
+            changed = runner.changedFiles(baseWorktree, taskId);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "fleet AC-path probe of ticket " + taskId
+                    + " failed; the merge proceeds under the zero-commit guard only", e);
+            return null;
+        }
+        if (changed.isEmpty()) {
+            return null; // nothing at all: the runner's zero-commit guard owns that refusal
+        }
+        boolean anyAcPath = changed.stream()
+                .anyMatch(file -> expected.stream()
+                        .anyMatch(path -> file.equals(path) || file.endsWith("/" + path)));
+        if (anyAcPath) {
+            return null;
+        }
+        String detail = "analysis-only run: no acceptance-criterion path in the diff (expected one of: "
+                + String.join(", ", expected) + ", got: " + String.join(", ", changed) + ")";
+        LOG.log(Level.WARNING, "fleet merge of ticket " + taskId + " refused: " + detail);
+        com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge refused: " + detail);
+        return blocked(withState(job, FleetJob.State.FAILED, detail), project, taskId, detail);
+    }
+
+    /** Path-like strings named by the ticket's acceptance criteria, first-seen order, deduplicated. */
+    private static List<String> acPaths(List<String> acceptanceCriteria) {
+        java.util.Set<String> paths = new java.util.LinkedHashSet<>();
+        for (String criterion : acceptanceCriteria) {
+            if (criterion == null) {
+                continue;
+            }
+            java.util.regex.Matcher m = AC_PATH.matcher(criterion);
+            while (m.find()) {
+                paths.add(m.group());
+            }
+        }
+        return List.copyOf(paths);
     }
 
     /**

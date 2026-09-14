@@ -203,6 +203,50 @@ public final class GitWorktreeManager implements WorktreeManager {
     }
 
     /**
+     * Read-only (no repo gate): committed changes via the three-dot diff
+     * (fork point to branch tip - main-side commits after the fork never
+     * pollute the worker's file list) plus pending worktree edits from
+     * {@code status --porcelain}.
+     */
+    @Override
+    public List<String> changedFiles(Path repoRoot, String taskId) {
+        requireTaskId(taskId);
+        Path repo = repo(repoRoot);
+        Worktree task = find(repo, taskId)
+                .orElseThrow(() -> new WorktreeException("No fleet worktree for task '" + taskId + "'"));
+        GitOutput committed = run(repo, DEFAULT_TIMEOUT, "diff", "--name-only", "HEAD..." + task.branch());
+        if (committed.exitCode() != 0) {
+            throw new WorktreeException("git diff HEAD..." + task.branch() + " failed (exit "
+                    + committed.exitCode() + "): " + committed.stderr().trim());
+        }
+        java.util.Set<String> names = new java.util.LinkedHashSet<>(Arrays.stream(committed.stdout().split("\\R"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList());
+        GitOutput pending = git(task.path(), "status", "--porcelain");
+        for (String line : pending.stdout().split("\\R")) {
+            String path = porcelainPath(line);
+            if (path != null) {
+                names.add(path);
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    /** The path of one {@code status --porcelain} line (post side of a rename; null when not parseable). */
+    private static String porcelainPath(String line) {
+        if (line == null || line.length() <= 3) {
+            return null;
+        }
+        String path = line.substring(3).trim();
+        int arrow = path.indexOf(" -> ");
+        if (arrow >= 0) {
+            path = path.substring(arrow + 4);
+        }
+        return path.isEmpty() ? null : path;
+    }
+
+    /**
      * Collects one porcelain stanza. The fleet marker is the branch ref
      * ({@code refs/heads/opencode/<taskId>}), never the path: git reports
      * worktree paths in its own canonical form, which can differ from the
