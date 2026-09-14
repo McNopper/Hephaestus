@@ -16,36 +16,51 @@ import java.time.Duration;
  */
 public final class FleetTuning {
 
-    /** Default per-ticket run budget when the dispatcher sends none. */
-    public static final Duration DEFAULT_TICKET_BUDGET = Duration.ofMinutes(30);
+    /** Default per-ticket run budget. Env: FLEET_TICKET_BUDGET_MS. */
+    public static final Duration DEFAULT_TICKET_BUDGET = duration(
+            "FLEET_TICKET_BUDGET_MS", Duration.ofMinutes(30));
 
-    /** Upper clamp for a per-ticket budget (the tool layer enforces this). */
-    public static final Duration MAX_TICKET_BUDGET = Duration.ofMinutes(24 * 60);
+    /** Upper clamp for a per-ticket budget. Env: FLEET_MAX_TICKET_BUDGET_MS. */
+    public static final Duration MAX_TICKET_BUDGET = duration(
+            "FLEET_MAX_TICKET_BUDGET_MS", Duration.ofHours(24));
 
-    /** Prompt-POST budget for interactive/legacy callers (the client's own default mirrors this). */
-    public static final Duration INTERACTIVE_PROMPT_TIMEOUT = Duration.ofMinutes(5);
+    /** Prompt-POST budget for interactive/legacy callers. Env: FLEET_PROMPT_TIMEOUT_MS. */
+    public static final Duration INTERACTIVE_PROMPT_TIMEOUT = duration(
+            "FLEET_PROMPT_TIMEOUT_MS", Duration.ofMinutes(5));
 
-    /** How long the engine waits for a spawned {@code opencode serve} to become ready. */
-    public static final Duration SERVER_START_TIMEOUT = Duration.ofSeconds(60);
+    /** Spawned-server readiness timeout. Env: FLEET_SERVER_START_MS. */
+    public static final Duration SERVER_START_TIMEOUT = duration(
+            "FLEET_SERVER_START_MS", Duration.ofSeconds(60));
 
-    /** Idle-poll interval for the stream-less completion detection. */
-    public static final long STATUS_POLL_MILLIS = 1000;
+    /** Idle-poll interval. Env: FLEET_POLL_MS. */
+    public static final long STATUS_POLL_MILLIS = integer(
+            "FLEET_POLL_MS", 1000);
 
-    /**
-     * A running session with no new messages for this long is considered
-     * STALLED: the watchdog aborts it ({@code POST /session/:id/abort}) and
-     * the job fails cleanly - instead of burning the whole budget on a hang
-     * or killing slow-but-healthy workers with a guessed wall clock.
-     */
-    public static final Duration STALL_TIMEOUT = Duration.ofMinutes(5);
+    /** Session idle+silent for this long is aborted. Env: FLEET_STALL_TIMEOUT_MS. */
+    public static final Duration STALL_TIMEOUT = duration(
+            "FLEET_STALL_TIMEOUT_MS", Duration.ofMinutes(5));
 
-    /**
-     * Shutdown grace: how long {@code close()} lets in-flight launches settle
-     * (a merge mid-git must not be SIGKILLed - stale index.lock/MERGE_HEAD)
-     * before hard-cancelling. Launches are bounded by their ticket budget;
-     * this only bounds the WAIT at shutdown.
-     */
-    public static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(30);
+    /** Close() grace before hard-cancel. Env: FLEET_SHUTDOWN_GRACE_MS. */
+    public static final Duration SHUTDOWN_GRACE = duration(
+            "FLEET_SHUTDOWN_GRACE_MS", Duration.ofSeconds(30));
+
+    private static Duration duration(String envVar, Duration fallback) {
+        String value = System.getenv(envVar);
+        if (value == null || value.isBlank()) { return fallback; }
+        try {
+            long millis = Long.parseLong(value.trim());
+            return millis > 0 ? Duration.ofMillis(millis) : fallback;
+        } catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static int integer(String envVar, int fallback) {
+        String value = System.getenv(envVar);
+        if (value == null || value.isBlank()) { return fallback; }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException e) { return fallback; }
+    }
 
     private FleetTuning() {
     }

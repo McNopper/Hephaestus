@@ -12,44 +12,75 @@ import java.time.Duration;
  */
 public final class ClientTuning {
 
-    /** HttpClient connect timeout for every request. */
-    public static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    /** HttpClient connect timeout. Env: CLIENT_CONNECT_TIMEOUT_MS. */
+    public static final Duration CONNECT_TIMEOUT = duration(
+            "CLIENT_CONNECT_TIMEOUT_MS", Duration.ofSeconds(10));
 
-    /** Default per-call REST timeout (everything except the prompt POST). */
-    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    /** Default per-call REST timeout. Env: CLIENT_REQUEST_TIMEOUT_MS. */
+    public static final Duration REQUEST_TIMEOUT = duration(
+            "CLIENT_REQUEST_TIMEOUT_MS", Duration.ofSeconds(30));
 
-    /** Default prompt-POST timeout (interactive callers; the fleet passes its whole budget). */
-    public static final Duration PROMPT_TIMEOUT = Duration.ofMinutes(5);
+    /** Default prompt-POST timeout. Env: CLIENT_PROMPT_TIMEOUT_MS. */
+    public static final Duration PROMPT_TIMEOUT = duration(
+            "CLIENT_PROMPT_TIMEOUT_MS", Duration.ofMinutes(5));
 
-    /** Readiness-probe client connect timeout (spawn path). */
-    public static final Duration PROBE_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    /** Readiness-probe connect timeout. Env: CLIENT_PROBE_CONNECT_MS. */
+    public static final Duration PROBE_CONNECT_TIMEOUT = duration(
+            "CLIENT_PROBE_CONNECT_MS", Duration.ofSeconds(5));
 
-    /** The /global/health readiness probe timeout (spawn path). */
-    public static final Duration HEALTH_PROBE_TIMEOUT = Duration.ofSeconds(3);
+    /** /global/health readiness probe timeout. Env: CLIENT_HEALTH_PROBE_MS. */
+    public static final Duration HEALTH_PROBE_TIMEOUT = duration(
+            "CLIENT_HEALTH_PROBE_MS", Duration.ofSeconds(3));
 
-    /** The /agent readiness probe timeout (spawn path - the data layer must be up too). */
-    public static final Duration AGENT_PROBE_TIMEOUT = Duration.ofSeconds(5);
+    /** /agent readiness probe timeout. Env: CLIENT_AGENT_PROBE_MS. */
+    public static final Duration AGENT_PROBE_TIMEOUT = duration(
+            "CLIENT_AGENT_PROBE_MS", Duration.ofSeconds(5));
 
-    /** Readiness re-probe interval while waiting for a spawned server. */
-    public static final Duration PROBE_INTERVAL = Duration.ofMillis(500);
+    /** Readiness re-probe interval. Env: CLIENT_PROBE_INTERVAL_MS. */
+    public static final Duration PROBE_INTERVAL = duration(
+            "CLIENT_PROBE_INTERVAL_MS", Duration.ofMillis(500));
 
-    /** How long to wait after destroyForcibly before giving up on the child. */
-    public static final Duration DESTROY_WAIT = Duration.ofSeconds(3);
+    /** Wait after destroyForcibly. Env: CLIENT_DESTROY_WAIT_MS. */
+    public static final Duration DESTROY_WAIT = duration(
+            "CLIENT_DESTROY_WAIT_MS", Duration.ofSeconds(3));
 
-    /** SSE reconnect backoff base (doubles on consecutive failures). */
-    public static final Duration SSE_BACKOFF_BASE = Duration.ofSeconds(1);
+    /** SSE reconnect backoff base. Env: CLIENT_SSE_BACKOFF_BASE_MS. */
+    public static final Duration SSE_BACKOFF_BASE = duration(
+            "CLIENT_SSE_BACKOFF_BASE_MS", Duration.ofSeconds(1));
 
-    /** SSE reconnect backoff ceiling. */
-    public static final Duration SSE_BACKOFF_MAX = Duration.ofSeconds(30);
+    /** SSE reconnect backoff ceiling. Env: CLIENT_SSE_BACKOFF_MAX_MS. */
+    public static final Duration SSE_BACKOFF_MAX = duration(
+            "CLIENT_SSE_BACKOFF_MAX_MS", Duration.ofSeconds(30));
 
-    /** A stable SSE connection must hold this long before the connection-failed marker clears. */
-    public static final Duration SSE_STABLE_CONNECTION = Duration.ofSeconds(10);
+    /** SSE stable-connection window. Env: CLIENT_SSE_STABLE_MS. */
+    public static final Duration SSE_STABLE_CONNECTION = duration(
+            "CLIENT_SSE_STABLE_MS", Duration.ofSeconds(10));
 
-    /** Max characters of an error/log snippet kept in exception messages and tool output. */
-    public static final int SNIPPET_MAX = 500;
+    /** Max characters of an error/log snippet. Env: CLIENT_SNIPPET_MAX. */
+    public static final int SNIPPET_MAX = integer(
+            "CLIENT_SNIPPET_MAX", 500);
 
-    /** Min characters before a snippet is truncated (short messages pass through). */
-    public static final int SNIPPET_MIN = 120;
+    /** Min characters before truncation. Env: CLIENT_SNIPPET_MIN. */
+    public static final int SNIPPET_MIN = integer(
+            "CLIENT_SNIPPET_MIN", 120);
+
+    private static Duration duration(String envVar, Duration fallback) {
+        String value = System.getenv(envVar);
+        if (value == null || value.isBlank()) { return fallback; }
+        try {
+            long millis = Long.parseLong(value.trim());
+            return millis > 0 ? Duration.ofMillis(millis) : fallback;
+        } catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static int integer(String envVar, int fallback) {
+        String value = System.getenv(envVar);
+        if (value == null || value.isBlank()) { return fallback; }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException e) { return fallback; }
+    }
 
     private ClientTuning() {
     }
