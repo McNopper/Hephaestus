@@ -37,6 +37,7 @@ final class FakeWorktreeManager implements WorktreeManager {
     @Override
     public Worktree create(Path repoRoot, String taskId) {
         createdTaskIds.add(taskId);
+        liveWorktrees.add(taskId);
         return new Worktree(taskId, repoRoot.resolve(".git/opencode-fleet").resolve(taskId),
                 "opencode/" + taskId);
     }
@@ -54,19 +55,32 @@ final class FakeWorktreeManager implements WorktreeManager {
         return nextMergeResult;
     }
 
+    /** Live worktrees = created minus removed (createdTaskIds keeps history). */
+    private final List<String> liveWorktrees = new ArrayList<>();
+
     @Override
     public List<Worktree> list(Path repoRoot) {
-        throw new UnsupportedOperationException();
+        return liveWorktrees.stream()
+                .map(id -> new Worktree(id,
+                        repoRoot.resolve(".git/opencode-fleet").resolve(id), "opencode/" + id))
+                .toList();
     }
 
     @Override
     public Optional<Worktree> find(Path repoRoot, String taskId) {
-        throw new UnsupportedOperationException();
+        return list(repoRoot).stream()
+                .filter(w -> w.taskId().equals(taskId))
+                .findFirst();
     }
+
+    final List<String> removedTaskIds = new ArrayList<>();
 
     @Override
     public void remove(Path repoRoot, String taskId, boolean force) {
-        throw new UnsupportedOperationException();
+        removedTaskIds.add((force ? "force:" : "") + taskId);
+        // createdTaskIds keeps its history: tests assert create-vs-commit
+        // ordering AFTER the reap consumed the worktree
+        liveWorktrees.remove(taskId);
     }
 
     @Override

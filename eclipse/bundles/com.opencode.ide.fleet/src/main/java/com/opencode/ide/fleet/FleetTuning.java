@@ -39,6 +39,14 @@ public final class FleetTuning {
      */
     public static final Duration STALL_TIMEOUT = Duration.ofMinutes(5);
 
+    /**
+     * Shutdown grace: how long {@code close()} lets in-flight launches settle
+     * (a merge mid-git must not be SIGKILLed - stale index.lock/MERGE_HEAD)
+     * before hard-cancelling. Launches are bounded by their ticket budget;
+     * this only bounds the WAIT at shutdown.
+     */
+    public static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(30);
+
     private FleetTuning() {
     }
 }

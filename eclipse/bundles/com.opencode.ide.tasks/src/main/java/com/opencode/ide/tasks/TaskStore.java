@@ -182,7 +182,37 @@ public final class TaskStore {
 
     /** Gets one task by id. */
     public Task get(String project, String id) {
-        return transaction(project, data -> require(data, project, id));
+        return transaction(project, data -> {
+            Task t = data.tasks.get(id);
+            if (t == null) {
+                throw new NotFound("ticket " + id + " not found in project " + project);
+            }
+            return t;
+        });
+    }
+
+    /**
+     * The project subdirectory names of this store root (one per directory
+     * that looks like a project: contains at least one {@code .md} file).
+     * Sorted; never null; the empty store yields an empty list.
+     */
+    public List<String> projects() {
+        try (var stream = java.nio.file.Files.list(root)) {
+            return stream
+                    .filter(java.nio.file.Files::isDirectory)
+                    .filter(dir -> {
+                        try (var files = java.nio.file.Files.list(dir)) {
+                            return files.anyMatch(p -> p.getFileName().toString().endsWith(".md"));
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .map(dir -> dir.getFileName().toString())
+                    .sorted()
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     /** Lists tasks with optional role/status/sprint/blocked filters (creation order). */

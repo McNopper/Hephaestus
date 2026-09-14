@@ -133,6 +133,21 @@ public final class FleetControl implements AutoCloseable {
         FleetRunner engineRunner = new FleetRunner(client, FleetGit.defaultManager());
         OpencodeEventStream events = client.getGlobalEvents(bridge::onEvent, connected -> { });
         events.start();
+        // F-002: reconcile crash residue at engine start - release fleet
+        // claims whose worktree/branch no longer exists (the previous engine
+        // died mid-run). Best-effort; each release lands as a blocked marker.
+        try {
+            for (String project : new TaskStore(root).projects()) {
+                int released = fleet.reconcileOrphanedClaims(project);
+                if (released > 0) {
+                    com.opencode.ide.client.ClientLog.info("reconciled " + released
+                            + " orphaned fleet claim(s) in project " + project);
+                }
+            }
+        } catch (RuntimeException e) {
+            com.opencode.ide.client.ClientLog.warning(
+                    "startup reconciliation failed (continuing): " + e.getMessage());
+        }
         return new Engine() {
             @Override
             public TaskFleet fleet() {
@@ -317,7 +332,21 @@ public final class FleetControl implements AutoCloseable {
 
     @Override
     public synchronized void close() {
-        executor.shutdownNow();
+        // R3 drain-then-kill: a launch mid-merge holds repo state (worktree,
+        // MERGE_HEAD, the store claim) - interrupting it mid-git is exactly
+        // the crash the review flagged. Give in-flight launches a bounded
+        // grace window to settle (F-001 already guarantees they land in
+        // blocked()/released on ANY outcome), THEN hard-cancel.
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(FleetTuning.SHUTDOWN_GRACE.toMillis(),
+                    java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        }
         if (engine != null) {
             engine.close();
             engine = null;

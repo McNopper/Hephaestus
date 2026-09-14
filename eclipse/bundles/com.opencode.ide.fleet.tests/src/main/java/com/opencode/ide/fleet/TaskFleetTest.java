@@ -96,6 +96,9 @@ public class TaskFleetTest {
         assertTrue(worktrees.commitMessages.get(0), worktrees.commitMessages.get(0).contains(id));
         assertTrue("commit must precede the worktree create",
                 worktrees.createdTaskIds.contains(id));
+        // F-002: a MERGED job consumes its worktree+branch - re-dispatches
+        // never hit "branch already exists"
+        assertTrue("merged worktree reaped", worktrees.removedTaskIds.contains("force:" + id));
         assertFalse(after.blocked);
         assertTrue(after.comments.stream().anyMatch(c ->
                 "fleet".equals(c.by()) && c.text().contains("opencode/" + id)));
@@ -129,11 +132,6 @@ public class TaskFleetTest {
         assertNull("the fleet assignee is released with the claim", after.assignee);
     }
 
-    /**
-     * R1 total-failure contract: an exception thrown from mergeBack (the
-     * review's incident (a) - e.g. an interrupted git under shutdownNow) must
-     * land in blocked()+released, never escape and strand the ticket.
-     */
     @Test
     public void mergeBackThrowingBlocksAndReleasesInsteadOfStranding() {
         String id = sprintTicket("developer");
@@ -290,5 +288,35 @@ public class TaskFleetTest {
         // (ticket is in-review now, which is launchable per the rules)
         FleetJob again = fleet.launch(PROJECT, id, REPO, TIMEOUT);
         assertEquals(FleetJob.State.MERGED, again.state());
+    }
+
+    /**
+     * F-002 startup reconciliation: an in-progress fleet claim whose
+     * worktree/branch no longer exists is crash residue - released with a
+     * blocked marker naming the reason, never left as a zombie claim.
+     */
+    @Test
+    public void reconcileReleasesOrphanedFleetClaims() {
+        String live = sprintTicket("developer");
+        store.update(PROJECT, live, Map.of("status", "in-progress", "assignee", "fleet"));
+        worktrees.create(REPO, live); // this claim HAS a worktree - untouched
+
+        String dead = sprintTicket("developer");
+        store.update(PROJECT, dead, Map.of("status", "in-progress", "assignee", "fleet"));
+        // no worktree for `dead` - orphaned
+
+        String human = sprintTicket("developer");
+        store.update(PROJECT, human, Map.of("status", "in-progress", "assignee", "norbe"));
+        // no worktree, but not the fleet's claim - untouched
+
+        int released = fleet.reconcileOrphanedClaims(PROJECT);
+
+        assertEquals("only the orphaned FLEET claim is released", 1, released);
+        assertEquals("live claim untouched", "in-progress", store.get(PROJECT, live).status);
+        Task after = store.get(PROJECT, dead);
+        assertEquals("sprint-backlog", after.status);
+        assertTrue(after.blocked);
+        assertTrue(after.blocker, after.blocker.contains("reconciled"));
+        assertEquals("human claim untouched", "norbe", store.get(PROJECT, human).assignee);
     }
 }

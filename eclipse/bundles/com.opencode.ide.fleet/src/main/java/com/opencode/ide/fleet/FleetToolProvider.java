@@ -120,6 +120,8 @@ public final class FleetToolProvider implements ToolProvider {
             }
             case "fleet_recover_store":
                 return text("store recover: " + StoreSync.recover(root));
+            case "fleet_reset":
+                return resetTicket(a);
             default:
                 throw new IllegalArgumentException("unknown tool: " + name);
         }
@@ -251,6 +253,49 @@ public final class FleetToolProvider implements ToolProvider {
         return json(o);
     }
 
+    /**
+     * F-002 {@code fleet_reset}: consume a settled run's residue - remove the
+     * worktree + branch, release the ticket to sprint-backlog (claim cleared,
+     * blocked flag cleared) so a plain re-dispatch works without manual git
+     * surgery. Refused while the job is RUNNING.
+     */
+    private McpToolResult resetTicket(JsonObject a) {
+        String project = reqStr(a, "project");
+        String ticketId = reqStr(a, "ticket_id");
+        com.opencode.ide.tasks.TaskStore taskStore = new com.opencode.ide.tasks.TaskStore(root);
+        com.opencode.ide.tasks.Task task;
+        try {
+            task = taskStore.get(project, ticketId);
+        } catch (com.opencode.ide.tasks.TaskStore.NotFound | com.opencode.ide.tasks.TaskStore.Invalid e) {
+            return McpToolResult.error(e.getMessage());
+        }
+        FleetJob tracked = control.jobs().get(ticketId);
+        if (tracked != null && tracked.state() == FleetJob.State.RUNNING) {
+            return McpToolResult.error("ticket " + ticketId + " is RUNNING - abort it first (see fleet_job_details)");
+        }
+        Path repoRoot = FleetControl.repoRootOf(root);
+        StringBuilder report = new StringBuilder();
+        try {
+            com.opencode.ide.git.WorktreeManager worktrees = com.opencode.ide.git.FleetGit.defaultManager();
+            worktrees.remove(repoRoot, ticketId, true);
+            report.append("worktree+branch removed; ");
+        } catch (RuntimeException e) {
+            report.append("worktree removal: none or failed (").append(e.getMessage()).append("); ");
+        }
+        try {
+            java.util.Map<String, Object> release = new java.util.HashMap<>();
+            release.put("status", "sprint-backlog");
+            release.put("assignee", null);
+            release.put("blocked", false);
+            release.put("blocker", null);
+            taskStore.update(project, ticketId, release);
+            report.append("ticket released to sprint-backlog");
+        } catch (RuntimeException e) {
+            report.append("ticket release failed: ").append(e.getMessage());
+        }
+        return text("reset " + ticketId + ": " + report);
+    }
+
     private static McpToolResult json(Object element) {
         return new McpToolResult(PRETTY.toJson(element), false);
     }
@@ -338,6 +383,15 @@ public final class FleetToolProvider implements ToolProvider {
                 "Abort a wedged store rebase after a PULL_CONFLICT (local commits are kept; "
                         + "re-claim means re-dispatch).",
                 schema(new String[0], obj -> { })));
+        out.add(new McpTool("fleet_reset",
+                "Consume a settled run's residue: remove the worktree + branch and release the "
+                        + "ticket to sprint-backlog (claim and blocker cleared) - a plain "
+                        + "re-dispatch then works with no manual git surgery. Refused while "
+                        + "the job is RUNNING.",
+                schema(new String[]{"project", "ticket_id"}, obj -> {
+                    obj.add("project", strP("task store project (subdirectory of the store root)"));
+                    obj.add("ticket_id", strP("the ticket whose residue to consume"));
+                })));
         return List.copyOf(out);
     }
 

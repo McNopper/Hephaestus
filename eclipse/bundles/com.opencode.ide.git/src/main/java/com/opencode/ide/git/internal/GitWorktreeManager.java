@@ -26,6 +26,8 @@ import com.opencode.ide.git.WorktreeStatus;
  */
 public final class GitWorktreeManager implements WorktreeManager {
 
+    private static final java.util.logging.Logger LOG =
+            java.util.logging.Logger.getLogger(GitWorktreeManager.class.getName());
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration MERGE_TIMEOUT = Duration.ofMinutes(10);
 
@@ -290,13 +292,42 @@ public final class GitWorktreeManager implements WorktreeManager {
         } catch (InterruptedException e) {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
+            cleanupCrashState(directory);
             throw new WorktreeException("Interrupted while waiting for git " + Arrays.toString(args), e);
         }
         if (!finished) {
             process.destroyForcibly();
+            cleanupCrashState(directory);
             throw new WorktreeException("git " + Arrays.toString(args) + " timed out after " + timeout);
         }
         return new GitOutput(process.exitValue(), join(stdout), join(stderr));
+    }
+
+    /**
+     * R3: the killer owns the wreckage. A git process we destroyForcibly'd
+     * mid-write can leave {@code .git/index.lock} or {@code MERGE_HEAD}
+     * behind - which would fail EVERY subsequent git operation on that tree
+     * until manual surgery. Best-effort, logged, never throws.
+     */
+    private void cleanupCrashState(Path directory) {
+        try {
+            Path mergeHead = directory.resolve(".git").resolve("MERGE_HEAD");
+            if (Files.exists(mergeHead)) {
+                // best-effort direct invocation: run() is instance-scoped and
+                // cleanup must work from any interruption point
+                List<String> command = new ArrayList<>(List.of(gitCommand, "-C", directory.toString(),
+                        "merge", "--abort"));
+                Process p = new ProcessBuilder(command).start();
+                p.waitFor(DEFAULT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                p.destroyForcibly();
+            }
+            Path indexLock = directory.resolve(".git").resolve("index.lock");
+            if (Files.exists(indexLock)) {
+                Files.deleteIfExists(indexLock);
+            }
+        } catch (Exception e) {
+            LOG.warning("crash-state cleanup in " + directory + " failed: " + e.getMessage());
+        }
     }
 
     private static String join(CompletableFuture<String> future) {

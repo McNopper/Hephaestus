@@ -152,6 +152,19 @@ public class FleetRunner {
         }
     }
 
+    /**
+     * F-002: consumes a MERGED job's worktree and branch. Best-effort by
+     * contract; callers log failures without failing the launch.
+     */
+    public void reap(Path repoRoot, String taskId) {
+        worktrees.remove(repoRoot, taskId, true);
+    }
+
+    /** F-002 seam: locates the task's worktree, if any (reconciliation). */
+    public java.util.Optional<Worktree> findWorktree(Path repoRoot, String taskId) {
+        return worktrees.find(repoRoot, taskId);
+    }
+
     /** The pause between watchdog probes; the runner's test sleeper seam. */
     void pauseBetweenProbes() {
         sleeper.run();

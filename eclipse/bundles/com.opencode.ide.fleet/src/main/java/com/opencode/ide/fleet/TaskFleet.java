@@ -276,6 +276,7 @@ public final class TaskFleet {
                         "fleet branch merged back by TaskFleet", ASSIGNEE);
             }
             recordTelemetry(project, taskId, job);
+            reapMergedWorktree(baseWorktree, taskId);
             com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
             return job;
         } catch (RuntimeException e) {
@@ -291,6 +292,49 @@ public final class TaskFleet {
                 permissions.sessionEnded(permissionSession);
             }
         }
+    }
+
+    /**
+     * F-002: a MERGED job's worktree and branch are consumed - reap them so
+     * re-dispatches (send-back rework, the next stage) never hit "branch
+     * already exists". Best-effort: a failed reap logs and never fails the
+     * (already successful) launch. FAILED jobs keep theirs for post-mortem.
+     */
+    private void reapMergedWorktree(Path baseWorktree, String taskId) {
+        try {
+            runner.reap(baseWorktree, taskId);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "reaping the merged worktree of " + taskId + " failed: "
+                    + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * F-002 startup reconciliation: release fleet claims whose work is gone -
+     * a ticket in-progress with assignee "fleet" but NO branch/worktree left
+     * is crash residue (the engine died mid-run). Each release is a blocked
+     * marker with the reason, so the board tells the truth. Best-effort.
+     */
+    public int reconcileOrphanedClaims(String project) {
+        int released = 0;
+        Path repoRoot = store.root().getParent().getParent();
+        for (Task t : store.list(project, null, "in-progress", null, null)) {
+            if (!ASSIGNEE.equals(t.assignee)) {
+                continue;
+            }
+            try {
+                if (runner.findWorktree(store.root().getParent().getParent(), t.id).isEmpty()) {
+                    blocked(new FleetJob(t.id, null, null, FleetJob.State.FAILED,
+                                    "reconciled: no worktree/branch for the claim (engine crash residue)"),
+                            project, t.id,
+                            "reconciled: no worktree/branch for the claim (engine crash residue)");
+                    released++;
+                }
+            } catch (RuntimeException e) {
+                LOG.log(Level.WARNING, "reconciling claim " + t.id + " failed: " + e.getMessage(), e);
+            }
+        }
+        return released;
     }
 
     /** Snapshot of the tracked jobs by taskId (copy-on-read, never null). */
