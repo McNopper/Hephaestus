@@ -310,13 +310,16 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     /**
      * R3: the killer owns the wreckage. A git process we destroyForcibly'd
-     * mid-write can leave {@code .git/index.lock} or {@code MERGE_HEAD}
-     * behind - which would fail EVERY subsequent git operation on that tree
-     * until manual surgery. Best-effort, logged, never throws.
+     * mid-write can leave {@code index.lock} or {@code MERGE_HEAD} behind —
+     * which would fail EVERY subsequent git operation on that tree until
+     * manual surgery. G-002: resolves the actual git-dir (linked worktrees
+     * have a {@code .git} FILE pointing elsewhere). Best-effort, logged,
+     * never throws.
      */
     private void cleanupCrashState(Path directory) {
         try {
-            Path mergeHead = directory.resolve(".git").resolve("MERGE_HEAD");
+            Path gitDir = resolveGitDir(directory);
+            Path mergeHead = gitDir.resolve("MERGE_HEAD");
             if (Files.exists(mergeHead)) {
                 // best-effort direct invocation: run() is instance-scoped and
                 // cleanup must work from any interruption point
@@ -326,13 +329,30 @@ public final class GitWorktreeManager implements WorktreeManager {
                 p.waitFor(DEFAULT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
                 p.destroyForcibly();
             }
-            Path indexLock = directory.resolve(".git").resolve("index.lock");
+            Path indexLock = gitDir.resolve("index.lock");
             if (Files.exists(indexLock)) {
                 Files.deleteIfExists(indexLock);
             }
         } catch (Exception e) {
             LOG.warning("crash-state cleanup in " + directory + " failed: " + e.getMessage());
         }
+    }
+
+    /** The actual .git directory (resolves linked-worktree indirection). */
+    private static Path resolveGitDir(Path directory) {
+        try {
+            Process p = new ProcessBuilder(List.of("git", "-C", directory.toString(),
+                    "rev-parse", "--git-dir")).start();
+            String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            p.waitFor(5, TimeUnit.SECONDS);
+            if (p.exitValue() == 0 && !out.isEmpty()) {
+                Path resolved = Path.of(out);
+                return resolved.isAbsolute() ? resolved : directory.resolve(resolved).toAbsolutePath().normalize();
+            }
+        } catch (Exception ignored) {
+            // fall through to the .git assumption
+        }
+        return directory.resolve(".git");
     }
 
     private static String join(CompletableFuture<String> future) {

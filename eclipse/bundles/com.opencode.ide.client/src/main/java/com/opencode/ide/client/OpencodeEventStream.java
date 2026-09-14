@@ -1,5 +1,6 @@
 package com.opencode.ide.client;
 
+import com.opencode.ide.client.ClientTuning;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -68,7 +69,7 @@ public final class OpencodeEventStream {
         this.path = path;
         this.http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1) // match HttpOpencodeClient: server dislikes h2c upgrades
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(ClientTuning.SSE_STABLE_CONNECTION)
                 .build();
         this.eventUri = config.baseUrl().resolve(path);
         this.authHeader = Auth.basicHeader(config.username(), config.password());

@@ -385,6 +385,7 @@ public final class TaskFleet {
                 activity = runner.probe(job.sessionId());
             } catch (OpencodeException | RuntimeException e) {
                 // probe failed: keep watching, do NOT reset the progress clock
+                LOG.fine(() -> "fleet probe of " + job.sessionId() + " failed: " + e.getMessage());
             }
             boolean permissionWait = permissions != null && permissions.pendingCount() > 0;
             // a PENDING prompt POST means the turn is still in flight server-

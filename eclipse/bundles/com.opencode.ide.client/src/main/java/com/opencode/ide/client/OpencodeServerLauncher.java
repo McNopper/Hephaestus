@@ -1,5 +1,6 @@
 package com.opencode.ide.client;
 
+import com.opencode.ide.client.ClientTuning;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -177,16 +178,16 @@ public final class OpencodeServerLauncher {
 
     private void waitForHealth(URI base, Duration timeout) throws OpencodeException {
         HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(ClientTuning.PROBE_CONNECT_TIMEOUT)
                 .build();
         // the readiness probes must authenticate exactly like the real client:
         // with a password set (always, in fleet spawn mode - possibly generated),
         // unauthenticated probes would 401 until the timeout and abort the start
         String auth = com.opencode.ide.client.internal.Auth.basicHeader("opencode", password);
-        HttpRequest healthReq = probe(base, "/global/health", auth, Duration.ofSeconds(3));
+        HttpRequest healthReq = probe(base, "/global/health", auth, ClientTuning.HEALTH_PROBE_TIMEOUT);
         // opencode reports /global/health = healthy before the data endpoints are
         // populated, so also require a 200 from /agent before considering the server ready.
-        HttpRequest agentReq = probe(base, "/agent", auth, Duration.ofSeconds(5));
+        HttpRequest agentReq = probe(base, "/agent", auth, ClientTuning.AGENT_PROBE_TIMEOUT);
 
         long deadline = System.nanoTime() + timeout.toNanos();
         IOException last = null;

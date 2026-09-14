@@ -78,7 +78,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         this.authHeader = Auth.basicHeader(config.username(), config.password());
         this.http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1) // the opencode server hangs on h2c-upgrade POSTs
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(ClientTuning.CONNECT_TIMEOUT)
                 .build();
     }
 

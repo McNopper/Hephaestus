@@ -249,10 +249,12 @@ public final class GitStore {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
+            cleanupCrashState(directory);
             return new GitOutput(-1, "", "interrupted while waiting for git " + Arrays.toString(args));
         }
         if (!finished) {
             process.destroyForcibly();
+            cleanupCrashState(directory);
             return new GitOutput(-1, "", "git " + Arrays.toString(args) + " timed out after " + TIMEOUT);
         }
         return new GitOutput(process.exitValue(), join(stdout), join(stderr));
@@ -271,6 +273,31 @@ public final class GitStore {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             return "";
+        }
+    }
+
+    /**
+     * G-002: crash-state cleanup for the store-sync path — a sync killed
+     * mid-{@code add} leaves {@code index.lock} and every later sync returns
+     * FAILED forever. Mirrors {@code GitWorktreeManager.cleanupCrashState}.
+     */
+    private static void cleanupCrashState(Path directory) {
+        try {
+            Path gitDir = directory.resolve(".git");
+            if (!java.nio.file.Files.isDirectory(gitDir)) {
+                // linked worktree: .git is a file with the gitdir path
+                String pointer = java.nio.file.Files.readString(directory.resolve(".git")).trim();
+                if (pointer.startsWith("gitdir: ")) {
+                    gitDir = Path.of(pointer.substring("gitdir: ".length()));
+                }
+            }
+            Path indexLock = gitDir.resolve("index.lock");
+            if (java.nio.file.Files.exists(indexLock)) {
+                java.nio.file.Files.deleteIfExists(indexLock);
+                LOG.warning("removed stale index.lock after interrupted git in " + directory);
+            }
+        } catch (Exception e) {
+            LOG.warning("crash-state cleanup in " + directory + " failed: " + e.getMessage());
         }
     }
 }

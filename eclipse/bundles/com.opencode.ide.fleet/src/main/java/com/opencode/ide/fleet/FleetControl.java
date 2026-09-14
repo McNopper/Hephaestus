@@ -148,6 +148,9 @@ public final class FleetControl implements AutoCloseable {
             com.opencode.ide.client.ClientLog.warning(
                     "startup reconciliation failed (continuing): " + e.getMessage());
         }
+        // G-001: sweep stale dispatch markers — a marker whose creating pid
+        // is dead is crash residue; a live pid belongs to another engine
+        sweepStaleMarkers(repo);
         return new Engine() {
             @Override
             public TaskFleet fleet() {
@@ -286,13 +289,16 @@ public final class FleetControl implements AutoCloseable {
                 } catch (RuntimeException ex) {
                     // TaskFleet already recorded the failure on the ticket
                     // (blocked + reason); the jobs snapshot stays authoritative.
+                    com.opencode.ide.client.ClientLog.warning(
+                            "fleet launch of " + ticketId + " threw: " + ex.getMessage());
                 } finally {
                     inFlight.remove(ticketId);
                     releaseDispatchGuard(ticketId);
                 }
                 StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
             } catch (RuntimeException ex) {
-                System.err.println("[fleet] store auto-sync failed for " + ticketId + ": " + ex.getMessage());
+                com.opencode.ide.client.ClientLog.warning(
+                    "store auto-sync failed for " + ticketId + ": " + ex.getMessage());
             }
         });
     }
@@ -337,6 +343,48 @@ public final class FleetControl implements AutoCloseable {
             com.opencode.ide.client.ClientLog.warning(
                     "releasing the dispatch guard of " + ticketId + " failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * G-001: sweeps stale {@code *.dispatch} markers under
+     * {@code .git/opencode-fleet/} whose creating pid is dead. Markers carry
+     * {@code pid=<N> at <instant>}; a live pid belongs to another engine and
+     * is left alone; a dead pid is crash residue and is removed so the
+     * ticket is dispatchable again without manual surgery.
+     */
+    static int sweepStaleMarkers(Path repoRoot) {
+        Path dir = repoRoot.resolve(".git").resolve("opencode-fleet");
+        if (!java.nio.file.Files.isDirectory(dir)) {
+            return 0;
+        }
+        int swept = 0;
+        try (var stream = java.nio.file.Files.list(dir)) {
+            for (Path marker : stream.filter(p -> p.getFileName().toString().endsWith(".dispatch")).toList()) {
+                try {
+                    String content = java.nio.file.Files.readString(marker);
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("pid=(\\d+)").matcher(content);
+                    if (!m.find()) {
+                        continue; // unreadable: leave it, fleet_reset handles it
+                    }
+                    long pid = Long.parseLong(m.group(1));
+                    if (ProcessHandle.of(pid).isPresent()) {
+                        continue; // another engine is live
+                    }
+                    java.nio.file.Files.deleteIfExists(marker);
+                    swept++;
+                    com.opencode.ide.client.ClientLog.info("swept stale dispatch marker "
+                            + marker.getFileName() + " (pid " + pid + " is dead)");
+                } catch (Exception e) {
+                    com.opencode.ide.client.ClientLog.warning(
+                            "sweeping marker " + marker + " failed: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            com.opencode.ide.client.ClientLog.warning(
+                    "marker sweep in " + dir + " failed: " + e.getMessage());
+        }
+        return swept;
     }
 
     /**
