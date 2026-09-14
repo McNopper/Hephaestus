@@ -182,8 +182,11 @@ public class LintAndFormatToolsTest {
         }
         JsonObject lint = payload.getAsJsonObject("lint");
         assertNotNull("global lint section expected", lint);
+        // Gson's default serialization omits nulls, so "not installed" may
+        // arrive as an explicit null OR as an absent key - treat both the same
+        boolean cppcheckReported = lint.has("cppcheck") && !lint.get("cppcheck").isJsonNull();
         assertEquals("cppcheck section matches the registry resolver",
-                ToolchainRegistry.cppcheck().isPresent(), !lint.get("cppcheck").isJsonNull());
+                ToolchainRegistry.cppcheck().isPresent(), cppcheckReported);
         ToolchainRegistry.cppcheck().ifPresent(binary ->
                 assertEquals(binary.toString(), lint.get("cppcheck").getAsString()));
     }

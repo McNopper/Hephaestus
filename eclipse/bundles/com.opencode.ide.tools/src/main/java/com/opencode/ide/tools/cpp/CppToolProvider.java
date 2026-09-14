@@ -23,7 +23,9 @@ import java.util.stream.Stream;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
 import com.opencode.ide.tools.McpTool;
 import com.opencode.ide.tools.McpToolResult;
@@ -124,7 +126,7 @@ public final class CppToolProvider implements ToolProvider {
         tools.add(new McpTool("toolchains_list",
                 "List the C/C++ toolchains detected on this machine (msvc, clang64, mingw64, ucrt64, gcc, clang), which "
                         + "tools each provides (cmake/ninja/compiler/ctest/gdb/clang-tidy/clang-format) and its "
-                        + "CMake generator, plus a global lint section with the standalone cppcheck path (or null).",
+                        + "CMake generator, plus a global lint section with the standalone cppcheck path (null or absent when not installed).",
                 schema(new JsonObject())));
         JsonObject configureProps = new JsonObject();
         configureProps.add("source_dir", stringProperty(
@@ -624,7 +626,7 @@ public final class CppToolProvider implements ToolProvider {
             o.addProperty("gdb", t.gdb().isPresent());
             o.addProperty("clang_tidy", t.clangTidy().isPresent());
             o.addProperty("clang_format", t.clangFormat().isPresent());
-            o.add("generator", t.generator().isPresent() ? new com.google.gson.JsonPrimitive(t.generator().get()) : com.google.gson.JsonNull.INSTANCE);
+            o.add("generator", t.generator().isPresent() ? new JsonPrimitive(t.generator().get()) : JsonNull.INSTANCE);
             addPath(o, "cmakePath", t.cmake());
             addPath(o, "ninjaPath", t.ninja());
             addPath(o, "compilerPath", t.compiler());
@@ -648,8 +650,8 @@ public final class CppToolProvider implements ToolProvider {
     /** Adds the path as a string, or an explicit JSON null when absent (never omits the key). */
     private static void addPath(JsonObject o, String key, Optional<Path> path) {
         o.add(key, path.isPresent()
-                ? new com.google.gson.JsonPrimitive(path.get().toString())
-                : com.google.gson.JsonNull.INSTANCE);
+                ? new JsonPrimitive(path.get().toString())
+                : JsonNull.INSTANCE);
     }
 
     private static String optString(JsonObject args, String key) {
