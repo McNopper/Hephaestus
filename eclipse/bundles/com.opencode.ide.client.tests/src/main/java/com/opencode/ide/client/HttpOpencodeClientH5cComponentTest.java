@@ -27,7 +27,7 @@ import com.opencode.ide.client.model.ShellResult;
  * Component test for the H5 leftovers of the client surface (session shell,
  * OAuth authorize answer): real {@code HttpOpencodeClient} over real HTTP
  * against a local stub server, verifying paths, methods, bodies and parsing.
- * Stub bodies follow the shapes of the opencode v1.18.21 server source
+ * Stub bodies follow the shapes of the opencode v1.18.30 server source
  * ({@code routes/instance/httpapi/groups/session.ts} shell endpoint over
  * {@code SessionPrompt.ShellInput}/{@code SessionV1.WithParts}, and
  * {@code groups/provider.ts} oauth authorize). No Eclipse, no opencode.

@@ -7,16 +7,16 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.SessionStatus;
 
 /**
- * {@link SessionEvents} over the REST surface: polls
+ * Idle detection over the REST surface: polls
  * {@code GET /session/status} until the session reports {@code idle} - the
- * same loop {@link FleetRunner} uses internally. This is the default
- * (stream-less) completion detection and also serves {@link SseSessionEvents}
+ * same loop {@link FleetRunner} uses internally. This is the
+ * (stream-less) completion check and also serves {@link SseSessionEvents}
  * as its one-shot fallback check on stream drops ({@code awaitIdle} with a
  * zero timeout performs exactly one status check).
  *
  * <p>Pure Java, no Eclipse/OSGi.</p>
  */
-public final class PollingSessionEvents implements SessionEvents {
+public final class PollingSessionEvents {
 
     private static final long DEFAULT_POLL_MILLIS = FleetTuning.STATUS_POLL_MILLIS;
 
@@ -36,7 +36,15 @@ public final class PollingSessionEvents implements SessionEvents {
         this.sleeper = sleeper;
     }
 
-    @Override
+    /**
+     * Blocks until the session reports idle.
+     *
+     * @param sessionId the opencode session to watch
+     * @param timeout   how long to wait
+     * @return {@code true} when the session went idle within the timeout,
+     *         {@code false} on timeout
+     * @throws OpencodeException when the underlying transport fails
+     */
     public boolean awaitIdle(String sessionId, Duration timeout) throws OpencodeException {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!isIdle(sessionId)) {

@@ -12,10 +12,10 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * {@link SessionEvents} driven by the opencode {@code /event} SSE stream
- * instead of polling. This class does NOT own a stream: an owner that already
- * runs one {@code OpencodeEventStream} (e.g. the Eclipse core layer) exposes
- * a {@link Subscriber} and registers this instance as one of its listeners.
+ * Idle detection driven by the opencode {@code /event} SSE stream instead of
+ * polling. This class does NOT own a stream: an owner that already runs one
+ * {@code OpencodeEventStream} (e.g. the Eclipse core layer) exposes a
+ * {@link Subscriber} and registers this instance as one of its listeners.
  * Events arrive on the owner's SSE reader thread; {@link #awaitIdle} only
  * parks on a monitor (no thread per wait, no busy-wait) and may be called
  * concurrently for different sessions.
@@ -30,7 +30,7 @@ import com.opencode.ide.client.model.OpencodeEvent;
  *
  * <p>Pure Java, no Eclipse/OSGi.</p>
  */
-public final class SseSessionEvents implements SessionEvents {
+public final class SseSessionEvents {
 
     /**
      * The registration point of an owner-run event stream: given a listener,
@@ -100,7 +100,16 @@ public final class SseSessionEvents implements SessionEvents {
         return this::onConnectionChange;
     }
 
-    @Override
+    /**
+     * Blocks until the session is (again) idle, as signalled by the stream's
+     * {@code session.idle} (or {@code session.deleted}) event.
+     *
+     * @param sessionId the opencode session to watch
+     * @param timeout   how long to wait
+     * @return {@code true} when the session went idle (or was deleted) within
+     *         the timeout, {@code false} on timeout
+     * @throws OpencodeException when interrupted or the transport fails
+     */
     public boolean awaitIdle(String sessionId, Duration timeout) throws OpencodeException {
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(timeout, "timeout");

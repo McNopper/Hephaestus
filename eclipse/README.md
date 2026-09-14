@@ -277,8 +277,10 @@ The Providers view shows providers as tree roots with their models as children
   Eclipse start):** `ConnectionsManager` (plural connections, per-remote SSE liveness,
   30s agents/providers cache) + virtualized Server/Providers views + remote-connections
   preference page; **Session details view** (messages/parts/tool lines/tokens, per-session
-  secondary id, auto-refresh); **SSE event-driven fleet completion** (`SessionEvents` seam,
-  wired into `TaskFleetLauncher` over the primary connection's event stream);
+   secondary id, auto-refresh); **SSE event-driven fleet completion** (the
+   `SessionEvents` seam — later removed with the watchdog redesign: the probe
+   loop is authoritative, the primary event stream feeds only the permission
+   bridge);
   **chat abort + tool-part rendering + copy-code + newChat/abort key bindings**;
   **CDT first cut** (`CdtProjectContext` service, `DiagnosticsMarkers`/`MarkerApplier`).
    Reviewed by rubberduck + reviewer gates (2 blockers, 7 majors found & fixed, incl. the

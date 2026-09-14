@@ -127,7 +127,6 @@ public final class FleetControl implements AutoCloseable {
                 new FleetRunner(watched, FleetGit.defaultManager()),
                 new TaskStore(root),
                 new RoleAgents(),
-                new PollingSessionEvents(watched),
                 () -> watched,
                 bridge);
         FleetRunner engineRunner = new FleetRunner(client, FleetGit.defaultManager());

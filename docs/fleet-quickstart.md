@@ -22,7 +22,7 @@
 |---|---|---|
 | JDK 21+ | `java -version` | On PATH or via `JAVA_HOME`. The fleet bundles are JavaSE-21 (17+ covers only the `tasks` server). |
 | git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
-| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 1.18.21 (verified stable through 1.18.30 — bump the pin in `ServerVersionPin` after rerunning the endpoint smoke); a mismatch warns, never fails. |
+| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 1.18.30 (endpoint-verified 2026-09-13 — on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
 | pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
 | Built jars | see below | The stdio servers load jars from `eclipse/bundles/*/target/`. |
 

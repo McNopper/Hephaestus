@@ -78,7 +78,7 @@ public final class OpencodeEventStream {
     }
 
     /**
-     * Stream for {@code GET /global/event} (opencode v1.18.21): events across
+     * Stream for {@code GET /global/event} (opencode v1.18.30): events across
      * all projects, same lifecycle and callbacks as the per-project stream.
      */
     public static OpencodeEventStream global(ConnectionConfig config, Consumer<OpencodeEvent> sink,

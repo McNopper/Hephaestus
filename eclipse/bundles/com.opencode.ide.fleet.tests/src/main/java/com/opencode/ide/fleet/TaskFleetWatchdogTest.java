@@ -26,7 +26,7 @@ import com.opencode.ide.tasks.TaskStore;
  * of burning the whole budget. Reuses the in-memory fakes and TaskFleetTest
  * fixtures.
  */
-public class TaskFleetSessionEventsTest {
+public class TaskFleetWatchdogTest {
 
     private static final Path REPO = Path.of("repo");
     private static final String PROJECT = "p";
@@ -61,7 +61,7 @@ public class TaskFleetSessionEventsTest {
 
     private TaskFleet fleet() {
         return new TaskFleet(new FleetRunner(client, worktrees, () -> { }),
-                store, new RoleAgents(), null);
+                store, new RoleAgents());
     }
 
     @Test
@@ -91,7 +91,7 @@ public class TaskFleetSessionEventsTest {
                 client.completeSession("ses_1", "done");
             }
         });
-        TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents(), null);
+        TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents());
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
 
@@ -187,7 +187,7 @@ public class TaskFleetSessionEventsTest {
                 com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
         TaskFleet fleet = new TaskFleet(
                 new FleetRunner(bridge.watching(client), worktrees, () -> { }),
-                store, new RoleAgents(), null, null, bridge)
+                store, new RoleAgents(), null, bridge)
                 .withStallTimeout(Duration.ofMillis(100)); // ...but the pending ask pauses the clock
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
@@ -230,7 +230,7 @@ public class TaskFleetSessionEventsTest {
             // a new message arrives on every probe: the worker is progressing
             client.addEntry("ses_1", "assistant", "progress " + probes.incrementAndGet());
         });
-        TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents(), null)
+        TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents())
                 .withStallTimeout(Duration.ofMillis(200));
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);

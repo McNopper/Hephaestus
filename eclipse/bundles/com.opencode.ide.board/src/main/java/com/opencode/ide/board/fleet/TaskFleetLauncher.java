@@ -50,11 +50,10 @@ import com.opencode.ide.tasks.TaskStore;
  * (double-checked get/lock/create), so a launch for root B never waits
  * behind a seconds-long server spawn for root A.</p>
  *
- * <p>Completion is the fleet watchdog's probe loop (see TaskFleet); the
- * {@link SseSessionEvents} built here rides the primary
- * connection's single {@code /event} stream via {@link OpencodeConnection}
- * listeners (with a one-poll fallback on stream drop), replacing the 1 Hz
- * status polling of the default engine path (ROADMAP H3.4).</p>
+ * <p>Completion is the fleet watchdog's probe loop (see {@link TaskFleet});
+ * the primary connection's single {@code /event} stream (reached via
+ * {@link OpencodeConnection} listeners) feeds only the permission bridge
+ * here.</p>
  */
 public final class TaskFleetLauncher implements FleetLauncher {
 
@@ -298,9 +297,6 @@ public final class TaskFleetLauncher implements FleetLauncher {
 
     private static TaskFleet createFleet(Suppliers current, Path storeRoot) {
         OpencodeClient client = current.clients().get();
-        // SSE completion rides the primary connection's single /event stream;
-        // the client doubles as the one-poll fallback when that stream drops.
-        SseSessionEvents events = new SseSessionEvents(primaryEventSubscriber(), client);
         connectPermissionBridge();
         // The runner's client is wrapped so its sessions are permission-watched
         // from creation - the blocking prompt call is where unattended asks wait.
@@ -308,7 +304,6 @@ public final class TaskFleetLauncher implements FleetLauncher {
                 new FleetRunner(PERMISSION_BRIDGE.watching(client), current.worktrees().get()),
                 new TaskStore(storeRoot),
                 new RoleAgents(),
-                events,
                 null,
                 PERMISSION_BRIDGE);
     }

@@ -242,7 +242,7 @@ public interface OpencodeClient {
     /**
      * {@code POST /session/:id/shell} - execute a shell command in the
      * session context and wait for the created assistant message (opencode
-     * v1.18.21; payload {@code {agent, command}} plus optional
+     * v1.18.30; payload {@code {agent, command}} plus optional
      * {@code messageID}/{@code model}). The reply is the message plus its
      * shell tool part, mapped leniently into {@link ShellResult}.
      */
@@ -307,7 +307,7 @@ public interface OpencodeClient {
         throw new UnsupportedOperationException("tuiAction");
     }
 
-    // ---------- H5 remainder (opencode v1.18.21): file status/content, provider auth, global events ----------
+    // ---------- H5 remainder (opencode v1.18.30): file status/content, provider auth, global events ----------
 
     /**
      * {@code GET /file/status} - the git status of all changed files in the

@@ -75,7 +75,7 @@ public class TaskFleetPermissionsTest {
         // creation - BEFORE the prompt call (mirrors TaskFleetLauncher)
         return new TaskFleet(
                 new FleetRunner(bridge.watching(client), worktrees, () -> { }),
-                store, new RoleAgents(), null, null, bridge);
+                store, new RoleAgents(), null, bridge);
     }
 
     @Test
@@ -130,7 +130,7 @@ public class TaskFleetPermissionsTest {
         client.sessionType = "idle";
 
         FleetJob job = new TaskFleet(new FleetRunner(client, worktrees, () -> { }),
-                store, new RoleAgents(), null).launch(PROJECT, id, REPO, TIMEOUT);
+                store, new RoleAgents()).launch(PROJECT, id, REPO, TIMEOUT);
 
         assertEquals(FleetJob.State.MERGED, job.state());
         assertTrue(queue.pending().isEmpty());

@@ -50,7 +50,7 @@ public class TaskFleetTelemetryTest {
 
     private TaskFleet fleetWithTelemetry() {
         return new TaskFleet(new FleetRunner(client, worktrees, () -> { }),
-                store, new RoleAgents(), null, () -> client);
+                store, new RoleAgents(), () -> client);
     }
 
     private String sprintTicket(String role) {

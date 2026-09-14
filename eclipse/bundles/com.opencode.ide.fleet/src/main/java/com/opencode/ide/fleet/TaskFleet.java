@@ -30,9 +30,7 @@ import com.opencode.ide.tasks.TaskStore;
  * (busy/messages/complete) is authoritative — a finished session merges even
  * if the POST response is stuck; BUSY workers and sessions waiting on a
  * permission ask never trip the stall clock (stall = idle-and-silent, aborted
- * at {@link FleetTuning#STALL_TIMEOUT}); a budget timeout aborts the session.
- * The {@link SessionEvents} constructor seam is retained for compatibility
- * but no longer participates in completion.</p>
+ * at {@link FleetTuning#STALL_TIMEOUT}); a budget timeout aborts the session.</p>
  *
  * <p>On a MERGED job, best-effort telemetry (see {@link FleetTelemetry})
  * records the run's cost/token actuals as a ticket comment and merges new
@@ -60,7 +58,6 @@ public final class TaskFleet {
     private final FleetRunner runner;
     private final TaskStore store;
     private final RoleAgents roleAgents;
-    private final SessionEvents events;
     private final Supplier<OpencodeClient> telemetryClient;
     private final FleetPermissionBridge permissions;
     private final Map<String, FleetJob> jobsByTask = new ConcurrentHashMap<>();
@@ -79,7 +76,7 @@ public final class TaskFleet {
 
     /** Creates its own {@link FleetRunner} over the given client and worktrees; the client also serves telemetry. */
     public TaskFleet(OpencodeClient client, WorktreeManager worktrees, TaskStore store) {
-        this(new FleetRunner(client, worktrees), store, new RoleAgents(), null, () -> client);
+        this(new FleetRunner(client, worktrees), store, new RoleAgents(), () -> client);
     }
 
     /** @param runner a pre-configured runner (e.g. a test sleeper); telemetry disabled */
@@ -89,16 +86,7 @@ public final class TaskFleet {
 
     /** @param roleAgents the role -&gt; agent dispatch table to use */
     public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents) {
-        this(runner, store, roleAgents, null);
-    }
-
-    /**
-     * @param events completion detection; {@code null} = the runner's own
-     *               status polling (see {@link FleetRunner#awaitCompletion})
-     */
-    public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents,
-            SessionEvents events) {
-        this(runner, store, roleAgents, events, null);
+        this(runner, store, roleAgents, null, null);
     }
 
     /**
@@ -108,8 +96,8 @@ public final class TaskFleet {
      *                        {@link FleetTelemetry}
      */
     public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents,
-            SessionEvents events, Supplier<OpencodeClient> telemetryClient) {
-        this(runner, store, roleAgents, events, telemetryClient, null);
+            Supplier<OpencodeClient> telemetryClient) {
+        this(runner, store, roleAgents, telemetryClient, null);
     }
 
     /**
@@ -124,12 +112,10 @@ public final class TaskFleet {
      *                        permission collection
      */
     public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents,
-            SessionEvents events, Supplier<OpencodeClient> telemetryClient,
-            FleetPermissionBridge permissions) {
+            Supplier<OpencodeClient> telemetryClient, FleetPermissionBridge permissions) {
         this.runner = runner;
         this.store = store;
         this.roleAgents = roleAgents;
-        this.events = events;
         this.telemetryClient = telemetryClient;
         this.permissions = permissions;
     }
@@ -175,37 +161,23 @@ public final class TaskFleet {
         }
     }
 
+    /**
+     * The launch lifecycle, one named stage per method: validation
+     * ({@link #launchableTicket}) &rarr; pre-claim on the main branch
+     * ({@link #claimAndCommit}) &rarr; submit + watchdog
+     * ({@link #runSession}) &rarr; merge-back + bookkeeping + telemetry +
+     * reap ({@link #mergeAndRecord}). Every stage failure routes through
+     * {@link #blocked} so the ticket never strands as a zombie claim, and
+     * the permission watch that started with the session is dropped on
+     * EVERY outcome (the {@code finally}).
+     */
     private FleetJob launchGuarded(String project, String taskId, Path baseWorktree, Duration timeout,
             Bootstrap bootstrap) {
-        Task ticket = store.get(project, taskId);
-        if (ticket.blocked) {
-            throw new IllegalStateException(
-                    "ticket " + taskId + " is blocked: " + ticket.blocker);
+        Task ticket = launchableTicket(project, taskId);
+        FleetJob unclaimed = claimAndCommit(project, taskId, baseWorktree);
+        if (unclaimed != null) {
+            return unclaimed;
         }
-        if ("done".equals(ticket.status)) {
-            throw new IllegalStateException("ticket " + taskId + " is already done");
-        }
-
-        // Pre-claim in the MAIN store BEFORE the worktree exists and COMMIT
-        // it, so the claim is recorded on the branch created next and the
-        // later merge-back is never refused over the dirty ticket file
-        // (Milestone V finding: the merge failed with zero conflicts).
-        // P1-5: from the first claim write onward, EVERY failure lands in
-        // blocked()+releaseClaim — a commitMain git failure must not strand
-        // the ticket as a zombie in-progress claim.
-        try {
-            store.update(project, taskId, Map.of(
-                    "status", "in-progress",
-                    "assignee", ASSIGNEE));
-            store.addComment(project, taskId,
-                    "launched into worktree opencode/" + taskId + " by the fleet", ASSIGNEE);
-            runner.commitMain(baseWorktree, "fleet: pre-claim " + taskId);
-        } catch (RuntimeException e) {
-            FleetJob failed = new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage());
-            LOG.log(Level.WARNING, "fleet pre-claim/commit of ticket " + taskId + " failed", e);
-            return blocked(failed, project, taskId, "fleet: pre-claim failed: " + e.getMessage());
-        }
-
         FleetTask task = new FleetTask(
                 ticket.id,
                 ticket.title,
@@ -214,9 +186,97 @@ public final class TaskFleet {
                 null,
                 bootstrap,
                 baseWorktree);
+        FleetJob job = null;
+        try {
+            job = runSession(task, timeout);
+            if (job.state() != FleetJob.State.COMPLETED) {
+                return blocked(job, project, taskId, "fleet: " + job.detail());
+            }
+            return mergeAndRecord(project, taskId, job, baseWorktree);
+        } catch (RuntimeException e) {
+            // R1 total-failure contract: after the pre-claim, NO path may
+            // throw past this point - a thrown WorktreeException/UncheckedIo
+            // would strand the ticket in-progress and contradict this class's
+            // "blocked with a concrete reason on failure" promise
+            FleetJob failed = job == null
+                    ? new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage())
+                    : withState(job, FleetJob.State.FAILED, e.getMessage());
+            LOG.log(Level.WARNING, "fleet launch of ticket " + taskId + " failed unexpectedly", e);
+            return blocked(failed, project, taskId, "fleet: " + e.getMessage());
+        } finally {
+            // The prompt call inside submit blocks while an unattended session
+            // waits for a permission answer - watching starts at session creation
+            // (the wrapped client), and ends here on EVERY launch outcome.
+            if (permissions != null && job != null && job.sessionId() != null) {
+                permissions.sessionEnded(job.sessionId());
+            }
+        }
+    }
 
-        FleetJob job;
+    /**
+     * Stage 0 — validation: fetches the ticket and rejects states the fleet
+     * must not touch. A blocked ticket keeps its blocker (the retry
+     * contract); a done ticket needs no work. Purely declarative — no store
+     * write happens here, so rejection cannot leave partial state.
+     *
+     * @throws IllegalStateException if the ticket is blocked or already done
+     */
+    private Task launchableTicket(String project, String taskId) {
+        Task ticket = store.get(project, taskId);
+        if (ticket.blocked) {
+            throw new IllegalStateException(
+                    "ticket " + taskId + " is blocked: " + ticket.blocker);
+        }
+        if ("done".equals(ticket.status)) {
+            throw new IllegalStateException("ticket " + taskId + " is already done");
+        }
+        return ticket;
+    }
+
+    /**
+     * Stage 1 — claim &amp; commit: pre-claims the ticket in the MAIN store
+     * BEFORE the worktree exists and commits that claim, so it is recorded
+     * on the branch created next and the later merge-back is never refused
+     * over the dirty ticket file (Milestone V finding: the merge failed
+     * with zero conflicts). P1-5: from the first claim write onward, EVERY
+     * failure lands in blocked()+releaseClaim — a commitMain git failure
+     * must not strand the ticket as a zombie in-progress claim.
+     *
+     * @return {@code null} on success; otherwise the FAILED job with the
+     *         ticket already blocked + released
+     */
+    private FleetJob claimAndCommit(String project, String taskId, Path baseWorktree) {
+        try {
+            store.update(project, taskId, Map.of(
+                    "status", "in-progress",
+                    "assignee", ASSIGNEE));
+            store.addComment(project, taskId,
+                    "launched into worktree opencode/" + taskId + " by the fleet", ASSIGNEE);
+            runner.commitMain(baseWorktree, "fleet: pre-claim " + taskId);
+            return null;
+        } catch (RuntimeException e) {
+            FleetJob failed = new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage());
+            LOG.log(Level.WARNING, "fleet pre-claim/commit of ticket " + taskId + " failed", e);
+            return blocked(failed, project, taskId, "fleet: pre-claim failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Stage 2 — session: begins the runner submission (worktree, branch,
+     * session, optional bootstrap, and the self-claim prompt POST on its
+     * own daemon thread), then settles it through the {@link #watchdog}
+     * until the agent finished, stalled or the budget ran out. Never
+     * throws — every failure mode returns as a FAILED job so the caller
+     * can block the ticket uniformly.
+     *
+     * @return the settled job: {@code COMPLETED} when the agent finished
+     *         (ready to merge), or {@code FAILED} with the concrete reason
+     *         (submit failure, prompt failure, stall, budget timeout)
+     */
+    private FleetJob runSession(FleetTask task, Duration timeout) {
+        String taskId = task.taskId();
         FleetRunner.Submission submission;
+        FleetJob job;
         try {
             // the prompt POST runs on its OWN thread with the maximum budget;
             // the watchdog below - not the POST timeout - decides completion
@@ -232,75 +292,71 @@ public final class TaskFleet {
             // A submit that throws (worktree/branch already exists, git failure)
             // must not leave it claimed-but-not-blocked, contradicting this
             // class's "blocked with a concrete reason on failure" contract.
-            FleetJob failed = new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage());
             LOG.log(Level.WARNING, "fleet submit of ticket " + taskId + " failed before the session started", e);
-            return blocked(failed, project, taskId, "fleet: " + e.getMessage());
+            return new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage());
         }
         jobsByTask.put(taskId, job);
-        // The prompt call inside submit blocks while an unattended session
-        // waits for a permission answer - watching starts at session creation
-        // (the wrapped client), and ends here on EVERY launch outcome.
-        String permissionSession = job.sessionId();
-        try {
-            if (job.state() == FleetJob.State.FAILED) {
-                return blocked(job, project, taskId, "fleet: " + job.detail());
-            }
-
-            try {
-                job = watchdog(submission, timeout);
-            } catch (OpencodeException e) {
-                job = withState(job, FleetJob.State.FAILED, e.getMessage());
-            }
-            com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": await returned state=" + job.state());
-            jobsByTask.put(taskId, job);
-            if (job.state() != FleetJob.State.COMPLETED) {
-                return blocked(job, project, taskId, "fleet: " + job.detail());
-            }
-
-            // merge-back rides the RepoGate (repo-root-keyed, shared by all
-            // engines in this process) - the old per-instance mergeLock is
-            // gone: it only serialized THIS engine while the Board and a
-            // chat session each built their own
-            job = runner.mergeBack(job);
-            com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge returned state=" + job.state());
-            jobsByTask.put(taskId, job);
-            if (job.state() != FleetJob.State.MERGED) {
-                // runner detail is "merge conflicts: <files>"
-                return blocked(job, project, taskId, job.detail());
-            }
-
-            Task merged = store.get(project, taskId);
-            // Only lift the fleet's OWN in-progress marking. The agent may already
-            // have set done, task_advance'd the ticket into the NEXT stage's
-            // product-backlog, or task_send_back'd it (blocked) — force-setting
-            // in-review here would clobber that, fake completion in the next
-            // stage's column, and pre-arm the advance quality gate.
-            if ("in-progress".equals(merged.status)) {
-                store.update(project, taskId, Map.of("status", "in-review"));
-            }
-            String ref = com.opencode.ide.git.FleetGit.branchFor(taskId);
-            if (merged.artifacts.stream()
-                    .noneMatch(a -> "git".equals(a.kind()) && ref.equals(a.ref()))) {
-                store.addArtifact(project, taskId, "git", ref,
-                        "fleet branch merged back by TaskFleet", ASSIGNEE);
-            }
-            recordTelemetry(project, taskId, job);
-            reapMergedWorktree(baseWorktree, taskId);
-            com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
+        if (job.state() == FleetJob.State.FAILED) {
             return job;
-        } catch (RuntimeException e) {
-            // R1 total-failure contract: after the pre-claim, NO path may
-            // throw past this point - a thrown WorktreeException/UncheckedIo
-            // would strand the ticket in-progress and contradict this class's
-            // "blocked with a concrete reason on failure" promise
-            FleetJob failed = withState(job, FleetJob.State.FAILED, e.getMessage());
-            LOG.log(Level.WARNING, "fleet launch of ticket " + taskId + " failed unexpectedly", e);
-            return blocked(failed, project, taskId, "fleet: " + e.getMessage());
-        } finally {
-            if (permissions != null && permissionSession != null) {
-                permissions.sessionEnded(permissionSession);
-            }
         }
+        try {
+            job = watchdog(submission, timeout);
+        } catch (OpencodeException e) {
+            job = withState(job, FleetJob.State.FAILED, e.getMessage());
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "fleet watchdog of ticket " + taskId + " failed unexpectedly", e);
+            job = withState(job, FleetJob.State.FAILED, e.getMessage());
+        }
+        com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": await returned state=" + job.state());
+        jobsByTask.put(taskId, job);
+        return job;
+    }
+
+    /**
+     * Stage 3 — merge &amp; record: merges the COMPLETED job's branch back
+     * into the main worktree and, on success, does the store bookkeeping
+     * (lift the fleet's own in-progress marking to in-review only when the
+     * agent left it there; add the git branch artifact), best-effort
+     * telemetry ({@link #recordTelemetry}) and the merged-worktree reap
+     * ({@link #reapMergedWorktree}). A refused merge blocks the ticket
+     * with the runner's conflict detail; the worktree is kept for
+     * post-mortem.
+     *
+     * @return the final job: {@code MERGED} on success, or the FAILED job
+     *         with the ticket already blocked
+     */
+    private FleetJob mergeAndRecord(String project, String taskId, FleetJob job, Path baseWorktree) {
+        // merge-back rides the RepoGate (repo-root-keyed, shared by all
+        // engines in this process) - the old per-instance mergeLock is
+        // gone: it only serialized THIS engine while the Board and a
+        // chat session each built their own
+        job = runner.mergeBack(job);
+        com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge returned state=" + job.state());
+        jobsByTask.put(taskId, job);
+        if (job.state() != FleetJob.State.MERGED) {
+            // runner detail is "merge conflicts: <files>"
+            return blocked(job, project, taskId, job.detail());
+        }
+
+        Task merged = store.get(project, taskId);
+        // Only lift the fleet's OWN in-progress marking. The agent may already
+        // have set done, task_advance'd the ticket into the NEXT stage's
+        // product-backlog, or task_send_back'd it (blocked) — force-setting
+        // in-review here would clobber that, fake completion in the next
+        // stage's column, and pre-arm the advance quality gate.
+        if ("in-progress".equals(merged.status)) {
+            store.update(project, taskId, Map.of("status", "in-review"));
+        }
+        String ref = com.opencode.ide.git.FleetGit.branchFor(taskId);
+        if (merged.artifacts.stream()
+                .noneMatch(a -> "git".equals(a.kind()) && ref.equals(a.ref()))) {
+            store.addArtifact(project, taskId, "git", ref,
+                    "fleet branch merged back by TaskFleet", ASSIGNEE);
+        }
+        recordTelemetry(project, taskId, job);
+        reapMergedWorktree(baseWorktree, taskId);
+        com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
+        return job;
     }
 
     /**

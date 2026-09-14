@@ -29,7 +29,7 @@ import com.opencode.ide.client.model.ProviderAuth;
  * Component test for the H5 remainder of the client surface (file status and
  * content, provider auth, global event SSE): real {@code HttpOpencodeClient}
  * over real HTTP against a local stub server, verifying paths, methods,
- * bodies and parsing. Stub bodies follow the shapes of the opencode v1.18.21
+ * bodies and parsing. Stub bodies follow the shapes of the opencode v1.18.30
  * server source ({@code routes/instance/httpapi/groups/file|provider|global.ts}).
  * No Eclipse, no opencode.
  */
