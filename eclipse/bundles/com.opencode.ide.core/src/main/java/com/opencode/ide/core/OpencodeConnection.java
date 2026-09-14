@@ -44,9 +44,17 @@ public final class OpencodeConnection {
     private OpencodeClient client;
     private ConnectionConfig currentConfig;
     private OpencodeServerLauncher launcher;
+    // Password handed to the spawned server - the SAME value must be reused for
+    // the client config; resolveSpawnPassword() generates a fresh random value
+    // on every call, so calling it twice hands server and client DIFFERENT
+    // passwords and every request fails with HTTP 401.
+    private String spawnPassword;
     private OpencodeEventStream eventStream;
     private final List<OpencodeEventListener> eventListeners = new CopyOnWriteArrayList<>();
-    private final OpencodePreferences preferences = new OpencodePreferences();
+    // Lazy: constructing OpencodePreferences touches InstanceScope, which needs the
+    // platform's instance data location. That is not yet available when early OSGi
+    // class loading activates this bundle before the workbench is up.
+    private OpencodePreferences preferences;
 
     private OpencodeConnection() {
     }
@@ -104,7 +112,37 @@ public final class OpencodeConnection {
 
     /** Connection mode currently selected by the user ({@code CONNECT}/{@code SPAWN}). */
     public String getMode() {
-        return preferences.getMode();
+        return preferences().getMode();
+    }
+
+    /** Disposes the singleton only if it was ever created (never constructs eagerly). */
+    public static void disposeIfCreated() {
+        OpencodeConnection local = instance;
+        if (local != null) {
+            local.dispose();
+        }
+    }
+
+    /** Refreshes the singleton only if it was ever created (never constructs eagerly). */
+    public static void refreshIfCreated() {
+        OpencodeConnection local = instance;
+        if (local != null) {
+            local.refresh();
+        }
+    }
+
+    private OpencodePreferences preferences() {
+        OpencodePreferences local = preferences;
+        if (local == null) {
+            synchronized (this) {
+                local = preferences;
+                if (local == null) {
+                    local = new OpencodePreferences();
+                    preferences = local;
+                }
+            }
+        }
+        return local;
     }
 
     /** @return the OS pid of the spawned server (spawn mode, running), else {@code null}. */
@@ -138,10 +176,12 @@ public final class OpencodeConnection {
             launcher.stop();
             launcher = null;
         }
+        spawnPassword = null;
     }
 
     private void rebuild() throws OpencodeException {
         stopEventStream();
+        OpencodePreferences preferences = preferences();
         if (preferences.isConnectMode()) {
             currentConfig = preferences.toConnectConfig();
         } else {
@@ -177,6 +217,7 @@ public final class OpencodeConnection {
     }
 
     private ConnectionConfig buildSpawnConfig() throws OpencodeException {
+        OpencodePreferences preferences = preferences();
         if (launcher == null || !launcher.isRunning()) {
             stopLauncher();
 
@@ -197,17 +238,18 @@ public final class OpencodeConnection {
                 }
             }
 
+            spawnPassword = resolveSpawnPassword(preferences);
             launcher = new OpencodeServerLauncher(
                     preferences.getOpencodeBinary(),
                     preferences.getSpawnHostname(),
                     preferences.getSpawnPort(),
                     workingDirectory,
-                    resolveSpawnPassword(preferences));
+                    spawnPassword);
             launcher.start(SPAWN_TIMEOUT);
         }
         URI base = launcher.getBaseUrl();
         String user = preferences.getUsername();
-        String password = resolveSpawnPassword(preferences);
+        String password = launcher.isRunning() ? spawnPassword : resolveSpawnPassword(preferences);
         return new ConnectionConfig(
                 base,
                 (user == null || user.isEmpty()) ? "opencode" : user,

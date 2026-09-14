@@ -27,15 +27,21 @@ fail verification when the AC-path diff cannot be read.
 
 Auto-dispatch policy/scheduler/cost aggregation now live in the headless fleet
 bundle and serve both Board and chat (`fleet_auto_start/status/stop`). GUI
-Batch B adds session delete/abort and primary-agent chat launch. Verification
-and remaining live acceptance work are tracked below; model write reliability
+Batch B adds session delete/abort and primary-agent chat launch. The first
+real deployment into the live Eclipse install (2026-09-14, second session)
+fixed four first-launch bugs — eager activator preferences, an SCR circular
+reference that disabled the CDT integration, a spawn-password mismatch causing
+universal HTTP 401, and stale-server port reuse — and recovered the p2-damaged
+install itself (`docs/eclipse-deploy-recovery.md`). Live chat round-trip works;
+the remaining live acceptance work is tracked below. Model write reliability
 is still an observed limitation, not solved by a path-presence check.
 
 ## Open work
 
 | Item | Size | Notes |
 |---|---|---|
-| **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip + first-launch live check. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
+| **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip. First-launch and view-creation checks are done (live session 2026-09-14); per-view context menus, screenshots and panel-content verification remain. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
+| **Clean Eclipse reinstall / p2 profile repair** | S | The recovered install runs on hand-maintained `bundles.info` lines (see `docs/eclipse-deploy-recovery.md` caveat). A fresh Eclipse CDP package or installer repair removes the crutch. |
 | **Live automatic-dispatch acceptance** | S | Chat controls and shared reservations implemented. Exercise against a real model after the real-git failure/reset/retry regression; model engagement remains variable. |
 | **Linux integration verification** | S/M | Classpath/launcher/path fixes and native GCC/Clang discovery implemented. WSL GCC fixture passes with Ninja and Makefiles; full Linux Java/Tycho run awaits a JDK-equipped environment or CI after the human pushes. Ubuntu remains non-blocking. |
 
@@ -58,6 +64,11 @@ is still an observed limitation, not solved by a path-presence check.
   waits off SWT, and added native menu smoke plus queued cancellation tests.
 - Verification: final independent review approved; full 27-module clean reactor
   passed at 14:08 local on 2026-09-14. Full desktop/live-model acceptance remains open.
+- First live deployment (second session): four first-launch bugs fixed (activator
+  preferences, SCR circular reference, spawn-password 401, stale-port reuse — see
+  `docs/status-quo-review.md`), install recovered and deploy script hardened
+  (`docs/eclipse-deploy-recovery.md`); full reactor green after each fix; live
+  chat round-trip verified against `glm-5.3`.
 
 ## Parked / non-goals
 

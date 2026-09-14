@@ -91,7 +91,10 @@ public final class ConnectionsManager {
 
     private static volatile ConnectionsManager defaultInstance;
 
-    private final OpencodePreferences preferences;
+    // Nullable: null in production defers construction (InstanceScope needs the
+    // platform's instance data location, which early activation cannot rely on);
+    // injected instances (tests) keep eager behavior.
+    private OpencodePreferences preferences;
     private final ClientFactory clientFactory;
     private final StreamFactory streamFactory;
     private final ManagedConnection primary;
@@ -108,7 +111,7 @@ public final class ConnectionsManager {
             synchronized (ConnectionsManager.class) {
                 local = defaultInstance;
                 if (local == null) {
-                    local = new ConnectionsManager(new OpencodePreferences(),
+                    local = new ConnectionsManager(null,
                             DEFAULT_CLIENTS, DEFAULT_STREAMS, DEFAULT_PRIMARY,
                             System::currentTimeMillis);
                     defaultInstance = local;
@@ -119,26 +122,38 @@ public final class ConnectionsManager {
     }
 
     public ConnectionsManager() {
-        this(new OpencodePreferences(), DEFAULT_CLIENTS, DEFAULT_STREAMS, DEFAULT_PRIMARY,
+        this(null, DEFAULT_CLIENTS, DEFAULT_STREAMS, DEFAULT_PRIMARY,
                 System::currentTimeMillis);
     }
 
     /**
      * Full-injection constructor (test seam): fake factories and clock keep the
-     * manager off the network. A {@code null} primary omits the primary entry.
+     * manager off the network. A {@code null} primary omits the primary entry;
+     * a {@code null} {@code preferences} switches to lazy production preferences.
      */
     public ConnectionsManager(OpencodePreferences preferences, ClientFactory clientFactory,
             StreamFactory streamFactory, PrimaryAccess primary, LongSupplier clock) {
-        this.preferences = Objects.requireNonNull(preferences, "preferences");
+        this.preferences = preferences;
         this.clientFactory = Objects.requireNonNull(clientFactory, "clientFactory");
         this.streamFactory = Objects.requireNonNull(streamFactory, "streamFactory");
         this.clock = clock != null ? clock : System::currentTimeMillis;
         this.primary = primary != null ? ManagedConnection.newPrimary(primary) : null;
-        rebuild();
+        if (preferences != null) {
+            rebuild();
+        }
+    }
+
+    /** Disposes the default instance only if it was ever created (never constructs eagerly). */
+    public static void disposeIfCreated() {
+        ConnectionsManager local = defaultInstance;
+        if (local != null) {
+            local.dispose();
+        }
     }
 
     /** @return immutable snapshot: the primary first (when present), then the remotes. */
     public synchronized List<ManagedConnection> connections() {
+        preferences(); // materialize production preferences (and initial rebuild) on first use
         List<ManagedConnection> all = new ArrayList<>(remotes.size() + 1);
         if (primary != null) {
             all.add(primary);
@@ -154,7 +169,7 @@ public final class ConnectionsManager {
 
     /** @return the remote connections parsed from the preferences (invalid entries skipped). */
     public List<ConnectionConfig> getRemoteConnections() {
-        return preferences.getRemoteConnectionConfigs();
+        return preferences().getRemoteConnectionConfigs();
     }
 
     /**
@@ -168,8 +183,16 @@ public final class ConnectionsManager {
         rebuild();
     }
 
+    private synchronized OpencodePreferences preferences() {
+        if (preferences == null) {
+            preferences = new OpencodePreferences();
+            rebuild(); // the initial population the eager constructor used to perform
+        }
+        return preferences;
+    }
+
     private synchronized void rebuild() {
-        List<ConnectionConfig> desired = preferences.getRemoteConnectionConfigs();
+        List<ConnectionConfig> desired = preferences().getRemoteConnectionConfigs();
         boolean changed = false;
 
         var iterator = remotes.iterator();

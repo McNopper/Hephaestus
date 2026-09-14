@@ -24,6 +24,24 @@ if (Test-Path -LiteralPath $dropins) {
 }
 New-Item -ItemType Directory -Path $plugins -Force | Out-Null
 
+# Clear the cached OSGi state: it still references the previous build's
+# qualifiers after a redeploy, which p2 reports as "another singleton bundle
+# selected" conflicts. This path is regenerated on the next start (the same
+# effect as launching with -clean).
+# NEVER delete org.eclipse.equinox.simpleconfigurator\bundles.info here: it is
+# the bootstrap list of bundles to start - without it the framework cannot even
+# launch the code that would rebuild it, and the install only recovers by
+# renaming away the whole configuration directory.
+$osgiCache = Join-Path (Join-Path $EclipseRoot "configuration") "org.eclipse.osgi"
+if (Test-Path -LiteralPath $osgiCache) {
+    try {
+        Remove-Item -LiteralPath $osgiCache -Recurse -Force
+        Write-Host "[deploy-dev] cleared $osgiCache" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "could not clear $osgiCache (Eclipse running?). Close Eclipse and redeploy, or launch once with -clean."
+    }
+}
+
 # p2 recognizes a dropin subfolder that has a plugins/ (and optional features/) layout.
 # Derived from the source tree rather than hardcoded, so a newly added bundle is
 # never silently left undeployed. Test fragments are not runtime plugins.
@@ -43,6 +61,46 @@ foreach ($b in $bundles) {
     }
     Copy-Item -LiteralPath $jar.FullName -Destination $plugins -Force
     Write-Host "[deploy-dev] $($jar.Name) -> $plugins" -ForegroundColor Green
+}
+
+# If bundles.info carries manual opencode-ide dropin lines (the recovery state
+# after a damaged p2 profile, where the dropins reconciler no longer manages
+# them), refresh those lines to the freshly built versions so OSGi never sees a
+# manifest/bundles.info version mismatch. Normal installs rely on the p2
+# reconciler and simply have no such lines - then this is a no-op.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$bundlesInfo = Join-Path $EclipseRoot "configuration\org.eclipse.equinox.simpleconfigurator\bundles.info"
+if (Test-Path -LiteralPath $bundlesInfo) {
+    $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $bundlesInfo)
+    $existing = @($lines | Where-Object { $_ -like "*,file:dropins/opencode-ide/plugins/*" })
+    if ($existing.Count -gt 0) {
+        foreach ($jar in Get-ChildItem $plugins -Filter "*.jar") {
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
+            try {
+                $entry = $zip.GetEntry("META-INF/MANIFEST.MF")
+                $reader = [System.IO.StreamReader]::new($entry.Open(), [System.Text.Encoding]::UTF8)
+                $raw = $reader.ReadToEnd(); $reader.Close()
+                $unfolded = ($raw -replace "`r?`n ", "") -replace "`r?`n", "`n"
+                $id = $null; $ver = $null
+                foreach ($line in ($unfolded -split "`n")) {
+                    if ($line -match '^Bundle-SymbolicName:\s*([^;\r\n]+)') { $id = $Matches[1].Trim() }
+                    elseif ($line -match '^Bundle-Version:\s*(\S+)') { $ver = $Matches[1].Trim() }
+                }
+            } finally { $zip.Dispose() }
+            if ($id -and $ver) {
+                $newLine = "$id,$ver,file:dropins/opencode-ide/plugins/$($jar.Name),4,false"
+                $replaced = $false
+                for ($i = 0; $i -lt $lines.Count; $i++) {
+                    if ($lines[$i] -like "$id,*,file:dropins/opencode-ide/plugins/*") {
+                        $lines[$i] = $newLine; $replaced = $true; break
+                    }
+                }
+                if (-not $replaced) { $lines.Add($newLine) }
+            }
+        }
+        Set-Content -LiteralPath $bundlesInfo -Value $lines
+        Write-Host "[deploy-dev] refreshed opencode-ide lines in bundles.info" -ForegroundColor DarkGray
+    }
 }
 
 Write-Host ""

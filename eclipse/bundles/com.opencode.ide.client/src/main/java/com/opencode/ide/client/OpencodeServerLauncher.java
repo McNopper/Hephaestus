@@ -69,6 +69,10 @@ public final class OpencodeServerLauncher {
             return baseUrl;
         }
 
+        if (port > 0) {
+            requirePortFree(hostname, port);
+        }
+
         Path binary = BinaryResolver.resolveBinary(configuredBinary);
         if (binary == null) {
             throw new OpencodeConnectionException(
@@ -173,6 +177,23 @@ public final class OpencodeServerLauncher {
             return socket.getLocalPort();
         } catch (IOException e) {
             throw new OpencodeConnectionException("Could not allocate a free port for opencode serve", e);
+        }
+    }
+
+    /**
+     * A configured (fixed) port must be OURS. A stranger already listening there
+     * (typically a stale orphaned {@code opencode serve} from a crashed session)
+     * would answer our authenticated probes with 401 forever - fail fast with a
+     * message that names the cause instead.
+     */
+    private static void requirePortFree(String host, int port) throws OpencodeConnectionException {
+        try (ServerSocket socket = new ServerSocket()) {
+            socket.setReuseAddress(false);
+            socket.bind(new InetSocketAddress(host, port), 1);
+        } catch (IOException e) {
+            throw new OpencodeConnectionException("Port " + port + " on " + host
+                    + " is already in use - probably a stale 'opencode serve' from a previous"
+                    + " session. Stop that process (or clear the configured port) and reconnect.", e);
         }
     }
 

@@ -70,9 +70,35 @@ fleet owns scheduling; views use focused selection and dispatch models.
   open those views. Remote delete/abort use the selected connection's client.
 - The AC-path check proves a named path changed, not correctness or model reliability.
 
+## Live first-launch pass (2026-09-14, second session — first real deployment)
+
+The first actual `deploy-dev.ps1` deployment into the running Eclipse CDT
+install exposed four bugs no headless test could catch, all fixed and rebuilt
+(the full reactor passed again after each fix):
+
+| Finding | Cause | Fix |
+|---|---|---|
+| Whole GUI broken: every view "Could not create", `IllegalStateException: instance data location not specified` | `CoreActivator.start()` eagerly built `OpencodeConnection`/`ConnectionsManager` → `InstanceScope` before the runtime's instance area exists | Lazy OSGi `ServiceFactory` registrations; preferences materialize on first use; graceful tasksRoot-bridge retry (`LinkageError`-safe) |
+| CDT integration disabled: Felix SCR `Circular reference ... CdtProjectContext` | The same activator opened the `ProjectContext` tracker in `start()`, re-entering the CDT component creation that had triggered core's lazy activation | Tracker opens lazily on first `getProjectContext()` |
+| Views up but every REST/SSE call HTTP 401 | `buildSpawnConfig()` called the random-password generator twice — server and client held different passwords | Single `spawnPassword` per launcher lifecycle |
+| Stale orphaned `opencode serve` on a configured port caused endless 401s | Launcher trusted an already-occupied fixed port | `requirePortFree` fast-failure with a named cause + regression test (`OpencodeServerLauncherPortTest`) |
+
+The deployment also **damaged the Eclipse install itself** (an interrupted
+first start after cache clearing left no `bundles.info`; the subsequent p2
+rewrite stripped 13 exploded-directory bundles including the product bundle).
+Recovery procedure and deploy-script hardening are documented in
+`eclipse-deploy-recovery.md`; the install now runs on hand-maintained
+`bundles.info` lines that `deploy-dev.ps1` refreshes on every deploy.
+
+**Live evidence after the fixes:** workbench up with an explicit `-data`
+workspace, all opencode views created, spawned server connected with
+authenticated event streams (zero 401s after the final spawn), and a real
+chat round-trip through the Chat view answered by `glm-5.3`.
+
 ## Next live acceptance pass
 
-1. Deploy the verified jars with `eclipse/deploy-dev.ps1`, then launch Eclipse.
+1. Deploy the verified jars with `eclipse/deploy-dev.ps1`, then launch Eclipse
+   (see `eclipse-deploy-recovery.md` for the launch rules).
 2. Open Board, Fleet, Server, Repo, Chat, Providers and Session Details; capture each
    view and exercise its context menu with both a valid selection and empty selection.
 3. Create a disposable primary session. Abort an active reply, then delete the
