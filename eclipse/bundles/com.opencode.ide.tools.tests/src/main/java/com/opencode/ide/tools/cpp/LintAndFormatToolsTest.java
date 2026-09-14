@@ -168,6 +168,10 @@ public class LintAndFormatToolsTest {
 
     @Test
     public void toolchainsListReportsLintCapabilities() {
+        // toolchain discovery uses MSYS2/MinGW paths that are Windows-specific;
+        // on other platforms the list may legitimately be empty
+        Assume.assumeTrue("toolchain discovery is Windows-specific (MSYS2/MinGW paths)",
+                System.getProperty("os.name", "").toLowerCase().contains("win"));
         JsonObject payload = parsePayload(tools.call("toolchains_list", new JsonObject()));
         JsonArray toolchains = payload.getAsJsonArray("toolchains");
         assertNotNull(toolchains);
