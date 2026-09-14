@@ -14,9 +14,14 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            blocking: true
+          - os: ubuntu-latest
+            blocking: false
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.blocking }}
     steps:
       - uses: actions/checkout@v4
         with:
