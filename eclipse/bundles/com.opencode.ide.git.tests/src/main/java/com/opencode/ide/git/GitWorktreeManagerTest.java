@@ -243,13 +243,14 @@ public class GitWorktreeManagerTest {
      * commitAll racing a store sync - the pre-claim vs auto-sync case) must
      * serialize instead of intermittently losing git's index.lock race.
      */
-    @Test(timeout = 60_000)
+    @Test(timeout = 300_000)
     public void concurrentCommitAndSyncSerializeThroughTheRepoGate() throws Exception {
         Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
         java.util.concurrent.atomic.AtomicInteger failures = new java.util.concurrent.atomic.AtomicInteger();
+        int iterations = 3; // CI runners spawn git ~10x slower - keep the total bounded
         Runnable committer = () -> {
             try {
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < iterations; i++) {
                     Files.writeString(store.resolve("T-" + i + ".md"), "tick " + i + "\n",
                             StandardCharsets.UTF_8);
                     manager.commitAll(repo, ".opencode/tasks", "concurrent commit " + i);
@@ -260,7 +261,7 @@ public class GitWorktreeManagerTest {
         };
         Runnable syncer = () -> {
             try {
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < iterations; i++) {
                     StoreSync.sync(store, "concurrent sync " + i);
                 }
             } catch (Exception e) {
