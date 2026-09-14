@@ -18,28 +18,26 @@ this harness is deliberate weight for complex projects, chosen on purpose.
 
 ## Current state (2026-09-14)
 
-The fleet and ticketing system is **production-solid**: dispatch → watchdog →
-guarded merge-back → actuals → auto-sync, with release-on-failure, repo-gated
-git, reaping, cross-engine guards and crash reconciliation. The **V-model
-regression suite is COMPLETE** (all 6 stages landed; `EditorCoreTest.java`
-15/15 golden vectors green). A full production-readiness review (2026-09-14)
-found 5 P1s — **all fixed and pushed**: `fleet_reset` actually clears the
-blocked flag + stale markers; the Board's launch path rides the same
-cross-engine dispatch marker; hard-coded developer paths replaced with
-workspace-derived defaults; the pre-claim window is inside the
-total-failure contract; Eclipse spawn mode generates a random password.
-Remaining P2s are ticketed as **G-001..G-006** (stale-marker sweep, crash
-cleanup gitdir resolution, MCP endpoint auth, tuning wire-up, linux CI,
-observability swallow points). The core engine is READY; the surrounding
-recovery tooling is NEARLY.
+The fleet has dispatch, watchdog, merge-back, actuals, store sync and recovery.
+The follow-up review found cross-engine reset and shutdown gaps despite the
+earlier readiness claim. Fixes now reserve reset against live peer dispatch,
+reject dispatch after close, preserve active claims during reconciliation,
+resolve linked-worktree reservations through the common git directory, and
+fail verification when the AC-path diff cannot be read.
+
+Auto-dispatch policy/scheduler/cost aggregation now live in the headless fleet
+bundle and serve both Board and chat (`fleet_auto_start/status/stop`). GUI
+Batch B adds session delete/abort and primary-agent chat launch. Verification
+and remaining live acceptance work are tracked below; model write reliability
+is still an observed limitation, not solved by a path-presence check.
 
 ## Open work
 
 | Item | Size | Notes |
 |---|---|---|
 | **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip + first-launch live check. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
-| **Auto-dispatch (Board Auto ▶)** | M | Manual only until the failure-release is proven in a real failure cycle; then wire chat-start (needs a running-set shared with `fleet_dispatch`). |
-| **U-002 GUI Batch B** | S/M | Delete session (needs new client method `DELETE /session/:id`), abort actions, agent-scoped new session (`openChat agentId` param). Below fleet reliability. |
+| **Live automatic-dispatch acceptance** | S | Chat controls and shared reservations implemented. Exercise against a real model after the real-git failure/reset/retry regression; model engagement remains variable. |
+| **Linux integration verification** | S/M | Classpath/launcher/path fixes and native GCC/Clang discovery implemented. WSL GCC fixture passes with Ninja and Makefiles; full Linux Java/Tycho run awaits a JDK-equipped environment or CI after the human pushes. Ubuntu remains non-blocking. |
 
 ## Completed this session (2026-09-14)
 
@@ -51,6 +49,15 @@ recovery tooling is NEARLY.
 - ✅ Worker reliability: AC-path enforcement (the engine verifies AC-named file paths in the diff before merge — analysis-only runs now refuse with "expected X, got Y")
 - ✅ GUI Batch A: context menus on all 5 views (Board: Launch/Take over/Open/Copy; Fleet: diff/folder/take-over/copy/abort; Server: Open-in-Chat/Copy/Agent-details; Repo: Copy path; SessionDetails: Copy text)
 - ✅ Tuning config surface: env-var overrides for all knob tables (FLEET_*, CLIENT_*, GIT_*)
+- Follow-up: GUI Batch B implemented; HTTP failures surface, remote mutations target the selected server, and async selector loading retains requested agent/model.
+- Follow-up: shared scheduler and chat start/status/stop controls implemented; scheduler admissions account for peer reservations and in-flight cost estimates.
+- Follow-up verification: see `docs/status-quo-review.md` for evidence and outstanding live checks.
+- Parallel hardening: cross-process Git/admission gates, persistent project ownership,
+  atomic stale rework, calibrated budget revalidation, and async deferral feedback.
+- UI architecture: extracted selection/catalog/dispatch models, kept admission/stop
+  waits off SWT, and added native menu smoke plus queued cancellation tests.
+- Verification: final independent review approved; full 27-module clean reactor
+  passed at 14:08 local on 2026-09-14. Full desktop/live-model acceptance remains open.
 
 ## Parked / non-goals
 

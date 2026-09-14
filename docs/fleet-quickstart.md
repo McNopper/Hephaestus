@@ -30,11 +30,11 @@ Build the bundles the two MCP servers need (from the repo root, Windows):
 
 ```pwsh
 cd eclipse
-.\build.ps1 -pl bundles/com.opencode.ide.fleet -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package
+.\build.ps1 clean verify
 ```
 
-(A full `.\build.ps1 clean verify` also works and runs the test gate. The first
-build also populates the Tycho p2 cache the launchers resolve gson from.)
+Use the full reactor: isolated `-pl` builds can fail Tycho dependency resolution.
+The first build also populates the Tycho p2 cache the launchers resolve gson from.
 
 Optional hardening: set `OPENCODE_SERVER_PASSWORD` before starting opencode. The
 spawned server honors it; otherwise the engine generates a fresh random password so
@@ -57,6 +57,35 @@ You don't type these names — ask in chat ("create a ticket …") and the model
 the tool — but the steps below name them so you know what happened.
 
 ## First run, end to end
+
+### Optional automatic dispatch
+
+After planning tickets into a sprint, call `fleet_fleet_auto_start`:
+
+```json
+{ "project": "myproject", "sprint": "S-01", "max_concurrent": 4,
+  "cost_budget_usd": 5, "include_stale": false }
+```
+
+`fleet_fleet_auto_status` reports this engine's loop and scope;
+`fleet_fleet_auto_stop` stops admissions while accepted jobs settle normally.
+The loop polls every five seconds and uses the same readiness policy as the Board.
+Board and chat schedulers count the shared repository reservations and serialize
+capacity-check plus reservation. Explicit manual dispatch can exceed the scheduler
+cap. Cost is an admission estimate (recorded project spend plus estimated in-flight
+work), not a hard billing limit. Failed tickets stay blocked until reviewed/reset.
+Loop settings last for this MCP process; restart explicitly after a process restart.
+
+`fleet_reset` reserves the ticket before cleanup and refuses a live peer's marker.
+Dead-owner markers are swept; unknown/malformed ownership is retained for inspection.
+
+Use distinct ticket prefixes across projects in the same repository. Fleet branch
+names remain ID-based; persistent `.project` metadata binds each slot to its owning
+project, even after reset/reaping. A colliding project is refused. Legacy unowned
+worktree/branch residue requires ownership investigation and explicit recovery;
+it is not automatically adopted or deleted.
+
+### One-ticket dispatch
 
 **1. Seed a ticket** — `tasks_task_create` (status lands in `product-backlog`):
 

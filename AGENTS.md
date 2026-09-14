@@ -173,9 +173,14 @@ Concretely, a chat agent can already:
   unset) and kills it on shutdown.
 - capture/compare renders via `mcp.graphics`.
 
-Not yet chat-triggerable (ROADMAP "Remaining work"): *proactive* ask-surfacing inside
-the dispatching chat (answering works via `fleet_fleet_permissions*`), the
-auto-dispatch loop, and board rendering. For unattended runs, prefer making risky
+The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
+(explicit project/sprint, concurrency and cost-admission budget),
+`fleet_fleet_auto_status`, and `fleet_fleet_auto_stop`. Board and chat share the
+headless scheduling policy and repository reservations.
+
+Not yet chat-triggerable: *proactive* ask-surfacing inside
+the dispatching chat (answering works via `fleet_fleet_permissions*`) and
+board rendering. For unattended runs, prefer making risky
 actions `deny` in the opencode permission config instead of `ask` — an unanswered ask
 holds the run until answered (the watchdog pauses, it does not decide).
 
