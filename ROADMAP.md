@@ -18,20 +18,26 @@ this harness is deliberate weight for complex projects, chosen on purpose.
 
 ## Current state (2026-09-14)
 
-The fleet and ticketing system is **production-shaped**: dispatch → watchdog →
+The fleet and ticketing system is **production-solid**: dispatch → watchdog →
 guarded merge-back → actuals → auto-sync, with release-on-failure, repo-gated
-git, reaping, cross-engine guards and crash reconciliation — all landed and
-tested (1048 Java tests + 153 Node checks; CI green on windows-latest).
-The V-model regression suite (the "Navi" editor) is **4 of 6 stages MERGED**;
-the implementation stage is blocked on a worker-model engagement problem
-(the agent completes with a reply but never attempts a file write — five
-identical refusals; engine proven correct; diagnosis on W-005).
+git, reaping, cross-engine guards and crash reconciliation. The **V-model
+regression suite is COMPLETE** (all 6 stages landed; `EditorCoreTest.java`
+15/15 golden vectors green). **Verdict:** the engine is correct and hardened
+(7 live defects found and fixed); the worker tier (glm-5.3 at the
+low/executor path) produces files **unreliably** (~1 in 6 dispatches — the
+agent completes with a text reply but never attempts a file write;
+decomposed self-contained *create*-format tickets improve the odds,
+*modify*-existing-file is worse). The engine's empty-result refusal catches
+every non-producing run honestly — no fake merges, no zombie claims. The
+path forward for reliable unattended work is a stronger worker model or
+explicit file-write enforcement at the engine level, not more engine
+plumbing.
 
 ## Open work
 
 | Item | Size | Notes |
 |---|---|---|
-| **W-005 worker engagement** | M | Five identical "worker produced no changes" refusals (executor AND build agents, decomposed AND whole tickets). Next lever: surface the worker's last assistant text via `fleet_job_details`, then bisect the smoke-test-vs-fleet context difference. The finding trail is on W-005. |
+| **Worker reliability** | M | ~1/6 dispatches produce files (glm-5.3 low/executor). Options: (a) pin a stronger worker model per dispatch, (b) engine-level enforcement: parse the AC-named file paths and refuse runs that don't touch them (the guard already refuses zero-commit runs; tighten to "no AC path in the diff"), (c) accept the retry cost (the engine handles it cleanly). |
 | **opencode pin bump 1.18.21 → 1.18.30** | S | API verified table-identical through 1.18.30. Smoke: assert the OpenAPI `/doc` covers our whole surface, then bump `ServerVersionPin.PINNED_VERSION`. Also verify the three undocumented behaviors (GET /skill, POST /session?directory=, busy-only status). |
 | **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip + first-launch live check. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
 | **Milestone H remainder — refactor cadence** | S | Every second session; due since 2026-08-18. |
