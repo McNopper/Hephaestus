@@ -18,11 +18,11 @@ public record LintBinaries(Optional<Path> clangTidy, Optional<Path> clangFormat,
         Optional<Path> clangTidy = ToolchainRegistry.detected().stream()
                 .map(ToolchainRegistry.Toolchain::clangTidy)
                 .flatMap(Optional::stream)
-                .findFirst();
+                .findFirst().or(() -> ToolchainRegistry.which("clang-tidy"));
         Optional<Path> clangFormat = ToolchainRegistry.detected().stream()
                 .map(ToolchainRegistry.Toolchain::clangFormat)
                 .flatMap(Optional::stream)
-                .findFirst();
+                .findFirst().or(() -> ToolchainRegistry.which("clang-format"));
         return new LintBinaries(clangTidy, clangFormat, ToolchainRegistry.cppcheck());
     }
 }

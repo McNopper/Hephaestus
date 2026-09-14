@@ -18,7 +18,7 @@
 # eclipse/), and gson (resolved from the local Tycho p2 cache or an Eclipse
 # install).
 param(
-    [string]$Root = $(Join-Path (Get-Location) ".opencode\tasks")
+    [string]$Root = $(Join-Path (Get-Location) ".opencode/tasks")
 )
 $ErrorActionPreference = "Stop"
 
@@ -27,14 +27,14 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 # 1) java
 $java = (Get-Command java -ErrorAction SilentlyContinue)?.Source
 if (-not $java -and $env:JAVA_HOME) {
-    $candidate = Join-Path $env:JAVA_HOME "bin\java.exe"
+    $candidate = Join-Path $env:JAVA_HOME $(if ($IsWindows) { "bin/java.exe" } else { "bin/java" })
     if (Test-Path -LiteralPath $candidate) { $java = $candidate }
 }
 if (-not $java) { throw "java not found on PATH and JAVA_HOME does not point at a JDK. A JDK 21+ is required." }
 
 # 2) the built bundles (newest jar wins; build with: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.fleet -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package)
 function Find-BuiltJar([string]$bundle) {
-    $jar = Get-ChildItem (Join-Path $here "bundles\$bundle\target\$bundle-*.jar") -ErrorAction SilentlyContinue |
+    $jar = Get-ChildItem (Join-Path $here "bundles/$bundle/target/$bundle-*.jar") -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notmatch 'sources' } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     return $jar
@@ -51,10 +51,10 @@ if ($missing.Count -gt 0) {
 
 # 3) gson: local Tycho p2 cache first, then Eclipse installs
 $gsonCandidates = @()
-$gsonCandidates += Get-ChildItem "$env:USERPROFILE\.m2\repository\p2\osgi\bundle\com.google.gson\*\com.google.gson-*.jar" -ErrorAction SilentlyContinue
-foreach ($install in @($env:ECLIPSE_HOME, "C:\eclipse-cpp")) {
+$gsonCandidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/com.google.gson/*/com.google.gson-*.jar") -ErrorAction SilentlyContinue
+foreach ($install in @($env:ECLIPSE_HOME, $(if ($IsWindows) { "C:\eclipse-cpp" }))) {
     if ($install -and (Test-Path $install)) {
-        $gsonCandidates += Get-ChildItem (Join-Path $install "plugins\com.google.gson_*.jar") -ErrorAction SilentlyContinue
+        $gsonCandidates += Get-ChildItem (Join-Path $install "plugins/com.google.gson_*.jar") -ErrorAction SilentlyContinue
     }
 }
 $gsonJar = $gsonCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1

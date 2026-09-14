@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,8 +32,6 @@ import org.junit.Test;
  * test seam of {@link CppToolProvider}.
  */
 public class LintAndFormatToolsTest {
-
-    private static final Path CPPCHECK = Paths.get("C:\\Program Files\\Cppcheck\\cppcheck.exe");
 
     private final CppToolProvider tools = new CppToolProvider();
 
@@ -68,7 +67,8 @@ public class LintAndFormatToolsTest {
             assertTrue("isError expected: " + result.text(), result.isError());
             assertTrue(result.text().contains("clang-tidy"));
             assertTrue("install hint expected: " + result.text(),
-                    result.text().contains("pacman -S mingw-w64-clang-x86_64-clang-tools-extra"));
+                    result.text().contains(File.separatorChar == '\\'
+                            ? "pacman -S mingw-w64-clang-x86_64-clang-tools-extra" : "apt install clang-tidy"));
         } finally {
             deleteRecursively(dir);
         }
@@ -81,7 +81,8 @@ public class LintAndFormatToolsTest {
             McpToolResult result = forcedEmptyLint().call("lint_run", lintArgs(dir, "cppcheck"));
             assertTrue("isError expected: " + result.text(), result.isError());
             assertTrue("install hint expected: " + result.text(),
-                    result.text().contains("winget install Cppcheck.Cppcheck"));
+                    result.text().contains(File.separatorChar == '\\'
+                            ? "winget install Cppcheck.Cppcheck" : "apt install cppcheck"));
         } finally {
             deleteRecursively(dir);
         }
@@ -160,7 +161,8 @@ public class LintAndFormatToolsTest {
             McpToolResult result = forcedEmptyLint().call("format_run", formatArgs("check", file));
             assertTrue("isError expected: " + result.text(), result.isError());
             assertTrue("install hint expected: " + result.text(),
-                    result.text().contains("pacman -S mingw-w64-clang-x86_64-clang-format"));
+                    result.text().contains(File.separatorChar == '\\'
+                            ? "pacman -S mingw-w64-clang-x86_64-clang-format" : "apt install clang-format"));
         } finally {
             Files.deleteIfExists(file);
         }
@@ -168,10 +170,6 @@ public class LintAndFormatToolsTest {
 
     @Test
     public void toolchainsListReportsLintCapabilities() {
-        // toolchain discovery uses MSYS2/MinGW paths that are Windows-specific;
-        // on other platforms the list may legitimately be empty
-        Assume.assumeTrue("toolchain discovery is Windows-specific (MSYS2/MinGW paths)",
-                System.getProperty("os.name", "").toLowerCase().contains("win"));
         JsonObject payload = parsePayload(tools.call("toolchains_list", new JsonObject()));
         JsonArray toolchains = payload.getAsJsonArray("toolchains");
         assertNotNull(toolchains);
@@ -186,9 +184,8 @@ public class LintAndFormatToolsTest {
         assertNotNull("global lint section expected", lint);
         assertEquals("cppcheck section matches the registry resolver",
                 ToolchainRegistry.cppcheck().isPresent(), !lint.get("cppcheck").isJsonNull());
-        Assume.assumeTrue("standard cppcheck location not present on this machine",
-                Files.isRegularFile(CPPCHECK));
-        assertEquals(CPPCHECK.toString(), lint.get("cppcheck").getAsString());
+        ToolchainRegistry.cppcheck().ifPresent(binary ->
+                assertEquals(binary.toString(), lint.get("cppcheck").getAsString()));
     }
 
     private static CppToolProvider forcedEmptyLint() {

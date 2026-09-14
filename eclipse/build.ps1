@@ -45,14 +45,17 @@ function Resolve-JavaHome {
 }
 
 $jdk = Resolve-JavaHome
-if (-not $jdk) { throw "No JDK found. Set JAVA_HOME to a JDK (>=17) containing bin/$JavaBin." }
+if (-not $jdk) { throw "No JDK found. Set JAVA_HOME to a JDK (>=21) containing bin/$JavaBin." }
 $env:JAVA_HOME = $jdk
 Write-Host "[build] JAVA_HOME = $jdk" -ForegroundColor DarkGray
 
 $mvnw = if ($IsWindowsOS) { "mvnw.cmd" } else { "mvnw" }
 $mvnwPath = Join-Path $PSScriptRoot $mvnw
 if (-not (Test-Path $mvnwPath)) { throw "Maven wrapper not found: $mvnwPath" }
-if (-not $IsWindowsOS) { & chmod +x $mvnwPath }
-
-& $mvnwPath @args
+if ($IsWindowsOS) {
+    & $mvnwPath @args
+} else {
+    # Invoke the POSIX wrapper through sh: zip/Windows checkouts may lack its executable bit.
+    & sh $mvnwPath @args
+}
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

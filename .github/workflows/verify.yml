@@ -18,6 +18,7 @@ jobs:
           - os: windows-latest
             blocking: true
           - os: ubuntu-latest
+            # Keep diagnostic-only until Linux has completed the entire verification gate.
             blocking: false
       fail-fast: false
     runs-on: ${{ matrix.os }}
@@ -37,3 +38,13 @@ jobs:
         shell: pwsh
         working-directory: eclipse
         run: ./build.ps1 clean verify
+
+      - name: Preserve verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-reports-${{ matrix.os }}
+          path: |
+            eclipse/**/target/surefire-reports/**
+            eclipse/**/target/work/data/.metadata/.log
+          if-no-files-found: warn

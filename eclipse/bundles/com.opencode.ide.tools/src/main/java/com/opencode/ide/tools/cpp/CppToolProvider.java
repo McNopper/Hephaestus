@@ -122,7 +122,7 @@ public final class CppToolProvider implements ToolProvider {
     private static List<McpTool> buildTools() {
         List<McpTool> tools = new ArrayList<>();
         tools.add(new McpTool("toolchains_list",
-                "List the C/C++ toolchains detected on this machine (msvc, clang64, mingw64, ucrt64), which "
+                "List the C/C++ toolchains detected on this machine (msvc, clang64, mingw64, ucrt64, gcc, clang), which "
                         + "tools each provides (cmake/ninja/compiler/ctest/gdb/clang-tidy/clang-format) and its "
                         + "CMake generator, plus a global lint section with the standalone cppcheck path (or null).",
                 schema(new JsonObject())));
@@ -131,27 +131,23 @@ public final class CppToolProvider implements ToolProvider {
                 "Absolute path to the directory containing CMakeLists.txt"));
         configureProps.add("build_dir", stringProperty(
                 "Absolute path to the build directory (created if missing)"));
-        configureProps.add("toolchain", enumProperty(
-                "Toolchain id; omit for the default (first detected in order msvc, clang64, mingw64, ucrt64)",
-                "msvc", "clang64", "mingw64", "ucrt64"));
+        configureProps.add("toolchain", toolchainProperty("Toolchain id; omit for the platform default"));
         configureProps.add("build_type", stringProperty("CMAKE_BUILD_TYPE value; default \"Debug\""));
         configureProps.add("extra_args", arrayProperty(
                 "Extra cmake arguments, e.g. [\"-DCMAKE_C_COMPILER=...\"]"));
         tools.add(new McpTool("cmake_configure",
                 "Run cmake -S <source_dir> -B <build_dir> with the selected toolchain's generator "
-                        + "(Ninja for MSYS2 envs, Visual Studio generator for MSVC).",
+                         + "(Ninja or Unix Makefiles for native GCC/Clang, Ninja for MSYS2, Visual Studio for MSVC).",
                 schema(configureProps, "source_dir", "build_dir")));
         JsonObject buildProps = new JsonObject();
         buildProps.add("build_dir", stringProperty("Absolute path to an existing build directory"));
-        buildProps.add("toolchain", enumProperty("Toolchain id; omit for the default", "msvc", "clang64",
-                "mingw64", "ucrt64"));
+        buildProps.add("toolchain", toolchainProperty("Toolchain id; omit for the default"));
         buildProps.add("target", stringProperty("Optional build target; omit to build the default target"));
         tools.add(new McpTool("cmake_build", "Run cmake --build <build_dir> -j (optionally for one target).",
                 schema(buildProps, "build_dir")));
         JsonObject ctestProps = new JsonObject();
         ctestProps.add("build_dir", stringProperty("Absolute path to the build directory"));
-        ctestProps.add("toolchain", enumProperty("Toolchain id; omit for the default", "msvc", "clang64",
-                "mingw64", "ucrt64"));
+        ctestProps.add("toolchain", toolchainProperty("Toolchain id; omit for the default"));
         ctestProps.add("test_filter", stringProperty("Optional regex passed to ctest -R"));
         ctestProps.add("extra_args", arrayProperty("Extra ctest arguments"));
         tools.add(new McpTool("ctest_run", "Run ctest --test-dir <build_dir> --output-on-failure.",
@@ -194,9 +190,8 @@ public final class CppToolProvider implements ToolProvider {
         formatProps.add("files", arrayProperty("Absolute paths of the files to format"));
         formatProps.add("mode", enumProperty("\"check\" (default, dry-run) or \"apply\" (rewrite in place)",
                 "check", "apply"));
-        formatProps.add("toolchain", enumProperty(
-                "Toolchain id used to locate clang-format; omit for the default (first detected that has it)",
-                "msvc", "clang64", "mingw64", "ucrt64"));
+        formatProps.add("toolchain", toolchainProperty(
+                "Toolchain id used to locate clang-format; omit for the default (first detected that has it)"));
         formatProps.add("style", stringProperty(
                 "--style value, e.g. \"llvm\", \"google\" or inline JSON; default \"file\" (falls back to LLVM "
                         + "style when no .clang-format file is found)"));
@@ -205,6 +200,10 @@ public final class CppToolProvider implements ToolProvider {
                         + "(dry-run --Werror), apply mode rewrites them in place and reports reformatted.",
                 schema(formatProps, "files")));
         return List.copyOf(tools);
+    }
+
+    private static JsonObject toolchainProperty(String description) {
+        return enumProperty(description, "msvc", "clang64", "mingw64", "ucrt64", "gcc", "clang");
     }
 
     private BuildRunner.ToolResult configure(JsonObject args) throws IOException {
@@ -216,15 +215,17 @@ public final class CppToolProvider implements ToolProvider {
         }
         Path cmake = tc.cmake()
                 .orElseThrow(() -> new ToolchainError("toolchain '" + tc.id()
-                        + "' has no cmake (install e.g. pacman -S cmake inside its MSYS2 env)"));
+                        + "' has no cmake (install CMake and add it to PATH or the selected MSYS2 bin directory)"));
         String generator = tc.generator()
-                .orElseThrow(() -> new ToolchainError("toolchain '" + tc.id() + "' has no generator (MSYS2 "
-                        + "environments need ninja.exe in their bin dir; install with: pacman -S ninja)"));
+                .orElseThrow(() -> new ToolchainError("toolchain '" + tc.id() + "' has no generator "
+                        + "(native toolchains need Ninja or Make on PATH; MSYS2 needs ninja.exe in its bin directory)"));
         Files.createDirectories(build);
         String buildType = optString(args, "build_type");
         List<String> command = new ArrayList<>(List.of(cmake.toString(), "-S", source.toString(), "-B",
                 build.toString(), "-G", generator,
                 "-DCMAKE_BUILD_TYPE=" + (buildType != null ? buildType : "Debug")));
+        command.addAll(tc.compilerArguments());
+        command.add("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON");
         command.addAll(stringArray(args, "extra_args"));
         return BuildRunner.run(command, tc.pathPrepend(), null, BUILD_TIMEOUT);
     }
@@ -301,6 +302,10 @@ public final class CppToolProvider implements ToolProvider {
                 .flatMap(ToolchainRegistry.Toolchain::gdb);
         Optional<Path> gdb = fromToolchain.isPresent() ? fromToolchain : whichGdb();
         if (gdb.isEmpty()) {
+            if (!ToolchainRegistry.isWindows()) {
+                return McpToolResult.error("debug_batch: gdb was not found on PATH. Install gdb with your "
+                        + "system package manager (Ubuntu: apt install gdb).");
+            }
             return McpToolResult.error("debug_batch: gdb was not found on this machine (checked the default "
                     + "toolchain and PATH). gdb is not silently faked here. Install it into the MSYS2 "
                     + "environment matching your binary, e.g. open C:\\msys64\\ucrt64.exe (or clang64.exe / "
@@ -341,6 +346,10 @@ public final class CppToolProvider implements ToolProvider {
     private McpToolResult clangTidy(Path sourceDir, JsonObject args, List<String> extraArgs, Duration timeout) {
         Optional<Path> clangTidy = lint().clangTidy();
         if (clangTidy.isEmpty()) {
+            if (!ToolchainRegistry.isWindows()) {
+                return McpToolResult.error("lint_run: clang-tidy was not found on PATH. Install clang-tidy "
+                        + "with your system package manager (Ubuntu: apt install clang-tidy).");
+            }
             return McpToolResult.error("lint_run: clang-tidy was not found on this machine (probed every "
                     + "detected MSYS2 environment bin, standalone LLVM at \"C:\\Program Files\\LLVM\\bin\" "
                     + "and PATH). clang-tidy is not silently faked here. With MSYS2 install it into the "
@@ -375,6 +384,10 @@ public final class CppToolProvider implements ToolProvider {
     private McpToolResult cppcheck(Path sourceDir, List<String> extraArgs, Duration timeout) {
         Optional<Path> cppcheck = lint().cppcheck();
         if (cppcheck.isEmpty()) {
+            if (!ToolchainRegistry.isWindows()) {
+                return McpToolResult.error("lint_run: cppcheck was not found on PATH. Install cppcheck "
+                        + "with your system package manager (Ubuntu: apt install cppcheck).");
+            }
             return McpToolResult.error("lint_run: cppcheck was not found on this machine (probed "
                     + "\"C:\\Program Files\\Cppcheck\\cppcheck.exe\" and PATH). Install it e.g. with: "
                     + "winget install Cppcheck.Cppcheck");
@@ -471,6 +484,10 @@ public final class CppToolProvider implements ToolProvider {
         }
         Optional<Path> clangFormat = resolveClangFormat(args);
         if (clangFormat.isEmpty()) {
+            if (!ToolchainRegistry.isWindows()) {
+                return McpToolResult.error("format_run: clang-format was not found on PATH. Install clang-format "
+                        + "with your system package manager (Ubuntu: apt install clang-format).");
+            }
             return McpToolResult.error("format_run: clang-format was not found on this machine (probed every "
                     + "detected MSYS2 environment bin, standalone LLVM at \"C:\\Program Files\\LLVM\\bin\" "
                     + "and PATH). clang-format is present in the MSYS2 clang64 environment "
@@ -566,26 +583,17 @@ public final class CppToolProvider implements ToolProvider {
     }
 
     private static Optional<Path> whichGdb() {
-        String path = System.getenv("PATH");
-        if (path == null) {
-            return Optional.empty();
-        }
-        for (String dir : path.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
-            if (dir.isBlank()) {
-                continue;
-            }
-            Path candidate = Paths.get(dir).resolve("gdb.exe");
-            if (Files.isRegularFile(candidate)) {
-                return Optional.of(candidate);
-            }
-        }
-        return Optional.empty();
+        return ToolchainRegistry.which("gdb");
     }
 
     private static ToolchainRegistry.Toolchain resolveToolchain(JsonObject args) {
         String id = optString(args, "toolchain");
         List<ToolchainRegistry.Toolchain> all = ToolchainRegistry.detected();
         if (all.isEmpty()) {
+            if (!ToolchainRegistry.isWindows()) {
+                throw new ToolchainError("no native C/C++ toolchains detected on PATH; install gcc and g++ "
+                        + "or clang and clang++, plus CMake and Ninja or Make (Ubuntu: apt install build-essential cmake ninja-build)");
+            }
             throw new ToolchainError("no toolchains detected on this machine (looked for MSVC via vswhere at "
                     + "\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe\" and MSYS2 "
                     + "environments under C:\\msys64)");

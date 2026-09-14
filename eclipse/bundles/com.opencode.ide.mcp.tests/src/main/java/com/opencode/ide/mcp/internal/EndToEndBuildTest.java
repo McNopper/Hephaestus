@@ -6,10 +6,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.stream.Stream;
 
@@ -27,30 +27,40 @@ import org.junit.Test;
 
 /**
  * End-to-end: a real CMake project built headless through the MCP tool layer
- * with the ucrt64 toolchain - configure, build, run the binary, check output.
- * Skips unless C:\\msys64\\ucrt64 has cmake and ninja.
+ * with an available toolchain - configure C and C++, build, run the binary,
+ * check output. Skips only when no complete build toolchain is installed.
  */
 public class EndToEndBuildTest {
 
-    private static final Path MSYS2 = Paths.get("C:\\msys64");
     private static final CppToolProvider TOOLS = new CppToolProvider();
     private static Path projectDir;
+    private static Toolchain toolchain;
 
     @BeforeClass
     public static void gateAndSetup() throws IOException {
-        AssumeHelper.skipUnlessUcrt64Usable();
+        // Preserve the existing MSYS2 exercise when available; otherwise use a
+        // complete detected toolchain (including native GCC/Clang on Linux).
+        toolchain = ToolchainRegistry.byId("ucrt64").filter(EndToEndBuildTest::usable)
+                .orElseGet(() -> ToolchainRegistry.detected().stream()
+                        .filter(EndToEndBuildTest::usable).findFirst().orElse(null));
+        org.junit.Assume.assumeTrue("CMake, a C/C++ compiler and a generator required", toolchain != null);
         projectDir = Files.createTempDirectory("mcp-e2e-");
         Files.writeString(projectDir.resolve("CMakeLists.txt"), """
                 cmake_minimum_required(VERSION 3.20)
-                project(hello C)
-                add_executable(hello main.c)
+                project(hello C CXX)
+                set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/bin>")
+                add_executable(hello main.c message.cpp)
                 """, StandardCharsets.UTF_8);
         Files.writeString(projectDir.resolve("main.c"), """
                 #include <stdio.h>
+                const char* message(void);
                 int main(void) {
-                    printf("hello-fleet\\n");
+                    printf("%s\\n", message());
                     return 0;
                 }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(projectDir.resolve("message.cpp"), """
+                extern "C" const char* message() { return "hello-fleet"; }
                 """, StandardCharsets.UTF_8);
     }
 
@@ -66,15 +76,19 @@ public class EndToEndBuildTest {
         Path buildDir = projectDir.resolve("build");
 
         McpToolResult configure = call("cmake_configure", "source_dir", projectDir.toString(), "build_dir",
-                buildDir.toString(), "toolchain", "ucrt64");
+                buildDir.toString(), "toolchain", toolchain.id());
         assertFalse(textOf(configure), configure.isError());
         assertEquals(0, toolResult(configure).get("exitCode").getAsInt());
 
-        McpToolResult build = call("cmake_build", "build_dir", buildDir.toString(), "toolchain", "ucrt64");
+        if (!"msvc".equals(toolchain.id())) {
+            assertTrue("compile commands required for clang-tidy",
+                    Files.isRegularFile(buildDir.resolve("compile_commands.json")));
+        }
+        McpToolResult build = call("cmake_build", "build_dir", buildDir.toString(), "toolchain", toolchain.id());
         assertFalse(textOf(build), build.isError());
         assertEquals(0, toolResult(build).get("exitCode").getAsInt());
 
-        Path binary = buildDir.resolve("hello.exe");
+        Path binary = buildDir.resolve("bin").resolve(File.separatorChar == '\\' ? "hello.exe" : "hello");
         assertTrue("built binary expected at " + binary, Files.isRegularFile(binary));
 
         McpToolResult run = call("run_binary", "binary", binary.toString());
@@ -120,13 +134,8 @@ public class EndToEndBuildTest {
         }
     }
 
-    /** Skip gate shared by the class; keeps assume logic out of the hot path. */
-    static final class AssumeHelper {
-        static void skipUnlessUcrt64Usable() {
-            org.junit.Assume.assumeTrue("C:\\msys64 not present", Files.isDirectory(MSYS2));
-            Toolchain ucrt64 = ToolchainRegistry.byId("ucrt64").orElse(null);
-            org.junit.Assume.assumeTrue("ucrt64 with cmake+ninja required",
-                    ucrt64 != null && ucrt64.cmake().isPresent() && ucrt64.ninja().isPresent());
-        }
+    private static boolean usable(Toolchain candidate) {
+        return candidate.cmake().isPresent() && candidate.compiler().isPresent()
+                && candidate.generator().isPresent();
     }
 }
