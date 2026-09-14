@@ -22,16 +22,16 @@ The fleet and ticketing system is **production-solid**: dispatch → watchdog �
 guarded merge-back → actuals → auto-sync, with release-on-failure, repo-gated
 git, reaping, cross-engine guards and crash reconciliation. The **V-model
 regression suite is COMPLETE** (all 6 stages landed; `EditorCoreTest.java`
-15/15 golden vectors green). **Verdict:** the engine is correct and hardened
-(7 live defects found and fixed); the worker tier (glm-5.3 at the
-low/executor path) produces files **unreliably** (~1 in 6 dispatches — the
-agent completes with a text reply but never attempts a file write;
-decomposed self-contained *create*-format tickets improve the odds,
-*modify*-existing-file is worse). The engine's empty-result refusal catches
-every non-producing run honestly — no fake merges, no zombie claims. The
-path forward for reliable unattended work is a stronger worker model or
-explicit file-write enforcement at the engine level, not more engine
-plumbing.
+15/15 golden vectors green). A full production-readiness review (2026-09-14)
+found 5 P1s — **all fixed and pushed**: `fleet_reset` actually clears the
+blocked flag + stale markers; the Board's launch path rides the same
+cross-engine dispatch marker; hard-coded developer paths replaced with
+workspace-derived defaults; the pre-claim window is inside the
+total-failure contract; Eclipse spawn mode generates a random password.
+Remaining P2s are ticketed as **G-001..G-006** (stale-marker sweep, crash
+cleanup gitdir resolution, MCP endpoint auth, tuning wire-up, linux CI,
+observability swallow points). The core engine is READY; the surrounding
+recovery tooling is NEARLY.
 
 ## Open work
 
