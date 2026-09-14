@@ -150,8 +150,25 @@ public class EditorCore {
             return parseRepeated('[', ']', this::parseState, CoreState[]::new);
         }
 
-        <T> T[] parseRepeated(char open, char close, java.util.function.Function<Void, T> element, java.util.function.IntFunction<T[]> maker) {
-            throw new UnsupportedOperationException();
+        <T> T[] parseRepeated(char open, char close, java.util.function.Supplier<T> element, java.util.function.IntFunction<T[]> maker) {
+            skipWhitespace();
+            expect(open);
+            java.util.List<T> out = new java.util.ArrayList<>();
+            skipWhitespace();
+            if (peek() != close) {
+                while (true) {
+                    skipWhitespace();
+                    out.add(element.get());
+                    skipWhitespace();
+                    if (peek() == ',') {
+                        index++;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            expect(close);
+            return out.toArray(maker.apply(out.size()));
         }
 
         Cursor parseCursor() {
