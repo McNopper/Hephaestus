@@ -624,26 +624,32 @@ public final class CppToolProvider implements ToolProvider {
             o.addProperty("gdb", t.gdb().isPresent());
             o.addProperty("clang_tidy", t.clangTidy().isPresent());
             o.addProperty("clang_format", t.clangFormat().isPresent());
-            o.addProperty("generator", t.generator().orElse(null));
-            o.addProperty("cmakePath", pathOrNull(t.cmake()));
-            o.addProperty("ninjaPath", pathOrNull(t.ninja()));
-            o.addProperty("compilerPath", pathOrNull(t.compiler()));
-            o.addProperty("ctestPath", pathOrNull(t.ctest()));
-            o.addProperty("gdbPath", pathOrNull(t.gdb()));
-            o.addProperty("clangTidyPath", pathOrNull(t.clangTidy()));
-            o.addProperty("clangFormatPath", pathOrNull(t.clangFormat()));
+            o.add("generator", t.generator().isPresent() ? new com.google.gson.JsonPrimitive(t.generator().get()) : com.google.gson.JsonNull.INSTANCE);
+            addPath(o, "cmakePath", t.cmake());
+            addPath(o, "ninjaPath", t.ninja());
+            addPath(o, "compilerPath", t.compiler());
+            addPath(o, "ctestPath", t.ctest());
+            addPath(o, "gdbPath", t.gdb());
+            addPath(o, "clangTidyPath", t.clangTidy());
+            addPath(o, "clangFormatPath", t.clangFormat());
             array.add(o);
         }
         JsonObject lint = new JsonObject();
-        lint.addProperty("cppcheck", pathOrNull(ToolchainRegistry.cppcheck()));
+        // emit an explicit null when absent: Gson's addProperty(key, (String) null)
+        // silently OMITS the key, and consumers (documented schema: "path (or
+        // null)") must not distinguish absent from null
+        addPath(lint, "cppcheck", ToolchainRegistry.cppcheck());
         JsonObject result = new JsonObject();
         result.add("toolchains", array);
         result.add("lint", lint);
         return result;
     }
 
-    private static String pathOrNull(Optional<Path> path) {
-        return path.map(Path::toString).orElse(null);
+    /** Adds the path as a string, or an explicit JSON null when absent (never omits the key). */
+    private static void addPath(JsonObject o, String key, Optional<Path> path) {
+        o.add(key, path.isPresent()
+                ? new com.google.gson.JsonPrimitive(path.get().toString())
+                : com.google.gson.JsonNull.INSTANCE);
     }
 
     private static String optString(JsonObject args, String key) {

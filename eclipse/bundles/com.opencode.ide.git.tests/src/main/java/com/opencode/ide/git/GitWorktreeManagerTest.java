@@ -55,7 +55,10 @@ public class GitWorktreeManagerTest {
     public void createMakesBranchAndWorktreeUnderFleetDir() throws Exception {
         Worktree wt = manager.create(repo, "t1");
         assertEquals("opencode/t1", wt.branch());
-        assertEquals(repo.resolve(".git/opencode-fleet/t1"), wt.path());
+        // toRealPath on both sides: the manager reports the git-resolved common
+        // dir (long form), while java.io.tmpdir may carry the Windows 8.3 short
+        // form (GitHub runners: C:\Users\RUNNER~1 vs C:\Users\runneradmin)
+        assertEquals(repo.resolve(".git/opencode-fleet/t1").toRealPath(), wt.path().toRealPath());
         assertTrue(Files.isDirectory(wt.path()));
         assertTrue(gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
     }
