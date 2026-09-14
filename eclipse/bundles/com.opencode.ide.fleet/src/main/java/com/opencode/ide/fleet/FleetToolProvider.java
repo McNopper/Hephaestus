@@ -249,6 +249,9 @@ public final class FleetToolProvider implements ToolProvider {
             o.addProperty("busy", activity.busy());
             o.addProperty("messages", activity.messages());
             o.addProperty("complete", activity.complete());
+            if (activity.lastAssistant() != null) {
+                o.addProperty("last_assistant_text", activity.lastAssistant());
+            }
         }
         return json(o);
     }

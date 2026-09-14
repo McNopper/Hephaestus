@@ -62,8 +62,8 @@ public class FleetRunner {
         this.sleeper = sleeper;
     }
 
-    /** One watchdog probe: message count + completion flag + busy flag (2 REST calls). */
-    public record Activity(int messages, boolean complete, boolean busy) {
+    /** One watchdog probe: message count + completion + busy + last-assistant-text snippet. */
+    public record Activity(int messages, boolean complete, boolean busy, String lastAssistant) {
     }
 
     /**
@@ -130,8 +130,11 @@ public class FleetRunner {
     /**
      * One watchdog probe of a running session: message count (progress
      * signal), the completion flag (idle + last message is an assistant reply
-     * with text - the same contract as {@link #isComplete}) and the busy flag
-     * (a session present as non-idle in the busy-only status map).
+     * with text - the same contract as {@link #isComplete}), the busy flag
+     * (a session present as non-idle in the busy-only status map), and the
+     * last assistant text snippet (what the worker is SAYING - the
+     * diagnostic that cracked the W-005 refusals: the model explained
+     * instead of writing).
      */
     public Activity probe(String sessionId) throws OpencodeException {
         SessionStatus status = client.getSessionStatus().get(sessionId);
@@ -140,7 +143,16 @@ public class FleetRunner {
         ChatEntry last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
         boolean complete = !busy && last != null && last.info() != null
                 && "assistant".equals(last.info().role()) && !last.text().isBlank();
-        return new Activity(messages.size(), complete, busy);
+        String lastAssistant = null;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatEntry m = messages.get(i);
+            if (m.info() != null && "assistant".equals(m.info().role()) && !m.text().isBlank()) {
+                String text = m.text().strip();
+                lastAssistant = text.length() <= 300 ? text : text.substring(0, 300) + "…";
+                break;
+            }
+        }
+        return new Activity(messages.size(), complete, busy, lastAssistant);
     }
 
     /** Best-effort abort of a session; tolerance for already-idle is the client's. */
