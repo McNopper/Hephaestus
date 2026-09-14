@@ -206,6 +206,30 @@ public final class TaskFleetLauncher implements FleetLauncher {
             FleetJobsModelHolder.model().add(failed);
             return failed;
         }
+        // P1-3: the Board's launch path rides the SAME cross-engine dispatch
+        // marker as FleetControl.dispatch — a Board launch and a chat
+        // fleet_dispatch of the same ticket can never both pre-claim.
+        Path marker = repoRoot.resolve(".git").resolve("opencode-fleet")
+                .resolve(ticketId + ".dispatch");
+        try {
+            Files.createDirectories(marker.getParent());
+            Files.createFile(marker);
+            Files.writeString(marker, "pid=" + ProcessHandle.current().pid()
+                    + " board at " + java.time.Instant.now() + "\n");
+        } catch (java.nio.file.FileAlreadyExistsException e) {
+            FleetJobHandle refused = new FleetJobHandle(
+                    ticketId, null, worktreeGuess, FleetJobHandle.State.FAILED,
+                    "ticket " + ticketId + " is being dispatched by another engine"
+                            + " (marker " + marker + " exists) - fleet_reset removes stale markers");
+            FleetJobsModelHolder.model().add(refused);
+            return refused;
+        } catch (java.io.IOException e) {
+            FleetJobHandle failed = new FleetJobHandle(
+                    ticketId, null, worktreeGuess, FleetJobHandle.State.FAILED,
+                    "cannot create the dispatch guard: " + e.getMessage());
+            FleetJobsModelHolder.model().add(failed);
+            return failed;
+        }
         FleetJobHandle running = new FleetJobHandle(
                 ticketId, null, worktreeGuess, FleetJobHandle.State.RUNNING, "launching…");
         FleetJobsModelHolder.model().add(running);
@@ -223,6 +247,13 @@ public final class TaskFleetLauncher implements FleetLauncher {
                 // never funnel an Error (OOM & co.) into a UI row — rethrow, the
                 // daemon executor dies with a log, the JVM decides
                 throw e;
+            } finally {
+                // always release the marker (crash leaves it for reconciliation)
+                try {
+                    Files.deleteIfExists(marker);
+                } catch (java.io.IOException ignored) {
+                    // best-effort; a stale marker is recoverable via fleet_reset
+                }
             }
             FleetJobsModelHolder.model().update(result);
         });

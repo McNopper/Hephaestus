@@ -202,15 +202,36 @@ public final class OpencodeConnection {
                     preferences.getSpawnHostname(),
                     preferences.getSpawnPort(),
                     workingDirectory,
-                    preferences.getPassword());
+                    resolveSpawnPassword(preferences));
             launcher.start(SPAWN_TIMEOUT);
         }
         URI base = launcher.getBaseUrl();
         String user = preferences.getUsername();
-        String password = preferences.getPassword();
+        String password = resolveSpawnPassword(preferences);
         return new ConnectionConfig(
                 base,
                 (user == null || user.isEmpty()) ? "opencode" : user,
                 (password == null || password.isEmpty()) ? null : password);
+    }
+
+    /**
+     * P2-2: an unset password means the spawned server would run
+     * unauthenticated on loopback — any local process could drive it.
+     * Generate a fresh random password instead (the same discipline as the
+     * fleet's {@code FleetControl.resolvePassword}).
+     */
+    private static String resolveSpawnPassword(OpencodePreferences preferences) {
+        String configured = preferences.getPassword();
+        if (configured != null && !configured.isEmpty()) {
+            return configured;
+        }
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 }

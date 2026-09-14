@@ -285,16 +285,36 @@ public final class FleetToolProvider implements ToolProvider {
         } catch (RuntimeException e) {
             report.append("worktree removal: none or failed (").append(e.getMessage()).append("); ");
         }
+        // P1-2: also remove a stale dispatch marker (the crash-recovery path)
+        try {
+            java.nio.file.Path marker = repoRoot.resolve(".git").resolve("opencode-fleet")
+                    .resolve(ticketId + ".dispatch");
+            if (java.nio.file.Files.deleteIfExists(marker)) {
+                report.append("dispatch marker removed; ");
+            }
+        } catch (java.io.IOException e) {
+            report.append("marker removal failed (").append(e.getMessage()).append("); ");
+        }
         try {
             java.util.Map<String, Object> release = new java.util.HashMap<>();
             release.put("status", "sprint-backlog");
             release.put("assignee", null);
-            release.put("blocked", false);
-            release.put("blocker", null);
             taskStore.update(project, ticketId, release);
-            report.append("ticket released to sprint-backlog");
+            report.append("ticket released to sprint-backlog; ");
         } catch (RuntimeException e) {
-            report.append("ticket release failed: ").append(e.getMessage());
+            report.append("ticket release failed: ").append(e.getMessage()).append("; ");
+        }
+        // P1-1: the update() switch silently drops blocked/blocker — use the
+        // dedicated clearBlocked (which also writes the history marker)
+        try {
+            if (taskStore.get(project, ticketId).blocked) {
+                taskStore.clearBlocked(project, ticketId, "fleet");
+                report.append("blocked flag cleared");
+            } else {
+                report.append("(was not blocked)");
+            }
+        } catch (RuntimeException e) {
+            report.append("blocked clear failed: ").append(e.getMessage());
         }
         return text("reset " + ticketId + ": " + report);
     }

@@ -190,12 +190,21 @@ public final class TaskFleet {
         // it, so the claim is recorded on the branch created next and the
         // later merge-back is never refused over the dirty ticket file
         // (Milestone V finding: the merge failed with zero conflicts).
-        store.update(project, taskId, Map.of(
-                "status", "in-progress",
-                "assignee", ASSIGNEE));
-        store.addComment(project, taskId,
-                "launched into worktree opencode/" + taskId + " by the fleet", ASSIGNEE);
-        runner.commitMain(baseWorktree, "fleet: pre-claim " + taskId);
+        // P1-5: from the first claim write onward, EVERY failure lands in
+        // blocked()+releaseClaim — a commitMain git failure must not strand
+        // the ticket as a zombie in-progress claim.
+        try {
+            store.update(project, taskId, Map.of(
+                    "status", "in-progress",
+                    "assignee", ASSIGNEE));
+            store.addComment(project, taskId,
+                    "launched into worktree opencode/" + taskId + " by the fleet", ASSIGNEE);
+            runner.commitMain(baseWorktree, "fleet: pre-claim " + taskId);
+        } catch (RuntimeException e) {
+            FleetJob failed = new FleetJob(taskId, null, null, FleetJob.State.FAILED, e.getMessage());
+            LOG.log(Level.WARNING, "fleet pre-claim/commit of ticket " + taskId + " failed", e);
+            return blocked(failed, project, taskId, "fleet: pre-claim failed: " + e.getMessage());
+        }
 
         FleetTask task = new FleetTask(
                 ticket.id,

@@ -92,6 +92,11 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     @Override
     public void remove(Path repoRoot, String taskId, boolean force) {
+        // R2: worktree removal + branch deletion mutate shared repo state
+        com.opencode.ide.git.RepoGate.with(repoRoot, () -> removeGuarded(repoRoot, taskId, force));
+    }
+
+    private void removeGuarded(Path repoRoot, String taskId, boolean force) {
         requireTaskId(taskId);
         Path repo = repo(repoRoot);
         Worktree wt = find(repo, taskId)

@@ -49,15 +49,20 @@ public final class OpencodePreferences {
     /** Preferred chat model for this machine ({@code provider/model}); validated against the live provider list. */
     private static final String DEFAULT_MODEL = "zai-coding-plan/glm-5.3";
     private static final String DEFAULT_VARIANT = "max";
-    /** Default task store (this repo); the Board view walks up from the workspace as fallback. */
-    private static final String DEFAULT_TASKS_ROOT = "C:\\Development\\GitHub\\Hephaestus\\.opencode\\tasks";
+    /**
+     * Default task store: derived from the workspace at first use (P1-4 fix —
+     * no developer-machine hard-coded path). The Board view walks up from
+     * the workspace root looking for {@code .opencode/tasks}; if none is
+     * found the user must configure it via preferences.
+     */
+    private static final String DEFAULT_TASKS_ROOT = "";
     private static final String DEFAULT_TASKS_PROJECT = "hephaestus";
     /**
-     * Spawn working directory fallback (the repo whose {@code .opencode/} carries
-     * the agents/skills/MCP config). The active CDT project's directory
-     * (ProjectContext) still wins when available.
+     * Spawn working directory fallback: empty means "derive from the
+     * workspace" (P1-4). The active CDT project's directory (ProjectContext)
+     * still wins when available.
      */
-    private static final String DEFAULT_WORKING_DIRECTORY = "C:\\Development\\GitHub\\Hephaestus";
+    private static final String DEFAULT_WORKING_DIRECTORY = "";
 
     private final IEclipsePreferences prefs;
     private final RemoteCredentials credentials;
