@@ -271,6 +271,7 @@ public final class FleetControl implements AutoCloseable {
      */
     public void dispatch(String project, String ticketId, Duration timeout) {
         Engine e = engine();
+        acquireDispatchGuard(ticketId);
         inFlight.add(ticketId);
         com.opencode.ide.client.ClientLog.info(
                 "fleet dispatch " + ticketId + " accepted (budget " + timeout + ")");
@@ -287,12 +288,55 @@ public final class FleetControl implements AutoCloseable {
                     // (blocked + reason); the jobs snapshot stays authoritative.
                 } finally {
                     inFlight.remove(ticketId);
+                    releaseDispatchGuard(ticketId);
                 }
                 StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
             } catch (RuntimeException ex) {
                 System.err.println("[fleet] store auto-sync failed for " + ticketId + ": " + ex.getMessage());
             }
         });
+    }
+
+    /**
+     * F-003 cross-engine dispatch guard: an atomically-created marker file
+     * under {@code .git/opencode-fleet/} — the create-if-absent is atomic
+     * ACROSS PROCESSES (Windows CREATE_NEW semantics), so the Board's engine
+     * and a chat engine can never both pre-claim the same ticket. The loser
+     * gets a clean refusal that touches nothing. The marker carries the
+     * creating pid for diagnosis; stale markers (crashed creator) are
+     * overwritten — reconciliation or fleet_reset cleans real residue.
+     */
+    private void acquireDispatchGuard(String ticketId) {
+        Path dir = repoRoot.resolve(".git").resolve("opencode-fleet");
+        try {
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path marker = dir.resolve(ticketId + ".dispatch");
+            java.nio.file.attribute.FileAttribute<?>[] none = {};
+            try {
+                java.nio.file.Files.createFile(marker, none);
+                java.nio.file.Files.writeString(marker,
+                        "pid=" + ProcessHandle.current().pid()
+                                + " at " + java.time.Instant.now() + "\n");
+            } catch (java.nio.file.FileAlreadyExistsException e) {
+                throw new IllegalStateException("ticket " + ticketId
+                        + " is being dispatched by another engine (marker " + marker + " exists)"
+                        + " - fleet_reset removes stale markers");
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot create the dispatch guard for " + ticketId
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Releases the marker on settle; best-effort (crash leaves it for reconciliation). */
+    private void releaseDispatchGuard(String ticketId) {
+        try {
+            java.nio.file.Files.deleteIfExists(repoRoot.resolve(".git")
+                    .resolve("opencode-fleet").resolve(ticketId + ".dispatch"));
+        } catch (java.io.IOException e) {
+            com.opencode.ide.client.ClientLog.warning(
+                    "releasing the dispatch guard of " + ticketId + " failed: " + e.getMessage());
+        }
     }
 
     /**

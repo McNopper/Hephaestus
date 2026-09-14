@@ -2,6 +2,7 @@ package com.opencode.ide.fleet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -215,6 +216,40 @@ public class FleetControlTest {
             throw new IllegalStateException("git " + List.of(args) + " failed (exit " + code + "): " + err);
         }
         return out;
+    }
+
+    /**
+     * F-003: two engines over ONE repo can never double-dispatch the same
+     * ticket — the loser's atomic marker-create fails with a clean refusal
+     * that touches nothing (no pre-claim, no bogus blocked marker).
+     */
+    @Test
+    public void secondEngineCannotDoubleDispatchTheSameTicket() throws Exception {
+        Assume.assumeTrue("git not available", gitAvailable());
+        Path repo = newRepo();
+        TaskStore store = storeIn(repo);
+        FakeClient client = new FakeClient();
+        client.sessionType = "busy"; // keep the first launch in flight
+        FleetControl first = controlOver(store, client);
+        FleetControl second = controlOver(store, new FakeClient());
+        String id = sprintTicket(store);
+        // pre-create the marker by hand: the first engine "owns" the dispatch
+        java.nio.file.Path marker = repo.resolve(".git").resolve("opencode-fleet")
+                .resolve(id + ".dispatch");
+        java.nio.file.Files.createDirectories(marker.getParent());
+        java.nio.file.Files.writeString(marker, "pid=other at test\n");
+
+        try {
+            second.dispatch(PROJECT, id, TIMEOUT);
+            fail("the second engine must refuse a marker-owned dispatch");
+        } catch (IllegalStateException e) {
+            assertTrue(e.getMessage(), e.getMessage().contains("another engine"));
+        }
+        // the loser touched NOTHING: ticket still sprint-backlog
+        assertEquals("sprint-backlog", store.get(PROJECT, id).status);
+        assertFalse("no bogus blocked marker", store.get(PROJECT, id).blocked);
+        first.close();
+        second.close();
     }
 
     private static void git(Path dir, String... args) throws Exception {
