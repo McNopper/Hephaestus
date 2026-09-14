@@ -37,16 +37,19 @@ recovery tooling is NEARLY.
 
 | Item | Size | Notes |
 |---|---|---|
-| **Worker reliability** | M | ~1/6 dispatches produce files (glm-5.3 low/executor). Options: (a) pin a stronger worker model per dispatch, (b) engine-level enforcement: parse the AC-named file paths and refuse runs that don't touch them (the guard already refuses zero-commit runs; tighten to "no AC path in the diff"), (c) accept the retry cost (the engine handles it cleanly). |
-| **opencode pin bump 1.18.21 → 1.18.30** | S | API verified table-identical through 1.18.30. Smoke: assert the OpenAPI `/doc` covers our whole surface, then bump `ServerVersionPin.PINNED_VERSION`. Also verify the three undocumented behaviors (GET /skill, POST /session?directory=, busy-only status). |
+| **Worker reliability** | M | ~1/6 dispatches produce files (glm-5.3 low/executor). Options: (a) pin a stronger worker model per dispatch, (b) engine-level enforcement: parse the AC-named file paths and refuse runs that don't touch them, (c) accept the retry cost (the engine handles it cleanly). |
 | **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip + first-launch live check. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
-| **Milestone H remainder — refactor cadence** | S | Every second session; due since 2026-08-18. |
-| **Tuning config surface** | S | `FleetTuning`/`ClientTuning`/`GitTuning` exist as knob tables; make them env-var or file overridable. |
-| **`SessionEvents` dead wiring cut** | S | The seam is retained for compatibility but unused; delete it and the board's SseSessionEvents feed (R5 from the architecture review). |
-| **WatchingClient → runner hook** | M | R6: a runner-level `onSessionCreated` callback deletes 228 lines of mechanical delegation. |
-| **Launch-decompose (`launchGuarded`)** | S | R8: split the god-method into named stages. |
-| **Auto-dispatch (Board Auto ▶)** | M | Manual only until the failure-release (landed) is proven in a real failure cycle; then wire chat-start (needs a running-set shared with `fleet_dispatch`). |
-| **U-002 GUI right-click batches** | S/M | Batches A (quick wins) and B (delete session, abort, agent-scoped new session) from the 2026-09-13 evaluation; below fleet reliability in priority. |
+| **Auto-dispatch (Board Auto ▶)** | M | Manual only until the failure-release is proven in a real failure cycle; then wire chat-start (needs a running-set shared with `fleet_dispatch`). |
+| **U-002 GUI right-click batches** | S/M | Batches A (quick wins) and B (delete session, abort, agent-scoped new session); below fleet reliability in priority. |
+| **Tuning config surface** | S | `FleetTuning`/`ClientTuning`/`GitTuning` are wired; make them env-var or file overridable. |
+
+## Completed this session (2026-09-14)
+
+- ✅ opencode pin bumped to 1.18.30 (live-smoked against the running 1.18.30 server)
+- ✅ SessionEvents dead wiring cut (interface deleted, tests renamed to watchdog)
+- ✅ launchGuarded decomposed into named stages (claimAndCommit → runSession → mergeAndRecord)
+- ✅ WatchingClient → runner-level onSessionCreated callback (net −488 lines)
+- ✅ All production-readiness P1s and P2s (G-001..G-006)
 
 ## Parked / non-goals
 
