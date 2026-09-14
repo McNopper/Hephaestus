@@ -31,10 +31,10 @@ public final class GitStore {
 
     private static final Logger LOG = Logger.getLogger(GitStore.class.getName());
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration TIMEOUT = com.opencode.ide.git.GitTuning.SYNC_TIMEOUT;
     private static final String GIT = GitLocator.resolve().command().toString();
     private static final String DEFAULT_MESSAGE = "sync task store";
-    private static final int LOG_TAIL = 1000;
+    private static final int LOG_TAIL = com.opencode.ide.git.GitTuning.WARN_TAIL;
 
     private static final Pattern AHEAD = Pattern.compile("\\bahead (\\d+)");
     private static final Pattern BEHIND = Pattern.compile("\\bbehind (\\d+)");

@@ -28,8 +28,8 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     private static final java.util.logging.Logger LOG =
             java.util.logging.Logger.getLogger(GitWorktreeManager.class.getName());
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
-    private static final Duration MERGE_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration DEFAULT_TIMEOUT = com.opencode.ide.git.GitTuning.COMMAND_TIMEOUT;
+    private static final Duration MERGE_TIMEOUT = com.opencode.ide.git.GitTuning.MERGE_TIMEOUT;
 
     private final String gitCommand;
     private final String gitOrigin;

@@ -1,5 +1,6 @@
 package com.opencode.ide.client.internal;
 
+import com.opencode.ide.client.ClientTuning;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.net.URI;
@@ -139,7 +140,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<McpServerInfo> getMcpServers() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/mcp", null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", "/mcp", null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
         }
@@ -182,7 +183,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
      * older opencode builds and an empty section beats a broken view.
      */
     private <T> List<T> getListOrEmptyOn404(String path, Class<T> elementType) throws OpencodeException {
-        HttpResponse<String> response = send("GET", path, null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
         }
@@ -202,7 +203,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public ChatEntry sendMessage(ChatRequest chatRequest) throws OpencodeException {
-        return sendMessage(chatRequest, Duration.ofMinutes(5));
+        return sendMessage(chatRequest, ClientTuning.PROMPT_TIMEOUT);
     }
 
     @Override
@@ -213,7 +214,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         // stream for many minutes, so unattended callers pass their whole run
         // budget; the fixed 5-minute default is only for interactive use
         Duration timeout = promptTimeout == null || promptTimeout.isNegative() || promptTimeout.isZero()
-                ? Duration.ofMinutes(5)
+                ? ClientTuning.PROMPT_TIMEOUT
                 : promptTimeout;
         return parseBody("POST", path, request("POST", path, body, timeout),
                 ChatEntry.class);
@@ -222,7 +223,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public void abortSession(String sessionId) throws OpencodeException {
         String path = "/session/" + sessionId + "/abort";
-        HttpResponse<String> response = send("POST", path, null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
         int status = response.statusCode();
         if (status >= 500) {
             throw new OpencodeException("opencode POST " + path + " failed: HTTP " + status
@@ -331,7 +332,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             body.add("arguments", GSON.toJsonTree(arguments));
         }
         String path = "/session/" + sessionId + "/command";
-        return parseBody("POST", path, request("POST", path, body.toString(), Duration.ofMinutes(5)),
+        return parseBody("POST", path, request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT),
                 ChatEntry.class);
     }
 
@@ -342,7 +343,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         body.addProperty("command", command);
         String path = "/session/" + sessionId + "/shell";
         // the server awaits the spawned process - allow as long as a chat reply
-        HttpResponse<String> response = request("POST", path, body.toString(), Duration.ofMinutes(5));
+        HttpResponse<String> response = request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT);
         String responseBody = response.body();
         if (responseBody == null || responseBody.isBlank()) {
             throw new OpencodeException("opencode POST " + path + " failed: HTTP " + response.statusCode()
@@ -358,7 +359,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<ProjectSummary> getProjects() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/project", null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", "/project", null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
         }
@@ -397,7 +398,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public VcsInfo getVcsInfo() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/vcs", null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", "/vcs", null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return new VcsInfo(null, null);
         }
@@ -454,7 +455,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
     public boolean tuiAction(String action, Map<String, Object> body) throws OpencodeException {
         String path = "/tui/" + action;
         String payload = body == null ? null : GSON.toJson(body);
-        HttpResponse<String> response = send("POST", path, payload, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("POST", path, payload, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() >= 400) {
             ClientLog.warning("opencode POST " + path + " returned HTTP " + response.statusCode()
                     + " (TUI not attached?): " + truncate(response.body(), 200));
@@ -473,7 +474,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public String getFileContent(String path) throws OpencodeException {
         String target = "/file/content?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8).replace("+", "%20");
-        HttpResponse<String> response = send("GET", target, null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return null;
         }
@@ -492,7 +493,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<ProviderAuth> getProviderAuths() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/provider/auth", null, Duration.ofSeconds(30));
+        HttpResponse<String> response = send("GET", "/provider/auth", null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
         }
@@ -533,7 +534,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         JsonObject body = new JsonObject();
         body.addProperty("method", 0);
         String path = "/provider/" + providerId + "/oauth/authorize";
-        HttpResponse<String> response = send("POST", path, body.toString(), Duration.ofSeconds(30));
+        HttpResponse<String> response = send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() >= 400) {
             ClientLog.warning("opencode POST " + path + " returned HTTP " + response.statusCode()
                     + ": " + truncate(response.body(), 200));
@@ -635,7 +636,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     private HttpResponse<String> request(String method, String path, String body) throws OpencodeException {
-        return request(method, path, body, Duration.ofSeconds(30));
+        return request(method, path, body, ClientTuning.REQUEST_TIMEOUT);
     }
 
     private HttpResponse<String> request(String method, String path, String body, Duration timeout)
