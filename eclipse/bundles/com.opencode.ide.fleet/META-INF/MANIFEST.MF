@@ -9,5 +9,6 @@ Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
   com.opencode.ide.git;bundle-version="0.1.0",
   com.opencode.ide.tasks;bundle-version="0.1.0",
   com.opencode.ide.tools;bundle-version="0.1.0"
-Export-Package: com.opencode.ide.fleet
+Export-Package: com.opencode.ide.fleet,
+ com.opencode.ide.fleet.dispatch
 Bundle-RequiredExecutionEnvironment: JavaSE-21

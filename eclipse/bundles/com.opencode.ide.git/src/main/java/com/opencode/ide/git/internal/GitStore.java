@@ -127,15 +127,16 @@ public final class GitStore {
             warn("git add -A", add);
             return Outcome.FAILED;
         }
-        GitOutput staged = run(repo, "diff", "--cached", "--name-only");
+        GitOutput staged = run(repo, "diff", "--cached", "--name-only", "--", ".", ":(exclude)*.lock");
         if (staged.exitCode() != 0) {
             warn("git diff --cached --name-only", staged);
             return Outcome.FAILED;
         }
         boolean committed = false;
         if (!staged.stdout().isBlank()) {
-            GitOutput commit = run(repo, "commit", "-m",
-                    message == null || message.isBlank() ? DEFAULT_MESSAGE : message);
+            GitOutput commit = run(repo, "commit", "--only", "-m",
+                    message == null || message.isBlank() ? DEFAULT_MESSAGE : message,
+                    "--", ".", ":(exclude)*.lock");
             if (commit.exitCode() != 0) {
                 warn("git commit", commit);
                 return Outcome.FAILED;
@@ -164,11 +165,14 @@ public final class GitStore {
         if (!isWorkTree(repo)) {
             return gitUnusable() ? Outcome.FAILED : Outcome.NOT_A_REPO;
         }
-        GitOutput abort = run(repo, "rebase", "--abort");
-        if (abort.exitCode() != 0) {
-            warn("git rebase --abort", abort);
-        }
-        return rebaseInProgress(repo) ? Outcome.PULL_CONFLICT : Outcome.FAILED;
+        Path gateKey = toplevelOf(repo);
+        return com.opencode.ide.git.RepoGate.with(gateKey != null ? gateKey : repo, () -> {
+            GitOutput abort = run(repo, "rebase", "--abort");
+            if (abort.exitCode() != 0) {
+                warn("git rebase --abort", abort);
+            }
+            return rebaseInProgress(repo) ? Outcome.PULL_CONFLICT : Outcome.FAILED;
+        });
     }
 
     private static int match(Pattern pattern, String header) {
@@ -247,14 +251,12 @@ public final class GitStore {
         try {
             finished = process.waitFor(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
+            GitProcesses.terminate(process);
             Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            cleanupCrashState(directory);
             return new GitOutput(-1, "", "interrupted while waiting for git " + Arrays.toString(args));
         }
         if (!finished) {
-            process.destroyForcibly();
-            cleanupCrashState(directory);
+            GitProcesses.terminate(process);
             return new GitOutput(-1, "", "git " + Arrays.toString(args) + " timed out after " + TIMEOUT);
         }
         return new GitOutput(process.exitValue(), join(stdout), join(stderr));
@@ -276,28 +278,4 @@ public final class GitStore {
         }
     }
 
-    /**
-     * G-002: crash-state cleanup for the store-sync path — a sync killed
-     * mid-{@code add} leaves {@code index.lock} and every later sync returns
-     * FAILED forever. Mirrors {@code GitWorktreeManager.cleanupCrashState}.
-     */
-    private static void cleanupCrashState(Path directory) {
-        try {
-            Path gitDir = directory.resolve(".git");
-            if (!java.nio.file.Files.isDirectory(gitDir)) {
-                // linked worktree: .git is a file with the gitdir path
-                String pointer = java.nio.file.Files.readString(directory.resolve(".git")).trim();
-                if (pointer.startsWith("gitdir: ")) {
-                    gitDir = Path.of(pointer.substring("gitdir: ".length()));
-                }
-            }
-            Path indexLock = gitDir.resolve("index.lock");
-            if (java.nio.file.Files.exists(indexLock)) {
-                java.nio.file.Files.deleteIfExists(indexLock);
-                LOG.warning("removed stale index.lock after interrupted git in " + directory);
-            }
-        } catch (Exception e) {
-            LOG.warning("crash-state cleanup in " + directory + " failed: " + e.getMessage());
-        }
-    }
 }

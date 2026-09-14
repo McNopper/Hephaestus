@@ -1,4 +1,4 @@
-package com.opencode.ide.board.model;
+package com.opencode.ide.fleet.dispatch;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +28,7 @@ import com.opencode.ide.tasks.Task;
  * as {@code null}; parsing never throws.</p>
  */
 public final class CostOverview {
+    public static final String BACKLOG = "(backlog)";
 
     /** The exact prefix every actuals comment starts with (see FleetTelemetry). */
     public static final String COMMENT_PREFIX = "fleet actuals:";
@@ -74,9 +75,13 @@ public final class CostOverview {
                 } else if (segment.startsWith("tokens ")) {
                     Matcher matcher = TOKENS.matcher(segment);
                     if (matcher.matches()) {
-                        in = Long.valueOf(matcher.group(2));
-                        out = Long.valueOf(matcher.group(3));
-                        reasoning = Long.valueOf(matcher.group(4));
+                        try {
+                            in = Long.valueOf(matcher.group(2));
+                            out = Long.valueOf(matcher.group(3));
+                            reasoning = Long.valueOf(matcher.group(4));
+                        } catch (NumberFormatException e) {
+                            in = out = reasoning = null;
+                        }
                     }
                 }
                 // agent/model segments carry nothing aggregatable — ignored
@@ -90,7 +95,8 @@ public final class CostOverview {
                 value = value.substring(0, value.length() - "USD".length()).strip();
             }
             try {
-                return Double.valueOf(value);
+                double cost = Double.parseDouble(value);
+                return Double.isFinite(cost) && cost >= 0 ? cost : null;
             } catch (NumberFormatException e) {
                 return null;
             }
@@ -199,7 +205,7 @@ public final class CostOverview {
         return tickets;
     }
 
-    /** Per-sprint totals keyed by sprint id ({@link BoardModel#BACKLOG} for unassigned), real sprints sorted, backlog last. */
+    /** Per-sprint totals keyed by sprint id ({@link #BACKLOG} for unassigned), real sprints sorted, backlog last. */
     public Map<String, Totals> sprints() {
         return sprints;
     }
@@ -226,7 +232,7 @@ public final class CostOverview {
             return "";
         }
         String key = sprintKey(sprintId);
-        return totals.formatSummary(BoardModel.BACKLOG.equals(key) ? "Backlog" : "Sprint " + key);
+        return totals.formatSummary(BACKLOG.equals(key) ? "Backlog" : "Sprint " + key);
     }
 
     /**
@@ -243,14 +249,14 @@ public final class CostOverview {
 
     /** Maps a task's sprint field to the aggregation key (null/blank → backlog pseudo-sprint). */
     private static String sprintKey(String sprint) {
-        return sprint == null || sprint.isBlank() ? BoardModel.BACKLOG : sprint;
+        return sprint == null || sprint.isBlank() ? BACKLOG : sprint;
     }
 
-    /** Real sprint ids in natural order, then the backlog pseudo-sprint last (like {@link BoardModel#sprints()}). */
+    /** Real sprint ids in natural order, then the backlog pseudo-sprint last. */
     private static Map<String, Totals> sortedSprints(Map<String, Accumulator> sprints) {
         List<String> ids = new ArrayList<>(sprints.keySet());
         ids.sort(Comparator.naturalOrder());
-        ids.sort(Comparator.comparingInt(id -> BoardModel.BACKLOG.equals(id) ? 1 : 0)); // stable: backlog last
+        ids.sort(Comparator.comparingInt(id -> BACKLOG.equals(id) ? 1 : 0)); // stable: backlog last
         Map<String, Totals> out = new LinkedHashMap<>();
         for (String id : ids) {
             out.put(id, sprints.get(id).toTotals());

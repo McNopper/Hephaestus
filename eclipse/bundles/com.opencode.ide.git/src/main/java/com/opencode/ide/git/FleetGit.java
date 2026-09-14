@@ -15,7 +15,6 @@ import com.opencode.ide.git.internal.GitWorktreeManager;
  */
 public final class FleetGit {
 
-    private static final String FLEET_DIR = ".git/opencode-fleet";
     private static final String BRANCH_PREFIX = "opencode/";
 
     /** The task store's conventional location inside the repo - the ONLY path fleet git discipline may commit. */
@@ -51,7 +50,29 @@ public final class FleetGit {
 
     /** The fleet worktree root: {@code <repoRoot>/.git/opencode-fleet}. */
     public static Path fleetRoot(Path repoRoot) {
-        return repoRoot.resolve(FLEET_DIR);
+        repoRoot = repoRoot.toAbsolutePath().normalize();
+        Path git = repoRoot.resolve(".git");
+        try {
+            if (java.nio.file.Files.isRegularFile(git)) {
+                String pointer = java.nio.file.Files.readString(git).trim();
+                if (!pointer.startsWith("gitdir:")) {
+                    throw new IllegalStateException("invalid git directory pointer: " + git);
+                }
+                git = repoRoot.resolve(pointer.substring("gitdir:".length()).trim()).normalize();
+                Path common = git.resolve("commondir");
+                if (java.nio.file.Files.isRegularFile(common)) {
+                    git = git.resolve(java.nio.file.Files.readString(common).trim()).normalize();
+                }
+            }
+            // Canonicalize existing metadata so aliases share JVM locks as well
+            // as the same OS lock. Non-repository test roots remain supported.
+            if (java.nio.file.Files.exists(git)) {
+                git = git.toRealPath();
+            }
+            return git.resolve("opencode-fleet");
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot resolve fleet directory in " + repoRoot, e);
+        }
     }
 
     /** The task's worktree location: {@code <repoRoot>/.git/opencode-fleet/<taskId>}. */

@@ -271,6 +271,21 @@ public class TaskFleetTest {
         assertEquals("in-review", store.get(PROJECT, t.id).status);
     }
 
+    @Test
+    public void unreadableAcDiffBlocksBeforeMerge() {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                "Fix widget", "", "task", "developer", "high", 1,
+                List.of("Foo.java exists"), List.of(), null, "H1"));
+        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+        sessionCompletes();
+        worktrees.changedFilesFailure = new IllegalStateException("git unavailable");
+        FleetJob result = fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+        assertEquals(FleetJob.State.FAILED, result.state());
+        assertTrue(result.detail().contains("cannot verify"));
+        assertTrue(worktrees.mergedTaskIds.isEmpty());
+        assertTrue(store.get(PROJECT, t.id).blocked);
+    }
+
     /** Behavioral criteria (no path-like strings) never trip the gate. */
     @Test
     public void behavioralCriteriaSkipTheAcPathGate() {
@@ -383,5 +398,20 @@ public class TaskFleetTest {
         assertTrue(after.blocked);
         assertTrue(after.blocker, after.blocker.contains("reconciled"));
         assertEquals("human claim untouched", "norbe", store.get(PROJECT, human).assignee);
+    }
+
+    @Test
+    public void reconciliationDoesNotReleasePeerBetweenClaimAndWorktreeCreation() {
+        String id = sprintTicket("developer");
+        Path repo = store.root().getParent().getParent();
+        try (DispatchGuard peer = DispatchGuard.acquire(repo, id)) {
+            store.update(PROJECT, id, Map.of("status", "in-progress", "assignee", "fleet"));
+            assertEquals(0, fleet.reconcileOrphanedClaims(PROJECT));
+            assertEquals("in-progress", store.get(PROJECT, id).status);
+            assertFalse(store.get(PROJECT, id).blocked);
+        }
+        assertEquals(1, fleet.reconcileOrphanedClaims(PROJECT));
+        assertEquals(0, fleet.reconcileOrphanedClaims(PROJECT));
+        assertTrue(store.get(PROJECT, id).blocked);
     }
 }

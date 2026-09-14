@@ -122,6 +122,21 @@ public final class FleetToolProvider implements ToolProvider {
                 return text("store recover: " + StoreSync.recover(root));
             case "fleet_reset":
                 return resetTicket(a);
+            case "fleet_auto_start":
+                try {
+                    control.startAuto(reqStr(a, "project"), reqStr(a, "sprint"),
+                            a.has("max_concurrent") ? reqInt(a, "max_concurrent") : 4,
+                            a.has("cost_budget_usd") ? a.get("cost_budget_usd").getAsDouble() : 5,
+                            a.has("include_stale") && a.get("include_stale").getAsBoolean());
+                } catch (IllegalArgumentException e) {
+                    throw new ParamError(e.getMessage());
+                }
+                return json(control.autoStatus());
+            case "fleet_auto_stop":
+                control.stopAuto();
+                return json(control.autoStatus());
+            case "fleet_auto_status":
+                return json(control.autoStatus());
             default:
                 throw new IllegalArgumentException("unknown tool: " + name);
         }
@@ -277,23 +292,24 @@ public final class FleetToolProvider implements ToolProvider {
             return McpToolResult.error("ticket " + ticketId + " is RUNNING - abort it first (see fleet_job_details)");
         }
         Path repoRoot = FleetControl.repoRootOf(root);
+        FleetControl.sweepStaleMarkers(repoRoot);
+        try (DispatchGuard guard = DispatchGuard.acquire(repoRoot, project, ticketId)) {
+            // Re-read after acquiring ownership; the preflight snapshot may
+            // precede a completed peer launch. Reset intentionally reopens it.
+            taskStore.get(project, ticketId);
+            return resetReserved(taskStore, project, ticketId, repoRoot);
+        }
+    }
+
+    private McpToolResult resetReserved(com.opencode.ide.tasks.TaskStore taskStore,
+            String project, String ticketId, Path repoRoot) {
         StringBuilder report = new StringBuilder();
         try {
             com.opencode.ide.git.WorktreeManager worktrees = com.opencode.ide.git.FleetGit.defaultManager();
             worktrees.remove(repoRoot, ticketId, true);
             report.append("worktree+branch removed; ");
         } catch (RuntimeException e) {
-            report.append("worktree removal: none or failed (").append(e.getMessage()).append("); ");
-        }
-        // P1-2: also remove a stale dispatch marker (the crash-recovery path)
-        try {
-            java.nio.file.Path marker = repoRoot.resolve(".git").resolve("opencode-fleet")
-                    .resolve(ticketId + ".dispatch");
-            if (java.nio.file.Files.deleteIfExists(marker)) {
-                report.append("dispatch marker removed; ");
-            }
-        } catch (java.io.IOException e) {
-            report.append("marker removal failed (").append(e.getMessage()).append("); ");
+            return McpToolResult.error("reset " + ticketId + " failed removing worktree: " + e.getMessage());
         }
         try {
             java.util.Map<String, Object> release = new java.util.HashMap<>();
@@ -302,7 +318,7 @@ public final class FleetToolProvider implements ToolProvider {
             taskStore.update(project, ticketId, release);
             report.append("ticket released to sprint-backlog; ");
         } catch (RuntimeException e) {
-            report.append("ticket release failed: ").append(e.getMessage()).append("; ");
+            return McpToolResult.error("reset " + ticketId + " failed releasing ticket: " + e.getMessage());
         }
         // P1-1: the update() switch silently drops blocked/blocker — use the
         // dedicated clearBlocked (which also writes the history marker)
@@ -314,7 +330,7 @@ public final class FleetToolProvider implements ToolProvider {
                 report.append("(was not blocked)");
             }
         } catch (RuntimeException e) {
-            report.append("blocked clear failed: ").append(e.getMessage());
+            return McpToolResult.error("reset " + ticketId + " failed clearing blocker: " + e.getMessage());
         }
         return text("reset " + ticketId + ": " + report);
     }
@@ -348,6 +364,24 @@ public final class FleetToolProvider implements ToolProvider {
 
     private static List<McpTool> buildTools() {
         List<McpTool> out = new ArrayList<>();
+        out.add(new McpTool("fleet_auto_start",
+                "Start opt-in automatic dispatch for one explicit project/sprint. Uses the Board readiness "
+                        + "policy and cross-engine reservations. Failed tickets stay blocked. Budget is an "
+                        + "admission estimate, not a hard billing limit. Replaces this engine's prior loop.",
+                schema(new String[]{"project", "sprint"}, obj -> {
+                    obj.add("project", strP("task store project"));
+                    obj.add("sprint", strP("sprint id to dispatch"));
+                    obj.add("max_concurrent", intP("concurrency cap, default 4"));
+                    JsonObject budget = new JsonObject();
+                    budget.addProperty("type", "number");
+                    budget.addProperty("description", "project cost admission budget USD, default 5; 0 unlimited");
+                    obj.add("cost_budget_usd", budget);
+                    obj.add("include_stale", boolP("rerun stale tickets, default false"));
+                })));
+        out.add(new McpTool("fleet_auto_stop", "Stop this engine's auto-dispatch loop; running jobs settle normally.",
+                schema(new String[0], obj -> { })));
+        out.add(new McpTool("fleet_auto_status", "Report this engine's auto-dispatch state and sprint scope.",
+                schema(new String[0], obj -> { })));
         out.add(new McpTool("fleet_dispatch",
                 "Launch the task fleet for one ticket (chat-first control of what the Board's "
                         + "Launch task button does): spawns a dedicated opencode server in the repo, "

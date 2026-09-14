@@ -213,6 +213,10 @@ public class FleetRunner {
     }
 
     /** F-002 seam: locates the task's worktree, if any (reconciliation). */
+    public void claimProject(Path repoRoot, String project, String taskId) {
+        worktrees.claimProject(repoRoot, project, taskId);
+    }
+
     public java.util.Optional<Worktree> findWorktree(Path repoRoot, String taskId) {
         return worktrees.find(repoRoot, taskId);
     }

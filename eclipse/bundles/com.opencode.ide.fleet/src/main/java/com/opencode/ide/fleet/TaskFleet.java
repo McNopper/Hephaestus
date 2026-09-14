@@ -132,6 +132,28 @@ public final class TaskFleet {
         return launch(project, taskId, baseWorktree, timeout, null);
     }
 
+    /** Auto-launch under a caller-owned reservation. Only this opt-in path may
+     * reopen done work, and only while its current upstream verdict is STALE. */
+    public FleetJob launchAuto(String project, String taskId, Path baseWorktree, Duration timeout,
+            DispatchGuard reservation, boolean includeStale) {
+        return launchAuto(project, taskId, baseWorktree, timeout, reservation, includeStale, null);
+    }
+
+    /** Auto-launch with the Board's optional bootstrap command. */
+    public FleetJob launchAuto(String project, String taskId, Path baseWorktree, Duration timeout,
+            DispatchGuard reservation, boolean includeStale, Bootstrap bootstrap) {
+        reservation.withOwnership(baseWorktree, project, taskId, () -> {
+            runner.claimProject(baseWorktree, project, taskId);
+            try {
+                store.prepareAutoDispatch(project, taskId, includeStale, ASSIGNEE);
+            } catch (TaskStore.Invalid e) {
+                throw new DispatchGuard.AdmissionDeferred(e.getMessage());
+            }
+            return null;
+        });
+        return launch(project, taskId, baseWorktree, timeout, bootstrap);
+    }
+
     /**
      * Launches one ticket end-to-end: pre-claim, worktree + session + prompt
      * (via the {@link FleetRunner}), await completion, merge back, and store
@@ -176,6 +198,7 @@ public final class TaskFleet {
     private FleetJob launchGuarded(String project, String taskId, Path baseWorktree, Duration timeout,
             Bootstrap bootstrap) {
         Task ticket = launchableTicket(project, taskId);
+        runner.claimProject(baseWorktree, project, taskId);
         FleetJob unclaimed = claimAndCommit(project, taskId, baseWorktree);
         if (unclaimed != null) {
             return unclaimed;
@@ -375,8 +398,8 @@ public final class TaskFleet {
      * additionally requires at least one of those paths among the branch's
      * changed files (committed plus pending) and refuses analysis-only
      * runs with an actionable message BEFORE main is touched. Behavioral
-     * criteria without path-like strings skip the gate; so does an
-     * unreadable diff (fail-open - the zero-commit guard still applies),
+     * criteria without path-like strings skip the gate; an
+     * unreadable diff fails verification and preserves the worktree,
      * and an entirely empty diff defers to the zero-commit guard's own
      * message. Matching is exact or path-segment suffix: an AC naming
      * {@code Foo.java} is satisfied by {@code src/Foo.java}.
@@ -394,9 +417,9 @@ public final class TaskFleet {
         try {
             changed = runner.changedFiles(baseWorktree, taskId);
         } catch (RuntimeException e) {
-            LOG.log(Level.WARNING, "fleet AC-path probe of ticket " + taskId
-                    + " failed; the merge proceeds under the zero-commit guard only", e);
-            return null;
+            String detail = "cannot verify acceptance-criterion paths: " + e.getMessage();
+            LOG.log(Level.WARNING, "fleet AC-path probe of ticket " + taskId + " failed", e);
+            return blocked(withState(job, FleetJob.State.FAILED, detail), project, taskId, detail);
         }
         if (changed.isEmpty()) {
             return null; // nothing at all: the runner's zero-commit guard owns that refusal
@@ -458,13 +481,25 @@ public final class TaskFleet {
                 continue;
             }
             try {
-                if (runner.findWorktree(store.root().getParent().getParent(), t.id).isEmpty()) {
-                    blocked(new FleetJob(t.id, null, null, FleetJob.State.FAILED,
-                                    "reconciled: no worktree/branch for the claim (engine crash residue)"),
-                            project, t.id,
-                            "reconciled: no worktree/branch for the claim (engine crash residue)");
-                    released++;
-                }
+                released += DispatchGuard.exclusive(repoRoot, () -> {
+                    if (inFlight.contains(t.id) || DispatchGuard.runningIds(repoRoot).contains(t.id)) {
+                        return 0;
+                    }
+                    // Claim snapshots can be older than the reservation we waited for.
+                    Task current = store.get(project, t.id);
+                    if (!"in-progress".equals(current.status) || !ASSIGNEE.equals(current.assignee)) {
+                        return 0;
+                    }
+                    runner.claimProject(repoRoot, project, t.id);
+                    if (runner.findWorktree(repoRoot, t.id).isEmpty()) {
+                        blocked(new FleetJob(t.id, null, null, FleetJob.State.FAILED,
+                                        "reconciled: no worktree/branch for the claim (engine crash residue)"),
+                                project, t.id,
+                                "reconciled: no worktree/branch for the claim (engine crash residue)");
+                        return 1;
+                    }
+                    return 0;
+                });
             } catch (RuntimeException e) {
                 LOG.log(Level.WARNING, "reconciling claim " + t.id + " failed: " + e.getMessage(), e);
             }

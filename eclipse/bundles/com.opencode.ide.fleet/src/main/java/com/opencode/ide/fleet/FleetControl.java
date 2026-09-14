@@ -20,6 +20,9 @@ import com.opencode.ide.client.OpencodeServerLauncher;
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.StoreSync;
 import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.CostOverview;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler;
 
 /**
  * Headless wiring for the task fleet: the chat-first control plane behind the
@@ -90,6 +93,90 @@ public final class FleetControl implements AutoCloseable {
     private final ExecutorService executor;
     private final java.util.Set<String> inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private Engine engine;
+    private boolean closed;
+    private DispatchScheduler scheduler;
+    private String autoProject;
+    private String autoSprint;
+    private long autoGeneration;
+
+    /** Starts the same readiness/cost policy used by the Board, over an explicit sprint. */
+    public void startAuto(String project, String sprint, int maxConcurrent,
+            double budgetUsd, boolean includeStale) {
+        if (project == null || project.isBlank() || sprint == null || sprint.isBlank()) {
+            throw new IllegalArgumentException("project and sprint must be explicit nonblank names");
+        }
+        TaskStore store = new TaskStore(storeRoot);
+        var tasks = store.list(project, null, null, sprint, null);
+        if (tasks.isEmpty()) {
+            throw new IllegalStateException("no tickets in sprint " + sprint + " of " + project);
+        }
+        var policy = AutoDispatch.of(maxConcurrent, budgetUsd, includeStale);
+        DispatchScheduler previous;
+        synchronized (this) {
+            if (closed) {
+                throw new IllegalStateException("fleet control is closed");
+            }
+            previous = scheduler;
+            long generation = ++autoGeneration;
+            scheduler = DispatchScheduler.withFeedback(policy,
+                    () -> store.list(project, null, null, sprint, null),
+                    () -> store.list(project, null, null, null, null),
+                    () -> CostOverview.of(store.list(project, null, null, null, null)),
+                    () -> DispatchGuard.runningIds(repoRoot),
+                    (id, attempt) -> dispatchAuto(store, project, sprint, id, policy, generation, attempt), null)
+                    .withCalibratedCosts();
+            autoProject = project;
+            autoSprint = sprint;
+            scheduler.start(Duration.ofSeconds(5));
+        }
+        if (previous != null) {
+            previous.requestStop();
+        }
+    }
+
+    private void dispatchAuto(TaskStore store, String project, String sprint, String id,
+            AutoDispatch policy, long generation, DispatchScheduler.LaunchAttempt attempt) {
+        DispatchGuard.admit(repoRoot, policy.maxConcurrent(), () -> {
+            synchronized (this) {
+                if (closed || generation != autoGeneration) {
+                    throw new DispatchGuard.AdmissionDeferred("auto-dispatch stopped");
+                }
+                // Plans are advisory. Revalidate readiness and spend under the
+                // same process lock used to count and reserve capacity.
+                var scope = store.list(project, null, null, null, null);
+                var candidate = scope.stream()
+                        .filter(t -> id.equals(t.id) && sprint.equals(t.sprint)).toList();
+                var overview = CostOverview.of(scope);
+                var current = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)).plan(candidate,
+                        com.opencode.ide.tasks.StageReadiness.evaluate(scope),
+                        overview, DispatchGuard.runningIds(repoRoot));
+                if (!current.launch().contains(id)) {
+                    throw new DispatchGuard.AdmissionDeferred("ticket no longer admissible: " + id);
+                }
+                dispatchLocked(project, id, DEFAULT_TIMEOUT, policy, attempt);
+            }
+            return null;
+        });
+    }
+
+    /** Stops admission; accepted workers continue. Never waits while holding the control monitor. */
+    public void stopAuto() {
+        DispatchScheduler previous;
+        synchronized (this) {
+            autoGeneration++;
+            previous = scheduler;
+            scheduler = null;
+        }
+        if (previous != null) {
+            previous.requestStop();
+        }
+    }
+
+    public synchronized Map<String, Object> autoStatus() {
+        return Map.of("running", scheduler != null && scheduler.isRunning(),
+                "project", autoProject == null ? "" : autoProject,
+                "sprint", autoSprint == null ? "" : autoSprint);
+    }
 
     /**
      * Real mode: the engine factory spawns its own {@code opencode serve}
@@ -207,10 +294,15 @@ public final class FleetControl implements AutoCloseable {
      *                  package privacy does not reach across bundles)
      */
     public FleetControl(Path storeRoot, Function<Path, Engine> engineFactory) {
+        this(storeRoot, engineFactory, Executors.newCachedThreadPool(daemons()));
+    }
+
+    /** Injected dispatch executor; ownership transfers to this control. */
+    public FleetControl(Path storeRoot, Function<Path, Engine> engineFactory, ExecutorService executor) {
         this.storeRoot = storeRoot;
         this.repoRoot = repoRootOf(storeRoot);
         this.engineFactory = engineFactory;
-        this.executor = Executors.newCachedThreadPool(daemons());
+        this.executor = java.util.Objects.requireNonNull(executor, "executor");
     }
 
     /** {@code <repo>/.opencode/tasks} → {@code <repo>}; absolute-normalized. */
@@ -228,7 +320,18 @@ public final class FleetControl implements AutoCloseable {
     }
 
     /** The lazy engine; the first call spawns the server (real mode). */
-    public synchronized Engine engine() {
+    public Engine engine() {
+        return DispatchGuard.exclusive(repoRoot, () -> {
+            synchronized (this) {
+                return engineLocked();
+            }
+        });
+    }
+
+    private Engine engineLocked() {
+        if (closed) {
+            throw new IllegalStateException("fleet control is closed");
+        }
         if (engine == null) {
             engine = engineFactory.apply(storeRoot);
         }
@@ -272,75 +375,66 @@ public final class FleetControl implements AutoCloseable {
      * outcome, recoverable via {@code fleet_recover_store}, not a failure).
      */
     public void dispatch(String project, String ticketId, Duration timeout) {
-        Engine e = engine();
-        acquireDispatchGuard(ticketId);
-        inFlight.add(ticketId);
-        com.opencode.ide.client.ClientLog.info(
-                "fleet dispatch " + ticketId + " accepted (budget " + timeout + ")");
-        executor.execute(() -> {
-            try {
-                try {
-                    try {
-                        e.fleet().launch(project, ticketId, repoRoot, timeout);
-                    } finally {
-                        com.opencode.ide.client.ClientLog.info("fleet dispatch " + ticketId + " settled");
-                    }
-                } catch (RuntimeException ex) {
-                    // TaskFleet already recorded the failure on the ticket
-                    // (blocked + reason); the jobs snapshot stays authoritative.
-                    com.opencode.ide.client.ClientLog.warning(
-                            "fleet launch of " + ticketId + " threw: " + ex.getMessage());
-                } finally {
-                    inFlight.remove(ticketId);
-                    releaseDispatchGuard(ticketId);
-                }
-                StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
-            } catch (RuntimeException ex) {
-                com.opencode.ide.client.ClientLog.warning(
-                    "store auto-sync failed for " + ticketId + ": " + ex.getMessage());
+        DispatchGuard.exclusive(repoRoot, () -> {
+            synchronized (this) {
+                dispatchLocked(project, ticketId, timeout);
             }
+            return null;
         });
     }
 
-    /**
-     * F-003 cross-engine dispatch guard: an atomically-created marker file
-     * under {@code .git/opencode-fleet/} — the create-if-absent is atomic
-     * ACROSS PROCESSES (Windows CREATE_NEW semantics), so the Board's engine
-     * and a chat engine can never both pre-claim the same ticket. The loser
-     * gets a clean refusal that touches nothing. The marker carries the
-     * creating pid for diagnosis; stale markers (crashed creator) are
-     * overwritten — reconciliation or fleet_reset cleans real residue.
-     */
-    private void acquireDispatchGuard(String ticketId) {
-        Path dir = repoRoot.resolve(".git").resolve("opencode-fleet");
-        try {
-            java.nio.file.Files.createDirectories(dir);
-            java.nio.file.Path marker = dir.resolve(ticketId + ".dispatch");
-            java.nio.file.attribute.FileAttribute<?>[] none = {};
-            try {
-                java.nio.file.Files.createFile(marker, none);
-                java.nio.file.Files.writeString(marker,
-                        "pid=" + ProcessHandle.current().pid()
-                                + " at " + java.time.Instant.now() + "\n");
-            } catch (java.nio.file.FileAlreadyExistsException e) {
-                throw new IllegalStateException("ticket " + ticketId
-                        + " is being dispatched by another engine (marker " + marker + " exists)"
-                        + " - fleet_reset removes stale markers");
-            }
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("cannot create the dispatch guard for " + ticketId
-                    + ": " + e.getMessage(), e);
-        }
+    private void dispatchLocked(String project, String ticketId, Duration timeout) {
+        dispatchLocked(project, ticketId, timeout, null, null);
     }
 
-    /** Releases the marker on settle; best-effort (crash leaves it for reconciliation). */
-    private void releaseDispatchGuard(String ticketId) {
+    private void dispatchLocked(String project, String ticketId, Duration timeout, AutoDispatch autoPolicy,
+            DispatchScheduler.LaunchAttempt attempt) {
+        if (closed) {
+            throw new IllegalStateException("fleet control is closed");
+        }
+        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
+        DispatchGuard guard = DispatchGuard.acquire(repoRoot, project, ticketId);
         try {
-            java.nio.file.Files.deleteIfExists(repoRoot.resolve(".git")
-                    .resolve("opencode-fleet").resolve(ticketId + ".dispatch"));
-        } catch (java.io.IOException e) {
-            com.opencode.ide.client.ClientLog.warning(
-                    "releasing the dispatch guard of " + ticketId + " failed: " + e.getMessage());
+            Engine e = engineLocked();
+            inFlight.add(ticketId);
+            com.opencode.ide.client.ClientLog.info(
+                    "fleet dispatch " + ticketId + " accepted (budget " + timeout + ")");
+            executor.execute(() -> {
+                try {
+                    try {
+                        try {
+                            if (autoPolicy == null) {
+                                e.fleet().launch(project, ticketId, repoRoot, timeout);
+                            } else {
+                                e.fleet().launchAuto(project, ticketId, repoRoot, timeout, guard, autoPolicy.includeStale());
+                            }
+                        } finally {
+                            com.opencode.ide.client.ClientLog.info("fleet dispatch " + ticketId + " settled");
+                        }
+                    } catch (DispatchGuard.AdmissionDeferred ex) {
+                        if (attempt != null) {
+                            attempt.deferred();
+                        }
+                        com.opencode.ide.client.ClientLog.info("fleet launch of " + ticketId + " deferred: " + ex.getMessage());
+                    } catch (RuntimeException ex) {
+                        com.opencode.ide.client.ClientLog.warning(
+                                "fleet launch of " + ticketId + " threw: " + ex.getMessage());
+                    } finally {
+                        inFlight.remove(ticketId);
+                        guard.close();
+                    }
+                    StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
+                } catch (RuntimeException ex) {
+                    com.opencode.ide.client.ClientLog.warning(
+                            "store auto-sync failed for " + ticketId + ": " + ex.getMessage());
+                }
+            });
+        } catch (RuntimeException | Error ex) {
+            inFlight.remove(ticketId);
+            guard.close();
+            throw ex;
         }
     }
 
@@ -352,38 +446,7 @@ public final class FleetControl implements AutoCloseable {
      * ticket is dispatchable again without manual surgery.
      */
     static int sweepStaleMarkers(Path repoRoot) {
-        Path dir = repoRoot.resolve(".git").resolve("opencode-fleet");
-        if (!java.nio.file.Files.isDirectory(dir)) {
-            return 0;
-        }
-        int swept = 0;
-        try (var stream = java.nio.file.Files.list(dir)) {
-            for (Path marker : stream.filter(p -> p.getFileName().toString().endsWith(".dispatch")).toList()) {
-                try {
-                    String content = java.nio.file.Files.readString(marker);
-                    java.util.regex.Matcher m = java.util.regex.Pattern
-                            .compile("pid=(\\d+)").matcher(content);
-                    if (!m.find()) {
-                        continue; // unreadable: leave it, fleet_reset handles it
-                    }
-                    long pid = Long.parseLong(m.group(1));
-                    if (ProcessHandle.of(pid).isPresent()) {
-                        continue; // another engine is live
-                    }
-                    java.nio.file.Files.deleteIfExists(marker);
-                    swept++;
-                    com.opencode.ide.client.ClientLog.info("swept stale dispatch marker "
-                            + marker.getFileName() + " (pid " + pid + " is dead)");
-                } catch (Exception e) {
-                    com.opencode.ide.client.ClientLog.warning(
-                            "sweeping marker " + marker + " failed: " + e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            com.opencode.ide.client.ClientLog.warning(
-                    "marker sweep in " + dir + " failed: " + e.getMessage());
-        }
-        return swept;
+        return DispatchGuard.sweepStale(repoRoot);
     }
 
     /**
@@ -416,13 +479,26 @@ public final class FleetControl implements AutoCloseable {
         }
         Map<String, FleetJob> merged = new java.util.LinkedHashMap<>(jobs);
         for (String id : inFlight) {
-            merged.putIfAbsent(id, new FleetJob(id, null, null, FleetJob.State.RUNNING, null));
+            FleetJob previous = merged.get(id);
+            if (previous == null || previous.state() != FleetJob.State.RUNNING) {
+                merged.put(id, new FleetJob(id, null, null, FleetJob.State.RUNNING, "launch accepted"));
+            }
         }
         return Map.copyOf(merged);
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
+        Engine closing;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            autoGeneration++;
+            closing = engine;
+        }
+        stopAuto();
         // R3 drain-then-kill: a launch mid-merge holds repo state (worktree,
         // MERGE_HEAD, the store claim) - interrupting it mid-git is exactly
         // the crash the review flagged. Give in-flight launches a bounded
@@ -438,9 +514,8 @@ public final class FleetControl implements AutoCloseable {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
         }
-        if (engine != null) {
-            engine.close();
-            engine = null;
+        if (closing != null) {
+            closing.close();
         }
     }
 

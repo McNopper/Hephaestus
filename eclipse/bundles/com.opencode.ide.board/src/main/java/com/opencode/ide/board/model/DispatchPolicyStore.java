@@ -1,5 +1,7 @@
 package com.opencode.ide.board.model;
 
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+
 import java.util.Objects;
 
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;

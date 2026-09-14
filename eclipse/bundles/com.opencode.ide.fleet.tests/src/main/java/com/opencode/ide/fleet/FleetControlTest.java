@@ -80,9 +80,107 @@ public class FleetControlTest {
     }
 
     @Test
+    public void dispatchAfterCloseCannotSpawnOrLeaveAReservation() {
+        Path root = base.resolve("repo/.opencode/tasks");
+        FleetControl control = new FleetControl(root, ignored -> {
+            throw new AssertionError("closed control must not spawn");
+        });
+        control.close();
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+                () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
+        assertTrue(DispatchGuard.runningIds(FleetControl.repoRootOf(root)).isEmpty());
+    }
+
+    @Test
     public void setServerPasswordPassesThroughExactly() {
         assertEquals("s3cret pass", FleetControl.resolvePassword("s3cret pass"));
         assertEquals("x", FleetControl.resolvePassword("x"));
+    }
+
+    @Test(timeout = 15000)
+    public void closeCanDrainAWorkerWhoseCompletionReadsControlState() throws Exception {
+        TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
+        FakeClient client = new FakeClient();
+        client.replyOnSend = "done";
+        client.sessionType = "idle";
+        FleetControl control = controlOver(store, client);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        client.onSessionCreated = () -> {
+            entered.countDown();
+            try {
+                assertTrue(resume.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                control.autoStatus(); // close must not retain the monitor while draining
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
+        };
+        String id = sprintTicket(store);
+        control.dispatch(PROJECT, id, TIMEOUT);
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var closing = pool.submit(control::close);
+            resume.countDown();
+            closing.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+            assertEquals(FleetJob.State.MERGED, control.jobs().get(id).state());
+        } finally {
+            resume.countDown();
+            control.close();
+        }
+    }
+
+    @Test
+    public void rejectedEngineCreationReleasesReservationAndCanBeRetried() {
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        FleetControl control = new FleetControl(base.resolve("repo/.opencode/tasks"), root -> {
+            attempts.incrementAndGet();
+            throw new IllegalStateException("spawn failed");
+        });
+        try (control) {
+            for (int i = 0; i < 2; i++) {
+                org.junit.Assert.assertThrows(IllegalStateException.class,
+                        () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
+                assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+            }
+            assertEquals(2, attempts.get());
+        }
+    }
+
+    @Test(timeout = 15000)
+    public void stopAndCloseDoNotWaitOnPeerAdmissionOrSpawnAfterItReleases() throws Exception {
+        TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
+        String id = sprintTicket(store);
+        store.update(PROJECT, id, java.util.Map.of("stage", "requirements"));
+        var held = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        FleetControl control = new FleetControl(store.root(), root -> {
+            throw new AssertionError("stopped auto loop must not spawn");
+        });
+        try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var peer = pool.submit(() -> DispatchGuard.exclusive(control.repoRoot(), () -> {
+                held.countDown();
+                try {
+                    assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                return null;
+            }));
+            assertTrue(held.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            control.startAuto(PROJECT, "S-01", 1, 0, false);
+            assertEquals(true, control.autoStatus().get("running"));
+            control.stopAuto();
+            control.close();
+            assertEquals(false, control.autoStatus().get("running"));
+            release.countDown();
+            peer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertFalse(control.engineStarted());
+            assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+        } finally {
+            release.countDown();
+            control.close();
+        }
     }
 
     @Test
@@ -123,6 +221,50 @@ public class FleetControlTest {
     /** A store root at {@code <repo>/.opencode/tasks} (the fleet's layout). */
     private static TaskStore storeIn(Path repo) {
         return new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+    }
+
+    @Test
+    public void realGitFailureResetAndRetryMergesTheWorkerArtifact() throws Exception {
+        Assume.assumeTrue("git not available", gitAvailable());
+        Path repo = newRepo();
+        TaskStore store = storeIn(repo);
+        String id = sprintTicket(store);
+        FakeClient client = new FakeClient();
+        client.failSessionCreation = true;
+        TaskFleet fleet = new TaskFleet(new FleetRunner(client,
+                com.opencode.ide.git.FleetGit.defaultManager()), store);
+        FleetControl control = new FleetControl(store.root(), root -> new FleetControl.Engine() {
+            public TaskFleet fleet() { return fleet; }
+            public PermissionQueue permissions() { return new PermissionQueue(null); }
+            public void close() { }
+        });
+        try {
+            assertEquals(FleetJob.State.FAILED, fleet.launch(PROJECT, id, repo, TIMEOUT).state());
+            assertTrue(store.get(PROJECT, id).blocked);
+            assertEquals("sprint-backlog", store.get(PROJECT, id).status);
+            com.google.gson.JsonObject args = new com.google.gson.JsonObject();
+            args.addProperty("project", PROJECT);
+            args.addProperty("ticket_id", id);
+            var reset = new FleetToolProvider(store.root(), control).call("fleet_reset", args);
+            assertFalse(reset.text(), reset.isError());
+            assertFalse(store.get(PROJECT, id).blocked);
+            client.failSessionCreation = false;
+            client.replyOnSend = "done";
+            client.sessionType = "idle";
+            client.onSessionCreated = () -> {
+                try {
+                    Files.writeString(client.sessionDirectories.getLast().resolve("result.txt"), "verified retry\n");
+                } catch (IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            };
+            FleetJob retried = fleet.launch(PROJECT, id, repo, TIMEOUT);
+            assertEquals(retried.detail(), FleetJob.State.MERGED, retried.state());
+            assertEquals("verified retry", Files.readString(repo.resolve("result.txt")).strip());
+            assertEquals("in-review", store.get(PROJECT, id).status);
+        } finally {
+            control.close();
+        }
     }
 
     /** A control whose engine is a real {@link TaskFleet} on the in-memory fakes over the given store. */

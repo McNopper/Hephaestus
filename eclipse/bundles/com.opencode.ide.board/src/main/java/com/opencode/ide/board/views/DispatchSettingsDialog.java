@@ -11,7 +11,7 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
 
-import com.opencode.ide.board.model.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
 import com.opencode.ide.board.model.DispatchPolicyStore;
 import com.opencode.ide.board.model.DispatchPolicyStore.DispatchSettings;
 

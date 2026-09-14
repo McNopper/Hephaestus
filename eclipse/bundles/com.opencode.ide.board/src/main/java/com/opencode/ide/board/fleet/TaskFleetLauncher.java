@@ -7,10 +7,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import java.util.function.Function;
 
 import com.opencode.ide.chat.ChatPermissionSink;
 import com.opencode.ide.chat.ChatPermissions;
@@ -18,6 +20,7 @@ import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.activity.PermissionRequest;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.fleet.Bootstrap;
+import com.opencode.ide.fleet.DispatchGuard;
 import com.opencode.ide.fleet.FleetJob;
 import com.opencode.ide.fleet.FleetPermissionBridge;
 import com.opencode.ide.fleet.FleetRunner;
@@ -25,6 +28,7 @@ import com.opencode.ide.fleet.PermissionQueue;
 import com.opencode.ide.fleet.RoleAgents;
 import com.opencode.ide.fleet.SseSessionEvents;
 import com.opencode.ide.fleet.TaskFleet;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler.LaunchAttempt;
 import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.tasks.TaskStore;
 
@@ -64,7 +68,7 @@ public final class TaskFleetLauncher implements FleetLauncher {
     });
 
     /** How long a launched agent session may run before the fleet times it out. */
-    private static final Duration LAUNCH_TIMEOUT = Duration.ofMinutes(30);
+    private static final Duration LAUNCH_TIMEOUT = com.opencode.ide.fleet.FleetTuning.DEFAULT_TICKET_BUDGET;
 
     private static final Map<CacheKey, TaskFleet> FLEETS_BY_ROOT = new ConcurrentHashMap<>();
 
@@ -134,6 +138,8 @@ public final class TaskFleetLauncher implements FleetLauncher {
 
     /** Supplies the optional per-launch bootstrap (re-read at launch time; see the 4-arg constructor). */
     private final Supplier<Bootstrap> bootstrapSupplier;
+    private final Executor executor;
+    private final Function<Path, TaskFleet> fleets;
 
     /**
      * The per-launch engine call
@@ -146,6 +152,12 @@ public final class TaskFleetLauncher implements FleetLauncher {
 
         FleetJob launch(TaskFleet fleet, String project, String taskId, Path repoRoot,
                 Duration timeout, Bootstrap bootstrap);
+
+        /** Manual lambda overrides stay compatible; auto keeps the real ownership/rework contract. */
+        default FleetJob launchAuto(TaskFleet fleet, String project, String taskId, Path repoRoot,
+                Duration timeout, DispatchGuard guard, boolean includeStale, Bootstrap bootstrap) {
+            return fleet.launchAuto(project, taskId, repoRoot, timeout, guard, includeStale, bootstrap);
+        }
     }
 
     private static final EngineLaunch REAL_ENGINE_LAUNCH =
@@ -181,10 +193,29 @@ public final class TaskFleetLauncher implements FleetLauncher {
             Supplier<WorktreeManager> worktreesSupplier,
             Supplier<Path> storeRootSupplier,
             Supplier<Bootstrap> bootstrapSupplier) {
+        this(clientSupplier, worktreesSupplier, storeRootSupplier, bootstrapSupplier, EXECUTOR);
+    }
+
+    /** Executor-injected adapter; the caller retains executor ownership. */
+    public TaskFleetLauncher(Supplier<OpencodeClient> clientSupplier,
+            Supplier<WorktreeManager> worktreesSupplier,
+            Supplier<Path> storeRootSupplier,
+            Supplier<Bootstrap> bootstrapSupplier, Executor executor) {
+        this(clientSupplier, worktreesSupplier, storeRootSupplier, bootstrapSupplier, executor,
+                TaskFleetLauncher::fleetFor);
+    }
+
+    /** Engine-provider seam for isolated adapter tests without the Eclipse connection singleton. */
+    public TaskFleetLauncher(Supplier<OpencodeClient> clientSupplier,
+            Supplier<WorktreeManager> worktreesSupplier,
+            Supplier<Path> storeRootSupplier,
+            Supplier<Bootstrap> bootstrapSupplier, Executor executor, Function<Path, TaskFleet> fleets) {
         state = new SuppliersState(GENERATION.incrementAndGet(),
                 new Suppliers(clientSupplier, worktreesSupplier));
         this.storeRootSupplier = storeRootSupplier;
         this.bootstrapSupplier = bootstrapSupplier;
+        this.executor = Objects.requireNonNull(executor, "executor");
+        this.fleets = Objects.requireNonNull(fleets, "fleets");
     }
 
     /** The process-wide queue of pending permission requests raised by fleet sessions. */
@@ -194,11 +225,25 @@ public final class TaskFleetLauncher implements FleetLauncher {
 
     @Override
     public FleetJobHandle launch(String project, String ticketId) {
+        return launch(project, ticketId, null, null);
+    }
+
+    @Override
+    public FleetJobHandle launchAuto(String project, String ticketId, boolean includeStale) {
+        return launchAuto(project, ticketId, includeStale, null);
+    }
+
+    @Override
+    public FleetJobHandle launchAuto(String project, String ticketId, boolean includeStale, LaunchAttempt attempt) {
+        return launch(project, ticketId, includeStale, attempt);
+    }
+
+    private FleetJobHandle launch(String project, String ticketId, Boolean includeStale, LaunchAttempt attempt) {
         Path storeRoot = storeRootSupplier.get();
         Path repoRoot = repoRootOf(storeRoot);
         String worktreeGuess = repoRoot == null ? null
                 : com.opencode.ide.git.FleetGit.worktreePath(repoRoot, ticketId).toString();
-        if (repoRoot == null || !Files.isDirectory(repoRoot.resolve(".git"))) {
+        if (repoRoot == null || !Files.exists(repoRoot.resolve(".git"))) {
             FleetJobHandle failed = new FleetJobHandle(
                     ticketId, null, worktreeGuess, FleetJobHandle.State.FAILED,
                     "no git repository at " + repoRoot + " (store root " + storeRoot + ")");
@@ -208,21 +253,12 @@ public final class TaskFleetLauncher implements FleetLauncher {
         // P1-3: the Board's launch path rides the SAME cross-engine dispatch
         // marker as FleetControl.dispatch — a Board launch and a chat
         // fleet_dispatch of the same ticket can never both pre-claim.
-        Path marker = repoRoot.resolve(".git").resolve("opencode-fleet")
-                .resolve(ticketId + ".dispatch");
+        com.opencode.ide.fleet.DispatchGuard guard;
         try {
-            Files.createDirectories(marker.getParent());
-            Files.createFile(marker);
-            Files.writeString(marker, "pid=" + ProcessHandle.current().pid()
-                    + " board at " + java.time.Instant.now() + "\n");
-        } catch (java.nio.file.FileAlreadyExistsException e) {
-            FleetJobHandle refused = new FleetJobHandle(
-                    ticketId, null, worktreeGuess, FleetJobHandle.State.FAILED,
-                    "ticket " + ticketId + " is being dispatched by another engine"
-                            + " (marker " + marker + " exists) - fleet_reset removes stale markers");
-            FleetJobsModelHolder.model().add(refused);
-            return refused;
-        } catch (java.io.IOException e) {
+            guard = DispatchGuard.acquire(repoRoot, project, ticketId);
+        } catch (com.opencode.ide.fleet.DispatchGuard.AdmissionDeferred e) {
+            throw e; // keep peer races retryable; do not replace a peer's RUNNING row
+        } catch (RuntimeException e) {
             FleetJobHandle failed = new FleetJobHandle(
                     ticketId, null, worktreeGuess, FleetJobHandle.State.FAILED,
                     "cannot create the dispatch guard: " + e.getMessage());
@@ -231,15 +267,20 @@ public final class TaskFleetLauncher implements FleetLauncher {
         }
         FleetJobHandle running = new FleetJobHandle(
                 ticketId, null, worktreeGuess, FleetJobHandle.State.RUNNING, "launching…");
-        FleetJobsModelHolder.model().add(running);
         Path launchRepoRoot = repoRoot;
-        EXECUTOR.execute(() -> {
+        Runnable work = () -> {
             FleetJobHandle result;
             try {
-                TaskFleet fleet = fleetFor(storeRoot);
-                result = map(engineLaunch.launch(fleet, project, ticketId, launchRepoRoot,
-                        LAUNCH_TIMEOUT, currentBootstrap()));
+                TaskFleet fleet = fleets.apply(storeRoot);
+                result = map(includeStale == null
+                        ? engineLaunch.launch(fleet, project, ticketId, launchRepoRoot,
+                                LAUNCH_TIMEOUT, currentBootstrap())
+                        : engineLaunch.launchAuto(fleet, project, ticketId, launchRepoRoot,
+                                LAUNCH_TIMEOUT, guard, includeStale, currentBootstrap()));
             } catch (RuntimeException e) {
+                if (includeStale != null && attempt != null && e instanceof DispatchGuard.AdmissionDeferred) {
+                    attempt.deferred();
+                }
                 result = new FleetJobHandle(ticketId, null, worktreeGuess,
                         FleetJobHandle.State.FAILED, String.valueOf(e.getMessage()));
             } catch (Error e) {
@@ -248,14 +289,23 @@ public final class TaskFleetLauncher implements FleetLauncher {
                 throw e;
             } finally {
                 // always release the marker (crash leaves it for reconciliation)
-                try {
-                    Files.deleteIfExists(marker);
-                } catch (java.io.IOException ignored) {
-                    // best-effort; a stale marker is recoverable via fleet_reset
-                }
+                guard.close();
             }
             FleetJobsModelHolder.model().update(result);
-        });
+        };
+        try {
+            FleetJobsModelHolder.model().add(running);
+            executor.execute(work);
+        } catch (RuntimeException e) {
+            guard.close();
+            FleetJobHandle failed = new FleetJobHandle(ticketId, null, worktreeGuess,
+                    FleetJobHandle.State.FAILED, "cannot schedule launch: " + e.getMessage());
+            FleetJobsModelHolder.model().update(failed);
+            return failed;
+        } catch (Error e) {
+            guard.close();
+            throw e;
+        }
         return running;
     }
 

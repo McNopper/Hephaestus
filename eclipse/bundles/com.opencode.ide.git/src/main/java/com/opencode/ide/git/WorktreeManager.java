@@ -10,6 +10,11 @@ import java.util.Optional;
  */
 public interface WorktreeManager {
 
+    /** Bind an ID-only slot before project-level claims or destructive reset. */
+    default void claimProject(Path repoRoot, String project, String taskId) {
+        throw new UnsupportedOperationException("project ownership not implemented");
+    }
+
     /**
      * Creates branch {@code opencode/<taskId>} and a worktree for it at
      * {@code repoRoot/.git/opencode-fleet/<taskId>} (hidden from

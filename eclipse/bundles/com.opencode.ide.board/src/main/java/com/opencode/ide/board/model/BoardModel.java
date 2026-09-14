@@ -1,5 +1,7 @@
 package com.opencode.ide.board.model;
 
+import com.opencode.ide.fleet.dispatch.CostOverview;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,7 +34,7 @@ import com.opencode.ide.tasks.VStages;
 public final class BoardModel {
 
     /** Pseudo-sprint id for tickets whose {@code sprint} field is null. */
-    public static final String BACKLOG = "(backlog)";
+    public static final String BACKLOG = CostOverview.BACKLOG;
 
     /** The single definition of the fallback project name (view + model share it). */
     public static final String DEFAULT_PROJECT = "hephaestus";

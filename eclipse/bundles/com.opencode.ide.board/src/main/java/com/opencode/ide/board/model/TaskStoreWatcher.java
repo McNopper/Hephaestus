@@ -163,7 +163,7 @@ public final class TaskStoreWatcher {
                     StandardWatchEventKinds.ENTRY_CREATE,
                     StandardWatchEventKinds.ENTRY_MODIFY,
                     StandardWatchEventKinds.ENTRY_DELETE });
-        } catch (IOException e) {
+        } catch (IOException | java.nio.file.ClosedWatchServiceException e) {
             dirKey = null;
         }
     }

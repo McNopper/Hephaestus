@@ -2,11 +2,9 @@ package com.opencode.ide.board.views;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -16,6 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.ControlContribution;
 import org.eclipse.jface.action.IContributionManager;
@@ -71,13 +70,14 @@ import com.opencode.ide.board.fleet.FleetJobHandle;
 import com.opencode.ide.board.fleet.FleetLauncher;
 import com.opencode.ide.board.fleet.TaskFleetLauncher;
 import com.opencode.ide.board.internal.BoardPlugin;
-import com.opencode.ide.board.model.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.CostOverview;
 import com.opencode.ide.board.model.BoardModel;
+import com.opencode.ide.board.model.BoardDispatch;
 import com.opencode.ide.board.model.BoardModel.BoardMode;
 import com.opencode.ide.board.model.BoardSnapshot;
-import com.opencode.ide.board.model.CostOverview;
 import com.opencode.ide.board.model.DispatchPolicyStore;
-import com.opencode.ide.board.model.DispatchScheduler;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler;
 import com.opencode.ide.board.model.FleetJobsModel;
 import com.opencode.ide.board.model.PipelineSnapshot;
 import com.opencode.ide.board.model.StageColumn;
@@ -90,7 +90,6 @@ import com.opencode.ide.fleet.Bootstrap;
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.StoreGitStatus;
 import com.opencode.ide.git.StoreSync;
-import com.opencode.ide.tasks.StageReadiness;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.VStages;
@@ -147,6 +146,8 @@ public class BoardView extends ViewPart {
     private DispatchPolicyStore dispatchStore;
     /** The H6 background dispatch loop while "Auto" is on; null otherwise. */
     private DispatchScheduler dispatchScheduler;
+    private AtomicBoolean dispatchCancelled = new AtomicBoolean();
+    private boolean dispatchPending;
 
     private final Map<String, ColumnUi> columns = new LinkedHashMap<>();
     private final List<PipelineColumnUi> pipelineColumns = new ArrayList<>();
@@ -251,11 +252,20 @@ public class BoardView extends ViewPart {
         } catch (RuntimeException e) {
             logError("Dispatch settings persistence unavailable; dispatch runs on the defaults", e);
         }
+        createLauncher();
+    }
+
+    private void createLauncher() {
+        Path root = model.root();
+        DispatchPolicyStore settings = dispatchStore;
         launcher = new TaskFleetLauncher(
                 BoardView::connectClient,
                 FleetGit::defaultManager,
-                () -> model == null ? null : model.root(),
-                this::storedBootstrap);
+                () -> root,
+                () -> {
+                    var stored = settings == null ? DispatchPolicyStore.defaults() : settings.load();
+                    return Bootstrap.of(stored.bootstrapAgent(), stored.bootstrapCommand());
+                });
     }
 
     private static com.opencode.ide.client.OpencodeClient connectClient() {
@@ -673,6 +683,7 @@ public class BoardView extends ViewPart {
                         }
                         int index = sprintCombo.getSelectionIndex();
                         if (index >= 0 && model != null) {
+                            cancelDispatchForSelection();
                             model.setSprint(sprintCombo.getItem(index));
                             refresh();
                         }
@@ -868,8 +879,10 @@ public class BoardView extends ViewPart {
         rootOverride = newRoot;
         projectName = newProject;
         if (changed) {
+            cancelDispatchForSelection();
             model.setProject(newProject);
             model.setRoot(resolveTasksRoot(rootOverride));
+            createLauncher();
             restartWatcher();
         }
         saveSettings();
@@ -1110,7 +1123,9 @@ public class BoardView extends ViewPart {
             return;
         }
         TicketRow row = selectedRow();
-        launchAction.setEnabled(canLaunch(row));
+        launchAction.setEnabled(!dispatchPending && canLaunch(row));
+        autoDispatchAction.setEnabled(!dispatchPending);
+        autoLoopAction.setEnabled(!dispatchPending);
         takeOverAction.setEnabled(row != null);
     }
 
@@ -1152,22 +1167,14 @@ public class BoardView extends ViewPart {
 
     private void launchSelected() {
         TicketRow row = selectedRow();
-        if (row == null || launcher == null) {
+        if (!canLaunch(row) || dispatchPending) {
             return;
         }
-        // TaskFleetLauncher publishes the RUNNING handle and the final state to the
-        // FleetJobsModel itself — no duplicate add here (double add = double fire)
-        FleetJobHandle handle = launcher.launch(model.project(), row.id());
-        updateActionEnablement(); // the RUNNING row now disables Launch until the job settles
-        revealFleetView();
-        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-        if (handle.failed()) {
-            status.setErrorMessage("Launch " + row.id() + " failed: " + handle.detail());
-        } else {
-            status.setErrorMessage(null);
-            status.setMessage("Launched " + row.id()
-                    + (handle.sessionId() == null ? "" : " (session " + handle.sessionId() + ")"));
-        }
+        BoardDispatch dispatch = captureDispatch();
+        runDispatchJob("Launching " + row.id(), () -> dispatch.launch(row.id()), handle -> {
+            revealFleetView();
+            statusMessage("Launched " + row.id());
+        });
     }
 
     /**
@@ -1182,60 +1189,21 @@ public class BoardView extends ViewPart {
      * background loop is the "Auto" toggle below.
      */
     private void autoDispatch() {
-        if (model == null || launcher == null) {
+        if (model == null || launcher == null || dispatchPending) {
             return;
         }
-        Map<String, StageReadiness.Readiness> readiness = StageReadiness.evaluate(model.projectTasks());
-        CostOverview cost = model.costOverview();
-        AutoDispatch.DispatchPlan plan = dispatchPolicy(cost).plan(
-                model.sprintTasks(), readiness, cost, runningTaskIds());
-        for (String id : plan.launch()) {
-            launcher.launch(model.project(), id);
-        }
-        if (!plan.launch().isEmpty()) {
-            revealFleetView();
-        }
-        refresh();
-        updateActionEnablement();
-        StringBuilder summary = new StringBuilder("Launched ").append(plan.launch().size())
-                .append(", skipped ").append(plan.skipped().size()).append(".");
-        for (AutoDispatch.Skip skip : plan.skipped()) {
-            summary.append("\n").append(skip.id()).append(" \u2014 ").append(skip.reason());
-        }
-        MessageDialog.openInformation(getSite().getShell(), "Auto-dispatch", summary.toString());
-    }
-
-    /** Ticket ids with a live fleet job — counted against the dispatch concurrency cap. */
-    private static Set<String> runningTaskIds() {
-        Set<String> running = new LinkedHashSet<>();
-        for (FleetJobHandle job : FleetJobsModel.getDefault().jobs()) {
-            if (job.state() == FleetJobHandle.State.RUNNING && job.taskId() != null) {
-                running.add(job.taskId());
+        BoardDispatch dispatch = captureDispatch();
+        runDispatchJob("Auto-dispatch", () -> dispatch.scheduler(() -> storedDispatch().policy()).tick(), plan -> {
+            if (!plan.launch().isEmpty()) {
+                revealFleetView();
             }
-        }
-        return running;
+            MessageDialog.openInformation(getSite().getShell(), "Auto-dispatch", BoardDispatch.summary(plan));
+        });
     }
 
     /** The stored dispatch policy + bootstrap, or the defaults; never throws. */
     private DispatchPolicyStore.DispatchSettings storedDispatch() {
         return dispatchStore == null ? DispatchPolicyStore.defaults() : dispatchStore.load();
-    }
-
-    /** The stored bootstrap as the fleet's {@link Bootstrap} (re-read per launch; blank command = none). */
-    private Bootstrap storedBootstrap() {
-        DispatchPolicyStore.DispatchSettings stored = storedDispatch();
-        return Bootstrap.of(stored.bootstrapAgent(), stored.bootstrapCommand());
-    }
-
-    /**
-     * The dispatch policy for the manual action and loop start: the stored
-     * {@link DispatchPolicyStore} values with the cost-calibrated per-launch
-     * estimate (see {@link AutoDispatch#calibratedEstimate(CostOverview)});
-     * loaded at action time so dialog edits apply without a restart.
-     */
-    private AutoDispatch dispatchPolicy(CostOverview cost) {
-        return storedDispatch().policy()
-                .withEstimateUsd(AutoDispatch.calibratedEstimate(cost));
     }
 
     /** "Dispatch settings" toolbar action: edit and persist the policy both dispatch actions load. */
@@ -1250,10 +1218,9 @@ public class BoardView extends ViewPart {
 
     /**
      * "Auto ▶/■" toggle (ROADMAP H6 piece 4, the self-draining loop): a
-     * {@link DispatchScheduler} over the CURRENT sprint whose suppliers
-     * re-read the model each tick — tickets added to the sprint (or a
-     * freshly selected sprint) drain automatically — running until
-     * unchecked or the view closes. The policy loads from the
+     * {@link DispatchScheduler} over the selected sprint. Tickets added to that
+     * sprint drain automatically; changing root/project/sprint stops the loop.
+     * The policy loads from the
      * {@link DispatchPolicyStore} at toggle time (with the cost-calibrated
      * estimate); the manual "Auto-dispatch" action above loads it per click.
      */
@@ -1271,22 +1238,91 @@ public class BoardView extends ViewPart {
     }
 
     private void startDispatchLoop() {
-        if (model == null || launcher == null) {
+        if (model == null || launcher == null || dispatchPending) {
             return;
         }
         stopDispatchLoop(null);
-        dispatchScheduler = new DispatchScheduler(dispatchPolicy(model.costOverview()), model::sprintTasks,
-                model::projectTasks, model::costOverview, BoardView::runningTaskIds,
-                id -> launcher.launch(model.project(), id), Clock.systemDefaultZone());
-        dispatchScheduler.start(AUTO_DISPATCH_PERIOD);
-        statusMessage("Auto-dispatch loop started \u2014 every "
-                + AUTO_DISPATCH_PERIOD.toSeconds() + "s over " + model.sprint() + ".");
+        BoardDispatch dispatch = captureDispatch();
+        runDispatchJob("Starting auto-dispatch", () -> dispatch.scheduler(() -> storedDispatch().policy()), scheduler -> {
+            dispatchScheduler = scheduler;
+            scheduler.start(AUTO_DISPATCH_PERIOD);
+            statusMessage("Auto-dispatch loop started — every "
+                    + AUTO_DISPATCH_PERIOD.toSeconds() + "s over " + model.sprint() + ".");
+        });
+    }
+
+    private BoardDispatch captureDispatch() {
+        AtomicBoolean cancelled = dispatchCancelled;
+        return new BoardDispatch(model.root(), model.project(), model.sprint(), launcher, cancelled::get);
+    }
+
+    /** All store reads, reservations and file locks execute on a Job, never SWT. */
+    private <T> void runDispatchJob(String name, java.util.function.Supplier<T> work,
+            java.util.function.Consumer<T> completed) {
+        AtomicBoolean cancelled = dispatchCancelled;
+        Display display = boardArea.getDisplay();
+        dispatchPending = true;
+        updateActionEnablement();
+        Job job = Job.create(name, monitor -> {
+            T result = null;
+            RuntimeException failure = null;
+            try {
+                if (!cancelled.get()) {
+                    result = work.get();
+                }
+            } catch (RuntimeException e) {
+                failure = e;
+            }
+            T value = result;
+            RuntimeException error = failure;
+            if (!display.isDisposed()) {
+                display.asyncExec(() -> {
+                    if (boardArea.isDisposed()) {
+                        return;
+                    }
+                    dispatchPending = false;
+                    if (!cancelled.get()) {
+                        if (error == null) {
+                            completed.accept(value);
+                        } else {
+                            stopDispatchLoop(null);
+                            autoLoopAction.setChecked(false);
+                            autoLoopAction.setText("Auto \u25B6");
+                            MessageDialog.openError(getSite().getShell(), name, String.valueOf(error.getMessage()));
+                        }
+                    }
+                    refresh();
+                    updateActionEnablement();
+                });
+            }
+            return Status.OK_STATUS;
+        });
+        job.setSystem(true);
+        job.schedule();
+    }
+
+    private void cancelDispatchForSelection() {
+        stopDispatchLoop(null);
+        autoLoopAction.setChecked(false);
+        autoLoopAction.setText("Auto \u25B6");
     }
 
     private void stopDispatchLoop(String message) {
+        dispatchCancelled.set(true);
+        dispatchCancelled = new AtomicBoolean();
         if (dispatchScheduler != null) {
-            dispatchScheduler.stop();
+            DispatchScheduler previous = dispatchScheduler;
             dispatchScheduler = null;
+            previous.requestStop();
+            // stop may wait for an in-flight reservation under the scheduler's
+            // lifecycle lock. Invalidate its launch token immediately, then wait
+            // off SWT so a contended repository cannot freeze the workbench.
+            Job stop = Job.create("Stopping auto-dispatch", monitor -> {
+                previous.stop();
+                return Status.OK_STATUS;
+            });
+            stop.setSystem(true);
+            stop.schedule();
         }
         if (message != null) {
             statusMessage(message);

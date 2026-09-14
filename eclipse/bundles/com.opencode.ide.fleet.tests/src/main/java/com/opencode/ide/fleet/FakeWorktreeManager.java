@@ -16,6 +16,19 @@ import com.opencode.ide.git.WorktreeStatus;
  * {@link #onMergeBack} to mutate the world as a real merge would.
  */
 final class FakeWorktreeManager implements WorktreeManager {
+    private final java.util.Map<String, String> projects = new java.util.concurrent.ConcurrentHashMap<>();
+    Runnable onClaimProject;
+
+    @Override
+    public void claimProject(Path repoRoot, String project, String taskId) {
+        String previous = projects.putIfAbsent(taskId, project);
+        if (previous != null && !previous.equals(project)) {
+            throw new IllegalStateException("fleet slot belongs to another project");
+        }
+        if (onClaimProject != null) {
+            onClaimProject.run();
+        }
+    }
 
     final List<String> createdTaskIds = new ArrayList<>();
     final List<String> mergedTaskIds = new ArrayList<>();
@@ -77,10 +90,14 @@ final class FakeWorktreeManager implements WorktreeManager {
 
     /** Files {@link #changedFiles} reports (the worker's diff); empty default = no evidence, the AC-path gate defers. */
     List<String> nextChangedFiles = new ArrayList<>();
+    RuntimeException changedFilesFailure;
     final List<String> changedFilesCalls = new ArrayList<>();
 
     @Override
     public List<String> changedFiles(Path repoRoot, String taskId) {
+        if (changedFilesFailure != null) {
+            throw changedFilesFailure;
+        }
         changedFilesCalls.add(taskId);
         return List.copyOf(nextChangedFiles);
     }

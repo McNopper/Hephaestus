@@ -1,5 +1,8 @@
 package com.opencode.ide.board.model;
 
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.CostOverview;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -31,6 +34,13 @@ import com.opencode.ide.tasks.Task;
  * non-candidates, same inputs yield the same plan).
  */
 public class AutoDispatchTest {
+
+    @Test
+    public void budgetReservesEstimatedCostOfInFlightJobs() {
+        AutoDispatch policy = new AutoDispatch(4, 0.10, false, 0.05);
+        assertTrue(policy.plan(List.of(ticket("T-3")), Map.of("T-3", READY),
+                CostOverview.empty(), Set.of("T-1", "T-2")).launch().isEmpty());
+    }
 
     private static final Readiness READY = new Readiness(Kind.READY, "upstream satisfied");
     private static final Readiness STALE = new Readiness(Kind.STALE, "upstream changed; re-run needed");
@@ -374,9 +384,10 @@ public class AutoDispatchTest {
     }
 
     @Test
-    public void calibratedEstimateRoundsToFourDecimals() {
-        assertEquals("the raw mean 0.0100166\u2026 rounds to 4 decimals",
-                0.01, AutoDispatch.calibratedEstimate(overviewOfCosts(0.01, 0.01, 0.01005)), 1e-9);
+    public void calibratedEstimatePreservesPrecisionForBudgetAdmission() {
+        assertEquals("rounding down would under-reserve the admission budget",
+                (0.01 + 0.01 + 0.01005) / 3,
+                AutoDispatch.calibratedEstimate(overviewOfCosts(0.01, 0.01, 0.01005)), 1e-12);
     }
 
     @Test

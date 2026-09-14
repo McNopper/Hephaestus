@@ -1,5 +1,9 @@
 package com.opencode.ide.board.model;
 
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.CostOverview;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -291,7 +295,7 @@ public class DispatchSchedulerTest {
         seams.clock.advance(DispatchScheduler.LAUNCH_HOLD.plusSeconds(1)); // hold expired: the running set must carry the exclusion
         AutoDispatch.DispatchPlan second = scheduler.tick();
         assertEquals(List.of(), second.launch());
-        assertTrue(reasonOf(second, "T-1"), reasonOf(second, "T-1").contains("already running"));
+        assertTrue(reasonOf(second, "T-1"), reasonOf(second, "T-1").contains("waiting for ticket input"));
         assertEquals(List.of("T-1"), seams.launches);
     }
 
@@ -303,19 +307,22 @@ public class DispatchSchedulerTest {
         scheduler.tick();
         AutoDispatch.DispatchPlan second = scheduler.tick(); // clock unmoved: within the hold
         assertEquals(List.of(), second.launch());
-        assertTrue(reasonOf(second, "T-1"), reasonOf(second, "T-1").contains("recently launched"));
+        assertTrue(reasonOf(second, "T-1"), reasonOf(second, "T-1").contains("waiting for ticket input"));
         assertEquals(List.of("T-1"), seams.launches);
     }
 
     @Test
-    public void holdExpiresAndRelaunchesWhenStillNotRunning() {
+    public void expiredHoldRequiresChangedTicketInputBeforeRelaunch() {
         Seams seams = new Seams();
         seams.sprint = List.of(ready("T-1"));
         DispatchScheduler scheduler = seams.scheduler(POLICY);
         scheduler.tick();
         seams.clock.advance(DispatchScheduler.LAUNCH_HOLD.plus(Duration.ofSeconds(1)));
         scheduler.tick();
-        assertEquals("a lagging running set must not suppress a launch forever",
+        assertEquals("unchanged inputs must not produce repeated launches", List.of("T-1"), seams.launches);
+        seams.sprint.get(0).updatedAt = Instant.EPOCH.plusSeconds(60);
+        scheduler.tick();
+        assertEquals("new ticket input is eligible once the reservation hold expires",
                 List.of("T-1", "T-1"), seams.launches);
     }
 
@@ -330,8 +337,8 @@ public class DispatchSchedulerTest {
         };
         DispatchScheduler scheduler = seams.scheduler(POLICY);
         AutoDispatch.DispatchPlan plan = scheduler.tick();
-        assertEquals("the failure is logged, the plan still reports the admission",
-                List.of("T-1", "T-2"), plan.launch());
+        assertEquals("only accepted launches are reported", List.of("T-2"), plan.launch());
+        assertTrue(reasonOf(plan, "T-1").contains("boom"));
         assertEquals("T-2 launches even though T-1's launch threw", List.of("T-1", "T-2"), seams.launches);
         seams.sprint = List.of(ready("T-1"), ready("T-2"), ready("T-3"));
         seams.running = Set.of("T-1", "T-2");

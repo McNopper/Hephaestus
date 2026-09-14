@@ -26,8 +26,6 @@ import com.opencode.ide.git.WorktreeStatus;
  */
 public final class GitWorktreeManager implements WorktreeManager {
 
-    private static final java.util.logging.Logger LOG =
-            java.util.logging.Logger.getLogger(GitWorktreeManager.class.getName());
     private static final Duration DEFAULT_TIMEOUT = com.opencode.ide.git.GitTuning.COMMAND_TIMEOUT;
     private static final Duration MERGE_TIMEOUT = com.opencode.ide.git.GitTuning.MERGE_TIMEOUT;
 
@@ -45,6 +43,26 @@ public final class GitWorktreeManager implements WorktreeManager {
         // R2: worktree/branch creation mutates the shared repo - serialized
         // by the repo gate so concurrent launches cannot race index.lock
         return com.opencode.ide.git.RepoGate.with(repoRoot, () -> createGuarded(repoRoot, taskId));
+    }
+
+    @Override
+    public void claimProject(Path repoRoot, String project, String taskId) {
+        requireTaskId(taskId);
+        com.opencode.ide.git.FleetOwnership.claim(repoRoot, project, taskId, () -> {
+            if (Files.exists(FleetGit.worktreePath(repoRoot, taskId))) {
+                return true;
+            }
+            // Headless in-memory engines may use an empty metadata directory.
+            if (!Files.exists(FleetGit.fleetRoot(repoRoot).getParent().resolve("HEAD"))) {
+                return false;
+            }
+            GitOutput branch = run(repoRoot, DEFAULT_TIMEOUT, "rev-parse", "--verify", "--quiet",
+                    "refs/heads/" + FleetGit.branchFor(taskId));
+            if (branch.exitCode() != 0 && branch.exitCode() != 1) {
+                throw new WorktreeException("cannot establish project ownership: branch probe failed: " + branch.stderr());
+            }
+            return branch.exitCode() == 0 || find(repoRoot, taskId).isPresent();
+        });
     }
 
     private Worktree createGuarded(Path repoRoot, String taskId) {
@@ -99,8 +117,14 @@ public final class GitWorktreeManager implements WorktreeManager {
     private void removeGuarded(Path repoRoot, String taskId, boolean force) {
         requireTaskId(taskId);
         Path repo = repo(repoRoot);
-        Worktree wt = find(repo, taskId)
-                .orElseThrow(() -> new WorktreeException("No fleet worktree for task '" + taskId + "'"));
+        Worktree wt = find(repo, taskId).orElse(null);
+        if (wt == null) {
+            String branch = FleetGit.branchFor(taskId);
+            if (branchExists(repo, branch)) {
+                git(repo, "branch", force ? "-D" : "-d", branch);
+            }
+            return;
+        }
         List<String> removeArgs = new ArrayList<>(List.of("worktree", "remove"));
         if (force) {
             removeArgs.add("--force");
@@ -121,6 +145,9 @@ public final class GitWorktreeManager implements WorktreeManager {
     private MergeResult mergeBackGuarded(Path repoRoot, String taskId) {
         requireTaskId(taskId);
         Path repo = repo(repoRoot);
+        if (mergeInProgress(repo)) {
+            throw new WorktreeException("repository already has a merge in progress; recover it before fleet merge-back");
+        }
         Worktree task = find(repo, taskId)
                 .orElseThrow(() -> new WorktreeException("No fleet worktree for task '" + taskId + "'"));
         String branch = task.branch();
@@ -155,8 +182,7 @@ public final class GitWorktreeManager implements WorktreeManager {
         try {
             Path storeDir = repo.resolve(com.opencode.ide.git.FleetGit.STORE_PATH);
             if (Files.isDirectory(storeDir)) {
-                git(repo, "add", "-A", "--", com.opencode.ide.git.FleetGit.STORE_PATH);
-                run(repo, DEFAULT_TIMEOUT, "commit", "-m", "fleet: store bookkeeping before merge of " + taskId);
+                commitAllGuarded(repo, FleetGit.STORE_PATH, "fleet: store bookkeeping before merge of " + taskId);
             }
         } catch (WorktreeException ignored) {
             // nothing staged ("nothing to commit") or a benign commit race -
@@ -264,7 +290,11 @@ public final class GitWorktreeManager implements WorktreeManager {
     private void commitAllGuarded(Path repoRoot, String pathSpec, String message) {
         Path repo = repo(repoRoot);
         git(repo, "add", "-A", "--", pathSpec);
-        GitOutput commit = run(repo, DEFAULT_TIMEOUT, "commit", "-m", message);
+        GitOutput staged = git(repo, "diff", "--cached", "--name-only", "--", pathSpec);
+        if (staged.stdout().isBlank()) {
+            return;
+        }
+        GitOutput commit = run(repo, DEFAULT_TIMEOUT, "commit", "--only", "-m", message, "--", pathSpec);
         if (commit.exitCode() != 0
                 && !(commit.stdout() + commit.stderr()).contains("nothing to commit")) {
             throw new WorktreeException("git commit failed (exit " + commit.exitCode() + "): "
@@ -289,11 +319,8 @@ public final class GitWorktreeManager implements WorktreeManager {
     }
 
     private static String requireTaskId(String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            throw new WorktreeException("taskId must not be null or blank");
-        }
-        if (taskId.matches(".*[/\\\\\\s].*")) {
-            throw new WorktreeException("taskId must not contain slashes or whitespace: '" + taskId + "'");
+        if (taskId == null || !taskId.matches("[A-Za-z0-9_-]+")) {
+            throw new WorktreeException("invalid taskId: '" + taskId + "'");
         }
         return taskId;
     }
@@ -339,64 +366,15 @@ public final class GitWorktreeManager implements WorktreeManager {
         try {
             finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
-            process.destroyForcibly();
+            GitProcesses.terminate(process);
             Thread.currentThread().interrupt();
-            cleanupCrashState(directory);
             throw new WorktreeException("Interrupted while waiting for git " + Arrays.toString(args), e);
         }
         if (!finished) {
-            process.destroyForcibly();
-            cleanupCrashState(directory);
+            GitProcesses.terminate(process);
             throw new WorktreeException("git " + Arrays.toString(args) + " timed out after " + timeout);
         }
         return new GitOutput(process.exitValue(), join(stdout), join(stderr));
-    }
-
-    /**
-     * R3: the killer owns the wreckage. A git process we destroyForcibly'd
-     * mid-write can leave {@code index.lock} or {@code MERGE_HEAD} behind —
-     * which would fail EVERY subsequent git operation on that tree until
-     * manual surgery. G-002: resolves the actual git-dir (linked worktrees
-     * have a {@code .git} FILE pointing elsewhere). Best-effort, logged,
-     * never throws.
-     */
-    private void cleanupCrashState(Path directory) {
-        try {
-            Path gitDir = resolveGitDir(directory);
-            Path mergeHead = gitDir.resolve("MERGE_HEAD");
-            if (Files.exists(mergeHead)) {
-                // best-effort direct invocation: run() is instance-scoped and
-                // cleanup must work from any interruption point
-                List<String> command = new ArrayList<>(List.of(gitCommand, "-C", directory.toString(),
-                        "merge", "--abort"));
-                Process p = new ProcessBuilder(command).start();
-                p.waitFor(DEFAULT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-                p.destroyForcibly();
-            }
-            Path indexLock = gitDir.resolve("index.lock");
-            if (Files.exists(indexLock)) {
-                Files.deleteIfExists(indexLock);
-            }
-        } catch (Exception e) {
-            LOG.warning("crash-state cleanup in " + directory + " failed: " + e.getMessage());
-        }
-    }
-
-    /** The actual .git directory (resolves linked-worktree indirection). */
-    private static Path resolveGitDir(Path directory) {
-        try {
-            Process p = new ProcessBuilder(List.of("git", "-C", directory.toString(),
-                    "rev-parse", "--git-dir")).start();
-            String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
-            p.waitFor(5, TimeUnit.SECONDS);
-            if (p.exitValue() == 0 && !out.isEmpty()) {
-                Path resolved = Path.of(out);
-                return resolved.isAbsolute() ? resolved : directory.resolve(resolved).toAbsolutePath().normalize();
-            }
-        } catch (Exception ignored) {
-            // fall through to the .git assumption
-        }
-        return directory.resolve(".git");
     }
 
     private static String join(CompletableFuture<String> future) {

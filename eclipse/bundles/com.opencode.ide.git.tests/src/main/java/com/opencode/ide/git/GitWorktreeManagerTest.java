@@ -61,6 +61,24 @@ public class GitWorktreeManagerTest {
     }
 
     @Test
+    public void scopedCommitPreservesUnrelatedStagedChanges() throws Exception {
+        Files.createDirectories(repo.resolve(FleetGit.STORE_PATH));
+        Files.writeString(repo.resolve(FleetGit.STORE_PATH).resolve("ticket.md"), "ticket");
+        Files.writeString(repo.resolve("user.txt"), "user work");
+        git("add", "user.txt");
+        manager.commitAll(repo, FleetGit.STORE_PATH, "store only");
+        assertEquals(".opencode/tasks/ticket.md", git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").trim());
+        assertEquals("user.txt", git("diff", "--cached", "--name-only").trim());
+        Files.writeString(repo.resolve(FleetGit.STORE_PATH).resolve("ticket.md"), "updated ticket");
+        StoreSync.sync(repo.resolve(FleetGit.STORE_PATH), "scoped sync");
+        assertEquals(".opencode/tasks/ticket.md", git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").trim());
+        assertEquals("user.txt", git("diff", "--cached", "--name-only").trim());
+        manager.commitAll(repo, FleetGit.STORE_PATH, "empty store commit");
+        assertEquals("scoped sync", git("log", "-1", "--format=%s").trim());
+        assertEquals("user.txt", git("diff", "--cached", "--name-only").trim());
+    }
+
+    @Test
     public void listSeesOnlyFleetWorktrees() throws Exception {
         manager.create(repo, "t1");
         manager.create(repo, "t2");
@@ -110,12 +128,10 @@ public class GitWorktreeManagerTest {
         assertFalse(Files.exists(wt.path()));
         assertFalse(gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
         assertFalse(git("worktree", "list", "--porcelain").contains("opencode-fleet"));
-        try {
-            manager.remove(repo, "t1", false);
-            fail("expected WorktreeException");
-        } catch (WorktreeException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("t1"));
-        }
+        manager.remove(repo, "t1", false); // recovery is idempotent
+        git("branch", "opencode/t1"); // branch-only crash residue
+        manager.remove(repo, "t1", true);
+        assertFalse(gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
     }
 
     @Test

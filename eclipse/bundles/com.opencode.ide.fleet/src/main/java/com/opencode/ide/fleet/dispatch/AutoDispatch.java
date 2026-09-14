@@ -1,4 +1,4 @@
-package com.opencode.ide.board.model;
+package com.opencode.ide.fleet.dispatch;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -58,11 +58,11 @@ public record AutoDispatch(int maxConcurrent, double costBudgetUsd, boolean incl
         if (maxConcurrent < 1) {
             throw new IllegalArgumentException("maxConcurrent must be >= 1: " + maxConcurrent);
         }
-        if (!(costBudgetUsd >= 0)) {
+        if (!Double.isFinite(costBudgetUsd) || costBudgetUsd < 0) {
             throw new IllegalArgumentException(
                     "costBudgetUsd must be >= 0 (0 = unlimited): " + costBudgetUsd);
         }
-        if (!(estimateUsd >= 0)) {
+        if (!Double.isFinite(estimateUsd) || estimateUsd < 0) {
             throw new IllegalArgumentException("estimateUsd must be >= 0: " + estimateUsd);
         }
     }
@@ -100,7 +100,8 @@ public record AutoDispatch(int maxConcurrent, double costBudgetUsd, boolean incl
         int samples = 0;
         double total = 0;
         for (CostOverview.TicketCost ticket : overview.tickets()) {
-            if (ticket == null || ticket.costUsd() == null) {
+            if (ticket == null || ticket.costUsd() == null || !Double.isFinite(ticket.costUsd())
+                    || ticket.costUsd() < 0) {
                 continue;
             }
             samples++;
@@ -109,7 +110,8 @@ public record AutoDispatch(int maxConcurrent, double costBudgetUsd, boolean incl
         if (samples < CALIBRATION_MIN_SAMPLES) {
             return ESTIMATED_COST_USD;
         }
-        return Math.round(total / samples * 10_000.0) / 10_000.0;
+        double mean = total / samples;
+        return Double.isFinite(mean) ? mean : ESTIMATED_COST_USD;
     }
 
     /**
@@ -129,7 +131,7 @@ public record AutoDispatch(int maxConcurrent, double costBudgetUsd, boolean incl
             CostOverview cost, Set<String> alreadyRunning) {
         Map<String, Readiness> verdicts = readiness == null ? Map.of() : readiness;
         Set<String> running = alreadyRunning == null ? Set.of() : alreadyRunning;
-        double spend = spentSoFar(cost);
+        double spend = spentSoFar(cost) + running.size() * estimateUsd;
 
         List<String> stale = new ArrayList<>();
         List<String> ready = new ArrayList<>();

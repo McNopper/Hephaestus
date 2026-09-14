@@ -456,6 +456,43 @@ public final class TaskStore {
         });
     }
 
+    /**
+     * Revalidates auto-dispatch readiness against the current whole-project
+     * snapshot and, when explicitly allowed, reopens a STALE done ticket.
+     * Readiness, status transition and its audit comment share one project
+     * transaction/OS lock: upstream edits cannot land between check and write.
+     * READY tickets and non-done STALE tickets are returned without a write.
+     *
+     * <p>This is preparation, not a claim. The caller must keep its dispatch
+     * reservation through the subsequent launch; later project edits are still
+     * allowed. A rejected preparation never changes the ticket.</p>
+     *
+     * @throws Invalid if readiness is neither READY nor explicitly allowed STALE
+     * @throws NotFound if the ticket does not exist
+     */
+    public Task prepareAutoDispatch(String project, String id, boolean includeStale, String by) {
+        return transaction(project, data -> {
+            Task ticket = require(data, project, id);
+            StageReadiness.Readiness verdict = StageReadiness.evaluate(
+                    new ArrayList<>(data.tasks.values())).get(id);
+            StageReadiness.Kind kind = verdict.kind();
+            if (kind != StageReadiness.Kind.READY && !(includeStale && kind == StageReadiness.Kind.STALE)) {
+                throw new Invalid("ticket " + id + " is not ready for auto-dispatch: " + kind + ": " + verdict.reason());
+            }
+            if ("done".equals(ticket.status)) {
+                // A fresh done ticket is NOT_APPLICABLE and was rejected above.
+                ticket.status = "sprint-backlog";
+                ticket.assignee = null;
+                ticket.updatedAt = now();
+                ticket.history("reopened for stale rework", by);
+                ticket.comments.add(new Task.Comment(ticket.updatedAt, by,
+                        (by == null ? "auto-dispatch" : by) + " stale rework: " + verdict.reason()));
+                data.changed.add(id);
+            }
+            return ticket;
+        });
+    }
+
     /** Appends a comment. */
     public Task addComment(String project, String id, String comment, String by) {
         return transaction(project, data -> {

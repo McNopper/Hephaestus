@@ -1,5 +1,7 @@
 package com.opencode.ide.board.model;
 
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;

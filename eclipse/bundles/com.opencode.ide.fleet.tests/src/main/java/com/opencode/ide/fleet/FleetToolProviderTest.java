@@ -64,7 +64,7 @@ public class FleetToolProviderTest {
 
     @Before
     public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
+        store = new TaskStore(tmp.getRoot().toPath().resolve(".opencode/tasks"));
         client = new FakeClient();
         responder = new RecordingResponder();
         enginePermissions = new PermissionQueue(responder);
@@ -94,6 +94,38 @@ public class FleetToolProviderTest {
     private static PermissionRequest asked(String permissionId) {
         return new PermissionRequest("ses_1", permissionId, "bash",
                 List.of("git push"), "git push origin main", PermissionRequest.Status.PENDING);
+    }
+
+    @org.junit.After
+    public void closeProvider() {
+        provider.close();
+    }
+
+    @Test
+    public void resetRefusesAnotherEnginesReservationWithoutChangingTicket() {
+        String id = sprintTicket();
+        store.setBlocked(PROJECT, id, "failed run", "test");
+        Path repo = FleetControl.repoRootOf(store.root());
+        try (DispatchGuard guard = DispatchGuard.acquire(repo, id)) {
+            McpToolResult result = provider.call("fleet_reset", args("project", PROJECT, "ticket_id", id));
+            assertTrue(result.text(), result.isError());
+            assertTrue(store.get(PROJECT, id).blocked);
+            assertTrue(DispatchGuard.runningIds(repo).contains(id));
+        }
+    }
+
+    @Test
+    public void autoControlsReportScopeAndStopWithoutDispatchingBlockedTickets() {
+        String id = sprintTicket();
+        store.setBlocked(PROJECT, id, "wait", "test");
+        assertOk(provider.call("fleet_auto_start", args("project", PROJECT, "sprint", "S-01")));
+        JsonObject status = JsonParser.parseString(provider.call("fleet_auto_status", null).text()).getAsJsonObject();
+        assertTrue(status.get("running").getAsBoolean());
+        assertEquals("S-01", status.get("sprint").getAsString());
+        assertOk(provider.call("fleet_auto_stop", null));
+        assertFalse(JsonParser.parseString(provider.call("fleet_auto_status", null).text())
+                .getAsJsonObject().get("running").getAsBoolean());
+        assertTrue(store.get(PROJECT, id).blocked);
     }
 
     private String sprintTicket() {

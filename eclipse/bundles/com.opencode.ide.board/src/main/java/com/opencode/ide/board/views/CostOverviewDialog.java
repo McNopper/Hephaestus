@@ -18,9 +18,9 @@ import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.TableColumn;
 import org.eclipse.swt.widgets.TableItem;
 
-import com.opencode.ide.board.model.CostOverview;
-import com.opencode.ide.board.model.CostOverview.TicketCost;
-import com.opencode.ide.board.model.CostOverview.Totals;
+import com.opencode.ide.fleet.dispatch.CostOverview;
+import com.opencode.ide.fleet.dispatch.CostOverview.TicketCost;
+import com.opencode.ide.fleet.dispatch.CostOverview.Totals;
 
 /**
  * Read-only fleet cost overview (opened from the Board's "Cost overview"
