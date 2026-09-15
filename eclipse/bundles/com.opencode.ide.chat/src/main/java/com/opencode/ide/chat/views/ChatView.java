@@ -318,6 +318,7 @@ public class ChatView extends ViewPart {
         selectors.load(agents, providers, prefs.getDefaultModelParts(), fallback);
         agentCombo.setItems(selectors.agents().toArray(String[]::new));
         agentCombo.select(selectors.agent() == null ? -1 : selectors.agents().indexOf(selectors.agent()));
+        sizeComboToContent(agentCombo);
         renderModelSelection();
         fillVariants();
         // preselect the preferred reasoning variant when the selected model exposes it
@@ -334,6 +335,27 @@ public class ChatView extends ViewPart {
         modelCombo.setItems(selectors.models().toArray(String[]::new));
         modelCombo.select(selectors.models().indexOf(selectors.model()));
         rememberSelectedModel();
+        sizeComboToContent(modelCombo);
+    }
+
+    /**
+     * Re-sizes one selector combo to its content after the items changed.
+     * Non-grabbing combos (agent, variant) keep their initial empty-combo
+     * width otherwise - long agent names and reasoning variants were cut off
+     * (user report 2026-09-15). The width hint is clamped so one very long
+     * model id cannot starve its neighbors; the grabbing combo treats the
+     * hint as its minimum.
+     */
+    private static void sizeComboToContent(org.eclipse.swt.widgets.Combo combo) {
+        if (combo == null || combo.isDisposed()) {
+            return;
+        }
+        Object data = combo.getLayoutData();
+        if (data instanceof GridData gd) {
+            int width = combo.computeSize(org.eclipse.swt.SWT.DEFAULT, org.eclipse.swt.SWT.DEFAULT).x;
+            gd.widthHint = Math.max(70, Math.min(width, 300));
+            combo.getParent().layout(true);
+        }
     }
 
     private void rememberSelectedModel() {
@@ -365,6 +387,7 @@ public class ChatView extends ViewPart {
         variantCombo.setToolTipText(variants.isEmpty()
                 ? "This model has no reasoning variants"
                 : "Reasoning effort (model variant): " + String.join(", ", variants));
+        sizeComboToContent(variantCombo);
     }
 
     /** @return the selected {@code provider/model}, or {@code ""}. */

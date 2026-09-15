@@ -92,8 +92,13 @@ public class TaskFleetWatchdogTest {
         client.sessionType = "idle"; // idle status, but no assistant reply yet
         AtomicInteger probes = new AtomicInteger();
         FleetRunner runner = new FleetRunner(client, worktrees, () -> {
-            if (probes.incrementAndGet() == 1) {
-                client.completeSession("ses_1", "done");
+            // append the late reply for the first few polls: the prompt
+            // thread's own user-row add races this hook, and a single-shot
+            // add can end up BEFORE the user row (last=user forever, the
+            // completion probe never fires) - appending across the race
+            // window keeps the test deterministic under load
+            if (probes.incrementAndGet() <= 3) {
+                client.addEntry("ses_1", "assistant", "late reply " + probes.get());
             }
         });
         TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents());
