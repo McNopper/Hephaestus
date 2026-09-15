@@ -333,6 +333,18 @@ check("__setAssistantText renders markdown", !!streamNode && streamNode.querySel
 check("__setAssistantText shows the model meta", !!streamNode && textOf(streamNode).includes("anthropic/claude"));
 check("__setAssistantText reports to Java", reports.some(r => r.startsWith("assistant bubble rendered")));
 
+// C--001: an EMPTY authoritative reply must never wipe text that already
+// streamed (live 2026-09-15: a 0-char final render blanked a streamed answer)
+exec('window.__startAssistant("{\\"mid\\":\\"msg_empty\\"}")');
+exec('window.__appendDelta("{\\"mid\\":\\"msg_empty\\",\\"text\\":\\"# Streamed answer\\\\n\\\\nkept alive\\"}")');
+const emptyNode = chatEl.querySelector('.msg.assistant[data-mid="msg_empty"]');
+exec('window.__setAssistantText("{\\"mid\\":\\"msg_empty\\",\\"text\\":\\"\\",\\"reasoning\\":\\"\\",\\"meta\\":\\"x/y\\"}")');
+check("empty final reply keeps the streamed text",
+  !!emptyNode && emptyNode.querySelector(".body").innerHTML.includes("<h1>Streamed answer</h1>"),
+  emptyNode ? emptyNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
+check("empty final reply was reported, not silent",
+  reports.some(r => r.startsWith("empty final reply - kept streamed text")));
+
 // history load (resume)
 const rows = JSON.stringify([
   { role: "user", id: "", text: "prior question", reasoning: "", meta: "" },

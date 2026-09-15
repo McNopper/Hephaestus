@@ -514,13 +514,18 @@ public final class TaskFleet {
 
     /**
      * The watchdog: polls the session until it completes, the budget ends or
-     * it STALLS. Completion is judged purely by probing (busy flag + last
-     * assistant reply) - the prompt POST's own fate is irrelevant except for
-     * immediate failures, so a stuck HTTP response can never hold a finished
-     * run hostage. A session with no new messages for {@link #stallTimeout}
-     * is aborted ({@code POST /session/:id/abort}) and fails cleanly instead
-     * of burning the whole budget on a hang. Slow-but-progressing workers are
-     * never killed by a guessed wall clock.
+     * it STALLS. Completion needs BOTH a complete-looking probe (busy flag +
+     * last assistant reply) AND the end of the run: the prompt POST
+     * resolving, or a complete-looking probe SUSTAINED for the whole stall
+     * window (a finished run whose POST is stuck must still merge - never
+     * held hostage by a dead HTTP response, never aborted). Probe alone is
+     * not enough: "idle + last assistant reply" is also true at every
+     * INTER-STEP boundary of a healthy agentic run (F-005: five concurrent
+     * workers were falsely completed ~1 min in and failed "worker produced
+     * no changes" while still streaming). A session with no new messages for
+     * {@link #stallTimeout} is aborted ({@code POST /session/:id/abort}) and
+     * fails cleanly instead of burning the whole budget on a hang.
+     * Slow-but-progressing workers are never killed by a guessed wall clock.
      */
     private FleetJob watchdog(FleetRunner.Submission submission, Duration timeout) throws OpencodeException {
         FleetJob job = submission.job();
@@ -528,6 +533,7 @@ public final class TaskFleet {
         long stallNanos = stallTimeout.toNanos();
         int lastMessages = -1;
         long lastProgress = System.nanoTime();
+        long looksFinishedSince = 0;
         while (true) {
             String promptFailure = submission.promptFailure();
             if (promptFailure != null) {
@@ -562,7 +568,14 @@ public final class TaskFleet {
                     lastProgress = System.nanoTime();
                 }
                 if (activity.complete()) {
-                    return withState(job, FleetJob.State.COMPLETED, null);
+                    if (looksFinishedSince == 0) {
+                        looksFinishedSince = System.nanoTime();
+                    }
+                    if (!promptInFlight || System.nanoTime() - looksFinishedSince >= stallNanos) {
+                        return withState(job, FleetJob.State.COMPLETED, null);
+                    }
+                } else {
+                    looksFinishedSince = 0;
                 }
                 // BUSY resets the stall clock: a single long tool call (a
                 // reactor build, npm install) or one long generation emits no

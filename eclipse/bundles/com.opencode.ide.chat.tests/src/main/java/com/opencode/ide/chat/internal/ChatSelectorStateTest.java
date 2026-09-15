@@ -80,6 +80,29 @@ public class ChatSelectorStateTest {
         assertEquals("", state.model());
     }
 
+    /**
+     * C--001 (live 2026-09-15): the server-derived fallback (first provider
+     * in server order) is unstable across catalog fetches - a reload that
+     * resolves a DIFFERENT fallback must never flip the effective model of a
+     * conversation without user interaction. Only the current model actually
+     * vanishing from the catalog legitimizes a switch.
+     */
+    @Test
+    public void unstableFallbackNeverFlipsTheEffectiveModel() {
+        ChatSelectorState state = new ChatSelectorState();
+        state.load(agents, providers, null, new String[] { "p", "m1" });
+        assertEquals("p/m1", state.model());
+        // same catalog, fallback now resolves elsewhere: no user action -> no change
+        state.load(agents, providers, null, new String[] { "p", "m2" });
+        assertEquals("still the effective model", "p/m1", state.model());
+        // the current model disappearing from the catalog IS a legitimate switch
+        ProviderList withoutM1 = new Gson().fromJson("""
+                {"providers":[{"id":"p","models":{"m2":{"id":"m2"}}}]}
+                """, ProviderList.class);
+        state.load(agents, withoutM1, null, new String[] { "p", "m2" });
+        assertEquals("p/m2", state.model());
+    }
+
     private static void selectCommand(ChatSelectorState state) {
         state.selectAgent("plan");
         state.selectModel("p/custom/model");

@@ -7,6 +7,11 @@ import static org.junit.Assert.assertTrue;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Before;
@@ -250,5 +255,79 @@ public class TaskFleetWatchdogTest {
 
         assertEquals(FleetJob.State.MERGED, job.state());
         assertEquals("in-review", store.get(PROJECT, id).status);
+    }
+
+    /**
+     * F-005 regression (live 2026-09-15): "idle + last assistant reply" is
+     * true at every INTER-STEP boundary of a healthy agentic run - the worker
+     * texted, the next tool call is being prepared, the session is not in the
+     * busy map. A complete-looking probe while the prompt POST is still in
+     * flight must NOT complete the job: five concurrent workers were falsely
+     * completed ~1 min in this way and failed "worker produced no changes"
+     * while still streaming. The launch must still be running when the prompt
+     * is mid-flight, and merge only after the POST resolves.
+     */
+    @Test
+    public void interStepBoundaryWhilePromptInFlightIsNotCompletion() throws Exception {
+        String id = sprintTicket("developer");
+        client.sessionType = "idle"; // idle + seeded assistant text = the boundary look
+        client.onSessionCreated = () -> client.addEntry("ses_1", "assistant",
+                "I have the full picture, checking the remaining files...");
+        CountDownLatch promptStarted = new CountDownLatch(1);
+        CountDownLatch releasePrompt = new CountDownLatch(1);
+        client.blockOnSend = () -> {
+            promptStarted.countDown();
+            try {
+                releasePrompt.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        client.replyOnSend = "done"; // the real final reply, once the POST may proceed
+        TaskFleet fleet = fleet(); // default stall timeout (minutes): sustained-complete cannot fire
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<FleetJob> launch = pool.submit(() -> fleet.launch(PROJECT, id, REPO, TIMEOUT));
+            assertTrue("prompt POST is in flight", promptStarted.await(2, TimeUnit.SECONDS));
+            Thread.sleep(300); // probes see the complete-looking boundary repeatedly
+            assertFalse("a complete-looking probe with the prompt in flight must not settle the run",
+                    launch.isDone());
+            releasePrompt.countDown();
+            FleetJob job = launch.get(5, TimeUnit.SECONDS);
+            assertEquals(FleetJob.State.MERGED, job.state());
+        } finally {
+            releasePrompt.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    /**
+     * The property the pure-probe design protected (2026-08-28): a FINISHED
+     * run whose prompt POST is stuck must still merge - never held hostage by
+     * a dead HTTP response, never aborted. With F-005's rule this is the
+     * sustained branch: complete-looking probes held for the whole stall
+     * window complete the job even while the POST hangs.
+     */
+    @Test
+    public void sustainedFinishMergesDespiteStuckPost() throws Exception {
+        String id = sprintTicket("developer");
+        client.sessionType = "idle";
+        client.onSessionCreated = () -> client.addEntry("ses_1", "assistant", "done: the work is committed");
+        client.blockOnSend = () -> {
+            try { // the POST that never resolves within the test's horizon
+                Thread.sleep(10_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        TaskFleet fleet = fleet().withStallTimeout(Duration.ofMillis(150));
+
+        long start = System.nanoTime();
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertTrue("merged via the sustained branch, not the 10s POST (took " + elapsedMs + "ms)",
+                elapsedMs < 5_000);
     }
 }

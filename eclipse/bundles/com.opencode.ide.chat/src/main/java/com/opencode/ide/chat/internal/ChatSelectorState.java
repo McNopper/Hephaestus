@@ -48,7 +48,29 @@ public final class ChatSelectorState {
         if (defaultModel == null || !models.contains(defaultModel)) {
             defaultModel = combined(fallback);
         }
-        model = requestedModel != null ? requestedModel : defaultModel == null ? "" : defaultModel;
+        // C--001 (live 2026-09-15): a catalog reload must never silently
+        // change the EFFECTIVE model of a running conversation. Rank: an
+        // explicit user pick (requestedModel) always wins; a workspace
+        // preference wins when its model is in the catalog (a pref change is
+        // user intent); otherwise the CURRENT selection is sticky while it
+        // still exists - the server-derived fallback (first provider in
+        // server order) is unstable across fetches, and following it turned
+        // zai/glm-5.3 into ollama/qwen3.5-4b-32k (empty reply) with no user
+        // interaction. The fallback applies only when nothing else is set or
+        // the current model vanished from the catalog.
+        String preferredModel = (preferred != null && models.contains(combined(preferred)))
+                ? combined(preferred)
+                : null;
+        String current = (model != null && !model.isBlank()) ? model : null;
+        if (requestedModel != null) {
+            model = requestedModel;
+        } else if (preferredModel != null) {
+            model = preferredModel;
+        } else if (current != null && models.contains(current)) {
+            model = current;
+        } else {
+            model = defaultModel == null ? "" : defaultModel;
+        }
         ensureModel();
     }
 

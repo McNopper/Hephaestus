@@ -423,6 +423,22 @@ window.__setAssistantText = guard("__setAssistantText", function (json) {
   if (!node) { addAssistant(p.mid, p.reasoning || null); node = findAssistant(p.mid); }
   if (!node) return true;
   const body = node.querySelector(".body");
+  // C--001: an EMPTY authoritative reply must never wipe text that already
+  // streamed (live 2026-09-15: a 0-char final render blanked a streamed
+  // answer). If the stream produced content, finalize THAT (same path as
+  // __stopStream) instead of overwriting the body with nothing.
+  if (text === "") {
+    const raw = node.querySelector(".stream-raw");
+    const streamed = raw ? raw.textContent : "";
+    if (streamed.trim() !== "") {
+      body.innerHTML = "";
+      renderMarkdown(body, streamed);
+      node.classList.add("stream-done");
+      node.querySelectorAll(".cursor").forEach(c => c.remove());
+      report("empty final reply - kept streamed text (" + streamed.length + " chars)");
+      return true;
+    }
+  }
   body.innerHTML = "";
   renderMarkdown(body, text);
   // The authoritative render closes the bubble: a delta still in flight must
