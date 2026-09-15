@@ -72,7 +72,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $bundlesInfo = Join-Path $EclipseRoot "configuration\org.eclipse.equinox.simpleconfigurator\bundles.info"
 if (Test-Path -LiteralPath $bundlesInfo) {
     $lines = [System.Collections.Generic.List[string]](Get-Content -LiteralPath $bundlesInfo)
-    $existing = @($lines | Where-Object { $_ -like "*,file:dropins/opencode-ide/plugins/*" })
+    # match with or without the "file:" prefix - the p2 reconciler rewrites dropin
+    # lines in its own relative form and drops the prefix, and a prefix-only match
+    # would silently skip the refresh (stale qualifiers then break bundle install)
+    $existing = @($lines | Where-Object { $_ -match ',file:dropins/opencode-ide/plugins/|,dropins/opencode-ide/plugins/' })
     if ($existing.Count -gt 0) {
         foreach ($jar in Get-ChildItem $plugins -Filter "*.jar") {
             $zip = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
@@ -91,7 +94,7 @@ if (Test-Path -LiteralPath $bundlesInfo) {
                 $newLine = "$id,$ver,file:dropins/opencode-ide/plugins/$($jar.Name),4,false"
                 $replaced = $false
                 for ($i = 0; $i -lt $lines.Count; $i++) {
-                    if ($lines[$i] -like "$id,*,file:dropins/opencode-ide/plugins/*") {
+                    if ($lines[$i] -match "^$id,.*dropins/opencode-ide/plugins/") {
                         $lines[$i] = $newLine; $replaced = $true; break
                     }
                 }

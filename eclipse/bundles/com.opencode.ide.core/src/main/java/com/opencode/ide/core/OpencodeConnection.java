@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import com.opencode.ide.client.ClientLog;
 import com.opencode.ide.client.ConnectionConfig;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeClients;
@@ -227,7 +228,7 @@ public final class OpencodeConnection {
                 workingDirectory = context.getWorkingDirectory().orElse(null);
             }
             if (workingDirectory == null) {
-                // fallback: the configured repo root (default Hephaestus) so the
+                // fallback 1: the configured repo root (default Hephaestus) so the
                 // server loads that repo's .opencode/ agents, skills and MCP config
                 String configured = preferences.getWorkingDirectory();
                 if (configured != null && !configured.isBlank()) {
@@ -236,6 +237,21 @@ public final class OpencodeConnection {
                         workingDirectory = candidate;
                     }
                 }
+            }
+            if (workingDirectory == null) {
+                // fallback 2 (O-001): adopt an open workspace project that lives
+                // in an opencode repo - opening the repo's projects in Eclipse then
+                // behaves like opening the repo itself. Without this, a null
+                // directory makes the child inherit Eclipse's own working
+                // directory (the install folder), which carries no repo config.
+                workingDirectory = workspaceRepoRoot();
+            }
+            if (workingDirectory != null) {
+                // O-001 parity rule: a nested project folder resolves to its repo
+                // root so the server sees .opencode/ agents+skills and the
+                // opencode.json MCP servers
+                workingDirectory = repoRootOf(workingDirectory);
+                ClientLog.info("[opencode serve] working directory: " + workingDirectory);
             }
 
             spawnPassword = resolveSpawnPassword(preferences);
@@ -254,6 +270,57 @@ public final class OpencodeConnection {
                 base,
                 (user == null || user.isEmpty()) ? "opencode" : user,
                 (password == null || password.isEmpty()) ? null : password);
+    }
+
+    /**
+     * O-001 fallback: the first open workspace project whose location lies in
+     * an opencode repo (nearest ancestor with a repo marker). Deterministic
+     * order: project name. Null when the resources plugin is unavailable (tests,
+     * non-workbench hosts) or no project qualifies.
+     */
+    static Path workspaceRepoRoot() {
+        try {
+            var resources = org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
+            var projects = resources.getRoot().getProjects();
+            Path best = null;
+            for (var project : projects) {
+                var location = project.getLocation();
+                if (location == null) {
+                    continue;
+                }
+                Path repo = repoRootOf(location.toPath());
+                if (Files.isDirectory(repo.resolve(".opencode"))
+                        || Files.isRegularFile(repo.resolve("opencode.json"))) {
+                    if (best == null || repo.toString().compareTo(best.toString()) < 0) {
+                        best = repo;
+                    }
+                }
+            }
+            return best;
+        } catch (LinkageError | RuntimeException e) {
+            // no resources plugin / no workbench - preference and context paths remain
+            return null;
+        }
+    }
+
+    /**
+     * O-001 "same folder level" rule: given a working directory (typically the
+     * active project's folder inside a repo), walk up to the nearest ancestor
+     * that carries an opencode repo marker - a {@code .opencode} directory or an
+     * {@code opencode.json} - so a server spawned for a nested project behaves
+     * exactly like one started in the repo root. Returns the input unchanged
+     * when no ancestor qualifies.
+     */
+    public static Path repoRootOf(Path candidate) {
+        Path current = candidate.toAbsolutePath().normalize();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve(".opencode"))
+                    || Files.isRegularFile(current.resolve("opencode.json"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return candidate;
     }
 
     /**
