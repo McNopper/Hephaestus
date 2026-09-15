@@ -84,6 +84,28 @@ for the opencode bundles. A clean reinstall of the Eclipse CDT package (or a
 p2 profile repair via the installer) removes that crutch; the plugins
 themselves are ordinary dropins again afterwards.
 
+## Developing the plugin inside Eclipse
+
+The bundle directories carry PDE metadata (`.project`, `.classpath`,
+`.settings/`), so the classic PDE workflow needs no Maven integration:
+
+1. *File → Import → General → Existing Projects into Workspace* → root
+   `eclipse/` → import all. PDE resolves OSGi dependencies against the running
+   Eclipse (which contains every bundle via the dropins) — sources use
+   `src/main/java` and output to `target/classes` per the Tycho layout.
+2. Edit; verify with a nested workbench (*Run → Run Configurations →
+   Eclipse Application* — workspace bundles override the deployed dropins in
+   the child) or per-bundle JUnit Plug-in tests.
+3. Real builds and deploys still go through `build.ps1 verify` +
+   `deploy-dev.ps1` (close Eclipse before deploying — the jars are locked
+   while it runs).
+
+Keep two workspaces (e.g. `workspace-cpp` for testing the deployed product,
+`workspace-dev` for the imported sources); desktop shortcuts pinning `-data`
+per workspace work well. Note that a repo-root `.project` conflicts with
+nested bundle projects (Eclipse forbids overlapping projects) — detection of
+"the opened repo" for product self-configuration is tracked as ticket O-001.
+
 ## Known launch-time pitfalls fixed in the plugin
 
 | Pitfall | Fix |
