@@ -86,25 +86,31 @@ themselves are ordinary dropins again afterwards.
 
 ## Developing the plugin inside Eclipse
 
-The bundle directories carry PDE metadata (`.project`, `.classpath`,
-`.settings/`), so the classic PDE workflow needs no Maven integration:
+The install carries m2e plus the m2e-PDE integration (Tycho/OSGi support), and
+the bundle directories carry PDE metadata (`.project`, `.classpath`,
+`.settings/`) — either import style works in ONE workspace:
 
-1. *File → Import → General → Existing Projects into Workspace* → root
-   `eclipse/` → import all. PDE resolves OSGi dependencies against the running
-   Eclipse (which contains every bundle via the dropins) — sources use
-   `src/main/java` and output to `target/classes` per the Tycho layout.
-2. Edit; verify with a nested workbench (*Run → Run Configurations →
-   Eclipse Application* — workspace bundles override the deployed dropins in
-   the child) or per-bundle JUnit Plug-in tests.
-3. Real builds and deploys still go through `build.ps1 verify` +
-   `deploy-dev.ps1` (close Eclipse before deploying — the jars are locked
-   while it runs).
+- *File → Import → Maven → Existing Maven Projects* → root `eclipse/pom.xml`
+  → import all (preferred; m2e-PDE maps the Tycho packaging to PDE natures and
+  resolves workspace OSGi dependencies).
+- *File → Import → General → Existing Projects into Workspace* → root
+  `eclipse/bundles` (plain PDE import; dependencies resolve against the
+  running Eclipse, which contains every bundle via the dropins).
 
-Keep two workspaces (e.g. `workspace-cpp` for testing the deployed product,
-`workspace-dev` for the imported sources); desktop shortcuts pinning `-data`
-per workspace work well. Note that a repo-root `.project` conflicts with
-nested bundle projects (Eclipse forbids overlapping projects) — detection of
-"the opened repo" for product self-configuration is tracked as ticket O-001.
+Eclipse's command-line `-import` flag proved unreliable for this (silently
+no-ops on a workspace with existing UI state; the batch import only took on a
+freshly initialized workspace). Edit; verify with a nested workbench
+(*Run → Run Configurations → Eclipse Application* — workspace bundles override
+the deployed dropins in the child) or per-bundle JUnit Plug-in tests. Real
+builds and deploys still go through `build.ps1 verify` + `deploy-dev.ps1`
+(close Eclipse before deploying — the jars are locked while it runs).
+
+EGit covers commit/push from inside Eclipse (*Team → Commit/Push*); the HOME
+warning on startup is cosmetic (Git for Windows and EGit agree on
+`C:\Users\<user>` for global config). Note that a repo-root `.project`
+conflicts with nested bundle projects (Eclipse forbids overlapping projects) —
+detection of "the opened repo" for product self-configuration is tracked as
+ticket O-001.
 
 ## Known launch-time pitfalls fixed in the plugin
 
