@@ -84,6 +84,15 @@ public final class ChatScripts {
         return "window.__setTheme(" + GSON.toJson(nullToEmpty(theme)) + ")";
     }
 
+    /**
+     * {@code window.__setReasoningVisible("{...}")} - toggles the visibility
+     * of thinking/reasoning progress (live and history blocks; the page hides
+     * via a CSS class, so toggling back needs no re-render).
+     */
+    public static String setReasoningVisible(boolean visible) {
+        return call("__setReasoningVisible", Map.of("visible", visible));
+    }
+
     /** {@code window.__clear()} - empties the transcript. */
     public static String clear() {
         return "window.__clear()";

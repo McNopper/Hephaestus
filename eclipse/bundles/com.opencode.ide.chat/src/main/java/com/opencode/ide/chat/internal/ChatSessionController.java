@@ -150,15 +150,22 @@ public final class ChatSessionController {
             envDuration("CHAT_LATE_REPLY_POLL_MS", Duration.ofSeconds(5));
     private static final Duration LATE_REPLY_CAP_DEFAULT =
             envDuration("CHAT_LATE_REPLY_CAP_MS", Duration.ofMinutes(30));
+    /**
+     * How long abort() waits for the blocked reply POST to unblock before
+     * force-releasing the view. Env: {@code CHAT_ABORT_SETTLE_MS} (10 s).
+     */
+    private static final Duration ABORT_SETTLE_DEFAULT =
+            envDuration("CHAT_ABORT_SETTLE_MS", Duration.ofSeconds(10));
     private final Duration lateReplyPoll;
     private final Duration lateReplyCap;
+    private final Duration abortSettle;
     /** Bumped on dispose and by every new watcher: stale watchers exit silently. */
     private volatile int watcherGeneration;
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
 
     public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host) {
-        this(connection, renderer, host, LATE_REPLY_POLL_DEFAULT, LATE_REPLY_CAP_DEFAULT);
+        this(connection, renderer, host, LATE_REPLY_POLL_DEFAULT, LATE_REPLY_CAP_DEFAULT, ABORT_SETTLE_DEFAULT);
     }
 
     /**
@@ -168,6 +175,12 @@ public final class ChatSessionController {
      */
     public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host,
             Duration lateReplyPoll, Duration lateReplyCap) {
+        this(connection, renderer, host, lateReplyPoll, lateReplyCap, ABORT_SETTLE_DEFAULT);
+    }
+
+    /** Full test seam incl. the abort settle budget. */
+    public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host,
+            Duration lateReplyPoll, Duration lateReplyCap, Duration abortSettle) {
         this.connection = connection;
         this.renderer = renderer;
         this.host = host;
@@ -175,6 +188,8 @@ public final class ChatSessionController {
                 ? LATE_REPLY_POLL_DEFAULT : lateReplyPoll;
         this.lateReplyCap = lateReplyCap == null || lateReplyCap.isZero()
                 ? LATE_REPLY_CAP_DEFAULT : lateReplyCap;
+        this.abortSettle = abortSettle == null || abortSettle.isZero()
+                ? ABORT_SETTLE_DEFAULT : abortSettle;
     }
 
     private static Duration envDuration(String envVar, Duration fallback) {
@@ -507,6 +522,16 @@ public final class ChatSessionController {
                 host.info("queue: submission waiting (" + size + " queued)");
                 return true;
             }
+            if (!queue.isEmpty()) {
+                // a leftover queue (an aborted run whose release never
+                // dispatched): the user's next send flushes everything,
+                // oldest first (user direction 2026-09-16)
+                queue.add(new PendingSubmission(displayOf(command, message), command, message));
+                sending = true;
+                host.sendingChanged(true);
+                finishSend();
+                return true;
+            }
         }
         dispatchNow(command, message);
         return false;
@@ -833,9 +858,13 @@ public final class ChatSessionController {
     /**
      * Aborts the in-flight reply: shows an interrupted notice immediately, then
      * POSTs the abort endpoint on a background thread (never the UI thread).
-     * The {@code sending} flag itself is cleared by the aborted send job when
-     * the server unblocks its reply call; queued submissions then auto-send as
-     * usual (remove them from the pending list first if that is not wanted).
+     * The {@code sending} flag itself is normally cleared by the aborted send
+     * job when the server unblocks its reply call; queued submissions then
+     * auto-send as usual. Belt and braces for the abnormal case (user report
+     * 2026-09-16: after an abort whose POST never unblocked, every later send
+     * silently queued forever): a bounded settle-watch releases the view and
+     * drains the queue when the job does not settle within
+     * {@code CHAT_ABORT_SETTLE_MS} - the user's next send can never no-op.
      * A no-op when nothing is in flight or the session does not exist yet
      * (first message still creating it).
      */
@@ -855,6 +884,22 @@ public final class ChatSessionController {
             } catch (OpencodeException e) {
                 host.error("abort failed for session " + sid, e);
                 host.runOnUi(() -> renderer.notice("⚠ Abort failed: " + e.getMessage()));
+            }
+            long deadline = System.currentTimeMillis() + abortSettle.toMillis();
+            while (sending && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            if (sending) {
+                host.info("abort: the reply call did not settle within " + abortSettle.toSeconds()
+                        + "s - releasing the view (queued submissions drain)");
+                host.runOnUi(() -> renderer.notice("⚠ Aborted - the reply call did not settle;"
+                        + " the view was released."));
+                finishSend();
             }
         });
     }

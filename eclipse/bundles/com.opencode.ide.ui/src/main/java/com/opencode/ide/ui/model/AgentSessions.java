@@ -76,13 +76,50 @@ public final class AgentSessions {
     }
 
     /**
+     * How many of the agent's live sessions are currently working — busy
+     * themselves or with a busy subagent under them (see
+     * {@code ServerLabels#hasBusyDescendant}). This is the count surfaced
+     * in the agent row's {@code "n working"} suffix and the Agents
+     * category's aggregate, so an agent whose subagents grind away is
+     * visible at the parent level even while collapsed.
+     */
+    public static int workingCount(List<Session> sessions, Map<String, SessionStatus> statuses, Agent agent) {
+        if (sessions == null) {
+            return 0;
+        }
+        return (int) sessions.stream()
+                .filter(s -> runsAgent(agent, s))
+                .filter(s -> ServerLabels.isBusy(statuses, s)
+                        || ServerLabels.hasBusyDescendant(sessions, statuses, s.id()))
+                .count();
+    }
+
+    /**
      * Label of an agent definition row: the bare name, plus
      * {@code " — n running"} when live sessions are nested under it
      * (e.g. {@code "build — 2 running"}); {@code "(unnamed)"} for a null/empty name.
      */
     public static String agentName(String name, int running) {
+        return agentName(name, running, 0);
+    }
+
+    /**
+     * Label of an agent definition row with its working state: the bare
+     * name, plus {@code " — n running"} while live sessions are nested
+     * under it and a prominent {@code "  • n working"} while any of them
+     * works (e.g. {@code "build — 2 running  • 1 working"}); zero counts
+     * degrade to the plain name.
+     */
+    public static String agentName(String name, int running, int working) {
         String base = (name == null || name.isEmpty()) ? "(unnamed)" : name;
-        return running > 0 ? base + " — " + running + " running" : base;
+        StringBuilder sb = new StringBuilder(base);
+        if (running > 0) {
+            sb.append(" — ").append(running).append(" running");
+        }
+        if (working > 0) {
+            sb.append("  • ").append(working).append(" working");
+        }
+        return sb.toString();
     }
 
     /**

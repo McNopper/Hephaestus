@@ -354,6 +354,38 @@ public class ChatSessionControllerTest {
     }
 
     @Test
+    public void abortReleasesAStuckReplyCallAndSubmitsTheQueue() {
+        // user report 2026-09-16: after an abort whose reply POST never
+        // unblocked, every later send silently queued forever. The settle
+        // watch must release the view AND dispatch the queued submissions.
+        ChatSessionController quick = new ChatSessionController(connection, renderer, host,
+                Duration.ofMillis(5), Duration.ofMinutes(30), Duration.ofMillis(120));
+        quick.resume("ses_9");
+        host.holdBackground = true;
+        quick.send(new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "first"));
+        assertTrue(quick.isSending());
+        quick.submit(null, new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "second"));
+        assertEquals(List.of("second"), quick.queuedPrompts());
+
+        quick.abort();
+        // run ONLY the abort job; the send job stays held, so the reply POST
+        // never settles and the settle watch must force the release
+        host.queuedBackground.get(host.queuedBackground.size() - 1).run();
+
+        assertTrue("release notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("view was released")));
+        assertTrue("the queued submission is dispatched (echo rendered)",
+                renderer.users.contains("second"));
+        assertTrue("the drained submission owns the in-flight flag", quick.isSending());
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+        assertEquals("both messages went out, oldest first", List.of("first", "second"),
+                connection.client.requests.stream().map(ChatRequest::text).toList());
+        assertFalse(quick.isSending());
+    }
+
+    @Test
     public void abortFailureIsLoggedAndShownAsNotice() {
         connection.client.abortFailure = new OpencodeException("nope");
         controller.resume("ses_9");

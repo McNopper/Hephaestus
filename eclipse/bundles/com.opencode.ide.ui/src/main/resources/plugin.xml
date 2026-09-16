@@ -25,7 +25,7 @@
           class="com.opencode.ide.ui.views.ProvidersView"/>
     <view
           id="com.opencode.ide.ui.repo"
-          name="Repo (opencode)"
+          name="Repo"
           icon="icons/file.png"
           category="com.opencode.ide.ui"
           class="com.opencode.ide.ui.views.RepoView"/>

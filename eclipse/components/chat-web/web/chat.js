@@ -360,9 +360,22 @@ try {
   // location unavailable (embedded shims): __setDocMode still works
 }
 
+// ---- reasoning visibility -----------------------------------------------------
+// The host toggles whether thinking/reasoning progress is visible (user
+// direction 2026-09-16). A body class hides the collapsible details blocks -
+// both live-streamed and history-rendered - without touching their content,
+// so toggling back on is always complete and needs no re-render.
+window.__setReasoningVisible = guard("__setReasoningVisible", function (json) {
+  const p = payload(json);
+  document.body.classList.toggle("hide-reasoning", !(p.visible === undefined ? true : !!p.visible));
+  report("reasoning visible: " + (p.visible === undefined ? true : !!p.visible));
+  return true;
+});
+
 function forgetStreams() {
   for (const state of Array.from(streams.values())) cancelScheduledRender(state);
   streams.clear();
+  lastStreamMid = null;
 }
 
 window.__clear = guard("__clear", function () {
@@ -436,12 +449,23 @@ window.__startAssistant = guard("__startAssistant", function (json) {
 // the body, __stopStream finalizes it, and the stream-done guard keeps late
 // deltas from re-opening a closed bubble.
 const STREAM_RENDER_MS = 200; // 5 renders/s (target band: 4-10)
-const streams = new Map();    // mid -> { text, reasoning, lastRender, timer, pending, committed, divs, tailDiv, tailText, rawEl }
+const streams = new Map();    // mid -> { mid, text, reasoning, lastRender, timer, pending, committed, divs, tailDiv, tailText, rawEl }
+// Only the NEWEST stream carries the blinking cursor (user direction
+// 2026-09-16): a tool round spawns several bubbles, and each blinking made
+// the transcript flicker in three places at once.
+let lastStreamMid = null;
 
 function streamState(mid) {
   let state = streams.get(mid);
   if (!state) {
-    state = { text: "", reasoning: "", lastRender: 0, timer: 0, pending: false,
+    // a new stream demotes the previous one: strip its cursor now (its next
+    // throttled repaint may never come - the old bubble is typically done)
+    if (lastStreamMid !== null && lastStreamMid !== mid) {
+      const prev = findAssistant(lastStreamMid);
+      if (prev) prev.querySelectorAll(".cursor").forEach(c => c.remove());
+    }
+    lastStreamMid = mid;
+    state = { mid: mid, text: "", reasoning: "", lastRender: 0, timer: 0, pending: false,
         committed: 0, divs: [], tailDiv: null, tailText: null, rawEl: null };
     streams.set(mid, state);
   }
@@ -458,6 +482,7 @@ function dropStream(mid) {
   const state = streams.get(mid);
   if (state) cancelScheduledRender(state);
   streams.delete(mid);
+  if (lastStreamMid === mid) lastStreamMid = null;
 }
 
 /** true when the line closes an open fence of the given marker run. */
@@ -626,9 +651,13 @@ function renderStreamTick(mid) {
     state.rawEl = null;
   }
   // the cursor rides at the very end (inside the raw tail when there is one)
-  let cursor = body.querySelector(".cursor");
-  if (!cursor) { cursor = document.createElement("span"); cursor.className = "cursor"; }
-  (state.rawEl || body).appendChild(cursor);
+  // and only on the newest stream - older bubbles keep their committed text
+  // without blinking (user direction 2026-09-16)
+  if (lastStreamMid === state.mid) {
+    let cursor = body.querySelector(".cursor");
+    if (!cursor) { cursor = document.createElement("span"); cursor.className = "cursor"; }
+    (state.rawEl || body).appendChild(cursor);
+  }
   state.lastRender = Date.now();
   scrollBottom();
   return true;

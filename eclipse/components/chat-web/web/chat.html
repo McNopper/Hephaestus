@@ -72,10 +72,12 @@
   .cursor { display: inline-block; width: 7px; height: 14px; background: var(--fg);
             vertical-align: text-bottom; animation: blink 1s step-start infinite; }
   @keyframes blink { 50% { opacity: 0; } }
-  .reasoning { border-left: 3px solid var(--muted); color: var(--muted); font-size: 12px;
-               padding-left: 8px; margin: 4px 0; }
+  .reasoning { border-left: 3px solid var(--muted); color: var(--muted); font-size: 12px;               padding-left: 8px; margin: 4px 0; }
   .reasoning > summary { cursor: pointer; user-select: none; }
   .reasoning-body { white-space: pre-wrap; }
+  /* reasoning visibility toggle (__setReasoningVisible): hidden reasoning
+     stays in the DOM - toggling back never re-streams anything */
+  .hide-reasoning details.reasoning { display: none; }
   .mermaid { display: flex; justify-content: center; margin: 8px 0; }
   .mermaid svg { max-width: 100%; }
   .error { color: #e5554f; }

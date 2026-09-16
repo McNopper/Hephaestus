@@ -345,6 +345,39 @@ check("__stopStream is idempotent", streamNode.querySelectorAll(".cursor").lengt
 const rs1 = exec('window.__stopStream("{\\"mid\\":\\"no_such_bubble\\"}")');
 check("__stopStream tolerates an unknown mid", rs1 === true);
 
+// only the NEWEST stream carries the blinking cursor (user direction
+// 2026-09-16): a tool round streams several bubbles - one cursor, at the bottom
+exec('window.__startAssistant("{\\"mid\\":\\"msg_c1\\"}")');
+exec('window.__appendDelta("{\\"mid\\":\\"msg_c1\\",\\"text\\":\\"round one\\"}")');
+const c1Node = chatEl.querySelector('.msg.assistant[data-mid="msg_c1"]');
+check("first stream bubble carries the cursor",
+  !!c1Node && c1Node.querySelectorAll(".cursor").length === 1);
+exec('window.__startAssistant("{\\"mid\\":\\"msg_c2\\"}")');
+exec('window.__appendDelta("{\\"mid\\":\\"msg_c2\\",\\"text\\":\\"round two\\"}")');
+const c2Node = chatEl.querySelector('.msg.assistant[data-mid="msg_c2"]');
+check("a newer stream strips the older bubble's cursor",
+  !!c1Node && !!c2Node && c1Node.querySelectorAll(".cursor").length === 0);
+check("only the newest bubble keeps the blinking cursor",
+  !!c2Node && c2Node.querySelectorAll(".cursor").length === 1
+    && chatEl.querySelectorAll(".cursor").length === 1,
+  "cursors=" + chatEl.querySelectorAll(".cursor").length);
+
+// reasoning visibility toggle (user direction 2026-09-16): hidden blocks stay
+// in the DOM - a body class hides them; toggling back needs no re-render
+// (distinct mid: the suite below reuses msg_r for its own reasoning flow)
+exec('window.__startAssistant("{\\"mid\\":\\"msg_rv\\"}")');
+exec('window.__appendReasoningDelta("{\\"mid\\":\\"msg_rv\\",\\"text\\":\\"pondering\\"}")');
+exec('window.__flushStream("msg_rv")');
+check("__appendReasoningDelta streams the collapsible reasoning block",
+  !!chatEl.querySelector("details.reasoning"));
+exec('window.__setReasoningVisible("{\\"visible\\":false}")');
+check("__setReasoningVisible(false) hides reasoning via a body class",
+  exec('document.body.classList.contains("hide-reasoning")') === true);
+exec('window.__setReasoningVisible("{\\"visible\\":true}")');
+check("__setReasoningVisible(true) unhides it again",
+  exec('document.body.classList.contains("hide-reasoning")') === false
+    && !!chatEl.querySelector("details.reasoning"));
+
 // progressive rendering: a streamed MARKDOWN table must be formatted DURING
 // generation (this is the parity feature - raw pipes were the old behavior),
 // on the very first (leading-edge) render, before any finalization

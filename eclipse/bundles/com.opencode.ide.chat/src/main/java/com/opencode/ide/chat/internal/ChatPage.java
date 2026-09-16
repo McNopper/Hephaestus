@@ -40,6 +40,8 @@ public final class ChatPage implements ChatSessionController.Renderer {
     private final BrowserFunction reportFunction;
     private final BrowserFunction openExternalFunction;
     private boolean pageReady;
+    /** Whether reasoning progress is visible; re-applied on page reload (user toggle). */
+    private boolean reasoningVisible = true;
     private final List<String> pendingJs = new ArrayList<>();
 
     private ChatPage(Browser browser) {
@@ -260,7 +262,19 @@ public final class ChatPage implements ChatSessionController.Renderer {
             pendingJs.clear();
         }
         doExecute(ChatScripts.setTheme(detectTheme()));
+        doExecute(ChatScripts.setReasoningVisible(reasoningVisible));
         notice("Connected. ENTER sends, Shift+ENTER = newline. Markdown, $math$ and mermaid render.");
+    }
+
+    /**
+     * Toggles whether thinking/reasoning progress is visible in the page (a
+     * CSS class hides the blocks - content is untouched, so toggling back is
+     * complete without re-rendering). Stored here so a page reload (navigation
+     * backstop) re-applies the state after readiness.
+     */
+    public void setReasoningVisible(boolean visible) {
+        reasoningVisible = visible;
+        executeJs(ChatScripts.setReasoningVisible(visible));
     }
 
     /** Queues JS until the page is ready, then executes (never drops a render call). */

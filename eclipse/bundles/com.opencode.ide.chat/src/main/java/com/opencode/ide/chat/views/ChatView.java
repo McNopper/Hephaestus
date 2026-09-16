@@ -359,9 +359,25 @@ public class ChatView extends ViewPart {
         abortAction.setToolTipText("Abort the reply currently being generated (Ctrl+Alt+Shift+A)");
         abortAction.setEnabled(false); // enabled while a send is in flight
 
+        // Thinking toggle: shows/hides the reasoning progress (live and
+        // history) - a persisted preference, re-applied when the page reloads
+        Action reasoningAction = new Action("Thinking", org.eclipse.jface.action.IAction.AS_CHECK_BOX) {
+            @Override
+            public void run() {
+                boolean show = isChecked();
+                new OpencodePreferences().setShowReasoning(show);
+                page.setReasoningVisible(show);
+            }
+        };
+        reasoningAction.setChecked(new OpencodePreferences().isShowReasoning());
+        reasoningAction.setToolTipText("Show or hide thinking/reasoning progress (persisted)");
+        // push the persisted state into the page (queues until page-ready)
+        page.setReasoningVisible(reasoningAction.isChecked());
+
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(newSessionAction);
         toolBar.add(abortAction);
+        toolBar.add(reasoningAction);
     }
 
     /**

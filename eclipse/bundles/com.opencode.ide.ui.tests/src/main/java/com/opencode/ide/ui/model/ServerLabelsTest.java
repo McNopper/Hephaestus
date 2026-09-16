@@ -136,6 +136,16 @@ public class ServerLabelsTest {
     }
 
     @Test
+    public void sessionNameAppendsWorkingSuffixOnlyWhileWorking() {
+        Session s = new Session("s1", "slug", "Fix build", "build", null, null, null, null, null);
+
+        assertEquals("build — Fix build", ServerLabels.sessionName(s, false));
+        assertEquals("build — Fix build  • working", ServerLabels.sessionName(s, true));
+        assertEquals("Fix build", ServerLabels.nestedSessionName(s, false));
+        assertEquals("Fix build  • working", ServerLabels.nestedSessionName(s, true));
+    }
+
+    @Test
     public void sessionDetailAppendsRelativeUpdateTime() {
         Session s = new Session("s1", null, null, null, null,
                 new Session.Time(NOW, NOW - 5 * 60_000L - 10_000L), null, null, null);
@@ -228,6 +238,55 @@ public class ServerLabelsTest {
                 ServerLabels.sessionsCategoryDetail(sessions, busy));
         assertEquals("3 total, 2 top-level",
                 ServerLabels.sessionsCategoryDetail(sessions, null));
+    }
+
+    @Test
+    public void categoryNameAppendsWorkingCountProminently() {
+        assertEquals("Sessions (5)", ServerLabels.categoryName("Sessions", 5, 0));
+        assertEquals("Sessions (5)  • 2 working", ServerLabels.categoryName("Sessions", 5, 2));
+        assertEquals("Agents (0)  • 1 working", ServerLabels.categoryName("Agents", 0, 1));
+    }
+
+    @Test
+    public void busyCountsBusyAndRetrySessionsOnly() {
+        List<Session> sessions = List.of(session("a", null, 1L), session("b", null, 2L),
+                session("c", "a", 3L));
+        Map<String, SessionStatus> statuses = Map.of(
+                "a", new SessionStatus("busy"), "b", new SessionStatus("retry"));
+
+        assertEquals(2, ServerLabels.busyCount(sessions, statuses));
+        assertEquals(0, ServerLabels.busyCount(sessions, null));
+        assertEquals(0, ServerLabels.busyCount(null, statuses));
+    }
+
+    // ---------- working aggregation ----------
+
+    @Test
+    public void hasBusyDescendantWalksTheWholeSubagentTree() {
+        Session root = session("root", null, 1L);
+        Session child = session("child", "root", 2L);
+        Session grandchild = session("gc", "child", 3L);
+        List<Session> sessions = List.of(root, child, grandchild);
+        Map<String, SessionStatus> busyGrandchild = Map.of("gc", new SessionStatus("busy"));
+        Map<String, SessionStatus> busyChild = Map.of("child", new SessionStatus("busy"));
+
+        assertTrue(ServerLabels.hasBusyDescendant(sessions, busyGrandchild, "root"));   // transitive
+        assertTrue(ServerLabels.hasBusyDescendant(sessions, busyChild, "root"));        // direct child
+        assertFalse(ServerLabels.hasBusyDescendant(sessions, Map.of(), "root"));        // nothing busy
+        assertFalse(ServerLabels.hasBusyDescendant(sessions, busyChild, "gc"));         // descendants only
+        assertFalse(ServerLabels.hasBusyDescendant(sessions, busyChild, null));
+        assertFalse(ServerLabels.hasBusyDescendant(null, busyChild, "root"));
+    }
+
+    @Test(timeout = 5_000)
+    public void hasBusyDescendantSurvivesCyclicParentChains() {
+        Session a = session("a", "b", 1L);
+        Session b = session("b", "a", 2L);
+        List<Session> sessions = List.of(a, b);
+
+        // terminates despite a <-> b, and still sees the busy node in the cycle
+        assertTrue(ServerLabels.hasBusyDescendant(sessions, Map.of("b", new SessionStatus("busy")), "a"));
+        assertFalse(ServerLabels.hasBusyDescendant(sessions, Map.of(), "a"));
     }
 
     // ---------- nesting / ownership ----------

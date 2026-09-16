@@ -22,6 +22,12 @@ import com.google.gson.JsonSyntaxException;
  * tools). Notifications (no id) produce no response; structural parameter
  * problems surface as -32602, parse failures as -32700, unknown methods as
  * -32601.
+ *
+ * <p>Every routed tools/call is also reported to the
+ * {@link ToolInvocationHub} (one {@link ToolInvocation} per call: name,
+ * argument summary, output tail, outcome) so UIs can mirror agent-driven
+ * tool traffic. Reporting is best-effort: a throwing listener can never
+ * change the agent-facing response.</p>
  */
 public final class McpDispatcher {
 
@@ -154,12 +160,30 @@ public final class McpDispatcher {
                 ? argsElement.getAsJsonObject()
                 : new JsonObject();
         String name = nameElement.getAsString();
+        long startedAt = System.currentTimeMillis();
+        String summary = ToolInvocationHub.summarizeArguments(args);
         ToolProvider provider = toolRouting.get(name);
         if (provider == null) {
-            return textResult("unknown tool '" + name + "'; available tools: "
-                    + String.join(", ", toolRouting.keySet()), true);
+            String text = "unknown tool '" + name + "'; available tools: "
+                    + String.join(", ", toolRouting.keySet());
+            ToolInvocationHub.publish(ToolInvocation.completed(ToolInvocationHub.nextSequence(),
+                    startedAt, 0L, name, summary, text, true));
+            return textResult(text, true);
         }
-        McpToolResult outcome = provider.call(name, args);
+        McpToolResult outcome;
+        try {
+            outcome = provider.call(name, args);
+        } catch (RuntimeException e) {
+            // -32602 for ParamError, -32603 otherwise (mapped by handle());
+            // report first so the observer sees the failure either way
+            ToolInvocationHub.publish(ToolInvocation.failed(ToolInvocationHub.nextSequence(),
+                    startedAt, System.currentTimeMillis() - startedAt, name, summary,
+                    e.getClass().getSimpleName() + ": " + e.getMessage()));
+            throw e;
+        }
+        ToolInvocationHub.publish(ToolInvocation.completed(ToolInvocationHub.nextSequence(),
+                startedAt, System.currentTimeMillis() - startedAt, name, summary,
+                outcome.text(), outcome.isError()));
         return textResult(outcome.text(), outcome.isError());
     }
 

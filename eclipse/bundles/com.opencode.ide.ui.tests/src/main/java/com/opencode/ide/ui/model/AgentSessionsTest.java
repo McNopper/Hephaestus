@@ -127,6 +127,32 @@ public class AgentSessionsTest {
         assertEquals("(unnamed)", AgentSessions.agentName("", 0));
     }
 
+    @Test
+    public void agentNameAppendsWorkingCountProminently() {
+        assertEquals("build — 2 running  • 1 working", AgentSessions.agentName("build", 2, 1));
+        assertEquals("build — 2 running", AgentSessions.agentName("build", 2, 0));
+        assertEquals("build — 1 running  • 1 working", AgentSessions.agentName("build", 1, 1));
+        assertEquals("build", AgentSessions.agentName("build", 0, 0));
+        assertEquals("(unnamed) — 1 running  • 1 working", AgentSessions.agentName(null, 1, 1));
+    }
+
+    @Test
+    public void workingCountIncludesBusySessionsAndBusySubagentsBelowThem() {
+        Session busyTop = session("a", "build", null, 100L);
+        Session idleTopWithBusyChild = session("b", "build", null, 200L);
+        Session busyChild = session("c", "build", "b", 300L);
+        Session idleTop = session("d", "build", null, 400L);
+        Session otherAgent = session("e", "plan", null, 500L);
+        List<Session> sessions = List.of(busyTop, idleTopWithBusyChild, busyChild, idleTop, otherAgent);
+        Map<String, SessionStatus> statuses = Map.of(
+                "a", new SessionStatus("busy"), "c", new SessionStatus("busy"));
+
+        assertEquals(2, AgentSessions.workingCount(sessions, statuses, BUILD));   // a busy + b via busy subagent c
+        assertEquals(0, AgentSessions.workingCount(sessions, statuses, agent("plan")));   // "e" is idle
+        assertEquals(0, AgentSessions.workingCount(sessions, null, BUILD));      // no statuses -> nothing busy
+        assertEquals(0, AgentSessions.workingCount(null, statuses, BUILD));
+    }
+
     // ---------- owning server ----------
 
     @Test

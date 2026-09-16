@@ -1,8 +1,12 @@
 package com.opencode.ide.ui.model;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -41,6 +45,13 @@ public final class ServerLabels {
 
     private ServerLabels() {
     }
+
+    /**
+     * Row-name suffix marking a session that is currently working (itself
+     * or via a busy subagent under it) — same visual weight as the
+     * {@code (offline)} tag, so busy rows stand out in the name column.
+     */
+    private static final String WORKING_SUFFIX = "  • working";
 
     // ---------- server ----------
 
@@ -88,15 +99,35 @@ public final class ServerLabels {
         return label + " (" + count + ")";
     }
 
+    /**
+     * Label of a tree category that can aggregate working state, e.g.
+     * {@code "Sessions (5)  • 2 working"} — the working count is appended
+     * prominently (name column, not the details column) so active agents
+     * and subagents are visible while a category is collapsed; zero
+     * working degrades to the plain {@link #categoryName(String, int)}.
+     */
+    public static String categoryName(String label, int count, int working) {
+        String base = categoryName(label, count);
+        return working > 0 ? base + "  • " + working + " working" : base;
+    }
+
     /** Details column of the Sessions category: total, top-level and busy counts ("" when empty). */
     public static String sessionsCategoryDetail(List<Session> sessions, Map<String, SessionStatus> statuses) {
         if (sessions == null || sessions.isEmpty()) {
             return "";
         }
-        long busy = sessions.stream().filter(s -> isBusy(statuses, s)).count();
+        long busy = busyCount(sessions, statuses);
         long rootsCount = sessions.stream().filter(s -> s.parentID() == null).count();
         return sessions.size() + " total, " + rootsCount + " top-level"
                 + (busy > 0 ? " • " + busy + " busy" : "");
+    }
+
+    /** How many of the sessions are currently working ({@code busy}/{@code retry}). */
+    public static long busyCount(List<Session> sessions, Map<String, SessionStatus> statuses) {
+        if (sessions == null) {
+            return 0;
+        }
+        return sessions.stream().filter(s -> isBusy(statuses, s)).count();
     }
 
     // ---------- agent ----------
@@ -128,6 +159,18 @@ public final class ServerLabels {
     }
 
     /**
+     * Label of a session with its working state: the plain
+     * {@link #sessionName(Session)} plus a {@code "  • working"} suffix while
+     * the session (or a subagent under it — the caller folds that into the
+     * flag) is working, so the row reads as actively working in the name
+     * column, not only via its icon and status.
+     */
+    public static String sessionName(Session s, boolean working) {
+        String name = sessionName(s);
+        return working ? name + WORKING_SUFFIX : name;
+    }
+
+    /**
      * Label of a session nested under the agent that runs it: the bare title
      * (title, else slug, else id) — the agent is already the parent row, so
      * repeating its name would be noise.
@@ -137,6 +180,16 @@ public final class ServerLabels {
             return s.title();
         }
         return s.slug() == null ? s.id() : s.slug();
+    }
+
+    /**
+     * Label of an agent-nested session row with its working state: the bare
+     * title plus the {@code "  • working"} suffix while it (or a subagent
+     * under it) works — see {@link #sessionName(Session, boolean)}.
+     */
+    public static String nestedSessionName(Session s, boolean working) {
+        String name = nestedSessionName(s);
+        return working ? name + WORKING_SUFFIX : name;
     }
 
     /**
@@ -173,6 +226,39 @@ public final class ServerLabels {
             return false;
         }
         return "busy".equalsIgnoreCase(status.type()) || "retry".equalsIgnoreCase(status.type());
+    }
+
+    /**
+     * Whether any subagent <em>under</em> the given session (children,
+     * grandchildren, … — the whole {@code parentID} subtree) is working:
+     * a parent session waiting on a busy fleet worker or subagent reads
+     * as working even when its own status marker is stale. The session
+     * itself is not considered; a visited set guards against malformed
+     * cyclic {@code parentID} chains.
+     */
+    public static boolean hasBusyDescendant(List<Session> sessions, Map<String, SessionStatus> statuses,
+            String sessionId) {
+        if (sessions == null || sessionId == null) {
+            return false;
+        }
+        Deque<String> pending = new ArrayDeque<>();
+        Set<String> visited = new HashSet<>();
+        pending.add(sessionId);
+        visited.add(sessionId);
+        while (!pending.isEmpty()) {
+            String parent = pending.poll();
+            for (Session s : sessions) {
+                if (parent.equals(s.parentID())) {
+                    if (isBusy(statuses, s)) {
+                        return true;
+                    }
+                    if (s.id() != null && visited.add(s.id())) {
+                        pending.add(s.id());
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     // ---------- live activity ----------

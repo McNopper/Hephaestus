@@ -53,6 +53,7 @@ import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
 import com.opencode.ide.ui.model.WorkingSet;
+import com.opencode.ide.ui.session.SessionActivity;
 import com.opencode.ide.ui.session.SessionBusyPoller;
 
 /**
@@ -71,9 +72,15 @@ import com.opencode.ide.ui.session.SessionBusyPoller;
  * tag when unreachable. On top of the event stream, one
  * {@link SessionBusyPoller} per connection polls {@code /session/status}
  * so the busy icons stay live for remote roots and survive dropped events.
- * The tree is {@code SWT.VIRTUAL}: tree items are only
- * materialized when their parent is expanded, and child counts come from the
- * already-loaded in-memory lists (no fetching for collapsed roots).</p>
+ * Working sessions are prominent, not just icon-decorated: their rows carry
+ * a {@code "  • working"} name suffix, parents aggregate the count
+ * (agent rows {@code "n working"}, the Agents/Sessions categories, the
+ * view header), and the Details column shows <em>what</em> the session is
+ * doing — the latest streamed {@code message.part.delta} text, kept and
+ * throttled by {@link SessionActivity}. The tree is {@code SWT.VIRTUAL}:
+ * tree items are only materialized when their parent is expanded, and
+ * child counts come from the already-loaded in-memory lists (no fetching
+ * for collapsed roots).</p>
  */
 public class ServerView extends ViewPart implements Refreshable {
 
@@ -99,6 +106,23 @@ public class ServerView extends ViewPart implements Refreshable {
      * {@link #onBusySessions(OpencodeClient, Set)}.
      */
     private final Map<OpencodeClient, SessionBusyPoller> busyPollers = new HashMap<>();
+
+    /**
+     * Live "what is it doing" snippets per session id, fed from the primary
+     * server's {@code message.part.delta} events ({@link #handleEvent}) and
+     * read by the session rows' Details column. UI-thread confined like
+     * {@link #busyPollers}; its internal publish throttle bounds the label
+     * churn on top of {@link #scheduleRefresh()}.
+     */
+    private final SessionActivity sessionActivity = new SessionActivity();
+
+    /**
+     * The busy set each connection's poller delivered last, so the next poll
+     * can spot sessions that <em>stopped</em> working (present then, absent
+     * now) and clear their snippets. UI-thread confined; updated in
+     * {@link #onBusySessions}.
+     */
+    private final Map<OpencodeClient, Set<String>> lastBusyByClient = new HashMap<>();
 
     private final ActivityTracker tracker = new ActivityTracker();
 
@@ -774,6 +798,17 @@ public class ServerView extends ViewPart implements Refreshable {
         // and any connection can drop or miss events. Reconciled per poll
         // into the owning node's statuses (busy set in, stale busy out).
         updateBusyPollers(nodes);
+        // Drop snippets of sessions no loaded server knows (e.g. the server
+        // restarted): they could never be displayed again.
+        Set<String> knownIds = new HashSet<>();
+        for (ServerNode node : nodes) {
+            for (Session session : node.sessions) {
+                if (session.id() != null) {
+                    knownIds.add(session.id());
+                }
+            }
+        }
+        sessionActivity.retainAll(knownIds);
         // Pass a list as input (NEVER a tree element itself): if the input
         // equals a tree element, the TreeViewer's expansion logic can misbehave.
         viewer.setInput(roots);
@@ -841,6 +876,7 @@ public class ServerView extends ViewPart implements Refreshable {
                 return false;
             }
             entry.getValue().dispose();
+            lastBusyByClient.remove(entry.getKey());
             return true;
         });
         for (OpencodeClient client : wanted) {
@@ -859,7 +895,8 @@ public class ServerView extends ViewPart implements Refreshable {
      * node sharing that client — the same UI-thread hop the SSE listeners
      * use — and coalesce a viewer refresh when anything actually changed
      * (unchanged polls stay silent, so the tree never flickers at the poll
-     * rhythm).
+     * rhythm). Sessions that left the busy set also lose their streamed
+     * snippet (see {@link #clearFinishedActivity}).
      */
     private void onBusySessions(OpencodeClient client, Set<String> busy) {
         Display display = Display.getDefault();
@@ -876,10 +913,39 @@ public class ServerView extends ViewPart implements Refreshable {
                     changed = true;
                 }
             }
+            if (clearFinishedActivity(client, busy)) {
+                changed = true;
+            }
             if (changed) {
                 scheduleRefresh();
             }
         });
+    }
+
+    /**
+     * A poll's busy set names sessions that stopped working since the
+     * previous poll (present then, absent now — absent means idle since
+     * opencode 1.18.23): drop their streamed snippets so the row stops
+     * showing text the moment the work ended, even when the SSE idle and
+     * completion events were both missed. Called on the UI thread from
+     * {@link #onBusySessions}.
+     *
+     * @return whether any snippet was dropped (drives the refresh)
+     */
+    private boolean clearFinishedActivity(OpencodeClient client, Set<String> busy) {
+        Set<String> current = busy == null ? Set.of() : busy;
+        Set<String> previous = lastBusyByClient.put(client, Set.copyOf(current));
+        if (previous == null) {
+            return false;   // first poll for this client: nothing to compare against
+        }
+        boolean changed = false;
+        for (String id : previous) {
+            if (!current.contains(id) && sessionActivity.snippet(id) != null) {
+                sessionActivity.clear(id);
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /**
@@ -915,6 +981,7 @@ public class ServerView extends ViewPart implements Refreshable {
                     node.sessions.removeIf(x -> s.id().equals(x.id()));
                     node.statuses.remove(s.id());
                     node.activity.remove(s.id());
+                    sessionActivity.clear(s.id());
                     scheduleRefresh();
                 }
             }
@@ -927,6 +994,7 @@ public class ServerView extends ViewPart implements Refreshable {
                     }
                     if (!"busy".equalsIgnoreCase(statusType) && !"retry".equalsIgnoreCase(statusType)) {
                         node.activity.remove(sid); // idle -> stop showing thinking/running
+                        sessionActivity.clear(sid); // ...and the streamed snippet
                     }
                     scheduleRefresh();
                 }
@@ -936,6 +1004,7 @@ public class ServerView extends ViewPart implements Refreshable {
                 if (sid != null) {
                     node.statuses.put(sid, new SessionStatus("idle"));
                     node.activity.remove(sid);
+                    sessionActivity.clear(sid);
                     scheduleRefresh();
                 }
             }
@@ -948,6 +1017,7 @@ public class ServerView extends ViewPart implements Refreshable {
                         && event.at("info.time.completed") != null) {
                     node.statuses.put(sid, new SessionStatus("idle"));
                     node.activity.remove(sid);
+                    sessionActivity.clear(sid);
                     scheduleRefresh();
                 }
             }
@@ -956,6 +1026,18 @@ public class ServerView extends ViewPart implements Refreshable {
                 String label = ServerLabels.partActivityLabel(event);
                 if (sid != null && label != null) {
                     node.activity.put(sid, label);
+                    scheduleRefresh();
+                }
+            }
+            case "message.part.delta" -> {
+                // live "what is it doing": fold the streamed delta into the
+                // session's snippet (throttled ~2/s per session inside
+                // SessionActivity); a published change schedules the
+                // already-coalesced refresh, everything else stays silent.
+                // Subagents stream their own sessionID and are covered by
+                // the same path.
+                if (sessionActivity.onDelta(event.string("sessionID"),
+                        event.string("field"), event.string("delta"))) {
                     scheduleRefresh();
                 }
             }
@@ -1020,11 +1102,13 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         ServerNode primary = current;
         if (nodes.size() == 1 && primary != null) {
-            // single root: exactly the former description
-            long active = primary.activity.size();
+            // single root: exactly the former description, but with the
+            // working count derived from the busy set (poller + SSE) so it
+            // is right for any connection, not just the event-streamed one
+            long working = ServerLabels.busyCount(primary.sessions, primary.statuses);
             setContentDescription((primary.healthy ? "Connected" : "Unreachable") + ": " + primary.url
                     + "  •  live  •  " + primary.agents.size() + " agents, " + primary.sessions.size() + " sessions"
-                    + (active > 0 ? "  •  " + active + " active" : "")
+                    + (working > 0 ? "  •  " + working + " working" : "")
                     + projectVcsSuffix());
             return;
         }
@@ -1039,8 +1123,11 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         sb.append("  •  ").append(nodes.size()).append(" servers (").append(up).append(" up)")
                 .append("  •  ").append(agents).append(" agents, ").append(sessions).append(" sessions");
-        if (primary != null && !primary.activity.isEmpty()) {
-            sb.append("  •  ").append(primary.activity.size()).append(" active");
+        if (primary != null) {
+            long working = ServerLabels.busyCount(primary.sessions, primary.statuses);
+            if (working > 0) {
+                sb.append("  •  ").append(working).append(" working");
+            }
         }
         sb.append(projectVcsSuffix());
         setContentDescription(sb.toString());
@@ -1147,7 +1234,14 @@ public class ServerView extends ViewPart implements Refreshable {
                 case MCP_SERVERS -> c.server.mcpServers.size();
                 case SKILLS -> c.server.skills.size();
             };
-            return ServerLabels.categoryName(c.label, count);
+            // the two session-bearing categories aggregate their working
+            // state in the name, so activity is visible while collapsed
+            int working = switch (c.kind) {
+                case AGENTS -> workingAgents(c.server);
+                case SESSIONS -> (int) ServerLabels.busyCount(c.server.sessions, c.server.statuses);
+                default -> 0;
+            };
+            return ServerLabels.categoryName(c.label, count, working);
         }
         if (element instanceof FileActivity f) {
             return ServerLabels.fileActivityName(f);
@@ -1162,19 +1256,52 @@ public class ServerView extends ViewPart implements Refreshable {
             return skill.name() == null ? "(unnamed)" : skill.name();
         }
         if (element instanceof Agent a) {
-            // definition row: bare name, plus " — n running" while live sessions run as this agent
+            // definition row: bare name, plus " — n running" while live
+            // sessions run as this agent and "n working" while any of them
+            // works (prominently, in the name column)
             ServerNode owner = AgentSessions.serverOfAgent(roots, a, node -> node.agents);
             int running = owner == null ? 0 : AgentSessions.runningCount(owner.sessions, a);
-            return AgentSessions.agentName(a.name(), running);
+            int working = owner == null ? 0 : AgentSessions.workingCount(owner.sessions, owner.statuses, a);
+            return AgentSessions.agentName(a.name(), running, working);
         }
         if (element instanceof AgentSessionNode nested) {
             // nested under the agent row: bare title (the agent is the parent row)
-            return ServerLabels.nestedSessionName(nested.session());
+            return ServerLabels.nestedSessionName(nested.session(),
+                    isWorking(agentNodeOwner(nested.agent()), nested.session()));
         }
         if (element instanceof Session s) {
-            return ServerLabels.sessionName(s);
+            return ServerLabels.sessionName(s, isWorking(ownerOf(s), s));
         }
         return String.valueOf(element);
+    }
+
+    /**
+     * A session reads as working while it is busy itself or any subagent
+     * under it works (a parent waiting on a busy fleet worker included) —
+     * drives the row's {@code "  • working"} suffix in both tree positions.
+     */
+    private static boolean isWorking(ServerNode owner, Session session) {
+        if (owner == null || session == null) {
+            return false;
+        }
+        return ServerLabels.isBusy(owner.statuses, session)
+                || ServerLabels.hasBusyDescendant(owner.sessions, owner.statuses, session.id());
+    }
+
+    /** @return the server whose Agents category holds the given agent definition. */
+    private ServerNode agentNodeOwner(Agent agent) {
+        return AgentSessions.serverOfAgent(roots, agent, node -> node.agents);
+    }
+
+    /** How many agent definitions of the server have a currently working live session. */
+    private static int workingAgents(ServerNode server) {
+        int working = 0;
+        for (Agent agent : server.agents) {
+            if (AgentSessions.workingCount(server.sessions, server.statuses, agent) > 0) {
+                working++;
+            }
+        }
+        return working;
     }
 
     String detail(Object element) {
@@ -1207,13 +1334,22 @@ public class ServerView extends ViewPart implements Refreshable {
             return ServerLabels.agentDetail(a);
         }
         if (element instanceof Session s) {
-            // prefer the derived activity label (thinking… / tool: name — file), then the legacy part label
+            // what it is doing, most specific first: the streamed text
+            // snippet (message.part.delta — usually absent while a tool
+            // runs, so it naturally alternates with the tracker's tool
+            // label within a turn), then the derived tracker label, then
+            // the legacy part label; the status type only when nothing
+            // live is known
             ServerNode owner = ownerOf(s);
+            String snippet = sessionActivity.snippet(s.id());
             String live = (owner != null && owner.primary)
                     ? ServerLabels.trackerLabel(tracker.snapshot(), s.id())
                     : null;
             if (live == null && owner != null) {
                 live = owner.activity.get(s.id());
+            }
+            if (snippet != null) {
+                live = snippet;
             }
             return ServerLabels.sessionDetail(s, live,
                     ServerLabels.statusType(owner == null ? null : owner.statuses, s));
@@ -1488,6 +1624,8 @@ public class ServerView extends ViewPart implements Refreshable {
             poller.dispose();
         }
         busyPollers.clear();
+        lastBusyByClient.clear();
+        sessionActivity.clearAll();
         if (trackerListener != null) {
             tracker.removeListener(trackerListener);
             trackerListener = null;

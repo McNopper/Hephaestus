@@ -27,6 +27,7 @@ public final class OpencodePreferences {
     public static final String NODE_ID = "com.opencode.ide.core";
 
     public static final String KEY_MODE = "mode";
+    public static final String KEY_SHOW_REASONING = "showReasoning";
     public static final String KEY_SERVER_URL = "serverUrl";
     public static final String KEY_USERNAME = "username";
     public static final String KEY_PASSWORD = "password";
@@ -121,6 +122,18 @@ public final class OpencodePreferences {
 
     public void setMode(String mode) {
         prefs.put(KEY_MODE, mode);
+    }
+
+    /**
+     * Whether the chat shows thinking/reasoning progress (user toggle,
+     * persisted; the page hides the blocks via CSS so no re-render is needed).
+     */
+    public boolean isShowReasoning() {
+        return prefs.getBoolean(KEY_SHOW_REASONING, true);
+    }
+
+    public void setShowReasoning(boolean show) {
+        prefs.putBoolean(KEY_SHOW_REASONING, show);
     }
 
     public boolean isConnectMode() {

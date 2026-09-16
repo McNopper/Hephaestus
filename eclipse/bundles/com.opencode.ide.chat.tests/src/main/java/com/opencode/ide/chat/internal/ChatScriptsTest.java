@@ -126,6 +126,8 @@ public class ChatScriptsTest {
     public void noticeAndThemeTakePlainStringArguments() {
         assertEquals("window.__setNotice(\"Connected.\")", ChatScripts.setNotice("Connected."));
         assertEquals("window.__setTheme(\"dark\")", ChatScripts.setTheme("dark"));
+        assertEquals("window.__setReasoningVisible(\"{\\\"visible\\\":false}\")",
+                ChatScripts.setReasoningVisible(false));
         assertEquals("window.__clear()", ChatScripts.clear());
     }
 
