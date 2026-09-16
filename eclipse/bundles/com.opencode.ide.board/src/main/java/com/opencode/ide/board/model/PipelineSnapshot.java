@@ -5,10 +5,11 @@ import java.util.List;
 /**
  * Immutable PIPELINE-mode grouping of a board: one {@link StageColumn} for
  * <b>every</b> canonical V stage — always all ten, in
- * {@link com.opencode.ide.tasks.VStages#STAGES} order (the V shape is the
- * point; the view collapses empty columns) — plus a trailing
- * {@link #UNTRACKED} group for tickets with no stage and no role-derived
- * stage (unknown roles and the like).
+ * {@link com.opencode.ide.tasks.VStages#STAGES} order (the V order: the
+ * definition leg followed by the verification leg; the view renders every
+ * column on the {@link VStageLayout} diagonal, empty ones included — U-016)
+ * — plus a trailing {@link #UNTRACKED} group for tickets with no stage and
+ * no role-derived stage (unknown roles and the like).
  */
 public record PipelineSnapshot(List<StageColumn> columns) {
 

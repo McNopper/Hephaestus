@@ -51,8 +51,6 @@ import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
-import org.eclipse.swt.layout.RowData;
-import org.eclipse.swt.layout.RowLayout;
 import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
@@ -87,6 +85,7 @@ import com.opencode.ide.board.model.TakeoverRouter;
 import com.opencode.ide.board.model.TaskStoreWatcher;
 import com.opencode.ide.board.model.TasksRootResolution;
 import com.opencode.ide.board.model.TicketRow;
+import com.opencode.ide.board.model.VStageLayout;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.fleet.Bootstrap;
 import com.opencode.ide.git.FleetGit;
@@ -100,8 +99,9 @@ import com.opencode.ide.tasks.VStages;
  * The PM Board: a kanban over the Markdown task store, in two layouts. The
  * toolbar carries the store-root and project inputs (persisted via dialog
  * settings), the sprint selector, the "Group by" layout choice (None = the
- * flat five-column status kanban, Pipeline = the ten V-model stage columns
- * plus a trailing untracked group; persisted too), a blocked-only toggle, a
+ * flat five-column status kanban ordered by workflow progress, V-model
+ * stages = the ten V-model stage columns arranged as a V plus a trailing
+ * untracked group; persisted too), a blocked-only toggle, a
  * bugs-only toggle (U-005 triage), and Refresh / Launch task /
  * Auto-dispatch / Auto (the background loop) / Dispatch settings / Take
  * over. The board refreshes live via {@link TaskStoreWatcher} on
@@ -113,7 +113,11 @@ import com.opencode.ide.tasks.VStages;
  * sprint instead of silently showing an empty board.
  *
  * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red
- * blocked count in every pipeline column header. Bug tickets carry a red
+ * blocked count in every V-model stage column header. The stage columns
+ * always render — all ten, empty ones included, each at the fixed width —
+ * and sit on the diagonal {@link VStageLayout} grid so the board reads as
+ * a V (definition leg descending left, verification leg ascending right;
+ * U-016). Bug tickets carry a red
  * {@code [bug]} type tag on the row (normal weight — blocked stays the
  * louder signal; U-005). The context menu on a ticket
  * row mirrors the toolbar (Launch task / Take over / Open ticket… / Copy
@@ -137,8 +141,15 @@ public class BoardView extends ViewPart {
     private static final String SETTING_MODE_PIPELINE = "pipeline";
     private static final String SETTING_STAGES = "visibleStages";
 
-    /** Fixed width of a non-empty pipeline column (empty ones collapse to their header). */
+    /**
+     * Fixed width of every V-model stage column — empty ones keep it too:
+     * all ten columns always render (U-016), so the V stays complete and
+     * recognizable on an empty board. No collapse-to-header anymore.
+     */
     private static final int PIPELINE_COLUMN_WIDTH = 190;
+
+    /** Fixed height of a V-model stage column; fuller tables scroll internally. */
+    private static final int V_COLUMN_HEIGHT = 170;
 
     /** The compact status-prefix legend (tooltip text on pipeline rows). */
     private static final String STATUS_LEGEND =
@@ -220,17 +231,12 @@ public class BoardView extends ViewPart {
         final String stage;
         final Label headerLabel;
         final Label blockedLabel;
-        final Composite column;
-        final Composite tableComposite;
         final TableViewer viewer;
 
-        PipelineColumnUi(String stage, Label headerLabel, Label blockedLabel,
-                Composite column, Composite tableComposite, TableViewer viewer) {
+        PipelineColumnUi(String stage, Label headerLabel, Label blockedLabel, TableViewer viewer) {
             this.stage = stage;
             this.headerLabel = headerLabel;
             this.blockedLabel = blockedLabel;
-            this.column = column;
-            this.tableComposite = tableComposite;
             this.viewer = viewer;
         }
     }
@@ -345,18 +351,28 @@ public class BoardView extends ViewPart {
         pipelineScroll.setLayoutData(new GridData(GridData.FILL_BOTH));
 
         pipelineContent = new Composite(pipelineScroll, SWT.NONE);
-        RowLayout rowLayout = new RowLayout(SWT.HORIZONTAL);
-        rowLayout.wrap = false;
-        rowLayout.fill = true;
-        rowLayout.spacing = 4;
-        rowLayout.marginWidth = 2;
-        rowLayout.marginHeight = 2;
-        pipelineContent.setLayout(rowLayout);
+        GridLayout gridLayout = new GridLayout(VStageLayout.GRID_COLUMNS, false);
+        gridLayout.marginWidth = 2;
+        gridLayout.marginHeight = 2;
+        gridLayout.horizontalSpacing = 4;
+        gridLayout.verticalSpacing = 4;
+        pipelineContent.setLayout(gridLayout);
 
-        List<String> stages = new ArrayList<>(VStages.STAGES);
-        stages.add(PipelineSnapshot.UNTRACKED);
-        for (String stage : stages) {
-            pipelineColumns.add(createPipelineColumn(stage));
+        // The V (U-016): every cell of every grid row is created — null cells
+        // as zero-size spacers — so each stage column lands on its diagonal
+        // position: definition leg descending from the top left, verification
+        // leg ascending to the top right, untracked trailing beside the tip.
+        // All ten stage columns render even when empty, at the fixed width;
+        // nothing collapses to its header.
+        for (List<String> row : VStageLayout.grid()) {
+            for (String stage : row) {
+                if (stage == null) {
+                    Composite spacer = new Composite(pipelineContent, SWT.NONE);
+                    spacer.setLayoutData(new GridData(SWT.BEGINNING, SWT.BEGINNING, false, false));
+                } else {
+                    pipelineColumns.add(createPipelineColumn(stage));
+                }
+            }
         }
         pipelineScroll.setContent(pipelineContent);
     }
@@ -384,7 +400,14 @@ public class BoardView extends ViewPart {
         layout.marginWidth = 2;
         layout.marginHeight = 0;
         column.setLayout(layout);
-        column.setLayoutData(new RowData()); // replaced per snapshot (collapse when empty)
+        // Fixed cell of the V grid (U-016): always rendered at the fixed
+        // width — an empty column keeps its table instead of collapsing to
+        // its header — and tall enough for a handful of rows; fuller tables
+        // scroll internally, which keeps the V's rows stable.
+        GridData cell = new GridData(SWT.FILL, SWT.FILL, false, true);
+        cell.widthHint = PIPELINE_COLUMN_WIDTH;
+        cell.heightHint = V_COLUMN_HEIGHT;
+        column.setLayoutData(cell);
 
         Composite header = new Composite(column, SWT.NONE);
         GridLayout headerLayout = new GridLayout(2, false);
@@ -414,7 +437,7 @@ public class BoardView extends ViewPart {
         ticket.setLabelProvider(new BoardRowLabel(true));
         tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
 
-        return new PipelineColumnUi(stage, headerLabel, blockedLabel, column, tableComposite, viewer);
+        return new PipelineColumnUi(stage, headerLabel, blockedLabel, viewer);
     }
 
     /** Shared viewer wiring: selection/double-click/context menu/tooltips + the flat columns. */
@@ -745,10 +768,11 @@ public class BoardView extends ViewPart {
                 box.setLayout(layout);
                 new Label(box, SWT.NONE).setText("Group by:");
                 modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                modeCombo.setItems("None", "Pipeline");
-                modeCombo.setToolTipText(
-                        "None: five-column status kanban. Pipeline: the V-model stages (requirements \u2192 test-requirements).");
-                modeCombo.setLayoutData(fixedSize(90));
+                modeCombo.setItems("None", "V-model stages");
+                modeCombo.setToolTipText("None: five-column status kanban ordered by workflow progress. "
+                        + "V-model stages: the ten V-model stage columns arranged as a V "
+                        + "(requirements \u2192 test-requirements); every column shows, empty ones too.");
+                modeCombo.setLayoutData(fixedSize(140));
                 modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : 0);
                 modeCombo.addSelectionListener(new SelectionAdapter() {
                     @Override
@@ -1080,11 +1104,8 @@ public class BoardView extends ViewPart {
             ui.blockedLabel.setText(" \u00b7 " + blockedCount + " blocked)");
             ui.blockedLabel.setForeground(blockedCount > 0
                     ? ui.blockedLabel.getDisplay().getSystemColor(SWT.COLOR_RED) : null);
-            boolean empty = rows.isEmpty();
-            ui.tableComposite.setVisible(!empty);
-            ui.column.setLayoutData(empty
-                    ? new RowData() // collapsed: header width only, no table
-                    : new RowData(PIPELINE_COLUMN_WIDTH, SWT.DEFAULT));
+            // Every column keeps its fixed V cell (U-016): empty ones stay
+            // rendered with their table — no collapse-to-header anymore.
             ui.viewer.setInput(rows);
         }
         pipelineContent.layout(true, true);
