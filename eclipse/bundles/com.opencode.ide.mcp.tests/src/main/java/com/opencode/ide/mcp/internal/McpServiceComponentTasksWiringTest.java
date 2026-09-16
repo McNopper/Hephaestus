@@ -59,7 +59,8 @@ public class McpServiceComponentTasksWiringTest {
     @Test
     public void endpointServesTaskToolsAndWritesToConfiguredRoot() throws IOException {
         assertTrue("component must be running", component.isRunning());
-        assertTrue(component.getEndpointUrl().endsWith("/mcp"));
+        assertTrue("endpoint URL carries the auth token (G-003): " + component.getEndpointUrl(),
+                component.getEndpointUrl().matches("http://127\\.0\\.0\\.1:\\d+/mcp\\?token=[0-9a-f]{48}"));
 
         JsonObject list = JsonParser.parseString(
                 post("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")).getAsJsonObject();

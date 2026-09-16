@@ -19,7 +19,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * MCP-surface checks over the dispatcher: the 21 task_* tools are advertised
+ * MCP-surface checks over the dispatcher: the 22 task_* tools are advertised
  * with input schemas, results are pretty JSON with the pm field names, a
  * claim with nothing to do returns the JSON literal null, domain errors are
  * isError text results (not protocol errors) and missing parameters map to
@@ -32,7 +32,7 @@ public class TaskToolsDispatchTest {
             "task_set_blocked", "task_clear_blocked", "task_claim", "task_release", "task_add_comment",
             "task_add_artifact", "task_add_todo", "task_toggle_todo", "task_remove_todo",
             "task_backlog", "task_board", "task_plan_sprint", "task_close_sprint",
-            "task_traceability", "task_readiness");
+            "task_traceability", "task_readiness", "task_doctor");
 
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
@@ -68,11 +68,11 @@ public class TaskToolsDispatchTest {
     }
 
     @Test
-    public void toolsListAdvertisesAllTwentyOneToolsWithSchemas() {
+    public void toolsListAdvertisesAllTwentyTwoToolsWithSchemas() {
         JsonObject response = JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")).getAsJsonObject();
         JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-        assertEquals(21, tools.size());
+        assertEquals(22, tools.size());
         for (int i = 0; i < tools.size(); i++) {
             JsonObject tool = tools.get(i).getAsJsonObject();
             assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -166,6 +166,29 @@ public class TaskToolsDispatchTest {
         JsonObject out = callOk("task_close_sprint", "{\"project\":\"p\",\"sprint_id\":\"S-01\"}");
         assertEquals("closed", out.getAsJsonObject("sprint").get("status").getAsString());
         assertEquals(1, out.getAsJsonArray("returned_to_backlog").size());
+    }
+
+    @Test
+    public void doctorReportsDriftAndGoesQuietWhenHealed() {
+        // clean store: ok with an empty report
+        JsonObject clean = callOk("task_doctor", "{\"project\":\"p\"}");
+        assertTrue(clean.get("ok").getAsBoolean());
+        assertEquals(0, clean.getAsJsonArray("inconsistencies").size());
+
+        // sprint set while sitting in product-backlog (hand-drifted state)
+        callOk("task_create", "{\"project\":\"p\",\"title\":\"drifter\"}");
+        callOk("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"],\"goal\":\"g\"}");
+        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"product-backlog\"}");
+        JsonObject drift = callOk("task_doctor", "{\"project\":\"p\"}");
+        assertFalse(drift.get("ok").getAsBoolean());
+        assertEquals(1, drift.getAsJsonArray("inconsistencies").size());
+        assertTrue(drift.getAsJsonArray("inconsistencies").get(0).getAsString()
+                .contains("status=product-backlog but sprint="));
+
+        // healed (sprint cleared) -> quiet again
+        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":null}");
+        JsonObject healed = callOk("task_doctor", "{\"project\":\"p\"}");
+        assertTrue(healed.get("ok").getAsBoolean());
     }
 
     @Test

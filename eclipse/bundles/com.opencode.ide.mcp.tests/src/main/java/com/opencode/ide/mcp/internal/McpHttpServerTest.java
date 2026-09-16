@@ -24,7 +24,8 @@ import org.junit.Test;
 /**
  * Component test against the real HTTP endpoint (started on an ephemeral
  * loopback port like inside Eclipse): POST initialize/tools-list round trips,
- * 202 for notifications, 405 for GET, -32700 for malformed bodies.
+ * 202 for notifications, 405 for GET, -32700 for malformed bodies, and the
+ * G-003 token gate (401 without/wrong token, Bearer accepted).
  */
 public class McpHttpServerTest {
 
@@ -97,9 +98,52 @@ public class McpHttpServerTest {
         assertEquals(-32700, response.getAsJsonObject("error").get("code").getAsInt());
     }
 
+    @Test
+    public void postWithoutTokenIs401() throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) URI
+                .create("http://127.0.0.1:" + server.port() + "/mcp").toURL().openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        try (OutputStream out = conn.getOutputStream()) {
+            out.write("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals(401, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    public void postWithWrongTokenIs401() throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) URI
+                .create(server.endpointUrl() + "deadbeef").toURL().openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        try (OutputStream out = conn.getOutputStream()) {
+            out.write("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals(401, conn.getResponseCode());
+        conn.disconnect();
+    }
+
+    @Test
+    public void bearerHeaderIsAccepted() throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) URI
+                .create("http://127.0.0.1:" + server.port() + "/mcp").toURL().openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Authorization", "Bearer " + server.token());
+        try (OutputStream out = conn.getOutputStream()) {
+            out.write("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\"}"
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals(200, conn.getResponseCode());
+        conn.disconnect();
+    }
+
     private static HttpURLConnection connection() throws IOException {
-        return (HttpURLConnection) URI.create("http://127.0.0.1:" + server.port() + "/mcp").toURL()
-                .openConnection();
+        // the registered URL (token included) is the legitimate caller's form
+        return (HttpURLConnection) URI.create(server.endpointUrl()).toURL().openConnection();
     }
 
     private static Result post(String body) throws IOException {

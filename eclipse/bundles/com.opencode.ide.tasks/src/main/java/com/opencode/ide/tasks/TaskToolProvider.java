@@ -213,6 +213,15 @@ public final class TaskToolProvider implements ToolProvider {
                 }
                 return json(arr);
             }
+            case "task_doctor":
+            {
+                JsonObject o = new JsonObject();
+                JsonArray arr = new JsonArray();
+                store.inconsistencies(reqStr(a, "project")).forEach(arr::add);
+                o.add("inconsistencies", arr);
+                o.addProperty("ok", arr.isEmpty());
+                return json(o);
+            }
             default:
                 return McpToolResult.error("unknown tool '" + name + "'");
         }
@@ -467,6 +476,10 @@ public final class TaskToolProvider implements ToolProvider {
                 "Per-ticket V-model dispatch readiness (H6): one {id, stage, kind, reason} row per ticket, ordered "
                         + "by severity (STALE, BLOCKED, WAIT_UPSTREAM, RUNNING, READY, NOT_APPLICABLE) then id - "
                         + "what's runnable right now.",
+                schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
+        out.add(new McpTool("task_doctor",
+                "Store self-check (lint): reports inconsistent flag combinations per ticket (done but blocked, "
+                        + "sprint set while product-backlog); ok=true when the store is consistent.",
                 schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
         return List.copyOf(out);
     }

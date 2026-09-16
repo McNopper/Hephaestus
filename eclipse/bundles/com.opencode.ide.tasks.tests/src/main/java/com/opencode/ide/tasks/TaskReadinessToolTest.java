@@ -177,14 +177,19 @@ public class TaskReadinessToolTest {
     }
 
     @Test
-    public void toolIsAdvertisedLastWithAProjectOnlySchema() {
+    public void toolIsAdvertisedWithAProjectOnlySchema() {
         JsonArray tools = JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
                 .getAsJsonObject().getAsJsonObject("result").getAsJsonArray("tools");
-        JsonObject last = tools.get(tools.size() - 1).getAsJsonObject();
-        assertEquals("task_readiness", last.get("name").getAsString());
-        assertTrue(last.get("description").getAsString().length() > 10);
+        JsonObject readiness = null;
+        for (int i = 0; i < tools.size(); i++) {
+            if ("task_readiness".equals(tools.get(i).getAsJsonObject().get("name").getAsString())) {
+                readiness = tools.get(i).getAsJsonObject();
+            }
+        }
+        assertTrue("task_readiness must be advertised", readiness != null);
+        assertTrue(readiness.get("description").getAsString().length() > 10);
         assertEquals("[\"project\"]",
-                last.getAsJsonObject("inputSchema").getAsJsonArray("required").toString());
+                readiness.getAsJsonObject("inputSchema").getAsJsonArray("required").toString());
     }
 }

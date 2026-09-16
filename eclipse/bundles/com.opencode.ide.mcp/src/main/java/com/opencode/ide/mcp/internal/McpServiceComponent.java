@@ -49,12 +49,15 @@ public class McpServiceComponent implements McpInfo {
             throw new IllegalStateException("eclipse-build MCP server failed to start", e);
         }
         McpState.setPort(server.port());
-        LOG.info("eclipse-build MCP listening on http://127.0.0.1:" + server.port() + "/mcp");
+        McpState.setToken(server.token());
+        LOG.info("eclipse-build MCP listening on http://127.0.0.1:" + server.port()
+                + "/mcp (auth: per-start token)");
     }
 
     /** DS lifecycle: stops the endpoint. Public so the wiring test can drive it (DS calls reflectively). */
     public void deactivate() {
         McpState.setPort(-1);
+        McpState.setToken(null);
         McpHttpServer current = server;
         server = null;
         if (current != null) {
@@ -74,6 +77,8 @@ public class McpServiceComponent implements McpInfo {
 
     @Override
     public String getEndpointUrl() {
-        return isRunning() ? "http://127.0.0.1:" + McpState.port + "/mcp" : null;
+        // includes the ?token= secret: this URL is the registration hand-out
+        return isRunning() ? "http://127.0.0.1:" + McpState.port + "/mcp?token=" + McpState.token
+                : null;
     }
 }
