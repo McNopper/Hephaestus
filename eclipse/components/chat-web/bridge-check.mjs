@@ -352,6 +352,9 @@ exec('window.__appendDelta("{\\"mid\\":\\"msg_c1\\",\\"text\\":\\"round one\\"}"
 const c1Node = chatEl.querySelector('.msg.assistant[data-mid="msg_c1"]');
 check("first stream bubble carries the cursor",
   !!c1Node && c1Node.querySelectorAll(".cursor").length === 1);
+check("the cursor is the circling-squares spinner (TUI language)",
+  !!c1Node && c1Node.querySelector(".cursor").classList.contains("spin")
+    && c1Node.querySelector(".cursor").children.filter(c => c.tagName === "I").length === 4);
 exec('window.__startAssistant("{\\"mid\\":\\"msg_c2\\"}")');
 exec('window.__appendDelta("{\\"mid\\":\\"msg_c2\\",\\"text\\":\\"round two\\"}")');
 const c2Node = chatEl.querySelector('.msg.assistant[data-mid="msg_c2"]');
@@ -813,9 +816,10 @@ check("clicks on non-links are ignored",
 // signals (assistant start, notice, stopStream, clear) all clear it.
 // Placed last: the __clear sub-check wipes the whole transcript.
 exec('window.__appendUser("{\\"text\\":\\"wait for it\\"}")');
+const waitBubble = chatEl.querySelector(".msg.assistant.waiting");
 check("__appendUser shows the waiting indicator for the submit gap",
-  !!chatEl.querySelector(".msg.assistant.waiting")
-    && chatEl.querySelectorAll(".wait-dot").length === 3);
+  !!waitBubble && !!waitBubble.querySelector(".spin")
+    && waitBubble.querySelector(".spin").children.length === 4);
 exec('window.__appendUser("{\\"text\\":\\"queued while waiting\\"}")');
 check("a second submit keeps a single waiting indicator (idempotent)",
   chatEl.querySelectorAll(".msg.assistant.waiting").length === 1);

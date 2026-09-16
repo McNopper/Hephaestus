@@ -378,6 +378,17 @@ function forgetStreams() {
   lastStreamMid = null;
 }
 
+// ---- processing spinner ----------------------------------------------------
+// The opencode TUI's circling-squares language (user direction 2026-09-16):
+// one spinner element reused for the streaming cursor and the waiting
+// indicator instead of the old blinking block / bouncing dots.
+function makeSpinner(extraClass) {
+  const span = document.createElement("span");
+  span.className = "spin" + (extraClass ? " " + extraClass : "");
+  span.innerHTML = "<i></i><i></i><i></i><i></i>";
+  return span;
+}
+
 // ---- waiting indicator -----------------------------------------------------
 // The submit -> first response token gap can take seconds (queueing, session
 // creation, model latency). The moment the prompt echoes (__appendUser - the
@@ -390,8 +401,10 @@ function showWaiting() {
   if (waitingEl) return;
   const div = document.createElement("div");
   div.className = "msg assistant waiting";
-  div.innerHTML = '<div class="bubble"><span class="wait-dot"></span>'
-      + '<span class="wait-dot"></span><span class="wait-dot"></span></div>';
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.appendChild(makeSpinner(null));
+  div.appendChild(bubble);
   chatEl.appendChild(div);
   waitingEl = div;
   scrollBottom();
@@ -682,7 +695,7 @@ function renderStreamTick(mid) {
   // without blinking (user direction 2026-09-16)
   if (lastStreamMid === state.mid) {
     let cursor = body.querySelector(".cursor");
-    if (!cursor) { cursor = document.createElement("span"); cursor.className = "cursor"; }
+    if (!cursor) { cursor = makeSpinner("cursor"); }
     (state.rawEl || body).appendChild(cursor);
   }
   state.lastRender = Date.now();
