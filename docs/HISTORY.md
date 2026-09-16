@@ -100,3 +100,25 @@ reconciliation), F-003 (cross-engine dispatch guard via atomic marker file)
   covers our whole surface), then bump `ServerVersionPin`.
 - Once work runs on the board again, the store — not the roadmap — is the
   status source.
+
+## Session 2026-09-16 ? the board goes empty
+
+Parallel-wave session: four agent workstreams landed (peer-job Fleet view,
+pristine Board labels + icons, store hardening with line quarantine,
+chat-web polish) plus the live-complaint fixes - chat late-reply recovery
+(a timed-out POST no longer strands a still-busy session; the watcher
+settles from history, Stop stays armed, 30-min cap aborts), the model pin
+(enabled_providers whitelist), and task_doctor (store lint as the 22nd
+task_* tool). MCP endpoint token auth (G-003); U-005 type badges, B-002
+peer-write Board visibility (watcher checksum, sprint auto-select,
+repo-adoption root), U-007 live busy-session icons, U-002 batch C
+(open-in-editor via temp-file FileStoreEditorInput - IStorageEditorInput is
+gone from the platform - plus the MCP-servers dialog), G-004 tuning sweep
+completed. V-006 fleet daemon slices a+b: authed TCP core, FLEET_DAEMON
+stdio proxy with detach semantics, detached launcher; default stays off.
+An independent clean-architecture review ran over the session diff; every
+MUST/SHOULD finding fixed with regression tests (UI-thread store locks,
+quarantine gap, x-friends coupling, mutable knob statics, read-side
+materialization). Full reactor green throughout; documentation aligned
+(README with/without-Eclipse matrix, JDK 21 everywhere, daemon quickstart).
+Remaining: in-Eclipse verification pass only.

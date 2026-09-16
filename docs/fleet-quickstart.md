@@ -190,3 +190,23 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 - `tasks_task_board` / `tasks_task_readiness` — what's in flight and what's runnable now.
 - `AGENTS.md` — states, the V-pipeline stages, and the chat-first control plane.
 - `eclipse/DISTRIBUTED-FLEETS.md` — running one store across many machines.
+
+## Optional: run the engine detached (the daemon)
+
+By default the fleet engine lives in your session's `fleet` MCP server
+process — closing the session ends its runs (bookkeeping survives on the
+tickets). The **V-006 daemon** decouples them (opt-in, Windows-first):
+
+```powershell
+# once per machine/repo (from the repo root):
+pwsh -NoProfile -File eclipse/fleet-daemon.ps1     # detached start; pid+token land
+                                                    # in .git/opencode-fleet/daemon.json
+# then, in the environment of every opencode session that should attach:
+$env:FLEET_DAEMON = "auto"    # attach when a live daemon exists, else own engine
+```
+
+`auto` attaches as a thin proxy: your `fleet_*` calls drive the daemon's
+engine, **runs survive disconnecting**, and a reconnecting session sees the
+running jobs. `always` fails fast when no daemon is live; `off` (the default)
+keeps the per-session engine. Stop the daemon with the `daemon/shutdown` JSON-RPC
+call over its socket (see `eclipse/README.md`) or kill the pid from the pidfile.

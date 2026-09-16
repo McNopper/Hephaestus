@@ -46,6 +46,31 @@ Three ideas hold it together:
 > execution; skip it for ad-hoc work. Skills like `project-manager-doc-about` also work standalone,
 > independent of PM.
 
+## What works with and without Eclipse
+
+Everything here is **opencode-native first**: the *entire* agentic stack — board,
+fleet, skills, agents — runs from a plain `opencode` TUI in this repository.
+Eclipse is the optional human surface: overview, inspection, takeover. One
+repository, two ways to use it:
+
+| Capability | Plain opencode TUI (no Eclipse) | Eclipse harness (on top) |
+|---|---|---|
+| Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
+| **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
+| **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
+| **Fleet daemon** — engine outliving the client (`eclipse/fleet-daemon.ps1`, `FLEET_DAEMON=auto\|always`) | ✅ detach/reconnect without killing runs | ✅ (views keep their own engine until the default flips) |
+| Maven mojos `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
+| Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
+| `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
+| Structured C++ tool pack as MCP tools (`cmake_*`, `ctest_run`, `debug_batch`, …) | ❌ lives in Eclipse's `eclipse-build` endpoint | ✅ (per-start token auth) |
+| Chat UI (markdown/KaTeX/mermaid, Stop, pending queue, late-reply recovery) | — the TUI *is* your chat | ✅ chat view |
+| Server/Providers/Repo/Session views, live busy-session icons, CDT markers | ❌ | ✅ |
+| Building this harness itself | `eclipse/build.ps1` (JDK 21, Maven/Tycho reactor) | same |
+
+The split is deliberate architecture, not happenstance: the `client`, `tools`,
+`tasks`, `git` and `fleet` bundles are **Eclipse-free (build-enforced)** — the IDE
+consumes them, never owns them (see `eclipse/ARCHITECTURE.md`).
+
 ## Layout
 
 | Path | What it is |
@@ -58,7 +83,7 @@ Three ideas hold it together:
 | `.opencode/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
 | `mcp/graphics/` | the graphics MCP server (captures, comparisons). |
 | `cpp/` | standalone AI-first C++23 build skeleton (its own `AGENTS.md`). |
-| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board + Fleet views**, the `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, git-worktree fleet incl. the task-driven `TaskFleet`, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), `tasks-tools.ps1` stdio launcher; Maven/Tycho reactor). |
+| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board + Fleet views**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, git-worktree fleet incl. the task-driven `TaskFleet` and the **detached daemon** (`fleet-daemon.ps1`), the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1`/`fleet-tools.ps1` stdio launchers; Maven/Tycho reactor). |
 
 ## Skills (flat, by domain)
 
@@ -153,7 +178,10 @@ a ticket), `project-manager-route-request` (ambiguous next step), `project-manag
 Agents/docs reference **tiers**, never hard-coded model IDs. The concrete model
 behind each tier is configured in `opencode.json` (the default `model` field)
 and in any per-agent override (only `graphics-expert` overrides, pinning to
-`very-high`); resolve through `/models`.
+`very-high`); resolve through `/models`. The project config additionally
+whitelists `enabled_providers`, so `/models` and the chat's selector combos only
+offer the pinned provider — switching to a different model is a deliberate
+config edit, not a picker slip.
 
 | Tier | Selection rule |
 |---|---|
@@ -183,14 +211,18 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 2. Connect providers via `/connect` (e.g. Z.AI, GitHub Copilot, OpenAI —
    whichever you use).
 3. Install the graphics MCP deps: `pip install -r mcp/graphics/requirements.txt`.
-4. Build the task tools once: `cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks
-   -pl bundles/com.opencode.ide.tools clean package` (needs a JDK 17+; the launcher also
-   resolves gson from the local Tycho cache).
+4. Build the tool jars once (JDK 21) — this covers both stdio servers:
+   `cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks
+   -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.fleet
+   -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git clean package`
+   (the launchers also resolve gson from the local Tycho cache).
 5. Run `opencode` from this repo. Skills, agents, and `AGENTS.md` auto-load; the `tasks`
-   stdio launcher and the `graphics` MCP server start from `opencode.json`.
+   and `fleet` stdio launchers and the `graphics` MCP server start from `opencode.json`.
 6. Your first headless fleet dispatch: see **`docs/fleet-quickstart.md`** (seed
    ticket → `fleet_dispatch` → poll → merge → actuals — the whole engine works
-   without Eclipse).
+   without Eclipse). Optionally start the engine **detached** with
+   `eclipse/fleet-daemon.ps1` and set `FLEET_DAEMON=auto` so runs survive
+   disconnecting (V-006 daemon).
 
 > **MCP scope:** the bundled servers implement a deliberately minimal JSON-RPC surface
 > (`initialize`, `tools/list`, `tools/call`, plus `ping` on the Java `tasks`/`eclipse-build`

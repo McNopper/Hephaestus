@@ -8,7 +8,7 @@ Source lives in the repo's `eclipse/` folder.
 ## Prerequisites
 
 - **opencode** installed and on PATH (`opencode --version` → 1.18.x). Pinned and endpoint-verified against 1.18.30 (see `ServerVersionPin`).
-- A JDK 17+ on the machine (the `build.ps1` wrapper auto-detects one;
+- A JDK 21+ on the machine (the `build.ps1` wrapper auto-detects one;
   `JAVA_HOME` does not have to be valid).
 - **Node.js on PATH** — only needed for the chat web renderer/bridge checks that run inside
   `mvn verify` (skip with `-DskipNodeChecks=true` if you just want jars).
