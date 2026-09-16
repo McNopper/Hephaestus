@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -62,9 +64,12 @@ import com.google.gson.JsonSyntaxException;
  *       never be able to steer a write out of the project directory.</li>
  *   <li>Output pins LF endings and UTF-8 (no BOM); the parser tolerates CRLF
  *       and a leading BOM so hand-edited and git-CRLF-normalized files load.</li>
- *   <li>Section payloads are strict: a malformed line fails the whole file
- *       (the store then skips the file with a warning rather than half-load
- *       it).</li>
+ *   <li>Record-section payloads (Artifacts/Comments/History) are strict per
+ *       line: a malformed line is quarantined ({@link Task#quarantinedLines},
+ *       logged with a warning, dropped on rewrite) instead of failing the
+ *       whole file - a corrupt line must never make the ticket unparseable
+ *       and thus invisible. Frontmatter and Todos stay strict: a file they
+ *       break cannot be mapped to an id or safely rewritten at all.</li>
  * </ul>
  */
 public final class TaskFileCodec {
@@ -86,6 +91,7 @@ public final class TaskFileCodec {
      */
     private static final Pattern ID_PATTERN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]*");
     private static final Gson GSON = new Gson();
+    private static final Logger LOG = Logger.getLogger(TaskFileCodec.class.getName());
 
     /** The managed body sections, in canonical write order. */
     static final List<String> SECTIONS = List.of("Todos", "Artifacts", "Comments", "History");
@@ -337,24 +343,25 @@ public final class TaskFileCodec {
             if (line.isBlank()) {
                 continue;
             }
-            JsonObject o;
             try {
                 JsonElement parsed = JsonParser.parseString(line);
                 if (!parsed.isJsonObject()) {
                     throw new JsonSyntaxException("not an object");
                 }
-                o = parsed.getAsJsonObject();
-            } catch (JsonSyntaxException e) {
-                throw new FormatException("malformed " + name + " line (expected one JSON object): " + line);
-            }
-            switch (name) {
-                case "Artifacts" -> t.artifacts.add(new Task.Artifact(
-                        str(o, "kind"), str(o, "ref"), str(o, "note"), str(o, "by"), parseInstant(str(o, "ts"))));
-                case "Comments" -> t.comments.add(new Task.Comment(
-                        parseInstant(str(o, "ts")), str(o, "by"), orEmpty(str(o, "text"))));
-                case "History" -> t.history.add(new Task.HistoryEvent(
-                        parseInstant(str(o, "ts")), str(o, "action"), str(o, "by")));
-                default -> throw new IllegalStateException(name);
+                JsonObject o = parsed.getAsJsonObject();
+                switch (name) {
+                    case "Artifacts" -> t.artifacts.add(new Task.Artifact(
+                            str(o, "kind"), str(o, "ref"), str(o, "note"), str(o, "by"), parseInstant(str(o, "ts"))));
+                    case "Comments" -> t.comments.add(new Task.Comment(
+                            parseInstant(str(o, "ts")), str(o, "by"), orEmpty(str(o, "text"))));
+                    case "History" -> t.history.add(new Task.HistoryEvent(
+                            parseInstant(str(o, "ts")), str(o, "action"), str(o, "by")));
+                    default -> throw new IllegalStateException(name);
+                }
+            } catch (JsonSyntaxException | FormatException e) {
+                LOG.log(Level.WARNING, "quarantined malformed " + name + " line in ticket " + t.id
+                        + " (skipped, dropped on next rewrite): " + line, e);
+                t.quarantinedLines.add(name + ": " + line);
             }
         }
     }

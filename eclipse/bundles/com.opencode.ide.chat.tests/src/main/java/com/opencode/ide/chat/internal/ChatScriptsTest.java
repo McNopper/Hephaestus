@@ -55,6 +55,7 @@ public class ChatScriptsTest {
                 ChatScripts.appendUser("hi"),
                 ChatScripts.startAssistant("msg_1"),
                 ChatScripts.appendDelta("msg_1", "chunk"),
+                ChatScripts.appendReasoning("msg_1", "ponder"),
                 ChatScripts.setAssistantText("msg_1", "text", "", "openai/gpt",
                         List.of(new ChatSessionController.ToolLine("read", "completed"))),
                 ChatScripts.setMessages(List.of(Map.of("role", "user", "text", "hi"))));
@@ -85,6 +86,9 @@ public class ChatScriptsTest {
         Map<String, Object> delta = payloadOf(ChatScripts.appendDelta("msg_1", "ack"));
         assertEquals("msg_1", delta.get("mid"));
         assertEquals("ack", delta.get("text"));
+        Map<String, Object> reasoning = payloadOf(ChatScripts.appendReasoning("msg_1", "ponder"));
+        assertEquals("msg_1", reasoning.get("mid"));
+        assertEquals("ponder", reasoning.get("text"));
     }
 
     @Test

@@ -6,11 +6,14 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.net.http.HttpTimeoutException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -19,6 +22,7 @@ import com.google.gson.JsonObject;
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.client.McpServerConfig;
 import com.opencode.ide.client.OpencodeClient;
+import com.opencode.ide.client.OpencodeConnectionException;
 import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
@@ -38,8 +42,10 @@ import com.opencode.ide.client.model.SessionStatus;
 /**
  * Unit tests for the session logic extracted from the (formerly ~700-line)
  * ChatView: sending (session creation, model fallback, final render, failure
- * notices), slash-command execution, resume, live deltas, and disposal -
- * against fake connection/renderer/host collaborators, with inline executors.
+ * notices), slash-command execution, the TUI-style pending queue (typing
+ * ahead while a reply streams, auto-dispatch, edit/remove), abort, resume,
+ * live deltas, and disposal - against fake connection/renderer/host
+ * collaborators, with inline executors (no SWT anywhere).
  */
 public class ChatSessionControllerTest {
 
@@ -54,6 +60,12 @@ public class ChatSessionControllerTest {
         renderer = new RecordingRenderer();
         host = new FakeHost();
         controller = new ChatSessionController(connection, renderer, host);
+    }
+
+    @After
+    public void restoreLateReplyKnobs() {
+        ChatSessionController.lateReplyPoll = Duration.ofSeconds(5);
+        ChatSessionController.lateReplyCap = Duration.ofMinutes(30);
     }
 
     // ---------- sending ----------
@@ -131,6 +143,75 @@ public class ChatSessionControllerTest {
         assertEquals(List.of("⚠ Send failed: boom"), renderer.notices);
         assertTrue(renderer.assistants.isEmpty());
         assertFalse(controller.isSending());
+    }
+
+    // ---------- late replies (POST budget exceeded) ----------
+
+    @Test
+    public void sendTimeoutWithIdleSessionSettlesFromHistory() {
+        connection.client.sendFailure = promptTimeout();
+        connection.client.history = List.of(entry("u1", "user", "hi"),
+                entry("msg_9", "assistant", "late done"));
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("late final render expected, got: " + renderer.assistants,
+                renderer.assistants.contains("final:msg_9:late done||prov/mod|"));
+        assertTrue("no failure notice expected, got: " + renderer.notices,
+                renderer.notices.stream().noneMatch(n -> n.startsWith("⚠")));
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void sendTimeoutWithBusySessionWatchesThenSettlesFromHistory() {
+        ChatSessionController.lateReplyPoll = Duration.ofMillis(1);
+        connection.client.sendFailure = promptTimeout();
+        connection.client.busyPolls = 1; // recovery probe sees busy, watcher poll sees idle
+        connection.client.history = List.of(entry("u1", "user", "hi"),
+                entry("msg_9", "assistant", "late done"));
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("still-running notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.startsWith("⏳")));
+        assertTrue("late final render expected, got: " + renderer.assistants,
+                renderer.assistants.contains("final:msg_9:late done||prov/mod|"));
+        assertFalse(controller.isSending());
+        assertTrue(connection.client.abortCalls.isEmpty());
+    }
+
+    @Test
+    public void sendTimeoutStuckBusyIsAbortedAtTheCap() {
+        ChatSessionController.lateReplyPoll = Duration.ofMillis(1);
+        ChatSessionController.lateReplyCap = Duration.ofMillis(20);
+        connection.client.sendFailure = promptTimeout();
+        connection.client.busyPolls = Integer.MAX_VALUE;
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertEquals(List.of("ses_1"), connection.client.abortCalls);
+        assertTrue("aborted notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("aborted")));
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void sendTimeoutWithoutAssistantReplyReportsIncomplete() {
+        connection.client.sendFailure = promptTimeout();
+        connection.client.history = List.of(entry("u1", "user", "hi"));
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("incomplete notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("did not complete")));
+        assertTrue(renderer.assistants.isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    private static OpencodeException promptTimeout() {
+        return new OpencodeConnectionException(
+                "opencode POST /session/ses_1/message timed out after 300s",
+                new HttpTimeoutException("request timed out"));
     }
 
     @Test
@@ -293,6 +374,162 @@ public class ChatSessionControllerTest {
         assertTrue(host.infos.contains("ERROR abort failed for session ses_9"));
     }
 
+    // ---------- pending queue (TUI-style typing ahead) ----------
+
+    private static ChatSessionController.OutgoingMessage msg(String text) {
+        return new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, text);
+    }
+
+    @Test
+    public void submitWhileIdleSendsImmediately() {
+        boolean queued = controller.submit(null, msg("hi"));
+
+        assertFalse(queued);
+        assertEquals(List.of("hi"), renderer.users);
+        assertEquals(1, connection.client.requests.size());
+        assertTrue(controller.queuedPrompts().isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void submitWhileSendingQueuesAndAutoSendsOnCompletion() {
+        host.holdBackground = true;
+        controller.send(msg("first"));
+        assertTrue(controller.isSending());
+
+        boolean queued = controller.submit(null, msg("second"));
+        assertTrue(queued);
+        assertEquals(List.of("first"), renderer.users); // the echo waits
+        assertEquals(List.of("second"), controller.queuedPrompts());
+        assertEquals(0, connection.client.requests.size()); // the send job is held
+        assertTrue(host.infos.contains("queue: submission waiting (1 queued)"));
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        // the first reply settled, the queued submission auto-dispatched
+        assertEquals(List.of("first", "second"), renderer.users);
+        assertEquals(2, connection.client.requests.size());
+        assertEquals("second", connection.client.requests.get(1).text());
+        assertTrue(controller.queuedPrompts().isEmpty());
+        assertFalse(controller.isSending());
+        assertEquals(Boolean.FALSE, host.sendingStates.get(host.sendingStates.size() - 1));
+    }
+
+    @Test
+    public void queuedSubmissionsDispatchInOrder() {
+        host.holdBackground = true;
+        controller.send(msg("a"));
+        controller.submit(null, msg("b"));
+        controller.submit(null, msg("c"));
+        controller.submit(null, msg("d"));
+        assertEquals(List.of("b", "c", "d"), controller.queuedPrompts());
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertEquals(List.of("a", "b", "c", "d"), renderer.users);
+        assertEquals(4, connection.client.requests.size());
+        for (int i = 0; i < 4; i++) {
+            assertEquals(String.valueOf((char) ('a' + i)), connection.client.requests.get(i).text());
+        }
+        assertTrue(controller.queuedPrompts().isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void queuedCommandRunsAfterTheInFlightMessage() {
+        host.holdBackground = true;
+        controller.send(msg("first"));
+        assertTrue(controller.submit(commandSelection("/build now", "build", List.of("now")), null));
+        assertEquals(List.of("/build now"), controller.queuedPrompts());
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertEquals(List.of("first", "/build now"), renderer.users);
+        assertEquals(List.of(new FakeClient.CommandCall("ses_1", "build", List.of("now"))),
+                connection.client.commandCalls);
+        assertTrue(controller.queuedPrompts().isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void queuedPromptCanBeRemovedAndOutOfRangeRemovalIsSafe() {
+        host.holdBackground = true;
+        controller.send(msg("a"));
+        controller.submit(null, msg("b"));
+        controller.submit(null, msg("c"));
+
+        assertEquals("b", controller.removeQueuedPrompt(0));
+        assertNull(controller.removeQueuedPrompt(9));
+        assertEquals(List.of("c"), controller.queuedPrompts());
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertEquals(List.of("a", "c"), renderer.users); // "b" never sent
+        assertEquals(2, connection.client.requests.size());
+    }
+
+    @Test
+    public void invalidSubmissionsAreNeverQueued() {
+        host.holdBackground = true;
+        controller.send(msg("first"));
+
+        assertFalse(controller.submit(null, null));
+        assertFalse(controller.submit(new CommandComposer.CommandSelection(
+                CommandComposer.Kind.MESSAGE, new CommandInfo("build", null), List.of(), "hi"), null));
+        assertFalse(controller.submit(new CommandComposer.CommandSelection(
+                CommandComposer.Kind.COMMAND, null, List.of(), null), null));
+        assertTrue(controller.queuedPrompts().isEmpty());
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+        assertEquals(1, connection.client.requests.size());
+    }
+
+    @Test
+    public void newSessionRefusalKeepsThePendingQueue() {
+        host.holdBackground = true;
+        controller.send(msg("first"));
+        controller.submit(null, msg("queued"));
+
+        controller.startNewSession();
+
+        assertTrue(renderer.notices.contains(
+                "⚠ A reply is still streaming - abort it before starting a new session."));
+        assertEquals(List.of("queued"), controller.queuedPrompts());
+    }
+
+    @Test
+    public void abortWithQueuedSubmissionSendsItAfterTheAbortedReplySettles() {
+        controller.subscribe();
+        controller.send(msg("hello")); // creates ses_1, completes
+        host.holdBackground = true;
+        controller.send(msg("again"));
+        connection.fire(deltaEvent(
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+        controller.submit(null, msg("next"));
+        assertTrue(controller.isSending());
+
+        controller.abort();
+        assertTrue("abort must stop the cursor, got: " + renderer.assistants,
+                renderer.assistants.stream().anyMatch(a -> a.equals("stop:msg_stream")));
+        assertTrue(renderer.notices.contains("⏹ Aborted by user."));
+
+        // the aborted send job unblocks, then the queued submission auto-sends
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertEquals(List.of("ses_1"), connection.client.abortCalls);
+        assertEquals(3, connection.client.requests.size()); // hello, again, next
+        assertEquals("next", connection.client.requests.get(2).text());
+        assertTrue(controller.queuedPrompts().isEmpty());
+        assertFalse(controller.isSending());
+        assertEquals(Boolean.FALSE, host.sendingStates.get(host.sendingStates.size() - 1));
+    }
+
     // ---------- live deltas ----------
 
     @Test
@@ -317,19 +554,54 @@ public class ChatSessionControllerTest {
                 .filter(a -> a.startsWith("start:")).toList());
         assertEquals(List.of("msg_1:chunk"), renderer.deltas);
 
-        // other session / empty delta / non-text field / missing id: all ignored
+        // a reasoning delta streams through the thinking channel, not the body
+        connection.fire(deltaEvent(
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"reasoning\",\"delta\":\"ponder\"}"));
+        assertEquals(1, renderer.deltas.size());
+        assertEquals(List.of("msg_1:ponder"), renderer.reasonings);
+
+        // other session / empty delta / unknown field / missing id: all ignored
         connection.fire(deltaEvent(
                 "{\"sessionID\":\"ses_other\",\"messageID\":\"msg_1\",\"field\":\"text\",\"delta\":\"x\"}"));
         connection.fire(deltaEvent(
                 "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"text\",\"delta\":\"\"}"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"reasoning\",\"delta\":\"x\"}"));
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"tool\",\"delta\":\"x\"}"));
         connection.fire(deltaEvent("{\"sessionID\":\"ses_1\",\"field\":\"text\",\"delta\":\"x\"}"));
         assertEquals(1, renderer.deltas.size());
+        assertEquals(1, renderer.reasonings.size());
         host.queuedBackground.forEach(Runnable::run); // settle the held send
 
         controller.dispose();
         assertTrue(connection.listeners.isEmpty());
+    }
+
+    @Test
+    public void reasoningDeltasStreamWhileSendingAndAreIgnoredOtherwise() {
+        controller.subscribe();
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hello")); // creates ses_1, completes
+        host.holdBackground = true;
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi again"));
+        connection.fire(deltaEvent(
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_r\",\"field\":\"reasoning\",\"delta\":\"ponder\"}"));
+        connection.fire(deltaEvent(
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_r\",\"field\":\"reasoning\",\"delta\":\"ing\"}"));
+
+        assertEquals(List.of("msg_r:ponder", "msg_r:ing"), renderer.reasonings);
+        assertTrue("reasoning must not leak into the text body, got: " + renderer.deltas,
+                renderer.deltas.isEmpty());
+        assertTrue(renderer.assistants.contains("start:msg_r"));
+        host.queuedBackground.forEach(Runnable::run); // settle the held send
+
+        // once the send settled, a reasoning delta is a late orphan: no bubble
+        connection.fire(deltaEvent(
+                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_late\",\"field\":\"reasoning\",\"delta\":\"x\"}"));
+        assertFalse("late reasoning delta must not create a bubble, got: " + renderer.assistants,
+                renderer.assistants.contains("start:msg_late"));
+        assertTrue("late reasoning delta must not stream, got: " + renderer.reasonings,
+                renderer.reasonings.stream().noneMatch(r -> r.startsWith("msg_late:")));
     }
 
     // ---------- resume / new session ----------
@@ -602,6 +874,7 @@ public class ChatSessionControllerTest {
         final List<String> users = new ArrayList<>();
         final List<String> assistants = new ArrayList<>();
         final List<String> deltas = new ArrayList<>();
+        final List<String> reasonings = new ArrayList<>();
         final List<String> notices = new ArrayList<>();
         final List<List<Map<String, Object>>> histories = new ArrayList<>();
         int clears;
@@ -619,6 +892,11 @@ public class ChatSessionControllerTest {
         @Override
         public void appendDelta(String messageId, String text) {
             deltas.add(messageId + ":" + text);
+        }
+
+        @Override
+        public void appendReasoningDelta(String messageId, String text) {
+            reasonings.add(messageId + ":" + text);
         }
 
         @Override
@@ -744,6 +1022,9 @@ public class ChatSessionControllerTest {
         List<ChatEntry> history = List.of();
         OpencodeException historyFailure;
         OpencodeException abortFailure;
+        Map<String, SessionStatus> sessionStatuses = Map.of();
+        OpencodeException statusFailure;
+        int busyPolls; // > 0: report ses_1 busy for this many calls, then idle
         int configCalls;
         int providersCalls;
 
@@ -778,8 +1059,15 @@ public class ChatSessionControllerTest {
         }
 
         @Override
-        public Map<String, SessionStatus> getSessionStatus() {
-            throw new UnsupportedOperationException();
+        public Map<String, SessionStatus> getSessionStatus() throws OpencodeException {
+            if (statusFailure != null) {
+                throw statusFailure;
+            }
+            if (busyPolls > 0) {
+                busyPolls--;
+                return Map.of("ses_1", new SessionStatus("busy"));
+            }
+            return sessionStatuses;
         }
 
         @Override

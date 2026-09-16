@@ -2,6 +2,7 @@ package com.opencode.ide.board.views;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -47,6 +48,7 @@ import com.opencode.ide.board.internal.GitCli;
 import com.opencode.ide.board.model.DiffSource;
 import com.opencode.ide.board.model.EventsFeed;
 import com.opencode.ide.board.model.FleetJobsModel;
+import com.opencode.ide.board.model.PeerJobReconstructor;
 import com.opencode.ide.board.model.SessionDiffText;
 import com.opencode.ide.board.model.TakeoverRouter;
 import com.opencode.ide.client.OpencodeException;
@@ -56,6 +58,7 @@ import com.opencode.ide.core.ManagedConnection;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.fleet.GlobalEventsAggregator;
 import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
+import com.opencode.ide.tasks.TaskStore;
 
 /**
  * The Fleet view: one row per fleet job in the shared {@link FleetJobsModel}
@@ -74,6 +77,14 @@ import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
  * server, git can block for up to a minute) and open the dialog from
  * {@code asyncExec}; the action stays disabled while a diff is running.
  *
+ * <p>F-004 (interim until V-006's daemon+attach): every refresh also shows
+ * read-only rows for jobs launched by a PEER engine (a chat session's
+ * fleet server), rebuilt from the shared on-disk truth — store claims plus
+ * fleet worktrees — by {@link PeerJobReconstructor}. External rows are grey
+ * and view-only: no Abort, no Take over; Open diff / Open folder / Copy
+ * ticket id still work. Part activation re-reads them ({@link #setFocus}),
+ * so no extra poller thread is introduced.</p>
+ *
  * <p>The "Permissions (n)" toolbar action (enabled when n &gt; 0, count kept
  * live via the shared permission queue's listener) opens
  * {@link FleetPermissionsDialog} where unattended sessions' permission
@@ -91,7 +102,8 @@ public class FleetView extends ViewPart {
 
     public static final String ID = "com.opencode.ide.board.views.FleetView";
 
-    private static final String EMPTY_STATE = "No fleet jobs launched yet — use the Board view.";
+    private static final String EMPTY_STATE =
+            "No fleet jobs yet — launch from the Board view or a chat session's fleet server.";
 
     private TableViewer viewer;
     private Composite tableComposite;
@@ -213,10 +225,17 @@ public class FleetView extends ViewPart {
             @Override
             public Color getForeground(Object element) {
                 FleetJobHandle row = asRow(element);
-                if (row == null || row.state() == null || !stateColumn) {
+                if (row == null) {
                     return null;
                 }
                 Display display = viewer.getControl().getDisplay();
+                if (row.external()) {
+                    // F-004: peer-engine rows are read-only — grey in every column
+                    return display.getSystemColor(SWT.COLOR_DARK_GRAY);
+                }
+                if (row.state() == null || !stateColumn) {
+                    return null;
+                }
                 return switch (row.state()) {
                     case FAILED -> display.getSystemColor(SWT.COLOR_RED);
                     case MERGED -> display.getSystemColor(SWT.COLOR_DARK_GREEN);
@@ -410,8 +429,18 @@ public class FleetView extends ViewPart {
                 takeOver();
             }
         };
-        takeOver.setEnabled(row != null);
+        takeOver.setEnabled(row != null && !row.external());
         manager.add(takeOver);
+        Action copyTicketId = new Action("Copy ticket id") {
+            @Override
+            public void run() {
+                if (row != null) {
+                    copyText(row.taskId());
+                }
+            }
+        };
+        copyTicketId.setEnabled(row != null);
+        manager.add(copyTicketId);
         Action copySessionId = new Action("Copy session id") {
             @Override
             public void run() {
@@ -429,7 +458,8 @@ public class FleetView extends ViewPart {
                 abortSelected(row);
             }
         };
-        abort.setEnabled(row != null && row.sessionId() != null && !row.sessionId().isBlank());
+        abort.setEnabled(row != null && !row.external()
+                && row.sessionId() != null && !row.sessionId().isBlank());
         manager.add(abort);
     }
 
@@ -493,19 +523,27 @@ public class FleetView extends ViewPart {
     }
 
     private void updateActionEnablement() {
-        boolean hasSelection = selectedRow() != null;
+        FleetJobHandle row = selectedRow();
+        boolean hasSelection = row != null;
         openDiffAction.setEnabled(hasSelection && !diffRunning.get());
         openFolderAction.setEnabled(hasSelection);
-        takeOverAction.setEnabled(hasSelection);
+        // F-004: peer-engine rows are view-only — no take-over
+        takeOverAction.setEnabled(hasSelection && !row.external());
     }
 
     private void refreshFromModel() {
         if (viewer == null || viewer.getControl().isDisposed()) {
             return;
         }
-        List<FleetJobHandle> jobs = FleetJobsModel.getDefault().jobs();
-        viewer.setInput(jobs);
-        boolean empty = jobs.isEmpty();
+        List<FleetJobHandle> own = FleetJobsModel.getDefault().jobs();
+        Set<String> live = new LinkedHashSet<>();
+        for (FleetJobHandle job : own) {
+            live.add(job.taskId());
+        }
+        List<FleetJobHandle> rows = new ArrayList<>(own);
+        rows.addAll(peerRows(live));
+        viewer.setInput(rows);
+        boolean empty = rows.isEmpty();
         setLaidOut(tableComposite, !empty);
         setLaidOut(emptyLabel, empty);
         // Both exclude flags live on children of tableComposite's PARENT, so that
@@ -514,6 +552,27 @@ public class FleetView extends ViewPart {
         tableComposite.getParent().layout(true, true);
         updateActionEnablement();
         updatePermissionsAction();
+    }
+
+    /**
+     * F-004: read-only rows for jobs launched by a peer engine (a chat
+     * session's fleet server), rebuilt from the shared on-disk truth via
+     * {@link PeerJobReconstructor} — store claims plus fleet worktrees,
+     * deduplicated against the live engine's own rows. Any failure yields
+     * no peer rows and never breaks the view.
+     */
+    private static List<FleetJobHandle> peerRows(Set<String> liveTaskIds) {
+        try {
+            Path storeRoot = BoardView.tasksRoot();
+            if (storeRoot == null) {
+                return List.of();
+            }
+            Path opencode = storeRoot.getParent();
+            Path repoRoot = opencode == null ? null : opencode.getParent();
+            return PeerJobReconstructor.externalJobs(new TaskStore(storeRoot), repoRoot, liveTaskIds);
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     private static void setLaidOut(Control control, boolean visible) {
@@ -632,6 +691,9 @@ public class FleetView extends ViewPart {
         if (row == null) {
             return;
         }
+        if (row.external()) {
+            return; // F-004: peer-engine rows are view-only
+        }
         if (row.sessionId() == null || row.sessionId().isBlank()) {
             openWorktreeTakeOver(row);
             return;
@@ -656,7 +718,7 @@ public class FleetView extends ViewPart {
                     MessageDialog.openInformation(getSite().getShell(), "Take over",
                             "Session handed to the attached TUI.\n" + result.detail());
                     FleetJobsModel.getDefault().update(new FleetJobHandle(row.taskId(), row.sessionId(),
-                            row.worktree(), row.state(), "taken over by user (TUI)"));
+                            row.worktree(), row.state(), "taken over by user (TUI)", row.external()));
                 } else {
                     openWorktreeTakeOver(row);
                 }
@@ -679,7 +741,7 @@ public class FleetView extends ViewPart {
         if (worktree != null && Files.isDirectory(worktree)) {
             Program.launch(worktree.toString());
             FleetJobsModel.getDefault().update(new FleetJobHandle(row.taskId(), row.sessionId(),
-                    row.worktree(), row.state(), "taken over by user"));
+                    row.worktree(), row.state(), "taken over by user", row.external()));
         } else {
             MessageDialog.openInformation(getSite().getShell(), "Take over",
                     "Worktree not found: " + (worktree == null ? "(none)" : worktree.toString()));
@@ -705,6 +767,10 @@ public class FleetView extends ViewPart {
     public void setFocus() {
         if (viewer != null && !viewer.getControl().isDisposed()) {
             viewer.getControl().setFocus();
+            // F-004: part activation is the existing cadence that picks up
+            // peer-engine rows — the model listener only fires for own jobs,
+            // and no extra poller thread may be introduced
+            refreshFromModel();
         }
     }
 

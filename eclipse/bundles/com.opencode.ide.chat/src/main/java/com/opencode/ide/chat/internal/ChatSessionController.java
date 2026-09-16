@@ -1,6 +1,9 @@
 package com.opencode.ide.chat.internal;
 
+import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +20,7 @@ import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionStatus;
 
 /**
  * Per-view chat session logic (SWT-free): creates and resumes sessions, sends
@@ -44,6 +48,9 @@ public final class ChatSessionController {
         void startAssistant(String messageId);
 
         void appendDelta(String messageId, String text);
+
+        /** Appends one streamed reasoning chunk (surfaced while generating). */
+        void appendReasoningDelta(String messageId, String text);
 
         void setAssistantText(String messageId, String text, String reasoning, String meta,
                 List<ToolLine> tools);
@@ -98,6 +105,17 @@ public final class ChatSessionController {
         void failed(OpencodeException error);
     }
 
+    /**
+     * One submission waiting for the in-flight reply to finish (opencode TUI
+     * parity): the display text shown in the pending list plus the fully
+     * resolved payload - exactly one of {@code command}/{@code message} is
+     * non-null, and agent/model picks are captured at enqueue time so later
+     * selector changes do not rewrite a queued message.
+     */
+    public record PendingSubmission(String display, CommandComposer.CommandSelection command,
+            OutgoingMessage message) {
+    }
+
     private final ChatServerConnection connection;
     private final Renderer renderer;
     private final Host host;
@@ -111,6 +129,26 @@ public final class ChatSessionController {
      * is the final-render target; all of them must get a cursor stop.
      */
     private final List<String> streamedMids = new CopyOnWriteArrayList<>();
+    /**
+     * Submissions waiting for the in-flight reply. Guarded by itself: the
+     * enqueue decision (in {@link #submit}) and the drain decision (in
+     * {@link #finishSend}) must be mutually exclusive, or a submission queued
+     * in the instant the send settles could sit in the queue with nothing
+     * left to dispatch it.
+     */
+    private final ArrayDeque<PendingSubmission> queue = new ArrayDeque<>();
+    /**
+     * Late-reply watcher knobs: how often to poll a session whose reply
+     * outlived the POST budget, and how long to keep watching before
+     * declaring it stuck. Public and volatile so the separate-bundle tests
+     * can tighten them (OSGi gives host and test bundle distinct class
+     * loaders - package-private access fails at runtime); 5 s poll / 30 min
+     * cap in production.
+     */
+    public static volatile Duration lateReplyPoll = Duration.ofSeconds(5);
+    public static volatile Duration lateReplyCap = Duration.ofMinutes(30);
+    /** Bumped on dispose and by every new watcher: stale watchers exit silently. */
+    private volatile int watcherGeneration;
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
 
@@ -140,7 +178,8 @@ public final class ChatSessionController {
                 if (!sid.equals(partSession) || messageId == null || delta == null || delta.isEmpty()) {
                     return;
                 }
-                if (!"text".equals(field)) {
+                boolean textPart = "text".equals(field);
+                if (!textPart && !"reasoning".equals(field)) {
                     return;
                 }
                 // A delta for an unknown mid while nothing is in flight is a
@@ -156,7 +195,11 @@ public final class ChatSessionController {
                 }
                 host.runOnUi(() -> {
                     renderer.startAssistant(messageId);
-                    renderer.appendDelta(messageId, delta);
+                    if (textPart) {
+                        renderer.appendDelta(messageId, delta);
+                    } else {
+                        renderer.appendReasoningDelta(messageId, delta);
+                    }
                 });
             }
         };
@@ -173,6 +216,7 @@ public final class ChatSessionController {
 
     /** Unsubscribes from the event stream (view dispose). */
     public void dispose() {
+        watcherGeneration++; // kill any late-reply watcher still polling
         if (eventListener != null) {
             try {
                 connection.removeEventListener(eventListener);
@@ -213,13 +257,15 @@ public final class ChatSessionController {
     /**
      * Drops the current session; the next message starts a fresh one.
      * Refused while a send is in flight: the running job would settle the OLD
-     * reply into the NEW, empty transcript. Abort first, then start fresh.
+     * reply into the NEW, empty transcript. Abort first, then start fresh
+     * (the queue then drains into the old session before the switch).
      */
     public void startNewSession() {
         if (sending) {
             renderer.notice("\u26A0 A reply is still streaming - abort it before starting a new session.");
             return;
         }
+        clearQueued(); // defensive: a fresh conversation starts with an empty queue
         sessionId = null;
         renderer.clear();
         host.statusChanged("New session (created on first message)");
@@ -308,9 +354,11 @@ public final class ChatSessionController {
     }
 
     private void runSendJob(OutgoingMessage message) {
+        boolean handedOff = false;
+        String sid = null;
         try {
             host.info("send job: running");
-            String sid = ensureSession();
+            sid = ensureSession();
 
             String providerId = message.providerId();
             String modelId = message.modelId();
@@ -334,10 +382,17 @@ public final class ChatSessionController {
             ChatEntry reply = connection.getClient().sendMessage(request);
             settleReply(reply);
         } catch (OpencodeException e) {
-            String failure = e.getMessage();
-            host.runOnUi(() -> renderer.notice("⚠ Send failed: " + failure));
+            if (sid != null && isPromptTimeout(e)) {
+                handedOff = recoverFromPromptTimeout(sid, "Send");
+            }
+            if (!handedOff) {
+                String failure = e.getMessage();
+                host.runOnUi(() -> renderer.notice("⚠ Send failed: " + failure));
+            }
         } finally {
-            finishSend();
+            if (!handedOff) {
+                finishSend();
+            }
         }
     }
 
@@ -370,16 +425,123 @@ public final class ChatSessionController {
     }
 
     private void runCommandJob(String command, List<String> arguments) {
+        boolean handedOff = false;
+        String sid = null;
         try {
             host.info("command job: running");
-            String sid = ensureSession();
+            sid = ensureSession();
             ChatEntry reply = connection.getClient().runCommand(sid, command, arguments);
             settleReply(reply);
         } catch (OpencodeException e) {
-            String failure = e.getMessage();
-            host.runOnUi(() -> renderer.notice("⚠ Command failed: " + failure));
+            if (sid != null && isPromptTimeout(e)) {
+                handedOff = recoverFromPromptTimeout(sid, "Command");
+            }
+            if (!handedOff) {
+                String failure = e.getMessage();
+                host.runOnUi(() -> renderer.notice("⚠ Command failed: " + failure));
+            }
         } finally {
-            finishSend();
+            if (!handedOff) {
+                finishSend();
+            }
+        }
+    }
+
+    // ---------- pending queue (TUI parity) ----------
+
+    /**
+     * Submits one message or slash command: sends it immediately when no reply
+     * is in flight, otherwise queues it for automatic dispatch when the
+     * current reply completes - typing ahead during generation behaves like
+     * the opencode TUI. Exactly one of {@code command}/{@code message} must
+     * be non-null; invalid submissions are dropped (never queued).
+     *
+     * @return true when the submission was queued (a reply was in flight)
+     */
+    public boolean submit(CommandComposer.CommandSelection command, OutgoingMessage message) {
+        if (!validSubmission(command, message)) {
+            return false;
+        }
+        synchronized (queue) {
+            if (sending) {
+                queue.add(new PendingSubmission(displayOf(command, message), command, message));
+                int size = queue.size();
+                host.info("queue: submission waiting (" + size + " queued)");
+                return true;
+            }
+        }
+        dispatchNow(command, message);
+        return false;
+    }
+
+    private static boolean validSubmission(CommandComposer.CommandSelection command,
+            OutgoingMessage message) {
+        if (command == null && message == null) {
+            return false;
+        }
+        if (command != null) {
+            return message == null && command.kind() == CommandComposer.Kind.COMMAND
+                    && command.command() != null && command.command().name() != null;
+        }
+        return true;
+    }
+
+    private void dispatchNow(CommandComposer.CommandSelection command, OutgoingMessage message) {
+        if (command != null) {
+            sendCommand(command);
+        } else {
+            send(message);
+        }
+    }
+
+    /** Display text of a submission: the message, or a reconstructed {@code /cmd args}. */
+    private static String displayOf(CommandComposer.CommandSelection command, OutgoingMessage message) {
+        if (command != null) {
+            return echoText(command, command.command().name(),
+                    command.arguments() == null ? List.of() : command.arguments());
+        }
+        return message == null ? "" : message.text();
+    }
+
+    /** @return snapshot of the queued display texts, in dispatch order. */
+    public List<String> queuedPrompts() {
+        synchronized (queue) {
+            List<String> displays = new ArrayList<>(queue.size());
+            for (PendingSubmission pending : queue) {
+                displays.add(pending.display());
+            }
+            return displays;
+        }
+    }
+
+    /**
+     * Removes one queued submission (the pending list's Edit/Remove actions).
+     * @return the removed display text, or {@code null} for a bad index
+     */
+    public String removeQueuedPrompt(int index) {
+        synchronized (queue) {
+            if (index < 0 || index >= queue.size()) {
+                return null;
+            }
+            int at = 0;
+            for (Iterator<PendingSubmission> it = queue.iterator(); it.hasNext();) {
+                PendingSubmission pending = it.next();
+                if (at++ == index) {
+                    it.remove();
+                    host.info("queue: submission removed (" + queue.size() + " left)");
+                    return pending.display();
+                }
+            }
+            return null;
+        }
+    }
+
+    /** Drops every queued submission. @return how many were dropped */
+    public int clearQueued() {
+        synchronized (queue) {
+            int dropped = queue.size();
+            queue.clear();
+            return dropped;
         }
     }
 
@@ -412,7 +574,8 @@ public final class ChatSessionController {
         if (streamedContent && replyEmpty) {
             // The server returned no authoritative text (observed when the
             // run used tools): keep the streamed bubbles — the cursor stop
-            // finalizes their raw text into rendered markdown on the page.
+            // finalizes their accumulated text through the full markdown
+            // pipeline on the page.
             host.info("send job: empty reply, keeping " + streamedMids.size() + " streamed bubble(s)");
         } else {
             String mid = lastStreamed != null ? lastStreamed
@@ -426,11 +589,42 @@ public final class ChatSessionController {
         }
     }
 
-    /** Clears the in-flight flag and stops every streamed bubble's cursor. */
+    /**
+     * Settles one finished submission: stops every streamed bubble's cursor
+     * and, when submissions are waiting (TUI-style typing ahead), hands over
+     * to the next one - or clears the in-flight flag when the queue is empty.
+     */
     private void finishSend() {
-        // Flip the flag first (volatile): any SSE delta arriving after this
-        // sees sending == false and must not spawn an orphan bubble.
-        sending = false;
+        PendingSubmission next;
+        synchronized (queue) {
+            next = queue.poll();
+            if (next == null) {
+                // Flip the flag under the lock (volatile): any SSE delta
+                // arriving after this sees sending == false and must not
+                // spawn an orphan bubble, and any concurrent submit() sees
+                // the flip and dispatches itself instead of queueing.
+                sending = false;
+            }
+        }
+        stopStreamedCursors();
+        if (next != null) {
+            // The next submission takes over: `sending` stays up (no
+            // orphan-delta window, no Stop-control flicker), its echo lands
+            // after the previous reply's cursor stops, and re-firing
+            // sendingChanged(true) tells the view to refresh the pending list.
+            host.info("queue: dispatching next submission (" + queueSize() + " still queued)");
+            host.runOnUi(() -> {
+                renderer.appendUser(next.display());
+                host.sendingChanged(true);
+            });
+            startSubmissionJob(next);
+            return;
+        }
+        host.runOnUi(() -> host.sendingChanged(false));
+    }
+
+    /** Stops every streamed bubble's cursor and forgets their mids. */
+    private void stopStreamedCursors() {
         // every streamed bubble gets its cursor stopped (first, middle, last)
         List<String> streamed = List.copyOf(streamedMids);
         streamedMids.clear();
@@ -438,7 +632,162 @@ public final class ChatSessionController {
             // belt and braces: even on failure/abort the cursor must stop
             host.runOnUi(() -> renderer.stopStream(mid));
         }
-        host.runOnUi(() -> host.sendingChanged(false));
+    }
+
+    private int queueSize() {
+        synchronized (queue) {
+            return queue.size();
+        }
+    }
+
+    /** Starts the background job of a drained queued submission. */
+    private void startSubmissionJob(PendingSubmission submission) {
+        if (submission.command() != null) {
+            String command = submission.command().command().name();
+            List<String> arguments = submission.command().arguments() == null
+                    ? List.of() : submission.command().arguments();
+            host.runInBackground("Running opencode command " + command,
+                    () -> runCommandJob(command, arguments));
+        } else {
+            host.runInBackground("Sending opencode chat message",
+                    () -> runSendJob(submission.message()));
+        }
+    }
+
+    // ---------- late replies (POST budget exceeded) ----------
+
+    /**
+     * True when the failure is the blocking prompt/command POST exceeding its
+     * HTTP budget ({@code ClientTuning.PROMPT_TIMEOUT}, 5 minutes by default)
+     * rather than a server error: a healthy run may legitimately stream for
+     * longer than the budget, and its reply keeps arriving over SSE.
+     */
+    private static boolean isPromptTimeout(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof java.net.http.HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Recovery after the prompt/command POST exceeded its budget. The old
+     * behavior (clear {@code sending}, show a failure) disabled the Stop
+     * control and orphaned every later bubble - a stuck-busy session could
+     * not be aborted from the UI at all, and every re-send timed out behind
+     * the stuck run. Probe {@code GET /session/status} instead: busy/retry
+     * hands the submission to the late-reply watcher (Stop stays armed,
+     * deltas keep rendering, the reply settles from history once idle); an
+     * idle session is settled from history right away.
+     *
+     * @return true when the late-reply path owns the submission
+     */
+    private boolean recoverFromPromptTimeout(String sid, String what) {
+        String type = null;
+        try {
+            Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
+            SessionStatus status = statuses == null ? null : statuses.get(sid);
+            type = status == null ? null : status.type();
+        } catch (OpencodeException e) {
+            host.error("late-reply status probe failed for session " + sid, e);
+            return false; // server unreachable - the plain failure notice says enough
+        }
+        if (!"busy".equals(type) && !"retry".equals(type)) {
+            // the map lists busy sessions only since opencode 1.18.23: an
+            // absent entry is idle - the reply finished around the budget
+            // boundary; settle it from the authoritative history
+            host.info(what.toLowerCase() + " POST timed out but session " + sid
+                    + " is idle - settling from history");
+            finalizeLateReply(sid);
+            return true;
+        }
+        host.runOnUi(() -> renderer.notice("⏳ " + what + " exceeded the POST budget - the reply"
+                + " is still running. Stop aborts it; the transcript keeps streaming."));
+        startLateReplyWatcher(sid);
+        return true;
+    }
+
+    /**
+     * Watches a session whose reply outlived the POST budget: polls the
+     * status until it goes idle (finished - settle from history; a Stop-abort
+     * lands here too) or until the cap (stuck - abort server-side, report,
+     * release the view). Generation-guarded: dispose() or a superseding
+     * watcher kills a stale loop silently.
+     */
+    private void startLateReplyWatcher(String sid) {
+        int generation = ++watcherGeneration;
+        host.runInBackground("Watching late opencode reply " + sid, () -> {
+            long deadline = System.currentTimeMillis() + lateReplyCap.toMillis();
+            while (generation == watcherGeneration && sid.equals(sessionId)) {
+                String type = null;
+                boolean probed = false;
+                try {
+                    Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
+                    SessionStatus status = statuses == null ? null : statuses.get(sid);
+                    type = status == null ? null : status.type();
+                    probed = true;
+                } catch (OpencodeException e) {
+                    host.error("late-reply poll failed for session " + sid, e);
+                    // transient probe failure: keep polling until the cap
+                }
+                if (probed && !"busy".equals(type) && !"retry".equals(type)) {
+                    finalizeLateReply(sid);
+                    return;
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    host.info("late reply for " + sid + " exceeded the " + lateReplyCap.toMinutes()
+                            + "-minute cap - aborting the stuck run");
+                    try {
+                        connection.getClient().abortSession(sid);
+                    } catch (OpencodeException abortError) {
+                        host.error("late-reply abort failed for session " + sid, abortError);
+                    }
+                    host.runOnUi(() -> renderer.notice("⚠ The reply was still busy after "
+                            + lateReplyCap.toMinutes() + " minutes - the stuck run was aborted."
+                            + " Re-send your message."));
+                    finishSend();
+                    return;
+                }
+                try {
+                    Thread.sleep(lateReplyPoll.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            if (generation == watcherGeneration) {
+                // the session switched under us (resume while watching) -
+                // release the view; a superseded or disposed watcher stays silent
+                finishSend();
+            }
+        });
+    }
+
+    /**
+     * Settles a timed-out submission from the authoritative history: the last
+     * assistant entry is the final reply ({@link #settleReply} targets the
+     * last streamed bubble exactly like the POST path).
+     */
+    private void finalizeLateReply(String sid) {
+        try {
+            List<ChatEntry> entries = connection.getClient().getMessages(sid);
+            ChatEntry last = entries.isEmpty() ? null : entries.get(entries.size() - 1);
+            if (last == null || last.isUser()) {
+                host.runOnUi(() -> renderer.notice(
+                        "⚠ The reply did not complete - no assistant answer was recorded."
+                                + " Re-send your message."));
+            } else {
+                settleReply(last);
+                host.runOnUi(() -> renderer.notice("Reply completed (after the POST budget)."));
+            }
+        } catch (OpencodeException e) {
+            host.error("late-reply history fetch failed for session " + sid, e);
+            host.runOnUi(() -> renderer.notice("⚠ Could not load the finished reply: "
+                    + e.getMessage()));
+        } finally {
+            finishSend();
+        }
     }
 
     // ---------- abort ----------
@@ -447,8 +796,10 @@ public final class ChatSessionController {
      * Aborts the in-flight reply: shows an interrupted notice immediately, then
      * POSTs the abort endpoint on a background thread (never the UI thread).
      * The {@code sending} flag itself is cleared by the aborted send job when
-     * the server unblocks its reply call. A no-op when nothing is in flight or
-     * the session does not exist yet (first message still creating it).
+     * the server unblocks its reply call; queued submissions then auto-send as
+     * usual (remove them from the pending list first if that is not wanted).
+     * A no-op when nothing is in flight or the session does not exist yet
+     * (first message still creating it).
      */
     public void abort() {
         String sid = sessionId;

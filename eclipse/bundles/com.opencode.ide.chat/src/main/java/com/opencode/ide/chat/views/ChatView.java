@@ -52,6 +52,12 @@ import com.opencode.ide.core.OpencodePreferences;
  * fresh window. Reply text streams in via {@code message.part.delta} events and
  * is finalized with the authoritative render from the completed
  * {@code POST /session/:id/message} reply.</p>
+ *
+ * <p>TUI-parity streaming controls: an inline Stop button appears in the input
+ * row while a reply is in flight (same path as the toolbar Abort and the
+ * {@code Ctrl+Alt+Shift+A} binding), and messages typed while a reply streams
+ * are queued in a pending list (editable/removable) that auto-sends when the
+ * reply completes - see {@link ChatSessionController#submit}.</p>
  */
 public class ChatView extends ViewPart {
 
@@ -65,17 +71,23 @@ public class ChatView extends ViewPart {
     /** Visible rows of the slash-command picker (it shows up to 8 proposals). */
     private static final int PICKER_ROWS = 5;
 
+    /** Visible rows of the pending-message queue. */
+    private static final int QUEUE_ROWS = 4;
+
     private ChatPage page;
     private ChatSessionController controller;
     private CommandComposer composer;
     private Text input;
+    private Composite inputRow;
     private Button sendButton;
+    private Button stopButton;
     private Action abortAction;
     private Combo agentCombo;
     private final ChatSelectorState selectors = new ChatSelectorState();
     private Combo modelCombo;
     private Combo variantCombo;
     private org.eclipse.swt.widgets.List commandPicker;
+    private org.eclipse.swt.widgets.List queueList;
 
     /** Current picker proposals (empty = picker hidden). */
     private List<CommandInfo> pickerMatches = List.of();
@@ -117,12 +129,30 @@ public class ChatView extends ViewPart {
 
         @Override
         public void sendingChanged(boolean sending) {
+            // Re-read the controller's truth: this notification arrives via
+            // asyncExec, and a user submission can slip in after the flag was
+            // flipped but before the task runs - the stale argument would
+            // then flip the Stop control off while a reply is in flight.
+            boolean inFlight = controller != null ? controller.isSending() : sending;
             if (sendButton != null && !sendButton.isDisposed()) {
-                sendButton.setEnabled(!sending);
+                sendButton.setEnabled(!inFlight);
+            }
+            if (stopButton != null && !stopButton.isDisposed()) {
+                // inline Stop control: appears in the input row only while a
+                // reply is in flight (TUI parity)
+                boolean visible = stopButton.isVisible();
+                stopButton.setVisible(inFlight);
+                ((GridData) stopButton.getLayoutData()).exclude = !inFlight;
+                if (visible != inFlight && inputRow != null && !inputRow.isDisposed()) {
+                    inputRow.layout(true);
+                }
             }
             if (abortAction != null) {
-                abortAction.setEnabled(sending);
+                abortAction.setEnabled(inFlight);
             }
+            // every controller-side queue change (auto-dispatch of the next
+            // pending submission) coincides with a sending transition
+            refreshQueue();
         }
     };
 
@@ -200,16 +230,50 @@ public class ChatView extends ViewPart {
         // took the first match).
         commandPicker.addListener(SWT.DefaultSelection, e -> commitPickerSelection());
 
-        // row 2: prompt input + send button (separate row below the transcript)
-        Composite inputRow = new Composite(outer, SWT.NONE);
-        GridLayout inputLayout = new GridLayout(2, false);
+        // row 1.7: pending queue - messages typed while a reply streams wait
+        // here (TUI parity) and auto-send when it completes. Excluded from the
+        // layout until the first entry appears, like the picker above it.
+        Composite queueRow = new Composite(outer, SWT.NONE);
+        GridLayout queueLayout = new GridLayout(3, false);
+        queueLayout.marginWidth = 0;
+        queueLayout.marginHeight = 0;
+        queueRow.setLayout(queueLayout);
+        GridData queueRowData = new GridData(GridData.FILL, GridData.CENTER, true, false);
+        queueRowData.exclude = true;
+        queueRow.setLayoutData(queueRowData);
+        queueRow.setVisible(false);
+
+        queueList = new org.eclipse.swt.widgets.List(queueRow, SWT.BORDER | SWT.V_SCROLL);
+        queueList.setToolTipText(
+                "Pending messages - sent automatically when the current reply finishes.\nENTER while a reply streams queues the typed message here.");
+        queueList.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
+        // Enter / double-click edits the selected pending message (remove +
+        // load into the input; ENTER re-queues or sends it)
+        queueList.addListener(SWT.DefaultSelection, e -> editSelectedQueued());
+
+        Button queueEditButton = new Button(queueRow, SWT.PUSH);
+        queueEditButton.setText("Edit");
+        queueEditButton.setToolTipText("Edit the selected pending message");
+        queueEditButton.setLayoutData(new GridData(SWT.FILL, GridData.CENTER, false, false));
+        queueEditButton.addListener(SWT.Selection, e -> editSelectedQueued());
+
+        Button queueRemoveButton = new Button(queueRow, SWT.PUSH);
+        queueRemoveButton.setText("Remove");
+        queueRemoveButton.setToolTipText("Drop the selected pending message");
+        queueRemoveButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+        queueRemoveButton.addListener(SWT.Selection, e -> removeSelectedQueued());
+
+        // row 2: prompt input + send/stop buttons (separate row below the transcript)
+        inputRow = new Composite(outer, SWT.NONE);
+        GridLayout inputLayout = new GridLayout(3, false);
         inputLayout.marginWidth = 0;
         inputLayout.marginHeight = 0;
         inputRow.setLayout(inputLayout);
         inputRow.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
 
         input = new Text(inputRow, SWT.MULTI | SWT.WRAP | SWT.BORDER);
-        input.setToolTipText("Prompt (ENTER sends, Shift+ENTER newline, / commands)");
+        input.setToolTipText("Prompt (ENTER sends - while a reply streams, ENTER queues the message; "
+                + "Shift+ENTER newline, / commands)");
         GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         inputData.heightHint = 52;
         input.setLayoutData(inputData);
@@ -244,8 +308,20 @@ public class ChatView extends ViewPart {
 
         sendButton = new Button(inputRow, SWT.PUSH);
         sendButton.setText("Send");
-        sendButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+        sendButton.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, false, false));
         sendButton.addListener(SWT.Selection, e -> send());
+
+        // Inline Stop control: the toolbar-only Abort is undiscoverable, so a
+        // Stop button sits in the input row while a reply is in flight - same
+        // path as the toolbar Abort and the Ctrl+Alt+Shift+A key binding.
+        stopButton = new Button(inputRow, SWT.PUSH);
+        stopButton.setText("Stop");
+        stopButton.setToolTipText("Stop generating (same as Abort - Ctrl+Alt+Shift+A)");
+        GridData stopData = new GridData(GridData.FILL, GridData.CENTER, false, false);
+        stopData.exclude = true;
+        stopButton.setLayoutData(stopData);
+        stopButton.setVisible(false);
+        stopButton.addListener(SWT.Selection, e -> abortRequested());
 
         contributeActions();
         page.load();
@@ -279,9 +355,10 @@ public class ChatView extends ViewPart {
     }
 
     /**
-     * Aborts the in-flight reply (toolbar Stop action and the
-     * {@code com.opencode.ide.chat.abort} key binding). The controller posts the
-     * abort on a background thread - never the UI thread.
+     * Aborts the in-flight reply: the inline Stop button in the input row, the
+     * toolbar Abort action and the {@code com.opencode.ide.chat.abort} key
+     * binding ({@code Ctrl+Alt+Shift+A}) all end up here. The controller posts
+     * the abort on a background thread - never the UI thread.
      */
     public void abortRequested() {
         if (controller != null) {
@@ -544,7 +621,7 @@ public class ChatView extends ViewPart {
         if (!pickerHasMatches()) {
             return;
         }
-        sendSelection(composer.select(selectedMatch(), input.getText()));
+        submitSelection(composer.select(selectedMatch(), input.getText()));
     }
 
     /** Tab: completes the input to the highlighted match and puts the caret after it. */
@@ -554,30 +631,91 @@ public class ChatView extends ViewPart {
         input.setSelection(input.getText().length());
     }
 
-    // ---------- sending ----------
+    // ---------- sending / pending queue ----------
 
     private void send() {
-        if (controller.isSending()) {
-            return;
-        }
         String text = input.getText().trim();
         if (text.isEmpty()) {
             return;
         }
-        sendSelection(composer.resolve(text));
+        submitSelection(composer.resolve(text));
     }
 
-    /** Clears the input and routes one resolved submission: command or message. */
-    private void sendSelection(CommandComposer.CommandSelection selection) {
-        if (controller.isSending() || selection == null) {
+    /**
+     * Routes one resolved submission: sent immediately when idle, queued while
+     * a reply is in flight (TUI parity - ENTER during generation types ahead;
+     * the pending list shows the queue and it auto-sends on completion).
+     */
+    private void submitSelection(CommandComposer.CommandSelection selection) {
+        if (selection == null || controller == null) {
             return;
         }
         input.setText(""); // fires the modify listener, hiding the picker
+        boolean queued;
         if (selection.kind() == CommandComposer.Kind.COMMAND) {
-            controller.sendCommand(selection);
+            queued = controller.submit(selection, null);
         } else {
-            controller.send(outgoingMessage(selection.message()));
+            queued = controller.submit(null, outgoingMessage(selection.message()));
         }
+        if (queued) {
+            refreshQueue();
+        }
+    }
+
+    /** Rebuilds the pending list from the controller (hidden while empty). */
+    private void refreshQueue() {
+        if (queueList == null || queueList.isDisposed() || controller == null) {
+            return;
+        }
+        List<String> pending = controller.queuedPrompts();
+        int keep = queueList.getSelectionIndex();
+        queueList.removeAll();
+        for (String text : pending) {
+            queueList.add(text);
+        }
+        boolean show = !pending.isEmpty();
+        if (show) {
+            int itemHeight = Math.max(queueList.getItemHeight(), 18);
+            ((GridData) queueList.getLayoutData()).heightHint =
+                    Math.min(pending.size(), QUEUE_ROWS) * itemHeight + 4;
+            if (keep >= 0 && keep < pending.size()) {
+                queueList.setSelection(keep);
+            }
+        }
+        boolean visibilityChanged = show != queueList.isVisible();
+        Composite row = queueList.getParent();
+        queueList.setVisible(show);
+        ((GridData) row.getLayoutData()).exclude = !show;
+        row.setVisible(show);
+        if (show || visibilityChanged) {
+            // Also re-layout while the queue STAYS visible: the row count (and
+            // with it heightHint) changes as more messages queue up.
+            row.getParent().layout(true);
+        }
+    }
+
+    /** Edit: takes the selected pending message back into the input (ENTER re-queues or sends it). */
+    private void editSelectedQueued() {
+        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        if (index < 0) {
+            return;
+        }
+        String text = controller.removeQueuedPrompt(index);
+        refreshQueue();
+        if (text != null && !text.isEmpty() && input != null && !input.isDisposed()) {
+            input.setText(text);
+            input.setSelection(input.getText().length());
+            input.setFocus();
+        }
+    }
+
+    /** Remove: drops the selected pending message. */
+    private void removeSelectedQueued() {
+        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        if (index >= 0) {
+            controller.removeQueuedPrompt(index);
+        }
+        refreshQueue();
     }
 
     private ChatSessionController.OutgoingMessage outgoingMessage(String text) {

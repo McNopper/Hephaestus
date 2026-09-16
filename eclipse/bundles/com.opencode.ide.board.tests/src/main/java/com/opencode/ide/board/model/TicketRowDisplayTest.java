@@ -1,7 +1,9 @@
 package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -53,8 +55,24 @@ public class TicketRowDisplayTest {
     public void pipelineLabelSkipsMissingPiecesWithoutStraySpaces() {
         assertEquals("[IR] [BLOCKED]", row(null, "developer", true, "in-review", "design")
                 .pipelineLabel());
-        assertEquals("[D] [BLOCKED]", row("  ", "developer", true, "done", null)
+        assertEquals("[D]", row("  ", "developer", true, "done", null)
                 .pipelineLabel());
+    }
+
+    @Test
+    public void doneRowsNeverRenderBlockedEvenWithLegacyDrift() {
+        TicketRow drifted = row("shipped long ago", "developer", true, "done", "test-system");
+        assertFalse(drifted.displayBlocked());
+        assertEquals("T-001 shipped long ago", drifted.label());
+        assertEquals("[D] shipped long ago", drifted.pipelineLabel());
+    }
+
+    @Test
+    public void displayBlockedStaysTrueForNonDoneStatuses() {
+        assertTrue(row("wip", "developer", true, "in-progress", null).displayBlocked());
+        assertTrue(row("review", "developer", true, "in-review", null).displayBlocked());
+        assertTrue(row("odd", "research", true, "mystery", null).displayBlocked());
+        assertFalse(row("plain", "developer", false, "in-progress", null).displayBlocked());
     }
 
     @Test

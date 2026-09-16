@@ -145,6 +145,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
     }
 
     @Override
+    public void appendReasoningDelta(String messageId, String text) {
+        executeJs(ChatScripts.appendReasoning(messageId, text));
+    }
+
+    @Override
     public void setAssistantText(String messageId, String text, String reasoning, String meta,
             List<ChatSessionController.ToolLine> tools) {
         executeJs(ChatScripts.setAssistantText(messageId, text, reasoning, meta, tools));

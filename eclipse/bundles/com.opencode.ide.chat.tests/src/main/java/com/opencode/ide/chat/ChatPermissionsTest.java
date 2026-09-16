@@ -308,6 +308,11 @@ public class ChatPermissionsTest {
         }
 
         @Override
+        public void appendReasoningDelta(String messageId, String text) {
+            calls++;
+        }
+
+        @Override
         public void setAssistantText(String messageId, String text, String reasoning, String meta,
                 List<ChatSessionController.ToolLine> tools) {
             calls++;

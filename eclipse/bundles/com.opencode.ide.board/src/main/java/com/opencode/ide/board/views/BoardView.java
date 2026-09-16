@@ -574,7 +574,7 @@ public class BoardView extends ViewPart {
         return element instanceof TicketRow row ? row : null;
     }
 
-    /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows. */
+    /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows (never for done rows). */
     private static final class BoardRowLabel extends ColumnLabelProvider {
         private final boolean pipeline;
 
@@ -598,7 +598,7 @@ public class BoardView extends ViewPart {
             sb.append("\n").append(safe(row.id())).append(" \u2014 ").append(safe(row.title()));
             sb.append("\nstatus: ").append(safe(row.status()));
             sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
-            if (row.blocked()) {
+            if (row.displayBlocked()) {
                 sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
             }
             return sb.toString();
@@ -608,14 +608,14 @@ public class BoardView extends ViewPart {
         public Color getForeground(Object element) {
             TicketRow row = asRow(element);
             Display display = Display.getCurrent();
-            return row != null && row.blocked() && display != null
+            return row != null && row.displayBlocked() && display != null
                     ? display.getSystemColor(SWT.COLOR_RED) : null;
         }
 
         @Override
         public Font getFont(Object element) {
             TicketRow row = asRow(element);
-            return row != null && row.blocked() ? boldFont() : null;
+            return row != null && row.displayBlocked() ? boldFont() : null;
         }
     }
 
@@ -1527,6 +1527,36 @@ public class BoardView extends ViewPart {
             // headless/test contexts without the preferences node: fall through
         }
         return workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize();
+    }
+
+    /**
+     * The board's current task-store root — the persisted root override when
+     * set, else the auto-detected/preference default. Package-private seam
+     * for the Fleet view's peer-row scan (F-004), so both views read the
+     * same store.
+     */
+    static Path tasksRoot() {
+        return resolveTasksRoot(storedRootOverride());
+    }
+
+    /** The persisted root override text (empty when unset); best-effort. */
+    private static String storedRootOverride() {
+        BoardPlugin plugin = BoardPlugin.getDefault();
+        if (plugin == null) {
+            return "";
+        }
+        try {
+            var settings = plugin.getDialogSettings().getSection(SETTINGS_SECTION);
+            if (settings != null) {
+                String root = settings.get(SETTING_ROOT);
+                if (root != null) {
+                    return root;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // defaults survive an unreadable dialog settings file
+        }
+        return "";
     }
 
     private static Path workspaceRoot() {

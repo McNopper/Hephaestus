@@ -151,6 +151,75 @@ public class TaskStoreSemanticsTest {
     }
 
     @Test
+    public void updateToDoneClearsBlockedFlagAndBlocker() {
+        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+        store.setBlocked("p", t.id, "waiting on review", null);
+        Task done = store.update("p", t.id, Map.of("status", "done"));
+        assertEquals("done", done.status);
+        assertFalse(done.blocked);
+        assertNull(done.blocker);
+        assertTrue(done.history.stream().anyMatch(e -> "unblocked (done)".equals(e.action())));
+        Task reloaded = new TaskStore(store.root()).get("p", t.id);
+        assertFalse("the clear is persisted, not just in-memory", reloaded.blocked);
+        assertNull(reloaded.blocker);
+        // legacy drift (set_blocked after done) heals on the next update touch
+        store.setBlocked("p", t.id, "drift", null);
+        Task touched = store.update("p", t.id, Map.of("title", "renamed"));
+        assertFalse(touched.blocked);
+        assertNull(touched.blocker);
+    }
+
+    @Test
+    public void closeSprintClearsBlockedOnDoneTickets() {
+        String id = mkSprintBacklog("developer", "high");
+        store.update("p", id, Map.of("status", "done"));
+        store.setBlocked("p", id, "stale flag", null);
+        store.closeSprint("p", "S-01");
+        Task after = store.get("p", id);
+        assertEquals("done", after.status);
+        assertEquals("done tickets keep their sprint on close", "S-01", after.sprint);
+        assertFalse(after.blocked);
+        assertNull(after.blocker);
+    }
+
+    @Test
+    public void corruptHistoryLineKeepsTicketVisible() throws IOException {
+        Task t = store.create("p", TaskStore.CreateSpec.of("live incident"));
+        store.update("p", t.id, Map.of("status", "in-progress"));
+        Path file = store.root().resolve("p").resolve(t.id + ".md");
+        String corrupted = Files.readString(file).replace("## History\n",
+                "## History\n`n{\"ts\":\"2026-09-14T11:00:00.000Z\",\"action\":\"injected\"}\n");
+        Files.writeString(file, corrupted);
+        Task got = store.get("p", t.id);
+        assertEquals(t.id, got.id);
+        assertEquals("in-progress", got.status);
+        assertEquals(1, got.quarantinedLines.size());
+        assertTrue(got.quarantinedLines.get(0).startsWith("History: `n"));
+        assertTrue("the ticket stays listed", store.list("p", null, null, null, null)
+                .stream().anyMatch(x -> t.id.equals(x.id)));
+    }
+
+    @Test
+    public void inconsistenciesReportsDriftAndGoesQuietWhenHealed() {
+        Task doneBlocked = store.create("p", TaskStore.CreateSpec.of("done but blocked"));
+        store.update("p", doneBlocked.id, Map.of("status", "done"));
+        store.setBlocked("p", doneBlocked.id, "worker produced no changes", null);
+        Task sprintPb = store.create("p", TaskStore.CreateSpec.of("sprint but pb"));
+        store.planSprint("p", "S-05", List.of(sprintPb.id), "g");
+        store.update("p", sprintPb.id, Map.of("status", "product-backlog"));
+        Task clean = store.create("p", TaskStore.CreateSpec.of("clean"));
+        store.update("p", clean.id, Map.of("status", "done"));
+        List<String> drift = store.inconsistencies("p");
+        assertEquals(2, drift.size());
+        assertEquals(doneBlocked.id + ": status=done but blocked (blocker: worker produced no changes)",
+                drift.get(0));
+        assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(1));
+        store.clearBlocked("p", doneBlocked.id, null);
+        store.update("p", sprintPb.id, Map.of("status", "in-progress"));
+        assertEquals(List.of(), store.inconsistencies("p"));
+    }
+
+    @Test
     public void claimOrdersByPriorityThenCreatedThenReturnsNull() {
         String low = mkSprintBacklog("developer", "low");
         String high = mkSprintBacklog("developer", "high");

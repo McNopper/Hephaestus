@@ -238,9 +238,12 @@ public final class TaskStore {
      * ({@code id}, {@code created_at}, {@code history}, {@code comments}) are
      * silently dropped, explicit nulls clear the nullable fields, only
      * {@code role} and {@code status} are validated, and no transition graph
-     * is enforced. Divergence: unknown fields are dropped rather than stored
-     * (the file format keeps unknown <em>keys</em> from hand edits, but tool
-     * updates cannot introduce new ones).
+     * is enforced. One rule beyond validation: an update that leaves the
+     * ticket {@code done} clears the blocked flag/blocker - a done ticket is
+     * never blocked (live incident W-006/W-007). Divergence: unknown fields
+     * are dropped rather than stored (the file format keeps unknown
+     * <em>keys</em> from hand edits, but tool updates cannot introduce new
+     * ones).
      *
      * @param changes snake_case field name -> new value (String/Number/Boolean/List/JsonElement)
      */
@@ -293,6 +296,7 @@ public final class TaskStore {
             if (!applied.isEmpty()) {
                 t.updatedAt = now();
                 t.history("updated:" + String.join(",", applied), null);
+                clearBlockedWhenDone(t);
                 data.changed.add(id);
             }
             return t;
@@ -625,7 +629,11 @@ public final class TaskStore {
         });
     }
 
-    /** Closes a sprint; unfinished tasks return to product-backlog. */
+    /**
+     * Closes a sprint; unfinished tasks return to product-backlog. Done
+     * tickets keep their sprint/status, but a stale blocked flag on one is
+     * cleared (a done ticket is never blocked).
+     */
     public Map<String, Object> closeSprint(String project, String sprintId) {
         return transaction(project, data -> {
             Task.Sprint sprint = data.sprints.get(sprintId);
@@ -634,14 +642,21 @@ public final class TaskStore {
             }
             List<String> returned = new ArrayList<>();
             for (Task t : data.tasks.values()) {
-                if (sprintId.equals(t.sprint) && !"done".equals(t.status)) {
-                    t.sprint = null;
-                    t.status = "product-backlog";
-                    t.updatedAt = now();
-                    t.history("returned from " + sprintId, null);
-                    data.changed.add(t.id);
-                    returned.add(t.id);
+                if (!sprintId.equals(t.sprint)) {
+                    continue;
                 }
+                if ("done".equals(t.status)) {
+                    if (clearBlockedWhenDone(t)) {
+                        data.changed.add(t.id);
+                    }
+                    continue;
+                }
+                t.sprint = null;
+                t.status = "product-backlog";
+                t.updatedAt = now();
+                t.history("returned from " + sprintId, null);
+                data.changed.add(t.id);
+                returned.add(t.id);
             }
             Task.Sprint closed = new Task.Sprint(sprintId, sprint.goal(), "closed",
                     sprint.createdAt(), now());
@@ -776,6 +791,27 @@ public final class TaskStore {
             rows.add(row);
         }
         return rows;
+    }
+
+    /**
+     * Store self-check (lint): human-readable reports of inconsistent flag
+     * combinations - tickets that are {@code done} but still carry the
+     * blocked flag, and tickets with a sprint set while sitting in
+     * {@code product-backlog} - one report line per ticket, sorted by id;
+     * empty when the store is consistent. Read-only.
+     */
+    public List<String> inconsistencies(String project) {
+        List<String> out = new ArrayList<>();
+        for (Task t : list(project, null, null, null, null)) {
+            if ("done".equals(t.status) && t.blocked) {
+                out.add(t.id + ": status=done but blocked"
+                        + (t.blocker == null ? "" : " (blocker: " + t.blocker + ")"));
+            } else if (t.sprint != null && "product-backlog".equals(t.status)) {
+                out.add(t.id + ": status=product-backlog but sprint=" + t.sprint);
+            }
+        }
+        out.sort(Comparator.naturalOrder());
+        return out;
     }
 
     /**
@@ -1021,6 +1057,23 @@ public final class TaskStore {
             throw new NotFound("ticket " + id + " not found in project " + project);
         }
         return t;
+    }
+
+    /**
+     * A done ticket is never blocked: any path that leaves a ticket in
+     * {@code done} clears a stale blocked flag (live incident W-006/W-007).
+     *
+     * @return whether the flag was cleared.
+     */
+    private static boolean clearBlockedWhenDone(Task t) {
+        if (!"done".equals(t.status) || !t.blocked) {
+            return false;
+        }
+        t.blocked = false;
+        t.blocker = null;
+        t.updatedAt = now();
+        t.history("unblocked (done)", null);
+        return true;
     }
 
     private static String nextId(ProjectData data, String prefixRaw) {

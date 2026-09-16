@@ -111,6 +111,15 @@ public final class Task {
     /** Unknown {@code ## X} body sections, preserved verbatim (raw lines incl. heading). */
     public List<String> extraSections = new ArrayList<>();
 
+    /**
+     * Malformed record-section lines (Artifacts/Comments/History) quarantined
+     * at parse time, as {@code "<Section>: <raw line>"}. Never written back:
+     * the next store rewrite of the ticket drops them (the repair). Surfaced
+     * in {@link #toJson} only while non-empty so a corrupt line never hides
+     * the ticket and remains visible for hand repair.
+     */
+    public List<String> quarantinedLines = new ArrayList<>();
+
     /** Formats an instant with the pinned store format; null-safe. */
     public static String formatTs(Instant t) {
         return t == null ? null : TS_FORMAT.format(t);
@@ -150,6 +159,11 @@ public final class Task {
         o.addProperty("updated_at", formatTs(updatedAt));
         o.add("history", historyJson());
         o.add("comments", commentsJson());
+        if (!quarantinedLines.isEmpty()) {
+            JsonArray q = new JsonArray();
+            quarantinedLines.forEach(q::add);
+            o.add("quarantined", q);
+        }
         return o;
     }
 

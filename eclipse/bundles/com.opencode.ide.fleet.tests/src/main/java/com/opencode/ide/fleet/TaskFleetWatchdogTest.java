@@ -90,20 +90,22 @@ public class TaskFleetWatchdogTest {
     public void idleWithoutAssistantReplyWaitsUntilTheReplyAppears() {
         String id = sprintTicket("developer");
         client.sessionType = "idle"; // idle status, but no assistant reply yet
-        AtomicInteger probes = new AtomicInteger();
+        AtomicInteger replies = new AtomicInteger();
         FleetRunner runner = new FleetRunner(client, worktrees, () -> {
-            // append the late reply for the first few polls: the prompt
-            // thread's own user-row add races this hook, and a single-shot
-            // add can end up BEFORE the user row (last=user forever, the
-            // completion probe never fires) - appending across the race
-            // window keeps the test deterministic under load
-            if (probes.incrementAndGet() <= 3) {
-                client.addEntry("ses_1", "assistant", "late reply " + probes.get());
+            // the late reply appears only once the prompt's OWN user row is
+            // the last entry: a fixed probe-count append races the prompt
+            // thread (its user row can land after all appends under load,
+            // leaving last=user forever) - keying on the actual last entry
+            // makes the ordering deterministic in both interleavings
+            var messages = client.messagesBySession.get("ses_1");
+            var last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
+            if (last != null && last.isUser() && replies.incrementAndGet() <= 3) {
+                client.addEntry("ses_1", "assistant", "late reply " + replies.get());
             }
         });
         TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents());
 
-        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+        FleetJob job = fleet.launch(PROJECT, id, REPO, Duration.ofSeconds(20));
 
         assertEquals(FleetJob.State.MERGED, job.state());
         assertEquals("in-review", store.get(PROJECT, id).status);

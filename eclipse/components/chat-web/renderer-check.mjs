@@ -74,7 +74,8 @@ try {
   const html = readFileSync(join(webDir, "chat.html"), "utf8");
   const js = readFileSync(join(webDir, "chat.js"), "utf8");
   for (const fn of ["__setTheme", "__clear", "__setMessages", "__appendUser",
-    "__startAssistant", "__appendDelta", "__setAssistantText", "__linkClick", "__copyCode"]) {
+    "__startAssistant", "__appendDelta", "__appendReasoningDelta", "__flushStream",
+    "__setAssistantText", "__linkClick", "__copyCode"]) {
     check(`chat.js exposes ${fn}`, js.includes(`window.${fn} =`));
   }
   check("chat.html loads chat.js", html.includes("chat.js"));
@@ -95,7 +96,17 @@ try {
   // cursor-stop finalization: an orphaned stream bubble must not keep raw
   // markdown (pipes) or a blinking cursor once the host stops its stream
   check("stopStream finalizes streamed markdown",
-    /__stopStream[\s\S]*?renderMarkdown/.test(js) && js.includes('"stream-done"'));  check("tool lines are built without innerHTML (XSS)", /renderToolLines[\s\S]*?insertBefore/.test(js)
+    /__stopStream[\s\S]*?renderMarkdown/.test(js) && js.includes('"stream-done"'));
+  // block-level progressive streaming: completed blocks render as markdown in
+  // their own elements, only the trailing block stays raw under the cursor
+  check("streaming renders block-level markdown",
+    js.includes("splitMarkdownBlocks") && js.includes("stream-block"));
+  check("streaming throttles whole repaints",
+    js.includes("STREAM_RENDER_MS") && js.includes("setTimeout"));
+  check("thinking is surfaced during streaming",
+    js.includes('"thinking"') && js.includes("__appendReasoningDelta"));
+  check("chat.html styles the raw streaming tail", html.includes(".stream-raw"));
+  check("chat.html styles the thinking indicator", html.includes(".thinking"));  check("tool lines are built without innerHTML (XSS)", /renderToolLines[\s\S]*?insertBefore/.test(js)
     && !/line\.innerHTML/.test(js));
   check("chat.html styles tool lines per state",
     html.includes(".tool-line.tool-running") && html.includes(".tool-line.tool-completed")

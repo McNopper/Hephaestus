@@ -63,7 +63,14 @@ class El {
     };
   }
   appendChild(child) {
-    // real-DOM semantics: appending an existing child MOVES it (no duplicates)
+    // real-DOM semantics: appending an existing child MOVES it - detached
+    // from its old parent, never duplicated anywhere
+    if (child.parentElement && child.parentElement !== this) {
+      const old = child.parentElement.children.indexOf(child);
+      if (old >= 0) {
+        child.parentElement.children.splice(old, 1);
+      }
+    }
     const at = this.children.indexOf(child);
     if (at >= 0) {
       this.children.splice(at, 1);
@@ -73,10 +80,21 @@ class El {
     return child;
   }
   insertBefore(node, ref) {
+    // real-DOM semantics: inserting an existing child MOVES it (no duplicates)
+    if (node.parentElement && node.parentElement !== this) {
+      const old = node.parentElement.children.indexOf(node);
+      if (old >= 0) {
+        node.parentElement.children.splice(old, 1);
+      }
+    }
+    const at = this.children.indexOf(node);
+    if (at >= 0) {
+      this.children.splice(at, 1);
+    }
     node.parentElement = this;
-    const at = ref ? this.children.indexOf(ref) : -1;
-    if (at < 0) this.children.push(node);
-    else this.children.splice(at, 0, node);
+    const atRef = ref ? this.children.indexOf(ref) : -1;
+    if (atRef < 0) this.children.push(node);
+    else this.children.splice(atRef, 0, node);
     return node;
   }
   removeChild(child) {
@@ -95,7 +113,9 @@ class El {
     this.children = [];
     parseInto(this, this._html);
   }
-  get innerHTML() { return this._html === null ? "" : this._html; }
+  // real-DOM fidelity: a container built via appendChild (the block-level
+  // streaming structure) serializes its children, like a browser would
+  get innerHTML() { return this._html === null ? serializeChildren(this) : this._html; }
   set textContent(text) { this._text = String(text); this._html = null; this.children = []; }
   get textContent() { return textOf(this); }
   replaceWith(node) {
@@ -123,6 +143,27 @@ function walk(el, visit) {
   for (const child of el.children) {
     if (child.nodeType === 1) { visit(child); walk(child, visit); }
   }
+}
+
+// minimal innerHTML serialization of an appendChild-built subtree: tags with
+// their class and data-* attributes, text nodes escaped - only what the
+// assertions below need (they use .includes on real markup)
+const escapeText = (text) => String(text)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function serializeChildren(node) {
+  let out = "";
+  for (const child of node.children) {
+    if (child.nodeType === 3) { out += escapeText(child.textContent); continue; }
+    const cls = child.className ? " class=\"" + child.className + "\"" : "";
+    const dataAttrs = Object.keys(child.dataset || {})
+      .map(k => " data-" + k + "=\"" + child.dataset[k] + "\"").join("");
+    const tag = child.tagName.toLowerCase();
+    out += "<" + tag + cls + dataAttrs + ">";
+    if (!VOID_TAGS.has(child.tagName)) {
+      out += serializeChildren(child) + "</" + tag + ">";
+    }
+  }
+  return out;
 }
 
 // supports: tag, .class(.class), [attr="value"] (data-* only)
@@ -267,17 +308,30 @@ const r2 = exec('window.__appendUser({"text":"object form"})');
 check("__appendUser(object) is tolerated", r2 === true && textOf(chatEl).includes("object form"));
 check("__appendUser(object) reported a render", reports.length > before);
 
-// streaming
+// streaming: PROGRESSIVE markdown (throttled ~5 renders/s). The first chunk of
+// a burst paints immediately (leading edge); chunks inside the throttle window
+// coalesce into one trailing render - __flushStream drives that pending tick
+// deterministically, exactly like the checks need (no real timers to wait for).
 exec('window.__startAssistant("{\\"mid\\":\\"msg_1\\"}")');
 exec('window.__appendDelta("{\\"mid\\":\\"msg_1\\",\\"text\\":\\"ack\\"}")');
-exec('window.__appendDelta("{\\"mid\\":\\"msg_1\\",\\"text\\":\\"nowledged\\"}")');
 const streamNode = chatEl.querySelector('.msg.assistant[data-mid="msg_1"]');
 check("__startAssistant creates the reply bubble", !!streamNode);
-check("__appendDelta streams text into it", !!streamNode && textOf(streamNode).includes("acknowledged"),
+check("__appendDelta renders the first chunk immediately (leading edge)",
+  !!streamNode && textOf(streamNode).includes("ack"),
   streamNode ? JSON.stringify(textOf(streamNode)) : "no node");
 check("__appendDelta leaves the blinking cursor in place",
   !!streamNode && streamNode.querySelectorAll(".cursor").length === 1,
   "cursors=" + (streamNode ? streamNode.querySelectorAll(".cursor").length : "no-node"));
+exec('window.__appendDelta("{\\"mid\\":\\"msg_1\\",\\"text\\":\\"nowledged\\"}")');
+check("a chunk inside the throttle window is coalesced (not painted yet)",
+  !!streamNode && !textOf(streamNode).includes("acknowledged"),
+  streamNode ? JSON.stringify(textOf(streamNode)) : "no node");
+const rf = exec('window.__flushStream("msg_1")');
+check("__flushStream paints the pending tick", rf === true && textOf(streamNode).includes("acknowledged"));
+check("__flushStream keeps the cursor streaming",
+  !!streamNode && streamNode.querySelectorAll(".cursor").length === 1);
+check("__flushStream with nothing pending is a harmless false",
+  exec('window.__flushStream("msg_1")') === false);
 
 // cursor stop: the host calls __stopStream when the send completes/fails/aborts;
 // the streamed text must survive, the cursor must go, and it must be idempotent
@@ -291,27 +345,53 @@ check("__stopStream is idempotent", streamNode.querySelectorAll(".cursor").lengt
 const rs1 = exec('window.__stopStream("{\\"mid\\":\\"no_such_bubble\\"}")');
 check("__stopStream tolerates an unknown mid", rs1 === true);
 
-// stopStream finalizes raw streamed markdown: a bubble that never gets the
-// authoritative render (intermediate tool-round message, empty POST reply)
-// must not keep raw pipes / a blinking cursor — its accumulated raw text is
-// rendered as markdown when the stream stops
+// progressive rendering: a streamed MARKDOWN table must be formatted DURING
+// generation (this is the parity feature - raw pipes were the old behavior),
+// on the very first (leading-edge) render, before any finalization
 exec('window.__startAssistant("{\\"mid\\":\\"msg_table\\"}")');
 exec('window.__appendDelta("{\\"mid\\":\\"msg_table\\",\\"text\\":\\"| a | b |\\\\n|---|---|\\\\n| 1 | 2 |\\"}")');
 const tableNode = chatEl.querySelector('.msg.assistant[data-mid="msg_table"]');
-check("__appendDelta streams the raw table", !!tableNode && textOf(tableNode).includes("| a | b |"));
+check("streamed table renders FORMATTED while streaming (no final render yet)",
+  !!tableNode && tableNode.querySelector(".body").innerHTML.includes("<table>"),
+  tableNode ? tableNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
+check("streamed table keeps the streaming cursor",
+  !!tableNode && tableNode.querySelectorAll(".cursor").length === 1);
+// the live-rendered trailing table gets SEALED by the next separator: it must
+// be promoted to a committed block exactly once, never duplicated
+exec('window.__appendDelta("{\\"mid\\":\\"msg_table\\",\\"text\\":\\"\\\\n\\\\nafter the table\\"}")');
+check("the sealed live table is promoted, not duplicated",
+  !!tableNode && tableNode.querySelectorAll("table").length === 1
+    && !!tableNode.querySelector(".body > .stream-raw")
+    && tableNode.querySelector(".body > .stream-raw").textContent.includes("after the table"),
+  tableNode ? "tables=" + tableNode.querySelectorAll("table").length : "no node");
+check("the promoted table keeps its streaming cursor",
+  !!tableNode && tableNode.querySelectorAll(".cursor").length === 1);
 exec('window.__stopStream("{\\"mid\\":\\"msg_table\\"}")');
-check("__stopStream finalizes the raw table into a rendered table",
+check("__stopStream finalizes the streamed table (still a rendered table)",
   !!tableNode && tableNode.querySelector(".body").innerHTML.includes("<table>"),
   tableNode ? tableNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
 check("__stopStream leaves no cursor on the finalized bubble",
   !!tableNode && tableNode.querySelectorAll(".cursor").length === 0);
 
 // finalize must run the FULL render pipeline, not just plain markdown:
-// streamed math -> KaTeX, streamed mermaid fence -> diagram pass
+// streamed math -> KaTeX, streamed mermaid fence -> diagram pass. The LIVE
+// pass deliberately skips mermaid (incomplete source must not error on every
+// throttle tick) - the fence stays highlighted code until finalization.
 exec('window.__startAssistant("{\\"mid\\":\\"msg_mix\\"}")');
 exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_mix", text: "### Result\n\n| k | v |\n|---|---|\n| 1 | $c^2$ |" })) + ")");
-exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_mix", text: "\n\n```mermaid\ngraph TD; A-->B;\n```" })) + ")");
 const mixNode = chatEl.querySelector('.msg.assistant[data-mid="msg_mix"]');
+check("live render resolves the heading during streaming",
+  !!mixNode && mixNode.querySelector(".body").innerHTML.includes("<h3>Result</h3>"));
+check("live render resolves the table during streaming",
+  !!mixNode && mixNode.querySelector(".body").innerHTML.includes("<table>"));
+check("live render resolves inline math via KaTeX during streaming",
+  !!mixNode && !!mixNode.querySelector(".katex"),
+  mixNode ? JSON.stringify(textOf(mixNode)).slice(0, 60) : "no node");
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_mix", text: "\n\n```mermaid\ngraph TD; A-->B;\n```" })) + ")");
+exec('window.__flushStream("msg_mix")');
+check("live render keeps the mermaid fence as code (no diagram pass mid-stream)",
+  !!mixNode && mixNode.querySelectorAll("code.language-mermaid").length === 1
+    && mixNode.querySelectorAll(".mermaid").length === 0);
 exec('window.__stopStream("{\\"mid\\":\\"msg_mix\\"}")');
 check("finalized stream renders the heading",
   !!mixNode && mixNode.querySelector(".body").innerHTML.includes("<h3>Result</h3>"));
@@ -321,8 +401,91 @@ check("finalized stream renders inline math via KaTeX",
   !!mixNode && !!mixNode.querySelector(".katex"),
   mixNode ? JSON.stringify(textOf(mixNode)).slice(0, 60) : "no node");
 check("finalized stream runs the mermaid pass (fence replaced, no copy button on it)",
-  !!mixNode && mixNode.querySelectorAll("pre code.language-mermaid").length === 0
+  !!mixNode && mixNode.querySelectorAll("code.language-mermaid").length === 0
     && mixNode.querySelectorAll(".copy-btn").length === 0);
+
+// ---------------- block-level progressive rendering (PO refinement) ----------
+// A block that completed mid-stream (sealed by a later separator) renders as
+// markdown IMMEDIATELY as its own element and is never touched again; only
+// the trailing in-progress block stays raw under the cursor. Structural
+// commits paint on the spot (cost scales with the new blocks, not the whole
+// message); raw-tail repaints ride the throttle.
+exec('window.__startAssistant("{\\"mid\\":\\"msg_blk\\"}")');
+const thinkNode = chatEl.querySelector('.msg.assistant[data-mid="msg_blk"]');
+check("stream start shows the thinking indicator",
+  !!thinkNode && !!thinkNode.querySelector(".thinking")
+    && textOf(thinkNode).includes("thinking"),
+  thinkNode ? "" : "no node");
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_blk", text: "sealed paragraph\n\npartial sen" })) + ")");
+const blkNode = chatEl.querySelector('.msg.assistant[data-mid="msg_blk"]');
+check("sealed paragraph renders as markdown during streaming",
+  !!blkNode && blkNode.querySelector(".body").innerHTML.includes("<p>sealed paragraph</p>"),
+  blkNode ? blkNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
+const sealedDiv = blkNode ? blkNode.querySelector(".stream-block") : null;
+check("the sealed block lives in its own element",
+  !!sealedDiv && sealedDiv.innerHTML.includes("<p>sealed paragraph</p>"));
+const rawTail = blkNode ? blkNode.querySelector(".body > .stream-raw") : null;
+check("the trailing in-progress block stays raw",
+  !!rawTail && rawTail.textContent.includes("partial sen"));
+check("the cursor rides at the raw tail",
+  !!blkNode && !!blkNode.querySelector(".cursor")
+    && blkNode.querySelector(".cursor").parentElement === rawTail);
+check("the thinking indicator is cleared by the first content chunk",
+  !!blkNode && blkNode.querySelector(".thinking") === null);
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_blk", text: "tence\n\nsecond sealed" })) + ")");
+const sealedDivs = blkNode.querySelectorAll(".stream-block");
+check("newly sealed blocks append after the first (same element, never re-rendered)",
+  sealedDivs.length === 2 && sealedDivs[0] === sealedDiv
+    && sealedDivs[1].innerHTML.includes("<p>partial sentence</p>"),
+  "blocks=" + sealedDivs.length);
+check("the new in-progress tail moved into the raw element",
+  !!blkNode && blkNode.querySelector(".body > .stream-raw").textContent.includes("second sealed"));
+exec('window.__stopStream("{\\"mid\\":\\"msg_blk\\"}")');
+check("stopStream finalizes the whole streamed message",
+  !!blkNode && blkNode.querySelector(".body").innerHTML.includes("<p>partial sentence</p>")
+    && blkNode.querySelectorAll(".cursor").length === 0);
+
+// an OPEN fence is still incomplete - raw until the closing fence arrives,
+// then it renders immediately as highlighted code
+exec('window.__startAssistant("{\\"mid\\":\\"msg_fence\\"}")');
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_fence", text: "```c\nint partial" })) + ")");
+const fenceNode = chatEl.querySelector('.msg.assistant[data-mid="msg_fence"]');
+check("an open code fence stays raw (no <pre> yet)",
+  !!fenceNode && fenceNode.querySelectorAll("pre").length === 0
+    && !!fenceNode.querySelector(".body > .stream-raw"));
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_fence", text: "\n```" })) + ")");
+check("a closed fence renders immediately as highlighted code",
+  !!fenceNode && fenceNode.querySelectorAll("pre > code.language-c").length === 1
+    && fenceNode.querySelectorAll(".body > .stream-raw").length === 0,
+  fenceNode ? fenceNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
+check("the cursor keeps streaming after the fence closed",
+  !!fenceNode && fenceNode.querySelectorAll(".cursor").length === 1);
+exec('window.__stopStream("{\\"mid\\":\\"msg_fence\\"}")');
+
+// thinking/reasoning surfaced DURING generation, not only after finalization
+exec('window.__startAssistant("{\\"mid\\":\\"msg_r\\"}")');
+exec("window.__appendReasoningDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_r", text: "considering " })) + ")");
+const rNode = chatEl.querySelector('.msg.assistant[data-mid="msg_r"]');
+check("reasoning streams into the collapsible details during generation",
+  !!rNode && !!rNode.querySelector("details.reasoning")
+    && textOf(rNode).includes("considering"),
+  rNode ? "" : "no node");
+check("the streaming details are labelled thinking",
+  !!rNode && rNode.querySelector("details.reasoning > summary").textContent === "thinking");
+check("the stream cursor stays while only reasoning arrived",
+  !!rNode && rNode.querySelectorAll(".cursor").length === 1);
+exec("window.__appendReasoningDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_r", text: "options" })) + ")");
+check("reasoning repaints ride the same throttle (coalesced)",
+  !!rNode && !textOf(rNode).includes("considering options"));
+exec('window.__flushStream("msg_r")');
+check("a flushed tick paints the accumulated thinking",
+  !!rNode && textOf(rNode).includes("considering options"));
+exec("window.__appendDelta(" + JSON.stringify(JSON.stringify({ mid: "msg_r", text: "the answer" })) + ")");
+exec('window.__stopStream("{\\"mid\\":\\"msg_r\\"}")');
+check("stopStream finalizes the text and upgrades reasoning to markdown",
+  !!rNode && rNode.querySelector(".body").innerHTML.includes("<p>the answer</p>")
+    && rNode.querySelector("details.reasoning > .reasoning-body").innerHTML.includes("<p>considering options</p>"),
+  rNode ? rNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
 
 // final authoritative render (markdown + meta)
 const finalScript = 'window.__setAssistantText("{\\"mid\\":\\"msg_1\\",\\"text\\":\\"# Done\\\\n\\\\n`code` and $x^2$\\",'
@@ -344,6 +507,13 @@ check("empty final reply keeps the streamed text",
   emptyNode ? emptyNode.querySelector(".body").innerHTML.slice(0, 60) : "no node");
 check("empty final reply was reported, not silent",
   reports.some(r => r.startsWith("empty final reply - kept streamed text")));
+
+// stream-done guard: a delta still in flight when the authoritative render
+// lands must not re-open the closed bubble (the old single-late-chunk bug)
+exec('window.__appendDelta("{\\"mid\\":\\"msg_1\\",\\"text\\":\\"LATE\\"}")');
+check("delta after the authoritative render is dropped (stream-done guard)",
+  !!streamNode && !textOf(streamNode).includes("LATE")
+    && streamNode.querySelectorAll(".cursor").length === 0);
 
 // history load (resume)
 const rows = JSON.stringify([

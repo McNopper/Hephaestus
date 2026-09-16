@@ -30,6 +30,16 @@ public record TicketRow(String id, String title, String role, int points, String
         return stage != null ? stage : VStages.deriveFromRole(role);
     }
 
+    /**
+     * The display-time blocked flag: never true for a done ticket, even when
+     * the stored flag drifted (done+blocked legacy data), so no blocked
+     * decoration is ever rendered on a done row. The store clears the drift
+     * on the next write; this is the render-side guard.
+     */
+    public boolean displayBlocked() {
+        return blocked && !"done".equals(status);
+    }
+
     /** Compact status prefix for pipeline rows; unknown/null statuses read as "". */
     public static String statusPrefix(String status) {
         if (status == null) {
@@ -48,7 +58,7 @@ public record TicketRow(String id, String title, String role, int points, String
     /** The flat-board column text: {@code [BLOCKED] ID title}. */
     public String label() {
         StringBuilder sb = new StringBuilder();
-        if (blocked) {
+        if (displayBlocked()) {
             sb.append("[BLOCKED] ");
         }
         if (id != null) {
@@ -63,7 +73,7 @@ public record TicketRow(String id, String title, String role, int points, String
     /** The compact pipeline column text: {@code [IP] [BLOCKED] title}. */
     public String pipelineLabel() {
         StringBuilder sb = new StringBuilder(statusPrefix(status));
-        if (blocked) {
+        if (displayBlocked()) {
             if (!sb.isEmpty()) {
                 sb.append(' ');
             }

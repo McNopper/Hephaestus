@@ -40,6 +40,11 @@ public final class ChatScripts {
         return call("__appendDelta", Map.of("mid", nullToEmpty(messageId), "text", nullToEmpty(text)));
     }
 
+    /** {@code window.__appendReasoningDelta("{...}")} - appends one streamed reasoning chunk. */
+    public static String appendReasoning(String messageId, String text) {
+        return call("__appendReasoningDelta", Map.of("mid", nullToEmpty(messageId), "text", nullToEmpty(text)));
+    }
+
     /**
      * {@code window.__setAssistantText("{...}")} - authoritative final render,
      * including the compact {@code tool} lines ({@code tools}: array of

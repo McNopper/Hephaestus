@@ -53,7 +53,13 @@ public final class TaskFleet {
 
     private static final Logger LOG = Logger.getLogger(TaskFleet.class.getName());
     private static final Duration DEFAULT_TIMEOUT = FleetTuning.DEFAULT_TICKET_BUDGET;
-    private static final String ASSIGNEE = "fleet";
+    /**
+     * The assignee every fleet engine writes when claiming a ticket — the
+     * shared on-disk claim marker. Also matched by the board's peer-row
+     * reconstruction (F-004), which rebuilds other engines' jobs from store
+     * claims; keep it a literal-free single source.
+     */
+    public static final String ASSIGNEE = "fleet";
     /** Path-like strings inside acceptance criteria (e.g. {@code src/Foo.java}) - the AC-path gate's expected set. */
     private static final java.util.regex.Pattern AC_PATH =
             java.util.regex.Pattern.compile("[\\w/.-]+\\.\\w{1,5}");

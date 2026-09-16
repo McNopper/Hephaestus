@@ -188,11 +188,19 @@ function restoreMath(html, spans) {
   });
 }
 
-function renderMarkdown(el, text) {
+/**
+ * Renders markdown (math extracted first, fences highlighted, copy buttons).
+ * With `{live: true}` - the progressive streaming pass - the mermaid diagram
+ * pass is skipped: a still-streaming fence holds incomplete source that would
+ * error on every throttle tick. Live fences stay highlighted code; the final
+ * render (stream stop or authoritative text) runs the diagram pass.
+ */
+function renderMarkdown(el, text, opts) {
+  const live = !!(opts && opts.live);
   const extracted = extractMath(text || "");
   el.innerHTML = restoreMath(md.render(extracted.source), extracted.spans);
   // mermaid diagrams
-  const mermaidBlocks = el.querySelectorAll("pre > code.language-mermaid");
+  const mermaidBlocks = live ? [] : el.querySelectorAll("pre > code.language-mermaid");
   if (mermaidBlocks.length > 0) {
     ensureMermaid();
     const mermaid = mermaidApi();
@@ -246,7 +254,8 @@ function addAssistant(messageId, reasoningText) {
   if (reasoningText && reasoningText.trim().length > 0) {
     const details = document.createElement("details"); details.className = "reasoning";
     const summary = document.createElement("summary"); summary.textContent = "reasoning";
-    const rbody = document.createElement("div"); renderMarkdown(rbody, reasoningText);
+    const rbody = document.createElement("div"); rbody.className = "reasoning-body";
+    renderMarkdown(rbody, reasoningText);
     details.appendChild(summary); details.appendChild(rbody); bubble.appendChild(details);
   }
   const body = document.createElement("div"); body.className = "body";
@@ -351,8 +360,14 @@ try {
   // location unavailable (embedded shims): __setDocMode still works
 }
 
+function forgetStreams() {
+  for (const state of Array.from(streams.values())) cancelScheduledRender(state);
+  streams.clear();
+}
+
 window.__clear = guard("__clear", function () {
   chatEl.innerHTML = "";
+  forgetStreams(); // pending progressive ticks no-op (their mid is gone)
   return true;
 });
 
@@ -368,6 +383,7 @@ window.__setNotice = guard("__setNotice", function (text) {
 
 window.__setMessages = guard("__setMessages", function (json) {
   chatEl.innerHTML = "";
+  forgetStreams(); // pending progressive ticks no-op (their mid is gone)
   const entries = payload(json);
   entries.forEach(e => {
     if (e.role === "user") {
@@ -392,9 +408,266 @@ window.__appendUser = guard("__appendUser", function (json) {
 
 window.__startAssistant = guard("__startAssistant", function (json) {
   const p = payload(json);
-  if (!findAssistant(p.mid)) addAssistant(p.mid, null);
+  if (!findAssistant(p.mid)) {
+    const a = addAssistant(p.mid, null);
+    // visible until the first content chunk paints (cleared by the first
+    // progressive tick, __stopStream and the final render)
+    const thinking = document.createElement("div");
+    thinking.className = "thinking";
+    thinking.textContent = "thinking…";
+    a.bubble.insertBefore(thinking, a.body);
+    scrollBottom();
+  }
   return true;
 });
+
+// ---- streaming (block-level progressive markdown) ----------------------------
+// While a reply streams, the accumulated text is split into markdown blocks
+// (blank-line separated, fence and $$ aware). A block that is certainly
+// finished - sealed by a later separator, a closed code fence or a well-formed
+// table - renders as markdown IMMEDIATELY as its own element and is never
+// touched again; only the trailing in-progress block stays raw text under the
+// blinking cursor. Raw-tail repaints are throttled (~5 renders/s, leading edge
+// immediate, trailing chunks coalesced) so a fast token stream cannot flood
+// the SWT host; a structural commit (blocks that just completed) paints on the
+// spot because its cost scales with the new blocks, not the whole message.
+// Reasoning streams into the collapsible details while generating. The
+// authoritative-render semantics are unchanged: __setAssistantText replaces
+// the body, __stopStream finalizes it, and the stream-done guard keeps late
+// deltas from re-opening a closed bubble.
+const STREAM_RENDER_MS = 200; // 5 renders/s (target band: 4-10)
+const streams = new Map();    // mid -> { text, reasoning, lastRender, timer, pending, committed, divs, tailDiv, tailText, rawEl }
+
+function streamState(mid) {
+  let state = streams.get(mid);
+  if (!state) {
+    state = { text: "", reasoning: "", lastRender: 0, timer: 0, pending: false,
+        committed: 0, divs: [], tailDiv: null, tailText: null, rawEl: null };
+    streams.set(mid, state);
+  }
+  return state;
+}
+
+function cancelScheduledRender(state) {
+  if (state.timer) { clearTimeout(state.timer); state.timer = 0; }
+  state.pending = false;
+}
+
+/** Drops one stream's state (authoritative render / history wipe). */
+function dropStream(mid) {
+  const state = streams.get(mid);
+  if (state) cancelScheduledRender(state);
+  streams.delete(mid);
+}
+
+/** true when the line closes an open fence of the given marker run. */
+function fenceCloses(line, fence) {
+  return new RegExp("^\\s*[" + fence.charAt(0) + "]{" + fence.length + ",}\\s*$").test(line);
+}
+
+/**
+ * Splits text into markdown blocks at blank-line separators (blank lines
+ * inside code fences and $$ display math do not separate). @return
+ * {blocks, closed} where closed means the text ends at a block boundary -
+ * there is no trailing in-progress block.
+ */
+function splitMarkdownBlocks(text) {
+  const lines = String(text == null ? "" : text).split("\n");
+  const blocks = [];
+  let current = [];
+  let inFence = false, fence = "";
+  let inMath = false;
+  let sealed = true;
+  for (const line of lines) {
+    if (inFence) {
+      current.push(line);
+      if (fenceCloses(line, fence)) inFence = false;
+      sealed = false;
+      continue;
+    }
+    if (line.trim() === "" && !inMath) {
+      if (current.length > 0) { blocks.push(current.join("\n")); current = []; }
+      sealed = true;
+      continue;
+    }
+    const opened = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (opened) { inFence = true; fence = opened[1]; }
+    inMath = mathSpanOpen(line, inMath);
+    current.push(line);
+    sealed = false;
+  }
+  if (current.length > 0) blocks.push(current.join("\n"));
+  return { blocks: blocks, closed: sealed };
+}
+
+/** Flips inMath for the $$ pairs this line opens/closes outside `code`. */
+function mathSpanOpen(line, inMath) {
+  let dollars = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "`") {
+      const run = inlineCodeEnd(line, i);
+      if (run > 0) { i = run - 1; continue; }
+    }
+    if (ch === "$" && line[i + 1] === "$") { dollars++; i++; }
+  }
+  return dollars % 2 === 1 ? !inMath : inMath;
+}
+
+/** A well-formed table block (header + delimiter row, pipes aligned). */
+function isTableBlock(block) {
+  const lines = block.split("\n").filter(l => l.trim() !== "");
+  if (lines.length < 2) return false;
+  const pipes = l => (l.match(/\|/g) || []).length;
+  for (const line of lines) {
+    if (!line.includes("|")) return false;
+  }
+  const delimiter = lines[1];
+  if (!/^[\s|:-]+$/.test(delimiter) || !delimiter.includes("-")) return false;
+  return pipes(lines[0]) === pipes(delimiter) && pipes(lines[0]) > 0;
+}
+
+/**
+ * A trailing block that is structurally finished even without a following
+ * separator: a closed code fence, or a table (rows may still append - it
+ * re-renders per tick, which still scales with one block, not the message).
+ */
+function blockSelfComplete(block) {
+  const opened = /^ {0,3}(`{3,}|~{3,})/.exec(block);
+  if (opened) {
+    return block.split("\n").slice(1).some(l => fenceCloses(l, opened[1]));
+  }
+  return isTableBlock(block);
+}
+
+/** Removes the pre-content "thinking…" indicator. */
+function removeThinking(node) {
+  const t = node.querySelector(".thinking");
+  if (t) t.remove();
+}
+
+/** Streams reasoning into the collapsible details (live: plain text). */
+function syncStreamReasoning(node, state, body) {
+  const text = state.reasoning || "";
+  if (text.trim() === "") return;
+  let details = node.querySelector("details.reasoning");
+  if (!details) {
+    details = document.createElement("details");
+    details.className = "reasoning";
+    const summary = document.createElement("summary");
+    summary.textContent = "thinking";
+    const rbody = document.createElement("div");
+    rbody.className = "reasoning-body";
+    details.appendChild(summary);
+    details.appendChild(rbody);
+    node.querySelector(".bubble").insertBefore(details, body);
+  }
+  const rbody = details.querySelector(".reasoning-body");
+  if (rbody && rbody.textContent !== text) rbody.textContent = text;
+}
+
+/** Paints one progressive tick of a streaming bubble; false when impossible. */
+function renderStreamTick(mid) {
+  const state = streams.get(mid);
+  if (!state) return false;
+  const node = findAssistant(mid);
+  if (!node || node.classList.contains("stream-done")) return false;
+  const body = node.querySelector(".body");
+  if (!body) return false;
+  removeThinking(node);
+  syncStreamReasoning(node, state, body);
+  const split = splitMarkdownBlocks(state.text);
+  const blocks = split.blocks;
+  const hardCount = Math.max(0, split.closed ? blocks.length : blocks.length - 1);
+  while (state.committed < hardCount) {
+    // a live-rendered trailing block (tailDiv) that just got sealed is
+    // promoted in place - it IS the block at index `committed`
+    let div = state.tailDiv;
+    if (div) {
+      state.tailDiv = null;
+      state.tailText = null;
+    } else {
+      div = document.createElement("div");
+      div.className = "stream-block";
+    }
+    renderMarkdown(div, blocks[state.committed], { live: true });
+    state.divs.push(div);
+    body.insertBefore(div, state.rawEl || null);
+    state.committed++;
+  }
+  const trailing = blocks.length > 0 ? blocks[blocks.length - 1] : "";
+  const tailLive = !split.closed && blocks.length > 0 && blockSelfComplete(trailing);
+  if (tailLive) {
+    if (!state.tailDiv) {
+      state.tailDiv = document.createElement("div");
+      state.tailDiv.className = "stream-block";
+      state.tailText = null;
+      body.insertBefore(state.tailDiv, state.rawEl || null);
+    }
+    if (state.tailText !== trailing) {
+      renderMarkdown(state.tailDiv, trailing, { live: true });
+      state.tailText = trailing;
+    }
+  } else if (state.tailDiv) {
+    state.tailDiv.remove(); // defensive: cannot go complete -> incomplete
+    state.tailDiv = null;
+    state.tailText = null;
+  }
+  const needsRaw = !tailLive && !split.closed && trailing.trim() !== "";
+  if (needsRaw) {
+    if (!state.rawEl) {
+      state.rawEl = document.createElement("div");
+      state.rawEl.className = "stream-raw";
+      body.appendChild(state.rawEl);
+    }
+    state.rawEl.textContent = trailing;
+  } else if (state.rawEl) {
+    state.rawEl.remove();
+    state.rawEl = null;
+  }
+  // the cursor rides at the very end (inside the raw tail when there is one)
+  let cursor = body.querySelector(".cursor");
+  if (!cursor) { cursor = document.createElement("span"); cursor.className = "cursor"; }
+  (state.rawEl || body).appendChild(cursor);
+  state.lastRender = Date.now();
+  scrollBottom();
+  return true;
+}
+
+/** true when a block just completed (or the live trailing block changed). */
+function hasStructuralChange(state) {
+  const split = splitMarkdownBlocks(state.text);
+  const blocks = split.blocks;
+  const hardCount = Math.max(0, split.closed ? blocks.length : blocks.length - 1);
+  if (hardCount > state.committed) return true;
+  if (!split.closed && blocks.length > 0) {
+    const trailing = blocks[blocks.length - 1];
+    if (blockSelfComplete(trailing) && state.tailText !== trailing) return true;
+  }
+  return false;
+}
+
+/** Throttled progressive paint; structural commits bypass the coalescing. */
+function scheduleStreamRender(mid) {
+  const state = streams.get(mid);
+  if (!state) return;
+  if (hasStructuralChange(state)) {
+    renderStreamTick(mid);
+    cancelScheduledRender(state);
+    return;
+  }
+  const since = Date.now() - state.lastRender;
+  if (since >= STREAM_RENDER_MS) {
+    renderStreamTick(mid);
+    return;
+  }
+  if (state.pending) return;
+  state.pending = true;
+  state.timer = setTimeout(function () {
+    state.pending = false;
+    renderStreamTick(mid);
+  }, STREAM_RENDER_MS - since);
+}
 
 window.__appendDelta = guard("__appendDelta", function (json) {
   const p = payload(json);
@@ -402,49 +675,106 @@ window.__appendDelta = guard("__appendDelta", function (json) {
   if (!node) { addAssistant(p.mid, null); node = findAssistant(p.mid); }
   if (!node) return true;
   // A finalized bubble (abort / authoritative render) must never be re-opened:
-  // its .stream-raw is gone, so appending would blank the rendered answer and
-  // replace it with the single late chunk.
+  // its render is authoritative, so appending would blank the rendered answer
+  // and replace it with the single late chunk.
   if (node.classList.contains("stream-done")) return true;
-  let body = node.querySelector(".body");
-  let raw = body.querySelector(".stream-raw");
-  if (!raw) { body.innerHTML = ""; raw = document.createElement("div"); raw.className = "stream-raw"; body.appendChild(raw); }
-  raw.appendChild(document.createTextNode(p.text == null ? "" : String(p.text)));
-  let cursor = raw.querySelector(".cursor");
-  if (!cursor) { cursor = document.createElement("span"); cursor.className = "cursor"; }
-  raw.appendChild(cursor);
-  scrollBottom();
+  const state = streamState(p.mid);
+  state.text += (p.text == null ? "" : String(p.text));
+  scheduleStreamRender(p.mid);
   return true;
 });
+
+window.__appendReasoningDelta = guard("__appendReasoningDelta", function (json) {
+  const p = payload(json);
+  let node = findAssistant(p.mid);
+  if (!node) { addAssistant(p.mid, null); node = findAssistant(p.mid); }
+  if (!node) return true;
+  if (node.classList.contains("stream-done")) return true;
+  const state = streamState(p.mid);
+  state.reasoning = (state.reasoning || "") + (p.text == null ? "" : String(p.text));
+  scheduleStreamRender(p.mid);
+  return true;
+});
+
+// Test/diagnostic hook: executes mid's PENDING progressive tick right now
+// (the checks drive the throttle deterministically with it; a second flush
+// with nothing scheduled is a harmless no-op returning false).
+window.__flushStream = guard("__flushStream", function (mid) {
+  const key = typeof mid === "string" ? mid : String(mid);
+  const state = streams.get(key);
+  if (!state || !state.pending) return false;
+  cancelScheduledRender(state);
+  return renderStreamTick(key);
+});
+
+/**
+ * Final-render reasoning sync: the authoritative text wins (markdown), an
+ * EMPTY final reasoning never wipes reasoning that streamed (C--001 spirit),
+ * and streaming "thinking" details upgrade to a "reasoning" block.
+ */
+function syncFinalReasoning(node, reasoning, streamedReasoning, body) {
+  const text = reasoning && reasoning.trim() !== "" ? reasoning : (streamedReasoning || "");
+  if (text.trim() === "") return;
+  let details = node.querySelector("details.reasoning");
+  if (!details) {
+    details = document.createElement("details");
+    details.className = "reasoning";
+    const summary = document.createElement("summary");
+    summary.textContent = "reasoning";
+    details.appendChild(summary);
+    node.querySelector(".bubble").insertBefore(details, body);
+  }
+  const summary = details.querySelector("summary");
+  if (summary) summary.textContent = "reasoning";
+  details.querySelectorAll(".reasoning-body").forEach(r => r.remove());
+  const rbody = document.createElement("div");
+  rbody.className = "reasoning-body";
+  renderMarkdown(rbody, text);
+  details.appendChild(rbody);
+}
 
 window.__setAssistantText = guard("__setAssistantText", function (json) {
   const p = payload(json);
   const text = typeof p.text === "string" ? p.text : "";
+  const reasoning = typeof p.reasoning === "string" ? p.reasoning : "";
   let node = findAssistant(p.mid);
-  if (!node) { addAssistant(p.mid, p.reasoning || null); node = findAssistant(p.mid); }
+  if (!node) { addAssistant(p.mid, reasoning || null); node = findAssistant(p.mid); }
   if (!node) return true;
+  // Capture what the stream accumulated before closing it: the C--001 guard
+  // and the reasoning fallback below need it.
+  const state = streams.get(p.mid);
+  const streamedText = state ? state.text : "";
+  const streamedReasoning = state ? (state.reasoning || "") : "";
+  // The authoritative render closes the bubble: cancel any pending
+  // progressive tick and forget the accumulated text.
+  dropStream(p.mid);
   const body = node.querySelector(".body");
   // C--001: an EMPTY authoritative reply must never wipe text that already
   // streamed (live 2026-09-15: a 0-char final render blanked a streamed
-  // answer). If the stream produced content, finalize THAT (same path as
-  // __stopStream) instead of overwriting the body with nothing.
-  if (text === "") {
-    const raw = node.querySelector(".stream-raw");
-    const streamed = raw ? raw.textContent : "";
-    if (streamed.trim() !== "") {
+  // answer). If the stream (or an already-finalized body) produced content,
+  // keep THAT instead of overwriting the body with nothing.
+  if (text === "" && (streamedText.trim() !== "" || body.textContent.trim() !== "")) {
+    if (streamedText.trim() !== "") {
       body.innerHTML = "";
-      renderMarkdown(body, streamed);
-      node.classList.add("stream-done");
-      node.querySelectorAll(".cursor").forEach(c => c.remove());
-      report("empty final reply - kept streamed text (" + streamed.length + " chars)");
-      return true;
+      renderMarkdown(body, streamedText);
     }
+    node.classList.add("stream-done");
+    node.querySelectorAll(".cursor").forEach(c => c.remove());
+    removeThinking(node);
+    syncFinalReasoning(node, reasoning, streamedReasoning, body);
+    report("empty final reply - kept streamed text ("
+        + (streamedText.trim() !== "" ? streamedText : body.textContent).length + " chars)");
+    scrollBottom();
+    return true;
   }
   body.innerHTML = "";
   renderMarkdown(body, text);
-  // The authoritative render closes the bubble: a delta still in flight must
-  // not overwrite it (see __appendDelta's stream-done guard).
+  // and a delta still in flight must not overwrite it either (see
+  // __appendDelta's stream-done guard)
   node.classList.add("stream-done");
   node.querySelectorAll(".cursor").forEach(c => c.remove());
+  removeThinking(node);
+  syncFinalReasoning(node, reasoning, streamedReasoning, body);
   // re-render tool lines (a second authoritative render must not duplicate them)
   node.querySelectorAll(".tool-line").forEach(l => l.remove());
   const bubble = node.querySelector(".bubble");
@@ -455,29 +785,33 @@ window.__setAssistantText = guard("__setAssistantText", function (json) {
   return true;
 });
 
-// Stops the streaming cursor of one bubble: the host calls this when the send
-// completed, failed or was aborted. If the bubble is still in raw streaming
-// form (no authoritative render arrived — e.g. an intermediate tool-round
-// message, or the POST reply came back empty), the accumulated raw text is
-// finalized into rendered markdown, so a streamed table never stays raw ASCII.
-// Harmless when the bubble or cursor is absent (idempotent); an authoritative
-// __setAssistantText afterwards still replaces the whole body.
+// Stops the streaming of one bubble: the host calls this when the send
+// completed, failed or was aborted. The accumulated text is finalized with the
+// FULL render pipeline (mermaid pass included), so a still-throttled tail
+// chunk never leaves the bubble partial, and streamed reasoning upgrades to
+// markdown. Harmless when the bubble or cursor is absent (idempotent); an
+// authoritative __setAssistantText afterwards still replaces the whole body.
 window.__stopStream = guard("__stopStream", function (json) {
   const p = payload(json);
   const node = findAssistant(p.mid);
-  if (!node) return true;
-  if (!node.classList.contains("stream-done")) {
-    const raw = node.querySelector(".stream-raw");
+  const state = streams.get(p.mid);
+  if (state) cancelScheduledRender(state);
+  if (node && !node.classList.contains("stream-done")) {
     const body = node.querySelector(".body");
-    if (raw && body) {
-      const text = raw.textContent; // the cursor span carries no text
-      body.innerHTML = "";
-      renderMarkdown(body, text);
-      report("stream finalized (" + text.length + " chars)");
+    removeThinking(node);
+    // progressive ticks already showed markdown block by block, but a
+    // throttled tick may be pending - render the FULL accumulated text
+    if (body && state && state.text.length > 0) {
+      renderMarkdown(body, state.text);
+      report("stream finalized (" + state.text.length + " chars)");
+    }
+    if (state && (state.reasoning || "").trim() !== "") {
+      syncFinalReasoning(node, "", state.reasoning, body);
     }
     node.classList.add("stream-done");
   }
-  node.querySelectorAll(".cursor").forEach(c => c.remove());
+  if (node) node.querySelectorAll(".cursor").forEach(c => c.remove());
+  streams.delete(p.mid);
   return true;
 });
 

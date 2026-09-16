@@ -27,9 +27,10 @@ components/chat-web/
                            github.min.css + github-dark.min.css (theme pair)
   renderer-check.mjs       check: assets present, vendor libs actually render
   bridge-check.mjs         check: executes the bridge against a DOM shim
-                           (incl. tool lines + copy-code paths)
+                            (incl. tool lines, copy-code paths, block-level
+                            progressive streaming and the thinking indicator)
   mermaid-check.mjs        check: renders diagrams in real headless Edge
-                           (SKIPs when Edge/puppeteer-core are absent)
+                            (SKIPs when Edge/puppeteer-core are absent)
   package.json             `npm run check` runs the checks
 ```
 
@@ -52,18 +53,26 @@ of throwing silently inside `browser.execute()`.
 | `__setTheme(theme)` | plain string `"dark"` or `"light"` | Toggles `body.dark`/`body.light`, swaps the highlight.js stylesheet (`#hljs-light`/`#hljs-dark`), re-initialises mermaid lazily with the matching theme. |
 | `__setNotice(text)` | plain string | Appends a centred, muted notice line to the transcript. |
 | `__appendUser(json)` | `{"text": string}` | Appends a user bubble; text is rendered as markdown. |
-| `__startAssistant(json)` | `{"mid": string}` | Appends an empty assistant bubble tagged `data-mid=mid` (idempotent: no-op if `mid` already exists). |
-| `__appendDelta(json)` | `{"mid": string, "text": string}` | Streams raw (unformatted) text into the assistant bubble's `.stream-raw` element with a blinking cursor; creates the bubble if `__startAssistant` was not called. |
+| `__startAssistant(json)` | `{"mid": string}` | Appends an empty assistant bubble tagged `data-mid=mid` showing a pulsing "thinking…" indicator (idempotent: no-op if `mid` already exists). The indicator is cleared by the first content chunk, `__stopStream` or the final render. |
+| `__appendDelta(json)` | `{"mid": string, "text": string}` | Streams one text chunk into the assistant bubble. Rendering is **block-level progressive**: a markdown block that completed while streaming (sealed by a later blank line, a closed code fence, or a well-formed table) renders as markdown immediately as its own element and is never re-rendered; only the trailing in-progress block stays raw text (monospace) under the blinking cursor. Whole repaints are throttled to ~5 renders/s (leading edge immediate, later chunks coalesced); structural commits paint on the spot because their cost scales with the new blocks, not the whole message. The mermaid diagram pass is skipped mid-stream (incomplete fence source would error on every tick) — fences stay highlighted code until the final render. Creates the bubble if `__startAssistant` was not called. |
+| `__appendReasoningDelta(json)` | `{"mid": string, "text": string}` | Streams one reasoning chunk into the bubble's collapsible `details.reasoning` block (summary "thinking") while the reply generates — plain text live, upgraded to markdown by the final render. Creates the bubble on demand; dropped on a finalized (`stream-done`) bubble like text deltas. |
+| `__flushStream(mid)` | plain string | Test/diagnostic hook: executes `mid`'s pending progressive tick right now, so checks can drive the throttle deterministically. Returns `false` when nothing is pending (no-op). Hosts never need to call it. |
 | `__setAssistantText(json)` | `{"mid": string, "text": string, "reasoning"?: string, "meta"?: string, "tools"?: [{"name": string, "state": string}, …]}` | Final authoritative render of the assistant bubble: markdown body (replacing streamed raw text), optional collapsible `reasoning` block, optional `meta` model label, optional compact tool-call lines (`tool: name — state`, state-colored: running pulses, completed dimmed, error red) above the body. Tool names are escaped — hostile input renders inert. |
 | `__setMessages(json)` | JSON string of an array `[{"role":"user"\|"assistant","id":string,"text":string,"reasoning":string,"meta":string,"tools":[…]}, …]` | Replaces the whole transcript (history/resume load; `tools` optional per entry, same rendering as above). |
-| `__stopStream(json)` | `{"mid": string}` | Removes the streaming cursor from the bubble (host calls this when the send completed, failed or was aborted). Idempotent; the streamed text stays. |
+| `__stopStream(json)` | `{"mid": string}` | Removes the streaming cursor from the bubble (host calls this when the send completed, failed or was aborted) and finalizes the accumulated text through the FULL render pipeline (mermaid pass included), so a still-throttled tail chunk never leaves the bubble partial. Idempotent. |
 | `__clear()` | none | Empties the transcript. |
 
 Notes:
-- `__appendDelta` / `__setAssistantText` identify the bubble by `mid`; a
-  missing bubble is created on demand, so ordering is fault-tolerant.
-- The streaming calls do **not** render markdown; only `__setAssistantText`
-  does the final markdown render.
+- `__appendDelta` / `__appendReasoningDelta` / `__setAssistantText` identify
+  the bubble by `mid`; a missing bubble is created on demand, so ordering is
+  fault-tolerant.
+- **Streaming renders markdown block by block** (TUI parity): completed
+  blocks render immediately in their own elements (render cost scales with
+  the new blocks), only the trailing in-progress block stays raw under the
+  cursor, and whole repaints ride a ~5 renders/s throttle so a fast token
+  stream cannot flood the host. `__stopStream` / `__setAssistantText` remain
+  the authoritative final renders that replace the whole body. A finalized
+  bubble (class `stream-done`) never re-opens: late deltas are dropped.
 - `window.__linkClick(event)` also exists on `window`, but it is the page's
   internal click interceptor (exposed for the automated test) — hosts do not
   call it.
@@ -80,6 +89,22 @@ page tolerates them being absent, e.g. in a plain browser):
 
 ## Rendering rules (these rules ARE the contract)
 
+- **Block-level progressive markdown while streaming.** `__appendDelta`
+  accumulates the text per `mid`; the page splits it into markdown blocks
+  (blank-line separated, fence and `$$` aware). A block that is certainly
+  finished — sealed by a later separator, a closed code fence or a
+  well-formed table — renders as markdown immediately as its own element and
+  is never touched again; only the trailing in-progress block stays raw text
+  with the blinking cursor. Repaints are throttled (~5 renders/s, leading
+  edge immediate, trailing chunks coalesced); structural commits paint on
+  the spot (cost scales with the new blocks). The live pass skips the
+  mermaid diagram pass (incomplete source must not error on every tick);
+  `__stopStream` and `__setAssistantText` always run the full pipeline and
+  are authoritative — including the guard that an EMPTY final reply keeps
+  text that already streamed. The `stream-done` class closes a bubble for
+  good. Thinking is surfaced during generation: a "thinking…" indicator from
+  `__startAssistant` until the first content chunk, then streamed reasoning
+  (`__appendReasoningDelta`) in the collapsible details.
 - **Math is extracted before markdown.** `$…$`, `$$…$$`, `\(…\)` and `\[…\]`
   spans are replaced by private-use markers, markdown runs on the remainder,
   and KaTeX HTML (`renderToString`, `throwOnError: false`) is re-inserted
@@ -121,11 +146,13 @@ Requires Node.js on PATH (only for the checks — the component itself is
 build-free):
 
 ```
-node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render (51 checks)
+node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render (58 checks)
 node bridge-check.mjs     # executes chat.js in a VM with a DOM shim (move-semantics
-                          # appendChild) and drives the bridge exactly as a host
-                          # would (94 checks, incl. tool lines, copy-code and the
-                          # streaming-cursor stop path)
+                          # appendChild, innerHTML serialization of appended trees)
+                          # and drives the bridge exactly as a host would
+                          # (126 checks, incl. tool lines, copy-code, block-level
+                          # progressive streaming, the thinking indicator and the
+                          # stream-done stop path)
 node mermaid-check.mjs    # renders real diagrams in headless Edge (8 checks;
                           # SKIPs when Edge/puppeteer-core are absent)
 ```

@@ -1,6 +1,7 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -199,7 +200,7 @@ public class TaskFileCodecTest {
     }
 
     @Test
-    public void malformedSectionLineFailsWholeFile() {
+    public void malformedRecordLineIsQuarantinedNotFatal() {
         String content = """
                 ---
                 id: T-001
@@ -209,12 +210,41 @@ public class TaskFileCodecTest {
                 ## Artifacts
                 not-json-at-all
                 """;
-        try {
-            TaskFileCodec.read(content);
-            fail("expected FormatException");
-        } catch (TaskFileCodec.FormatException expected) {
-            assertTrue(expected.getMessage().contains("Artifacts"));
-        }
+        Task t = TaskFileCodec.read(content);
+        assertEquals("T-001", t.id);
+        assertTrue(t.artifacts.isEmpty());
+        assertEquals(1, t.quarantinedLines.size());
+        assertTrue(t.quarantinedLines.get(0).startsWith("Artifacts: "));
+        String rewritten = TaskFileCodec.write(t);
+        assertFalse("the quarantined line is dropped on rewrite", rewritten.contains("not-json-at-all"));
+        assertTrue("repair is stable", TaskFileCodec.read(rewritten).quarantinedLines.isEmpty());
+    }
+
+    @Test
+    public void backtickNPrefixedHistoryLineIsQuarantined() {
+        // The exact live corruption (W-007): a PowerShell write accident
+        // emitted a literal `n - the PS newline escape - before the JSON object.
+        String content = """
+                ---
+                id: W-007
+                title: drifted
+                ---
+
+                ## History
+                {"ts":"2026-09-14T10:00:00.000Z","action":"created"}
+                `n{"ts":"2026-09-14T11:00:00.000Z","action":"updated:status","by":"pm"}
+                {"ts":"2026-09-14T12:00:00.000Z","action":"blocked:waiting","by":"pm"}
+                """;
+        Task t = TaskFileCodec.read(content);
+        assertEquals("W-007", t.id);
+        assertEquals(2, t.history.size());
+        assertEquals("created", t.history.get(0).action());
+        assertEquals("blocked:waiting", t.history.get(1).action());
+        assertEquals(1, t.quarantinedLines.size());
+        assertTrue(t.quarantinedLines.get(0).startsWith("History: `n{"));
+        String rewritten = TaskFileCodec.write(t);
+        assertFalse(rewritten.contains("`n{"));
+        assertEquals(2, TaskFileCodec.read(rewritten).history.size());
     }
 
     @Test
