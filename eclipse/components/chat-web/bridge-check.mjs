@@ -808,6 +808,39 @@ const notALink = { tagName: "SPAN", parentElement: null, getAttribute: () => nul
 check("clicks on non-links are ignored",
   ctx.__linkClick({ target: notALink, preventDefault: () => {} }) === false);
 
+// waiting indicator (user direction 2026-09-16): the prompt echo shows an
+// animated placeholder until the reply's first bubble arrives; terminal
+// signals (assistant start, notice, stopStream, clear) all clear it.
+// Placed last: the __clear sub-check wipes the whole transcript.
+exec('window.__appendUser("{\\"text\\":\\"wait for it\\"}")');
+check("__appendUser shows the waiting indicator for the submit gap",
+  !!chatEl.querySelector(".msg.assistant.waiting")
+    && chatEl.querySelectorAll(".wait-dot").length === 3);
+exec('window.__appendUser("{\\"text\\":\\"queued while waiting\\"}")');
+check("a second submit keeps a single waiting indicator (idempotent)",
+  chatEl.querySelectorAll(".msg.assistant.waiting").length === 1);
+exec('window.__startAssistant("{\\"mid\\":\\"msg_w\\"}")');
+check("__startAssistant replaces the waiting indicator with the real bubble",
+  !chatEl.querySelector(".msg.assistant.waiting")
+    && !!chatEl.querySelector('.msg.assistant[data-mid="msg_w"]'));
+exec('window.__appendUser("{\\"text\\":\\"will fail\\"}")');
+exec('window.__setNotice("Send failed: boom")');
+check("a notice (error/abort path) clears the waiting indicator",
+  !chatEl.querySelector(".msg.assistant.waiting"));
+exec('window.__appendUser("{\\"text\\":\\"stopped early\\"}")');
+exec('window.__stopStream("{\\"mid\\":\\"msg_never\\"}")');
+check("stopStream without a started stream still clears the indicator",
+  !chatEl.querySelector(".msg.assistant.waiting"));
+exec('window.__appendUser("{\\"text\\":\\"wiped\\"}")');
+exec('window.__clear()');
+check("__clear wipes the waiting indicator with the transcript",
+  !chatEl.querySelector(".msg.assistant.waiting"));
+exec('window.__appendUser("{\\"text\\":\\"auth render\\"}")');
+exec('window.__setAssistantText("{\\"mid\\":\\"msg_auth\\",\\"text\\":\\"instant reply\\"}")');
+check("an authoritative render without streaming clears the indicator",
+  !chatEl.querySelector(".msg.assistant.waiting")
+    && !!chatEl.querySelector('.msg.assistant[data-mid="msg_auth"]'));
+
 // ---------------- failures must be loud ----------------
 const errBefore = reports.length;
 const bad = exec('window.__appendUser("not json at all")');

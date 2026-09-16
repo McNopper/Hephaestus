@@ -378,13 +378,37 @@ function forgetStreams() {
   lastStreamMid = null;
 }
 
+// ---- waiting indicator -----------------------------------------------------
+// The submit -> first response token gap can take seconds (queueing, session
+// creation, model latency). The moment the prompt echoes (__appendUser - the
+// live-submit signal; history replay goes through __setMessages instead) an
+// animated-dots placeholder bubble makes the wait visible. Cleared by the
+// first assistant bubble (__startAssistant), any notice (send failures,
+// aborts), __stopStream, and the transcript wipes (__clear, __setMessages).
+let waitingEl = null;
+function showWaiting() {
+  if (waitingEl) return;
+  const div = document.createElement("div");
+  div.className = "msg assistant waiting";
+  div.innerHTML = '<div class="bubble"><span class="wait-dot"></span>'
+      + '<span class="wait-dot"></span><span class="wait-dot"></span></div>';
+  chatEl.appendChild(div);
+  waitingEl = div;
+  scrollBottom();
+}
+function hideWaiting() {
+  if (waitingEl) { waitingEl.remove(); waitingEl = null; }
+}
+
 window.__clear = guard("__clear", function () {
   chatEl.innerHTML = "";
+  hideWaiting();
   forgetStreams(); // pending progressive ticks no-op (their mid is gone)
   return true;
 });
 
 window.__setNotice = guard("__setNotice", function (text) {
+  hideWaiting(); // notices are the terminal signal on error and abort paths
   const div = document.createElement("div");
   div.className = "notice";
   div.textContent = typeof text === "string" ? text : String(text);
@@ -396,6 +420,7 @@ window.__setNotice = guard("__setNotice", function (text) {
 
 window.__setMessages = guard("__setMessages", function (json) {
   chatEl.innerHTML = "";
+  hideWaiting();
   forgetStreams(); // pending progressive ticks no-op (their mid is gone)
   const entries = payload(json);
   entries.forEach(e => {
@@ -416,10 +441,12 @@ window.__setMessages = guard("__setMessages", function (json) {
 window.__appendUser = guard("__appendUser", function (json) {
   const p = payload(json);
   addUser(typeof p.text === "string" ? p.text : "");
+  showWaiting();
   return true;
 });
 
 window.__startAssistant = guard("__startAssistant", function (json) {
+  hideWaiting(); // the reply has arrived - hand over to the real bubble
   const p = payload(json);
   if (!findAssistant(p.mid)) {
     const a = addAssistant(p.mid, null);
@@ -763,6 +790,7 @@ function syncFinalReasoning(node, reasoning, streamedReasoning, body) {
 }
 
 window.__setAssistantText = guard("__setAssistantText", function (json) {
+  hideWaiting(); // a reply that never streamed still terminates the wait
   const p = payload(json);
   const text = typeof p.text === "string" ? p.text : "";
   const reasoning = typeof p.reasoning === "string" ? p.reasoning : "";
@@ -821,6 +849,7 @@ window.__setAssistantText = guard("__setAssistantText", function (json) {
 // markdown. Harmless when the bubble or cursor is absent (idempotent); an
 // authoritative __setAssistantText afterwards still replaces the whole body.
 window.__stopStream = guard("__stopStream", function (json) {
+  hideWaiting(); // a stream ending without a proper start must not strand it
   const p = payload(json);
   const node = findAssistant(p.mid);
   const state = streams.get(p.mid);
