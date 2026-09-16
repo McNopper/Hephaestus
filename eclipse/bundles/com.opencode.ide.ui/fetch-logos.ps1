@@ -24,7 +24,7 @@ param(
         'deepseek', 'meta',
         'mistral', 'mistral-ai', 'mistralai',  # 404 as of 2026-08-18
         'microsoft', 'nvidia',
-        'moonshot', 'moonshotai', 'moonshot-ai', 'kimi',  # 404 as of 2026-08-18
+        'moonshot', 'moonshotai', 'moonshot-ai', 'kimi',  # 404 as of 2026-09-16 - the shipped kimi logo is original artwork (see THIRD-PARTY.md)
         'qwen', 'alibaba',
         'amazon', 'amazon-web-services', 'amazon-nova', 'aws',
         'cohere',
@@ -35,6 +35,9 @@ param(
     ),
     [string]$BaseUrl = 'https://artificialanalysis.ai/img/logos',
     # Keep this in sync with ProviderLogos.java (slugs actually shipped).
+    # 'kimi' is intentionally NOT here: Artificial Analysis has no Moonshot/Kimi
+    # logo (404 as of 2026-09-16), so the shipped kimi PNGs are original
+    # artwork, not fetched — refreshing must not overwrite them.
     [string[]]$Ship = @(
         'alibaba', 'anthropic', 'aws', 'baidu', 'bytedance', 'cohere', 'deepseek',
         'github', 'google', 'meta', 'microsoft', 'minimax', 'nvidia', 'openai',

@@ -103,6 +103,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 | `deepseek.*` | DeepSeek | Hangzhou DeepSeek Artificial Intelligence Basic Technology Research Co., Ltd. |
 | `github.*` | GitHub Copilot | GitHub, Inc. |
 | `google.*` | Google (Gemini) | Google LLC |
+| `kimi.*` | Kimi (Moonshot AI) | none — original artwork, see note below |
 | `meta.*` | Meta (Llama) | Meta Platforms, Inc. |
 | `microsoft.*` | Microsoft (Azure) | Microsoft Corporation |
 | `minimax.*` | MiniMax | Shanghai MiniMax Artificial Intelligence Co., Ltd. |
@@ -113,6 +114,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Artificial Analysis itself is © V7 Labs (artificialanalysis.ai); the hosting
 site claims no ownership of the provider logos listed above.
+
+**Exception — `kimi.*`:** Artificial Analysis ships no Moonshot AI / Kimi logo
+(all slug spellings 404 as of 2026-09-16), so `icons/providers/svg/kimi.svg`
+and the rasterized `kimi_16.png`/`kimi_32.png` are **original artwork drawn
+for this repository** (a generic crescent-moon mark) and ARE covered by the
+repository's MIT license. `fetch-logos.ps1` deliberately excludes `kimi` from
+its Ship list so a refresh never overwrites it.
 
 ---
 

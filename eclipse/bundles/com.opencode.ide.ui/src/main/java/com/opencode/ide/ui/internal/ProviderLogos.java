@@ -51,12 +51,18 @@ public final class ProviderLogos {
             Map.entry("openrouter", "openrouter"),
             Map.entry("github", "github"),
             Map.entry("copilot", "github"),
-            Map.entry("github-copilot", "github"));
+            Map.entry("github-copilot", "github"),
+            Map.entry("kimi", "kimi"),
+            Map.entry("kimi-coding-plan", "kimi"),
+            Map.entry("kimi-for-coding", "kimi"),
+            Map.entry("moonshot", "kimi"),
+            Map.entry("moonshotai", "kimi"),
+            Map.entry("moonshot-ai", "kimi"));
 
-    /** Logo slugs vendored under {@code icons/providers/} (exact-match fallback). */
+    /** Logo slugs vendored under {@code icons/providers/} (exact-match fallback). {@code kimi} is original artwork, not an Artificial Analysis asset. */
     private static final Set<String> SLUGS = Set.of(
             "alibaba", "anthropic", "aws", "baidu", "bytedance", "cohere", "deepseek",
-            "github", "google", "meta", "microsoft", "minimax", "nvidia", "openai",
+            "github", "google", "kimi", "meta", "microsoft", "minimax", "nvidia", "openai",
             "openrouter", "zai");
 
     private static final ConcurrentMap<String, Image> CACHE = new ConcurrentHashMap<>();
