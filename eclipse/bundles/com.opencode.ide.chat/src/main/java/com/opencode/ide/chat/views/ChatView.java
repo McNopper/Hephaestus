@@ -28,6 +28,7 @@ import com.opencode.ide.chat.internal.ChatServerConnection;
 import com.opencode.ide.chat.internal.ChatSessionController;
 import com.opencode.ide.chat.internal.ChatSelectorState;
 import com.opencode.ide.chat.internal.CommandComposer;
+import com.opencode.ide.chat.internal.SelectorGuard;
 import com.opencode.ide.client.ChatCapabilities;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeEventListener;
@@ -86,6 +87,10 @@ public class ChatView extends ViewPart {
     private final ChatSelectorState selectors = new ChatSelectorState();
     private Combo modelCombo;
     private Combo variantCombo;
+    /** Deliberate-pick guards: un-armed selector drift (wheel/pointer traffic) reverts. */
+    private SelectorGuard agentGuard;
+    private SelectorGuard modelGuard;
+    private SelectorGuard variantGuard;
     private org.eclipse.swt.widgets.List commandPicker;
     private org.eclipse.swt.widgets.List queueList;
 
@@ -205,11 +210,11 @@ public class ChatView extends ViewPart {
         agentCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         agentCombo.setToolTipText("Agent");
         agentCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
-        agentCombo.addListener(SWT.Selection, e -> selectors.selectAgent(agentCombo.getText()));
+        agentGuard = wireGuardedCombo(agentCombo, text -> selectors.selectAgent(text));
         modelCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         modelCombo.setToolTipText("Model (provider/model) - pre-set to your preferred default (Preferences → OpenCode)");
         modelCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        modelCombo.addListener(SWT.Selection, e -> {
+        modelGuard = wireGuardedCombo(modelCombo, text -> {
             selectors.selectModel(selectedModel());
             rememberSelectedModel();
             fillVariants();
@@ -217,6 +222,11 @@ public class ChatView extends ViewPart {
         variantCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
         variantCombo.setToolTipText("Reasoning effort (model variant) - as in opencode");
         variantCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+        // the variant is read at send time (selectedVariant) - the guard's job
+        // here is only reverting wheel/keyboard drift on the combo itself
+        variantGuard = wireGuardedCombo(variantCombo, text -> {
+            // read at send time; nothing to commit
+        });
 
         // row 1.5: slash-command proposals (inline above the input; excluded
         // from the layout until a "/" trigger shows it)
@@ -406,6 +416,20 @@ public class ChatView extends ViewPart {
                 variantCombo.select(variantIndex);
             }
         }
+        resetSelectorGuards();
+    }
+
+    /** Programmatic selector updates move the guards' revert baselines (nothing commits). */
+    private void resetSelectorGuards() {
+        if (agentGuard != null && !agentCombo.isDisposed()) {
+            agentGuard.reset(agentCombo.getText());
+        }
+        if (modelGuard != null && !modelCombo.isDisposed()) {
+            modelGuard.reset(modelCombo.getText());
+        }
+        if (variantGuard != null && !variantCombo.isDisposed()) {
+            variantGuard.reset(variantCombo.getText());
+        }
     }
 
     private void renderModelSelection() {
@@ -413,6 +437,9 @@ public class ChatView extends ViewPart {
         modelCombo.select(selectors.models().indexOf(selectors.model()));
         rememberSelectedModel();
         sizeComboToContent(modelCombo);
+        if (modelGuard != null) {
+            modelGuard.reset(modelCombo.getText());
+        }
     }
 
     /**
@@ -433,6 +460,38 @@ public class ChatView extends ViewPart {
             gd.widthHint = Math.max(70, Math.min(width, 300));
             combo.getParent().layout(true);
         }
+    }
+
+    /**
+     * Wires one selector combo for deliberate changes only (user report
+     * 2026-09-16: pointer/wheel traffic over the selector row silently
+     * flipped agent/model/variant - Windows read-only combos fire
+     * {@code SWT.Selection} on mouse-wheel). A pick commits only when the
+     * dropdown was explicitly opened (mouse down) or Enter was pressed;
+     * un-armed drift (wheel, stray arrow keys) reverts the combo to the
+     * committed text. The semantics live in the SWT-free {@link SelectorGuard}.
+     */
+    private static SelectorGuard wireGuardedCombo(Combo combo, java.util.function.Consumer<String> commit) {
+        SelectorGuard guard = new SelectorGuard(combo.getText());
+        combo.addListener(SWT.MouseDown, e -> guard.arm());
+        // an opened-then-abandoned dropdown must not arm the NEXT drift
+        combo.addListener(SWT.FocusOut, e -> guard.disarm());
+        combo.addListener(SWT.DefaultSelection, e -> {
+            guard.arm(); // Enter is the same deliberate intent as a pick
+            String pick = guard.attempt(combo.getText());
+            if (pick != null) {
+                commit.accept(pick);
+            }
+        });
+        combo.addListener(SWT.Selection, e -> {
+            String pick = guard.attempt(combo.getText());
+            if (pick == null) {
+                combo.setText(guard.committed());
+            } else {
+                commit.accept(pick);
+            }
+        });
+        return guard;
     }
 
     private void rememberSelectedModel() {
@@ -465,6 +524,9 @@ public class ChatView extends ViewPart {
                 ? "This model has no reasoning variants"
                 : "Reasoning effort (model variant): " + String.join(", ", variants));
         sizeComboToContent(variantCombo);
+        if (variantGuard != null) {
+            variantGuard.reset(variantCombo.getText());
+        }
     }
 
     /** @return the selected {@code provider/model}, or {@code ""}. */

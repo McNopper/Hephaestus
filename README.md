@@ -178,10 +178,9 @@ a ticket), `project-manager-route-request` (ambiguous next step), `project-manag
 Agents/docs reference **tiers**, never hard-coded model IDs. The concrete model
 behind each tier is configured in `opencode.json` (the default `model` field)
 and in any per-agent override (only `graphics-expert` overrides, pinning to
-`very-high`); resolve through `/models`. The project config additionally
-whitelists `enabled_providers`, so `/models` and the chat's selector combos only
-offer the pinned provider — switching to a different model is a deliberate
-config edit, not a picker slip.
+`very-high`); resolve through `/models`. In the Eclipse chat, selector changes
+are deliberate by design: un-armed drift (mouse-wheel/pointer traffic over the
+selector row) reverts — only an opened-dropdown pick or Enter commits.
 
 | Tier | Selection rule |
 |---|---|

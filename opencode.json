@@ -1,7 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "zai-coding-plan/glm-5.3",
-  "enabled_providers": ["zai-coding-plan"],
   "instructions": ["AGENTS.md"],
   "mcp": {
     "tasks": {

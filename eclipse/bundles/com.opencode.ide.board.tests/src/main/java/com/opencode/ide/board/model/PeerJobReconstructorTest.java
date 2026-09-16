@@ -58,7 +58,11 @@ public class PeerJobReconstructorTest {
         assertEquals(claim.id, row.taskId());
         assertTrue(row.external());
         assertEquals(FleetJobHandle.State.RUNNING, row.state());
-        assertEquals(worktree.toString(), row.worktree());
+        // the reconstructor reports the CANONICAL path (FleetGit.fleetRoot
+        // toRealPaths the git dir so 8.3/subst aliases share locks - B-001);
+        // on CI runners the temp dir is C:\Users\RUNNER~1 while the real
+        // path is C:\Users\runneradmin, so compare real-to-real
+        assertEquals(worktree.toRealPath().toString(), row.worktree());
         assertNull(row.sessionId());
         assertTrue(row.detail(), row.detail().contains("external engine"));
     }
