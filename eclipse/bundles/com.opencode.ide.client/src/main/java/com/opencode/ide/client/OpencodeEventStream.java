@@ -33,8 +33,6 @@ public final class OpencodeEventStream {
 
     private static final String PATH = "/event";
     private static final String GLOBAL_PATH = "/global/event";
-    /** A connection must last this long before the back-off is considered cleared. */
-    private static final long STABLE_CONNECTION_MILLIS = 10_000L;
 
     private final HttpClient http;
     private final String path;
@@ -47,7 +45,7 @@ public final class OpencodeEventStream {
     private volatile Stream<String> body;
     private volatile boolean connected;
     private Thread loop;
-    private int backoffSeconds = 1;
+    private Duration backoff = ClientTuning.SSE_BACKOFF_BASE;
 
     public OpencodeEventStream(ConnectionConfig config, Consumer<OpencodeEvent> sink) {
         this(config, sink, null);
@@ -69,7 +67,7 @@ public final class OpencodeEventStream {
         this.path = path;
         this.http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1) // match HttpOpencodeClient: server dislikes h2c upgrades
-                .connectTimeout(ClientTuning.SSE_STABLE_CONNECTION)
+                .connectTimeout(ClientTuning.SSE_CONNECT_TIMEOUT)
                 .build();
         this.eventUri = config.baseUrl().resolve(path);
         this.authHeader = Auth.basicHeader(config.username(), config.password());
@@ -161,12 +159,12 @@ public final class OpencodeEventStream {
                 return;
             }
             if (running) {
-                sleep(backoffSeconds);
+                sleep(backoff);
                 // only clear the back-off when the connection actually held for a while,
                 // otherwise an immediately-closing endpoint becomes a 1 req/s hot loop
                 boolean stable = connectedAt > 0
-                        && System.currentTimeMillis() - connectedAt >= STABLE_CONNECTION_MILLIS;
-                backoffSeconds = stable ? 1 : Math.min(Math.max(backoffSeconds, 1) * 2, 30);
+                        && System.currentTimeMillis() - connectedAt >= ClientTuning.SSE_STABLE_CONNECTION.toMillis();
+                backoff = stable ? ClientTuning.SSE_BACKOFF_BASE : nextBackoff(backoff);
             }
         }
     }
@@ -194,6 +192,8 @@ public final class OpencodeEventStream {
             if (event != null) {
                 sink.accept(event);
             } else {
+                // 160 is a fixed diagnostic tier between SNIPPET_MIN and SNIPPET_MAX -
+                // log verbosity, deliberately not an operational knob
                 ClientLog.warning("opencode " + path + ": skipped malformed frame (" + truncate(json, 160) + ")");
             }
         });
@@ -206,9 +206,27 @@ public final class OpencodeEventStream {
         return value.length() <= max ? value : value.substring(0, max) + "...";
     }
 
-    private static void sleep(int seconds) {
+    /**
+     * Doubles the reconnect back-off, clamped to
+     * [{@link ClientTuning#SSE_BACKOFF_BASE}, {@link ClientTuning#SSE_BACKOFF_MAX}]
+     * (the floor mirrors the old {@code Math.max(backoffSeconds, 1)} guard).
+     */
+    private static Duration nextBackoff(Duration current) {
+        Duration floor = ClientTuning.SSE_BACKOFF_BASE;
+        Duration ceiling = ClientTuning.SSE_BACKOFF_MAX;
+        if (current.compareTo(floor) < 0) {
+            current = floor;
+        }
+        if (current.compareTo(ceiling) >= 0) {
+            return ceiling;
+        }
+        Duration doubled = current.multipliedBy(2);
+        return doubled.compareTo(ceiling) > 0 ? ceiling : doubled;
+    }
+
+    private static void sleep(Duration delay) {
         try {
-            Thread.sleep(seconds * 1000L);
+            Thread.sleep(delay.toMillis());
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }

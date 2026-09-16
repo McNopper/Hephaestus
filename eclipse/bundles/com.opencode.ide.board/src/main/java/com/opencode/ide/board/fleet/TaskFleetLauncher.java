@@ -24,6 +24,7 @@ import com.opencode.ide.fleet.DispatchGuard;
 import com.opencode.ide.fleet.FleetJob;
 import com.opencode.ide.fleet.FleetPermissionBridge;
 import com.opencode.ide.fleet.FleetRunner;
+import com.opencode.ide.fleet.FleetTuning;
 import com.opencode.ide.fleet.PermissionQueue;
 import com.opencode.ide.fleet.RoleAgents;
 import com.opencode.ide.fleet.SseSessionEvents;
@@ -66,9 +67,6 @@ public final class TaskFleetLauncher implements FleetLauncher {
         thread.setDaemon(true);
         return thread;
     });
-
-    /** How long a launched agent session may run before the fleet times it out. */
-    private static final Duration LAUNCH_TIMEOUT = com.opencode.ide.fleet.FleetTuning.DEFAULT_TICKET_BUDGET;
 
     private static final Map<CacheKey, TaskFleet> FLEETS_BY_ROOT = new ConcurrentHashMap<>();
 
@@ -144,8 +142,9 @@ public final class TaskFleetLauncher implements FleetLauncher {
     /**
      * The per-launch engine call
      * ({@link TaskFleet#launch(String, String, Path, Duration, Bootstrap)}
-     * with the board's timeout); a swappable seam so tests can capture what
-     * the launcher hands to the fleet (see {@link #useEngineLaunchForTests}).
+     * with {@link FleetTuning#DEFAULT_TICKET_BUDGET}); a swappable seam so
+     * tests can capture what the launcher hands to the fleet (see
+     * {@link #useEngineLaunchForTests}).
      */
     @FunctionalInterface
     public interface EngineLaunch {
@@ -272,11 +271,13 @@ public final class TaskFleetLauncher implements FleetLauncher {
             FleetJobHandle result;
             try {
                 TaskFleet fleet = fleets.apply(storeRoot);
+                // G-004: the run budget comes straight from the fleet engine's
+                // knob table — no parallel timeout constant here
                 result = map(includeStale == null
                         ? engineLaunch.launch(fleet, project, ticketId, launchRepoRoot,
-                                LAUNCH_TIMEOUT, currentBootstrap())
+                                FleetTuning.DEFAULT_TICKET_BUDGET, currentBootstrap())
                         : engineLaunch.launchAuto(fleet, project, ticketId, launchRepoRoot,
-                                LAUNCH_TIMEOUT, guard, includeStale, currentBootstrap()));
+                                FleetTuning.DEFAULT_TICKET_BUDGET, guard, includeStale, currentBootstrap()));
             } catch (RuntimeException e) {
                 if (includeStale != null && attempt != null && e instanceof DispatchGuard.AdmissionDeferred) {
                     attempt.deferred();

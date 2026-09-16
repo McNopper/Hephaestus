@@ -2,6 +2,7 @@ package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -10,12 +11,12 @@ import com.opencode.ide.tasks.Task;
 /**
  * Unit tests for {@link TicketRow}'s stage handling: effectiveStage
  * derivation (stored stage wins, role fallback, nulls), the compact status
- * prefix legend, and the null-safe label shapes.
+ * prefix legend, the type field mapping, and the null-safe label shapes.
  */
 public class TicketRowStageTest {
 
     private static TicketRow row(String stage, String role) {
-        return new TicketRow("T-001", "title", role, 2, null, false, null, "in-progress", stage);
+        return new TicketRow("T-001", "title", "task", role, 2, null, false, null, "in-progress", stage);
     }
 
     @Test
@@ -43,12 +44,15 @@ public class TicketRowStageTest {
         task.id = "T-009";
         task.title = "staged";
         task.role = "developer";
+        task.type = "bug";
         task.status = "in-progress";
         task.stage = "system";
         TicketRow mapped = TicketRow.from(task);
 
         assertEquals("system", mapped.stage());
         assertEquals("system", mapped.effectiveStage());
+        assertEquals("bug", mapped.type());
+        assertTrue(mapped.isBug());
         assertNull(TicketRow.from(null));
     }
 
@@ -65,18 +69,18 @@ public class TicketRowStageTest {
 
     @Test
     public void pipelineLabelIsCompact() {
-        TicketRow blocked = new TicketRow("T-1", "do things", "developer", 1, null,
+        TicketRow blocked = new TicketRow("T-1", "do things", "bug", "developer", 1, null,
                 true, "why", "in-review", "design");
-        assertEquals("[IR] [BLOCKED] do things", blocked.pipelineLabel());
+        assertEquals("[IR] [BLOCKED] [bug] do things", blocked.pipelineLabel());
 
-        TicketRow plain = new TicketRow("T-2", "plain", "developer", 1, null,
+        TicketRow plain = new TicketRow("T-2", "plain", "task", "developer", 1, null,
                 false, null, "done", null);
-        assertEquals("[D] plain", plain.pipelineLabel());
+        assertEquals("[D] [task] plain", plain.pipelineLabel());
     }
 
     @Test
     public void nullFieldsAreLabelSafe() {
-        TicketRow empty = new TicketRow(null, null, null, 0, null, false, null, null, null);
+        TicketRow empty = new TicketRow(null, null, null, null, 0, null, false, null, null, null);
         assertEquals("", empty.pipelineLabel());
         assertEquals("", empty.label());
         assertNull(empty.effectiveStage());

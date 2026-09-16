@@ -153,7 +153,7 @@ public final class OpencodeServerLauncher {
                     try { h.destroyForcibly(); } catch (Exception ignored) { /* ignore */ }
                 });
                 process.destroyForcibly();
-                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                if (!process.waitFor(ClientTuning.DESTROY_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {
                     // already forced; nothing more to do
                 }
             } catch (InterruptedException e) {
@@ -237,7 +237,7 @@ public final class OpencodeServerLauncher {
                 throw new OpencodeConnectionException("Interrupted while waiting for opencode readiness", e);
             }
             try {
-                Thread.sleep(500);
+                Thread.sleep(ClientTuning.PROBE_INTERVAL.toMillis());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new OpencodeConnectionException("Interrupted while waiting for opencode readiness", e);

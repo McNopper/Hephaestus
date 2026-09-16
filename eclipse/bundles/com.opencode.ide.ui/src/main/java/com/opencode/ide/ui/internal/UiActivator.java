@@ -8,6 +8,8 @@ import org.eclipse.swt.graphics.Image;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
+import com.opencode.ide.ui.session.SessionBusyPoller;
+
 /**
  * Bundle activator for {@code com.opencode.ide.ui}. Manages the plugin's
  * single instance and a shared, cached image registry for view/row icons.
@@ -16,13 +18,18 @@ public class UiActivator extends AbstractUIPlugin {
 
     public static final String PLUGIN_ID = "com.opencode.ide.ui";
 
-    /** Icon paths (relative to the bundle root) used across the views. */
+    /**
+     * Icon paths (relative to the bundle root) used across the views. The
+     * two session-row keys alias {@link SessionBusyPoller} — the pure
+     * busy→icon mapping is their single source of truth, so the poller's
+     * choices and the registry can never drift apart.
+     */
     public static final String ICON_SERVER = "icons/server.png";
     public static final String ICON_CATEGORY = "icons/category.png";
     public static final String ICON_AGENT = "icons/agent.png";
     public static final String ICON_AGENT_BUSY = "icons/agent-busy.png";
-    public static final String ICON_SESSION = "icons/session.png";
-    public static final String ICON_SESSION_BUSY = "icons/session-busy.png";
+    public static final String ICON_SESSION = SessionBusyPoller.ICON_SESSION;
+    public static final String ICON_SESSION_BUSY = SessionBusyPoller.ICON_SESSION_BUSY;
     public static final String ICON_PROVIDERS = "icons/providers.png";
     public static final String ICON_MODEL = "icons/model.png";
     public static final String ICON_MCP = "icons/mcp.png";

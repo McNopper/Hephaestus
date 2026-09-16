@@ -9,17 +9,30 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.opencode.ide.git.GitTuning;
+
 /**
  * Minimal git CLI access for the Fleet view ("Open diff"), using the same
  * process pattern as the git bundle's worktree manager: {@code git -C <dir>}
  * with UTF-8 output capture, asynchronous stream reads and a timeout with
- * {@code destroyForcibly()}. The {@link #run} seam is generic (any command)
- * so the failure modes — missing binary, timeout, non-zero exit — are
- * unit-testable without going through git diff every time.
+ * {@code destroyForcibly()}. The timeout is the git bundle's canonical knob
+ * ({@link GitTuning#COMMAND_TIMEOUT} — env-overridable via
+ * {@code GIT_COMMAND_TIMEOUT_MS}); G-004: no parallel magic numbers. The
+ * {@link #run} seam is generic (any command) so the failure modes — missing
+ * binary, timeout, non-zero exit — are unit-testable without going through
+ * git diff every time.
  */
 public final class GitCli {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    /**
+     * The per-command timeout, delegated to the git bundle's knob table so
+     * every git invocation in the product shares one tunable value. (The
+     * binary discovery stays a bare {@code "git"} PATH lookup: the git
+     * bundle's {@code GitLocator} lives in its internal package, exported
+     * only to the git tests — reusing it would need a cross-bundle manifest
+     * change; see G-004 notes.)
+     */
+    private static final Duration TIMEOUT = GitTuning.COMMAND_TIMEOUT;
 
     private GitCli() {
     }
@@ -76,9 +89,14 @@ public final class GitCli {
         return out + (err.isBlank() ? "" : "\n--- stderr ---\n" + err);
     }
 
+    /**
+     * Waits for one stream-drain future with the shared drain budget
+     * ({@link GitTuning#OUTPUT_DRAIN_WAIT}, same 5 s default as the git
+     * bundle's own join calls — G-004 symmetry: one drain knob everywhere).
+     */
     private static String join(CompletableFuture<String> future) {
         try {
-            return future.get(5, TimeUnit.SECONDS);
+            return future.get(GitTuning.OUTPUT_DRAIN_WAIT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             return "";
         }

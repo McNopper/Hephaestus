@@ -7,9 +7,11 @@ import com.opencode.ide.tasks.VStages;
  * One row of the kanban board: a pure, SWT-free projection of a
  * {@link Task} for display (mapping only, no store access). Carries the
  * nullable V-model {@code stage} plus the role-derived fallback
- * {@link #effectiveStage()} for legacy tickets without one.
+ * {@link #effectiveStage()} for legacy tickets without one, and the ticket
+ * {@code type} behind the {@link #typeTag()} decoration (U-005: bugs must be
+ * visible at a glance on the row itself).
  */
-public record TicketRow(String id, String title, String role, int points, String assignee,
+public record TicketRow(String id, String title, String type, String role, int points, String assignee,
         boolean blocked, String blocker, String status, String stage) {
 
     /** Maps a store {@link Task} to a row ({@code null}-safe: {@code null} in, {@code null} out). */
@@ -17,7 +19,7 @@ public record TicketRow(String id, String title, String role, int points, String
         if (task == null) {
             return null;
         }
-        return new TicketRow(task.id, task.title, task.role, task.storyPoints,
+        return new TicketRow(task.id, task.title, task.type, task.role, task.storyPoints,
                 task.assignee, task.blocked, task.blocker, task.status, task.stage);
     }
 
@@ -40,6 +42,37 @@ public record TicketRow(String id, String title, String role, int points, String
         return blocked && !"done".equals(status);
     }
 
+    /**
+     * Whether this row is a bug ticket — the one type that gets the distinct
+     * red accent on the board (U-005: bugs are triaged first, so they must
+     * stand out from features). Kept as a predicate so the SWT side stays a
+     * one-liner and the semantics stay testable.
+     */
+    public boolean isBug() {
+        return "bug".equals(type);
+    }
+
+    /**
+     * The compact type badge for row labels: lowercase bracketed, so type
+     * tags ({@code [bug]}) read distinctly from the uppercase state tags
+     * ({@code [IP]}, {@code [BLOCKED]}). Valid store types (bug/story/task/
+     * spike) map to themselves; an unknown non-blank type (hand-edited
+     * frontmatter) is bracketed verbatim rather than hidden; {@code null}/
+     * blank reads as "" (legacy rows without a type render untagged, no
+     * stray spaces).
+     */
+    public static String typeTag(String type) {
+        if (type == null || type.isBlank()) {
+            return "";
+        }
+        return "[" + type.trim() + "]";
+    }
+
+    /** The row's own type badge; see {@link #typeTag(String)}. */
+    public String typeTag() {
+        return typeTag(type);
+    }
+
     /** Compact status prefix for pipeline rows; unknown/null statuses read as "". */
     public static String statusPrefix(String status) {
         if (status == null) {
@@ -55,37 +88,46 @@ public record TicketRow(String id, String title, String role, int points, String
         };
     }
 
-    /** The flat-board column text: {@code [BLOCKED] ID title}. */
+    /** The flat-board column text: {@code [BLOCKED] ID [type] title}. */
     public String label() {
         StringBuilder sb = new StringBuilder();
         if (displayBlocked()) {
-            sb.append("[BLOCKED] ");
+            sb.append("[BLOCKED]");
         }
-        if (id != null) {
-            sb.append(id).append(' ');
+        appendTag(sb, id);
+        appendTag(sb, typeTag());
+        if (title != null && !title.isBlank()) {
+            appendTag(sb, title.trim());
         }
-        if (title != null) {
-            sb.append(title);
-        }
-        return sb.toString().trim();
+        return sb.toString();
     }
 
-    /** The compact pipeline column text: {@code [IP] [BLOCKED] title}. */
+    /** The compact pipeline column text: {@code [IP] [BLOCKED] [type] title}. */
     public String pipelineLabel() {
         StringBuilder sb = new StringBuilder(statusPrefix(status));
         if (displayBlocked()) {
-            if (!sb.isEmpty()) {
-                sb.append(' ');
-            }
-            sb.append("[BLOCKED]");
+            appendTag(sb, "[BLOCKED]");
         }
+        appendTag(sb, typeTag());
         if (title != null && !title.isBlank()) {
-            if (!sb.isEmpty()) {
-                sb.append(' ');
-            }
-            sb.append(title.trim());
+            appendTag(sb, title.trim());
         }
         return sb.toString();
+    }
+
+    /**
+     * Appends {@code tag} to {@code sb} with a separating space when needed;
+     * a blank tag appends nothing (no stray double spaces around missing
+     * pieces).
+     */
+    private static void appendTag(StringBuilder sb, String tag) {
+        if (tag == null || tag.isEmpty()) {
+            return;
+        }
+        if (!sb.isEmpty()) {
+            sb.append(' ');
+        }
+        sb.append(tag);
     }
 
     /** The points column text. */

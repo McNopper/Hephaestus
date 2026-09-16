@@ -80,10 +80,12 @@ import com.opencode.ide.board.model.DispatchPolicyStore;
 import com.opencode.ide.fleet.dispatch.DispatchScheduler;
 import com.opencode.ide.board.model.FleetJobsModel;
 import com.opencode.ide.board.model.PipelineSnapshot;
+import com.opencode.ide.board.model.SprintSelection;
 import com.opencode.ide.board.model.StageColumn;
 import com.opencode.ide.board.model.StageSelection;
 import com.opencode.ide.board.model.TakeoverRouter;
 import com.opencode.ide.board.model.TaskStoreWatcher;
+import com.opencode.ide.board.model.TasksRootResolution;
 import com.opencode.ide.board.model.TicketRow;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.fleet.Bootstrap;
@@ -99,14 +101,21 @@ import com.opencode.ide.tasks.VStages;
  * toolbar carries the store-root and project inputs (persisted via dialog
  * settings), the sprint selector, the "Group by" layout choice (None = the
  * flat five-column status kanban, Pipeline = the ten V-model stage columns
- * plus a trailing untracked group; persisted too), a blocked-only toggle,
- * and Refresh / Launch task / Auto-dispatch / Auto (the background loop) /
- * Dispatch settings / Take over. The board refreshes
- * live via {@link TaskStoreWatcher} on {@code <root>/<project>} and survives
- * a missing store (notice instead of exception, polling continues).
+ * plus a trailing untracked group; persisted too), a blocked-only toggle, a
+ * bugs-only toggle (U-005 triage), and Refresh / Launch task /
+ * Auto-dispatch / Auto (the background loop) / Dispatch settings / Take
+ * over. The board refreshes live via {@link TaskStoreWatcher} on
+ * {@code <root>/<project>} — including peer-agent writes and git-checkout
+ * file replacements (B-002) — and survives a missing store (notice instead
+ * of exception, polling continues). The watched root is the adopted repo
+ * store ({@link TasksRootResolution}); a refresh that finds the unpicked
+ * (backlog) default empty while real sprints exist auto-selects the newest
+ * sprint instead of silently showing an empty board.
  *
  * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red
- * blocked count in every pipeline column header. The context menu on a ticket
+ * blocked count in every pipeline column header. Bug tickets carry a red
+ * {@code [bug]} type tag on the row (normal weight — blocked stays the
+ * louder signal; U-005). The context menu on a ticket
  * row mirrors the toolbar (Launch task / Take over / Open ticket… / Copy
  * ticket id) and adds the V-pipeline moves "Advance stage →" / "Send back…"
  * (failures surface in the status line).</p>
@@ -170,9 +179,18 @@ public class BoardView extends ViewPart {
     private Action dispatchSettingsAction;
     private Action takeOverAction;
     private Action blockedOnlyAction;
+    /** U-005's optional triage filter: show only bug tickets (model: {@code bugsOnly}). */
+    private Action bugsOnlyAction;
     private Action stageFilterAction;
     /** Selected stage ids for the visibility filter; {@code null} = all visible. */
     private Set<String> visibleStages;
+    /**
+     * True once the user picked a sprint in the selector this session; the
+     * B-002 auto-select only acts while this is false (an explicit pick is
+     * never overridden). Not persisted: a fresh session may auto-select
+     * again.
+     */
+    private boolean sprintPicked;
     private boolean updatingSprintCombo;
     private boolean updatingModeCombo;
     private String rootOverride = "";
@@ -574,7 +592,9 @@ public class BoardView extends ViewPart {
         return element instanceof TicketRow row ? row : null;
     }
 
-    /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows (never for done rows). */
+    /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows (never for done rows),
+     * red (normal weight) for bug rows — the U-005 triage accent: blocked stays the louder bold-red signal,
+     * bugs read as a steady red "[bug]" row in both light and dark themes. */
     private static final class BoardRowLabel extends ColumnLabelProvider {
         private final boolean pipeline;
 
@@ -597,6 +617,7 @@ public class BoardView extends ViewPart {
             StringBuilder sb = new StringBuilder(STATUS_LEGEND);
             sb.append("\n").append(safe(row.id())).append(" \u2014 ").append(safe(row.title()));
             sb.append("\nstatus: ").append(safe(row.status()));
+            sb.append(" · type: ").append(row.type() == null ? "(none)" : row.type());
             sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
             if (row.displayBlocked()) {
                 sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
@@ -608,8 +629,13 @@ public class BoardView extends ViewPart {
         public Color getForeground(Object element) {
             TicketRow row = asRow(element);
             Display display = Display.getCurrent();
-            return row != null && row.displayBlocked() && display != null
-                    ? display.getSystemColor(SWT.COLOR_RED) : null;
+            if (row == null || display == null) {
+                return null;
+            }
+            if (row.displayBlocked() || row.isBug()) {
+                return display.getSystemColor(SWT.COLOR_RED);
+            }
+            return null;
         }
 
         @Override
@@ -683,6 +709,9 @@ public class BoardView extends ViewPart {
                         }
                         int index = sprintCombo.getSelectionIndex();
                         if (index >= 0 && model != null) {
+                            // explicit user choice — the B-002 auto-select
+                            // must never override it afterwards
+                            sprintPicked = true;
                             cancelDispatchForSelection();
                             model.setSprint(sprintCombo.getItem(index));
                             refresh();
@@ -743,6 +772,17 @@ public class BoardView extends ViewPart {
             }
         };
         blockedOnlyAction.setToolTipText("Show only blocked tickets (both layouts)");
+
+        bugsOnlyAction = new Action("Bugs only", Action.AS_CHECK_BOX) {
+            @Override
+            public void run() {
+                if (model != null) {
+                    model.setBugsOnly(isChecked());
+                    refresh();
+                }
+            }
+        };
+        bugsOnlyAction.setToolTipText("Show only bug tickets (both layouts)");
 
         stageFilterAction = new Action("Stages", Action.AS_DROP_DOWN_MENU) {
             @Override
@@ -827,6 +867,7 @@ public class BoardView extends ViewPart {
         takeOverAction.setEnabled(false);
 
         toolbar.add(blockedOnlyAction);
+        toolbar.add(bugsOnlyAction);
         toolbar.add(stageFilterAction);
         toolbar.add(refreshAction);
         toolbar.add(syncStoreAction);
@@ -880,6 +921,9 @@ public class BoardView extends ViewPart {
         projectName = newProject;
         if (changed) {
             cancelDispatchForSelection();
+            // fresh project/root context: the sprint choice does not carry
+            // over, so the auto-select may act again (B-002)
+            sprintPicked = false;
             model.setProject(newProject);
             model.setRoot(resolveTasksRoot(rootOverride));
             createLauncher();
@@ -964,6 +1008,9 @@ public class BoardView extends ViewPart {
             applyFlatSnapshot(snapshot);
         }
         refreshSprintCombo(sprints);
+        if (maybeAutoSelectSprint(sprints, snapshot)) {
+            return; // sprint switched: the refresh this triggers re-renders everything
+        }
         if (snapshot.error() != null) {
             setContentDescription(snapshot.error());
         } else {
@@ -1037,6 +1084,36 @@ public class BoardView extends ViewPart {
         } finally {
             updatingSprintCombo = false;
         }
+    }
+
+    /**
+     * B-002: a refresh that finds the board sitting empty on the unpicked
+     * {@code (backlog)} default while real sprints exist switches to the
+     * newest one — the live case where a peer plans a sprint, moves the
+     * tickets into it, and the board silently shows nothing instead. The
+     * decision lives in {@link SprintSelection} (SWT-free, tested); an
+     * explicit user pick (or a non-empty board) always wins.
+     *
+     * @return whether the sprint changed (caller skips the rest; the
+     *         triggered refresh re-renders title, columns and counts)
+     */
+    private boolean maybeAutoSelectSprint(List<String> sprints, BoardSnapshot snapshot) {
+        if (model == null || snapshot.error() != null) {
+            return false;
+        }
+        String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints,
+                snapshot.total());
+        if (candidate == null) {
+            return false;
+        }
+        // a sprint switch invalidates the dispatch loop's context, exactly
+        // like a manual selection (captureDispatch snapshots the sprint)
+        cancelDispatchForSelection();
+        model.setSprint(candidate);
+        refreshSprintCombo(sprints);
+        statusMessage("Auto-selected sprint " + candidate + " \u2014 (backlog) was empty");
+        refresh();
+        return true;
     }
 
     private void restartWatcher() {
@@ -1502,38 +1579,63 @@ public class BoardView extends ViewPart {
         return opencode == null ? null : opencode.getParent();
     }
 
+    /**
+     * The board's task-store root: the explicit override, else the adopted
+     * repo store (workspace climb, then open-workspace projects), else the
+     * preference fallback — the full order lives in
+     * {@link TasksRootResolution} (SWT-free, unit-tested). B-002 AC-4: what
+     * resolves here is what the watcher watches, and a stale preference
+     * default must never shadow the adopted repo store.
+     */
     private static Path resolveTasksRoot(String override) {
-        Path workspace = workspaceRoot();
-        if (override != null && !override.isBlank()) {
-            Path path = Path.of(override.trim());
-            return (path.isAbsolute() ? path : workspace.resolve(path)).normalize();
-        }
-        for (Path dir = workspace; dir != null; dir = dir.getParent()) {
-            Path candidate = dir.resolve(".opencode").resolve("tasks");
-            if (Files.isDirectory(candidate)) {
-                return candidate.normalize();
-            }
-        }
-        // preference default (Preferences → OpenCode → default task store), when set
+        return TasksRootResolution.resolve(override, workspaceRoot(), workspaceProjectLocations(),
+                BoardView::preferenceTasksRoot);
+    }
+
+    /**
+     * The {@code tasksRoot} workspace preference text (Preferences →
+     * OpenCode); {@code null} when unset or unreadable (headless/test
+     * contexts) — {@link TasksRootResolution} treats null as no preference.
+     */
+    private static String preferenceTasksRoot() {
         try {
             String configured = new com.opencode.ide.core.OpencodePreferences().getTasksRoot();
-            if (configured != null && !configured.isBlank()) {
-                Path candidate = Path.of(configured.trim());
-                if (Files.isDirectory(candidate)) {
-                    return candidate.normalize();
+            return configured == null || configured.isBlank() ? null : configured.trim();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * O-001/B-002 adoption candidates: the locations of the open workspace
+     * projects. A project imported from inside a repo makes that repo's
+     * {@code .opencode/tasks} adoptable even when the workspace directory
+     * itself is outside every repo. Empty when the resources plugin is
+     * unavailable (tests, non-workbench hosts) — the climb still runs.
+     */
+    private static List<Path> workspaceProjectLocations() {
+        try {
+            var projects = org.eclipse.core.resources.ResourcesPlugin.getWorkspace()
+                    .getRoot().getProjects();
+            List<Path> locations = new ArrayList<>();
+            for (var project : projects) {
+                var location = project.getLocation();
+                if (location != null) {
+                    locations.add(location.toFile().toPath().toAbsolutePath().normalize());
                 }
             }
-        } catch (RuntimeException ignored) {
-            // headless/test contexts without the preferences node: fall through
+            return locations;
+        } catch (LinkageError | RuntimeException e) {
+            // no resources plugin / no workbench: adoption falls back to the climb
+            return List.of();
         }
-        return workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize();
     }
 
     /**
      * The board's current task-store root — the persisted root override when
-     * set, else the auto-detected/preference default. Package-private seam
-     * for the Fleet view's peer-row scan (F-004), so both views read the
-     * same store.
+     * set, else the adopted repo store with the preference fallback (see
+     * {@link TasksRootResolution}). Package-private seam for the Fleet view's
+     * peer-row scan (F-004), so both views read the same store.
      */
     static Path tasksRoot() {
         return resolveTasksRoot(storedRootOverride());
@@ -1595,17 +1697,12 @@ public class BoardView extends ViewPart {
                 // defaults survive an unreadable dialog settings file
             }
         }
-        if (rootOverride.isBlank()) {
-            // preference default (Preferences → OpenCode): the repo's task store
-            try {
-                String configuredRoot = new com.opencode.ide.core.OpencodePreferences().getTasksRoot();
-                if (configuredRoot != null && !configuredRoot.isBlank()) {
-                    rootOverride = configuredRoot.trim();
-                }
-            } catch (RuntimeException ignored) {
-                // headless/test contexts: keep the empty override (auto-detect)
-            }
-        }
+        // B-002: the preference is deliberately NOT seeded into rootOverride
+        // anymore. The old seeding froze whatever the preference said into
+        // the dialog settings, after which the board never re-read the
+        // preference — and a stale value (old clone, pre-P1-4 dev default)
+        // permanently shadowed the adopted repo store. The preference is now
+        // a LIVE fallback inside TasksRootResolution, ranked below adoption.
         if (projectName == null || projectName.isBlank()) {
             projectName = BoardModel.DEFAULT_PROJECT;
         }

@@ -131,6 +131,11 @@ final class TicketDetailsDialog extends Dialog {
     private String metaLine() {
         StringBuilder sb = new StringBuilder();
         sb.append(safe(task.status));
+        // U-005: the type rides the header line too (bug vs feature is the
+        // first triage question); blank types (legacy) are simply omitted
+        if (task.type != null && !task.type.isBlank()) {
+            sb.append("  •  ").append(task.type.trim());
+        }
         if (task.sprint != null) {
             sb.append("  •  sprint ").append(task.sprint);
         }

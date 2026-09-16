@@ -28,6 +28,7 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     private static final Duration DEFAULT_TIMEOUT = com.opencode.ide.git.GitTuning.COMMAND_TIMEOUT;
     private static final Duration MERGE_TIMEOUT = com.opencode.ide.git.GitTuning.MERGE_TIMEOUT;
+    private static final Duration DRAIN_WAIT = com.opencode.ide.git.GitTuning.OUTPUT_DRAIN_WAIT;
 
     private final String gitCommand;
     private final String gitOrigin;
@@ -379,7 +380,7 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     private static String join(CompletableFuture<String> future) {
         try {
-            return future.get(5, TimeUnit.SECONDS);
+            return future.get(DRAIN_WAIT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             return "";
         }

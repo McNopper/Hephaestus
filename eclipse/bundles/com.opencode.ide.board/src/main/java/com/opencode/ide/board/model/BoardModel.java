@@ -48,6 +48,11 @@ public final class BoardModel {
     private BoardMode mode = BoardMode.FLAT;
     private boolean blockedOnly;
     /**
+     * True when only bug tickets are shown (U-005's triage filter: bugs
+     * first). Applies in both modes, like {@link #blockedOnly}.
+     */
+    private boolean bugsOnly;
+    /**
      * Stage visibility filter: {@code null} = all visible (default); otherwise
      * only tickets whose {@link TicketRow#effectiveStage()} is in the set are
      * shown. May contain {@link PipelineSnapshot#UNTRACKED} to include the
@@ -107,6 +112,15 @@ public final class BoardModel {
         this.blockedOnly = blockedOnly;
     }
 
+    /** True when only bug tickets are shown (applies to both modes). */
+    public boolean bugsOnly() {
+        return bugsOnly;
+    }
+
+    public void setBugsOnly(boolean bugsOnly) {
+        this.bugsOnly = bugsOnly;
+    }
+
     /**
      * The stage visibility filter ({@code null} = all stages visible). The
      * returned set is a copy; mutating it has no effect.
@@ -159,6 +173,7 @@ public final class BoardModel {
                 for (Task t : board.getOrDefault(status, List.of())) {
                     TicketRow row = TicketRow.from(t);
                     if (row == null || (blockedOnly && !row.blocked())
+                            || (bugsOnly && !row.isBug())
                             || !stageVisible(row.effectiveStage())) {
                         continue;
                     }

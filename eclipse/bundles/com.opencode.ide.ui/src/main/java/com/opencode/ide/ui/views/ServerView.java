@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IAdaptable;
@@ -50,6 +52,7 @@ import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
 import com.opencode.ide.ui.model.WorkingSet;
+import com.opencode.ide.ui.session.SessionBusyPoller;
 
 /**
  * Per-server explorer: one root per connection of the
@@ -64,7 +67,10 @@ import com.opencode.ide.ui.model.WorkingSet;
  * <p>The primary root behaves exactly like the former single-root view
  * (including the live {@code /event} activity tracker); remote roots show
  * health + agents + sessions from their own client, with an {@code offline}
- * tag when unreachable. The tree is {@code SWT.VIRTUAL}: tree items are only
+ * tag when unreachable. On top of the event stream, one
+ * {@link SessionBusyPoller} per connection polls {@code /session/status}
+ * so the busy icons stay live for remote roots and survive dropped events.
+ * The tree is {@code SWT.VIRTUAL}: tree items are only
  * materialized when their parent is expanded, and child counts come from the
  * already-loaded in-memory lists (no fetching for collapsed roots).</p>
  */
@@ -84,6 +90,14 @@ public class ServerView extends ViewPart implements Refreshable {
     private Runnable trackerListener;
     private Runnable connectionsListener;
     private boolean refreshPending;
+
+    /**
+     * One busy-status poller per live connection client (see
+     * {@link #updateBusyPollers}); created, read and disposed on the UI
+     * thread only — poll results hop back via
+     * {@link #onBusySessions(OpencodeClient, Set)}.
+     */
+    private final Map<OpencodeClient, SessionBusyPoller> busyPollers = new HashMap<>();
 
     private final ActivityTracker tracker = new ActivityTracker();
 
@@ -727,6 +741,11 @@ public class ServerView extends ViewPart implements Refreshable {
             trackerListener = this::onTrackerChanged;
             tracker.addListener(trackerListener);
         }
+        // Backstop the SSE-driven busy icons with one /session/status
+        // poller per connection: remote roots have no event stream here,
+        // and any connection can drop or miss events. Reconciled per poll
+        // into the owning node's statuses (busy set in, stale busy out).
+        updateBusyPollers(nodes);
         // Pass a list as input (NEVER a tree element itself): if the input
         // equals a tree element, the TreeViewer's expansion logic can misbehave.
         viewer.setInput(roots);
@@ -768,6 +787,84 @@ public class ServerView extends ViewPart implements Refreshable {
                     scheduleRefresh();
                 }
             });
+        }
+    }
+
+    // ---------- live busy state (polled /session/status backstop) ----------
+
+    /**
+     * Ensures exactly one {@link SessionBusyPoller} runs per loaded
+     * connection client, and disposes pollers whose client vanished (a
+     * reconnect creates a new client, so the old poller retires with it).
+     * Called on the UI thread from {@link #showNodes}; results arrive on
+     * {@link #onBusySessions(OpencodeClient, Set)}. Offline roots (no
+     * client) are skipped — they have nothing to poll until a refresh
+     * reloads them.
+     */
+    private void updateBusyPollers(List<ServerNode> nodes) {
+        Set<OpencodeClient> wanted = new HashSet<>();
+        for (ServerNode node : nodes) {
+            if (node.client != null) {
+                wanted.add(node.client);
+            }
+        }
+        busyPollers.entrySet().removeIf(entry -> {
+            if (wanted.contains(entry.getKey())) {
+                return false;
+            }
+            entry.getValue().dispose();
+            return true;
+        });
+        for (OpencodeClient client : wanted) {
+            busyPollers.computeIfAbsent(client, c -> {
+                SessionBusyPoller poller = new SessionBusyPoller(c,
+                        SessionBusyPoller.DEFAULT_INTERVAL_MILLIS, this::logBusyPollError);
+                poller.addListener(busy -> onBusySessions(c, busy));
+                poller.start();
+                return poller;
+            });
+        }
+    }
+
+    /**
+     * One poller's fresh busy set (poller thread): reconcile it into every
+     * node sharing that client — the same UI-thread hop the SSE listeners
+     * use — and coalesce a viewer refresh when anything actually changed
+     * (unchanged polls stay silent, so the tree never flickers at the poll
+     * rhythm).
+     */
+    private void onBusySessions(OpencodeClient client, Set<String> busy) {
+        Display display = Display.getDefault();
+        if (display == null || display.isDisposed()) {
+            return;
+        }
+        display.asyncExec(() -> {
+            if (viewer == null || viewer.getControl().isDisposed()) {
+                return;
+            }
+            boolean changed = false;
+            for (ServerNode node : roots) {
+                if (node.client == client && SessionBusyPoller.mergeInto(node.statuses, busy)) {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                scheduleRefresh();
+            }
+        });
+    }
+
+    /**
+     * Logs one poll failure. WARNING, not ERROR: transient by construction —
+     * the poller reports only the transition into failure and keeps polling,
+     * so an unreachable server cannot flood the error log while the view
+     * stays open.
+     */
+    private void logBusyPollError(Exception error) {
+        UiActivator activator = UiActivator.getDefault();
+        if (activator != null) {
+            activator.getLog().log(new Status(Status.WARNING, UiActivator.PLUGIN_ID,
+                    "Polling /session/status failed; busy icons may go stale until it recovers", error));
         }
     }
 
@@ -1107,12 +1204,13 @@ public class ServerView extends ViewPart implements Refreshable {
             return icon(nested.session()); // same (busy-aware) icon as the Sessions category
         }
         if (element instanceof Session s) {
-            // busy/thinking sessions get a distinct (orange) bubble so changes are visible at a glance
+            // busy/thinking sessions get a distinct (orange) bubble so changes are visible at a glance;
+            // the busy flag comes from the node's statuses, fed by SSE events AND the /session/status poller
             ServerNode node = ownerOf(s);
             boolean active = ServerLabels.isBusy(node == null ? null : node.statuses, s)
                     || (node != null && node.activity.containsKey(s.id()))
                     || ServerLabels.sessionActive(tracker.snapshot(), s.id());
-            return UiActivator.image(active ? UiActivator.ICON_SESSION_BUSY : UiActivator.ICON_SESSION);
+            return UiActivator.image(SessionBusyPoller.iconKey(active));
         }
         if (element instanceof Agent) {
             return UiActivator.image(UiActivator.ICON_AGENT);
@@ -1356,6 +1454,12 @@ public class ServerView extends ViewPart implements Refreshable {
 
     @Override
     public void dispose() {
+        // stop the busy pollers first: they feed asyncExec callbacks that
+        // all re-check the viewer's disposal, so a late callback is harmless
+        for (SessionBusyPoller poller : busyPollers.values()) {
+            poller.dispose();
+        }
+        busyPollers.clear();
         if (trackerListener != null) {
             tracker.removeListener(trackerListener);
             trackerListener = null;

@@ -1,6 +1,7 @@
 package com.opencode.ide.board.model;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,16 +16,21 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import java.util.zip.CRC32;
 
 /**
  * Watches {@code <root>/<project>} for task-store changes and fires the
  * listener (debounced ~300 ms). Combines a {@link WatchService}
  * (create/delete/modify) with a 2 s poll fallback keyed on a fingerprint of
  * the {@code *.md} + {@code _meta.json} files, so missed watch events and
- * directories that appear only later are still picked up. The store's atomic
- * tmp-rename writes are tolerated: entries whose name starts with {@code .}
- * (temp files, {@code .lock}) are ignored. All SWT-free; the listener runs on
- * the watcher's daemon thread.
+ * directories that appear only later are still picked up. The fingerprint
+ * covers each file's <b>name, mtime, size AND content checksum</b> (B-002):
+ * peer processes replace files (atomic tmp-rename, git checkout/rebase) and
+ * a rewrite that lands within the same millisecond with the same byte size
+ * would otherwise be invisible to an mtime+size fingerprint. The store's
+ * atomic tmp-rename writes are tolerated: entries whose name starts with
+ * {@code .} (temp files, {@code .lock}) are ignored. All SWT-free; the
+ * listener runs on the watcher's daemon thread.
  */
 public final class TaskStoreWatcher {
 
@@ -190,10 +196,32 @@ public final class TaskStoreWatcher {
             try {
                 h = 31 * h + Files.getLastModifiedTime(p).toMillis();
                 h = 31 * h + Files.size(p);
+                h = 31 * h + contentChecksum(p);
             } catch (IOException e) {
                 h = 31 * h + 1;
             }
         }
         return h;
+    }
+
+    /**
+     * A cheap content checksum (CRC32 over the bytes) — the piece that makes
+     * the fingerprint content-sensitive: a peer rewrite that preserves name,
+     * size and mtime still changes it. Markdown stores are a few hundred KB
+     * total, so re-reading them every poll is negligible; a file vanishing
+     * mid-read (peer delete/rename race) reads as a change, which it is.
+     */
+    private static long contentChecksum(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            CRC32 crc = new CRC32();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                crc.update(buffer, 0, read);
+            }
+            return crc.getValue();
+        } catch (IOException e) {
+            return -1; // unreadable right now: hashes as a change, never as a stable state
+        }
     }
 }

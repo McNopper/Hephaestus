@@ -1,6 +1,7 @@
 package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -125,6 +126,28 @@ public class BoardModelTest {
         assertTrue(sprints.contains("S-01"));
         assertTrue(sprints.contains("S-09"));
         assertEquals(BoardModel.BACKLOG, sprints.get(sprints.size() - 1));
+    }
+
+    @Test
+    public void peerCreatedSprintAppearsInTheSprintListOnRefresh() {
+        // B-002 live case: the board (this model) is already open when a peer
+        // plans a sprint and moves tickets into it — a SECOND TaskStore on
+        // the same root stands in for the other process. No caching anywhere
+        // may keep the new sprint out of the selector's list.
+        BoardModel model = new BoardModel(root, "p");
+        model.refresh();
+        assertFalse("no sprints before the peer acts", model.sprints().contains("sprint-peer"));
+
+        TaskStore peer = new TaskStore(root);
+        Task t = peer.create("p", TaskStore.CreateSpec.of("peer ticket"));
+        peer.planSprint("p", "sprint-peer", List.of(t.id), "peer work");
+
+        List<String> sprints = model.sprints();
+        assertTrue("the peer-planned sprint must be selectable on the next refresh",
+                sprints.contains("sprint-peer"));
+        // ...and its board is readable through the same store
+        model.setSprint("sprint-peer");
+        assertEquals(1, model.refresh().total());
     }
 
     @Test

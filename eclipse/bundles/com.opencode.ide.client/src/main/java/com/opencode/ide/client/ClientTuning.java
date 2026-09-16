@@ -44,6 +44,12 @@ public final class ClientTuning {
     public static final Duration DESTROY_WAIT = duration(
             "CLIENT_DESTROY_WAIT_MS", Duration.ofSeconds(3));
 
+    /** SSE HttpClient connect timeout (the stream's own TCP connect budget,
+     *  deliberately independent of the REST client's {@link #CONNECT_TIMEOUT}).
+     *  Env: CLIENT_SSE_CONNECT_TIMEOUT_MS. */
+    public static final Duration SSE_CONNECT_TIMEOUT = duration(
+            "CLIENT_SSE_CONNECT_TIMEOUT_MS", Duration.ofSeconds(10));
+
     /** SSE reconnect backoff base. Env: CLIENT_SSE_BACKOFF_BASE_MS. */
     public static final Duration SSE_BACKOFF_BASE = duration(
             "CLIENT_SSE_BACKOFF_BASE_MS", Duration.ofSeconds(1));
@@ -56,11 +62,12 @@ public final class ClientTuning {
     public static final Duration SSE_STABLE_CONNECTION = duration(
             "CLIENT_SSE_STABLE_MS", Duration.ofSeconds(10));
 
-    /** Max characters of an error/log snippet. Env: CLIENT_SNIPPET_MAX. */
+    /** Max characters of an error-body snippet in thrown errors. Env: CLIENT_SNIPPET_MAX. */
     public static final int SNIPPET_MAX = integer(
             "CLIENT_SNIPPET_MAX", 500);
 
-    /** Min characters before truncation. Env: CLIENT_SNIPPET_MIN. */
+    /** Min characters before truncation - the cap of the short warning-snippet
+     *  tier (malformed-body log warnings). Env: CLIENT_SNIPPET_MIN. */
     public static final int SNIPPET_MIN = integer(
             "CLIENT_SNIPPET_MIN", 120);
 

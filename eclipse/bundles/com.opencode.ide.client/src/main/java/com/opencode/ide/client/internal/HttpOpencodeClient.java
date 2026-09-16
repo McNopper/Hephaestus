@@ -168,7 +168,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             }
             return out;
         } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /mcp: malformed body; treating as empty: " + truncate(body, 120));
+            ClientLog.warning("opencode GET /mcp: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
             return List.of();
         }
     }
@@ -227,7 +227,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
         int status = response.statusCode();
         if (status >= 400 && status != 404) {
             throw new OpencodeException("opencode POST " + path + " failed: HTTP " + status
-                    + " - " + truncate(response.body(), 500));
+                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
         }
         if (status >= 400) {
             // usually "session is already idle" - the outcome the caller wanted
@@ -400,7 +400,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             }
             return out;
         } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /project: malformed body; treating as empty: " + truncate(body, 120));
+            ClientLog.warning("opencode GET /project: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
             return List.of();
         }
     }
@@ -419,7 +419,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             JsonObject object = JsonParser.parseString(body).getAsJsonObject();
             return new VcsInfo(stringOf(object, "branch"), stringOf(object, "repository"));
         } catch (JsonParseException | IllegalStateException e) {
-            ClientLog.warning("opencode GET /vcs: malformed body; treating as empty: " + truncate(body, 120));
+            ClientLog.warning("opencode GET /vcs: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
             return new VcsInfo(null, null);
         }
     }
@@ -495,7 +495,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             // lenient envelope: {"type":"text","content":"…"} (content is base64 for binary)
             return stringOf(JsonParser.parseString(body).getAsJsonObject(), "content");
         } catch (JsonParseException | IllegalStateException e) {
-            ClientLog.warning("opencode GET " + target + ": malformed body; treating as empty: " + truncate(body, 120));
+            ClientLog.warning("opencode GET " + target + ": malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
             return null;
         }
     }
@@ -533,7 +533,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             }
             return out;
         } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /provider/auth: malformed body; treating as empty: " + truncate(body, 120));
+            ClientLog.warning("opencode GET /provider/auth: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
             return List.of();
         }
     }
@@ -559,7 +559,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
                     stringOf(object, "instructions"));
         } catch (JsonParseException | IllegalStateException e) {
             ClientLog.warning("opencode POST " + path + ": malformed body; treating as not started: "
-                    + truncate(responseBody, 120));
+                    + truncate(responseBody, ClientTuning.SNIPPET_MIN));
             return new OauthStart(null, null, null);
         }
     }
@@ -656,7 +656,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             return response;
         }
         throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                + " - " + truncate(response.body(), 500));
+                + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
     }
 
     /** Sends the request and maps transport failures only; status handling is the caller's. */
@@ -696,6 +696,12 @@ public final class HttpOpencodeClient implements OpencodeClient {
         }
     }
 
+    /**
+     * Caps a diagnostic snippet. The knob'd tiers are {@link ClientTuning#SNIPPET_MIN}
+     * (warning logs) and {@link ClientTuning#SNIPPET_MAX} (error bodies); the 200/300
+     * values in between are fixed diagnostic verbosity, deliberately not knobs - they
+     * tune log detail, not operational behavior.
+     */
     private static String truncate(String value, int max) {
         if (value == null) {
             return "";
