@@ -239,11 +239,12 @@ const chatEl = document.getElementById("chat");
 function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
 function report(msg) { try { if (typeof window.__javaReport === "function") window.__javaReport(msg); } catch (e) {} }
 
-function addUser(text) {
+function addUser(text, mid) {
   const wrap = document.createElement("div"); wrap.className = "msg user";
+  if (mid) wrap.dataset.mid = mid;
   const bubble = document.createElement("div"); bubble.className = "bubble";
   renderMarkdown(bubble, text);
-  wrap.appendChild(bubble); chatEl.appendChild(wrap); scrollBottom();
+  wrap.appendChild(bubble); addForkButton(wrap, mid); chatEl.appendChild(wrap); scrollBottom();
   report("user bubble rendered: " + text.slice(0, 60));
 }
 
@@ -260,8 +261,34 @@ function addAssistant(messageId, reasoningText) {
   }
   const body = document.createElement("div"); body.className = "body";
   bubble.appendChild(body);
-  wrap.appendChild(bubble); chatEl.appendChild(wrap); scrollBottom();
+  wrap.appendChild(bubble); addForkButton(wrap, messageId); chatEl.appendChild(wrap); scrollBottom();
   return { wrap, bubble, body };
+}
+
+// ---- fork-at-message (TUI parity) --------------------------------------------
+// Every message the server assigned an id for (history rows of both roles, and
+// streamed assistant bubbles) gets a hover Fork button: it hands that message
+// id to the host (__javaForkAt), which forks the session AT the message and
+// switches to the fork. A live user echo carries no id yet (the server has not
+// assigned one), so it gets no button until the history reloads.
+function addForkButton(wrap, mid) {
+  if (!wrap || !mid) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "fork-btn";
+  btn.title = "Fork the session at this message";
+  btn.textContent = "⑂ Fork here";
+  btn.addEventListener("click", function (event) {
+    if (event && event.stopPropagation) event.stopPropagation();
+    const at = wrap.dataset.mid || mid;
+    if (typeof window.__javaForkAt === "function") {
+      window.__javaForkAt(at);
+      report("fork requested at " + at);
+    } else {
+      report("fork requested at " + at + " but no Java bridge");
+    }
+  });
+  wrap.appendChild(btn);
 }
 
 function findAssistant(messageId) {
@@ -425,7 +452,7 @@ window.__setMessages = guard("__setMessages", function (json) {
   const entries = payload(json);
   entries.forEach(e => {
     if (e.role === "user") {
-      addUser(e.text);
+      addUser(e.text, e.id);
     } else {
       const a = addAssistant(e.id, e.reasoning);
       renderToolLines(a.bubble, e.tools, a.body);

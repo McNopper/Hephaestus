@@ -1,5 +1,7 @@
 package com.opencode.ide.ui.views;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +35,7 @@ import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.ide.FileStoreEditorInput;
 import org.eclipse.ui.part.ViewPart;
@@ -80,7 +83,10 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  * {@link ViewLoadSupport} — the controller returns a
  * {@link LifecycleResult} instead of throwing, so a mutating POST is never
  * blindly retried. Success lands as a status line message (Share also copies
- * the URL to the clipboard), failures as the view's usual error pattern.</p>
+ * the URL to the clipboard), failures as the view's usual error pattern.
+ * Forking works at the LATEST message (toolbar) and at any SELECTED history
+ * message (context menu, TUI parity) — both switch to the fork by opening it
+ * in the chat, resumed with its history; the original session is untouched.</p>
  *
  * <p>The context menu also opens one message or the whole transcript in a
  * read-only workbench text editor (Batch C): tier-0 view-only, formatted by
@@ -102,6 +108,14 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
      * renders the temp-file {@code FileStoreEditorInput} natively.
      */
     private static final String DEFAULT_TEXT_EDITOR_ID = "org.eclipse.ui.DefaultTextEditor";
+
+    /**
+     * The chat view opened after a fork, by id (registry lookup — the chat
+     * bundle is NOT a compile-time dependency of this bundle, same pattern as
+     * {@link #DEFAULT_TEXT_EDITOR_ID}). Its secondary id convention
+     * ({@code ses_…}) makes it resume the forked session with its history.
+     */
+    private static final String CHAT_VIEW_ID = "com.opencode.ide.chat.views.ChatView";
 
     private static final int AUTO_REFRESH_MILLIS = 5000;
     private static final int PREVIEW_LENGTH = 120;
@@ -227,10 +241,11 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             @Override
             public void run() {
                 runLifecycleAction("Forking session", () -> controller.fork(null),
-                        result -> showStatus("Forked to session " + result.detail()));
+                        result -> showStatus("Forked to session " + result.detail()
+                                + (openForkInChat(result.detail()) ? " - opened in chat" : "")));
             }
         };
-        forkAction.setToolTipText("Fork this session at its latest message");
+        forkAction.setToolTipText("Fork this session at its latest message and open the fork in the chat");
         forkAction.setImageDescriptor(icon("fork"));
         shareAction = new Action("Share") {
             @Override
@@ -357,28 +372,47 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     }
 
     /**
-     * Context menu on message rows: copy the full message text, or open one
-     * message / the whole transcript in a text editor (per-show
-     * enablement). All view-only — tier-0, no confirmation.
+     * Context menu on message rows: fork the session AT the selected message
+     * (TUI parity), copy the full message text, or open one message / the
+     * whole transcript in a text editor (per-show enablement). The fork is the
+     * only mutating action - the original session stays untouched; the fork
+     * opens in the chat, resumed with its history.
      */
     private void hookContextMenu() {
         MenuManager manager = new MenuManager();
         manager.setRemoveAllWhenShown(true);
         manager.addMenuListener(menu -> {
+            MessageRow row = selectedMessageRow();
+            boolean canFork = row != null && row.id() != null && !row.id().isBlank();
+            Action forkAtMessage = new Action("Fork at this message") {
+                @Override
+                public void run() {
+                    MessageRow selected = selectedMessageRow();
+                    if (selected == null || selected.id() == null || selected.id().isBlank()) {
+                        return;
+                    }
+                    runLifecycleAction("Forking session at message", () -> controller.fork(selected.id()),
+                            result -> showStatus("Forked to session " + result.detail()
+                                    + (openForkInChat(result.detail()) ? " - opened in chat" : "")));
+                }
+            };
+            forkAtMessage.setToolTipText(
+                    "Fork this session at the selected message and open the fork in the chat");
+            forkAtMessage.setEnabled(canFork);
+            menu.add(forkAtMessage);
+            menu.add(new Separator());
             Action copyText = new Action("Copy message text") {
                 @Override
                 public void run() {
-                    MessageRow row = selectedMessageRow();
-                    if (row != null) {
-                        copyToClipboard(row.text());
+                    MessageRow selected = selectedMessageRow();
+                    if (selected != null) {
+                        copyToClipboard(selected.text());
                         showStatus("Message text copied");
                     }
                 }
             };
-            MessageRow row = selectedMessageRow();
             copyText.setEnabled(row != null && row.text() != null && !row.text().isBlank());
             menu.add(copyText);
-            menu.add(new Separator());
             Action openMessageEditor = new Action("Open message in Editor") {
                 @Override
                 public void run() {
@@ -457,6 +491,34 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             showStatus("Opening editor failed");
             UiActivator.getDefault().getLog().log(
                     new Status(Status.ERROR, UiActivator.PLUGIN_ID, "Failed to open session text in editor", e));
+        }
+    }
+
+    /**
+     * Opens the forked session in a chat view and focuses it: the chat
+     * resumes the fork ({@code ses_…} secondary id convention) and renders
+     * its history — the ORIGINAL session (this view) stays untouched.
+     * Failures log and surface on the status line, never a dialog.
+     *
+     * @return true when the chat view was opened (a {@code "?"} placeholder
+     *         or a disposed view opens nothing)
+     */
+    private boolean openForkInChat(String forkSessionId) {
+        if (forkSessionId == null || forkSessionId.isBlank() || "?".equals(forkSessionId)
+                || viewDisposed) {
+            return false;
+        }
+        try {
+            String secondary = URLEncoder.encode(forkSessionId, StandardCharsets.UTF_8);
+            IWorkbenchPage page = getSite().getPage();
+            page.showView(CHAT_VIEW_ID, secondary, IWorkbenchPage.VIEW_ACTIVATE);
+            return true;
+        } catch (PartInitException e) {
+            showStatus("Opening the fork in chat failed");
+            UiActivator.getDefault().getLog().log(
+                    new Status(Status.ERROR, UiActivator.PLUGIN_ID,
+                            "Failed to open forked session " + forkSessionId + " in chat", e));
+            return false;
         }
     }
 

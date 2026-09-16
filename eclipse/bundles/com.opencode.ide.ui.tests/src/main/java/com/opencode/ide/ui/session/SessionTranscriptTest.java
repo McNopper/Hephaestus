@@ -42,7 +42,7 @@ public class SessionTranscriptTest {
 
     @Test
     public void messageRendersLabelBlankLineAndText() {
-        MessageRow row = new MessageRow("user", null, "", "2025-08-12T12:00:00Z",
+        MessageRow row = new MessageRow("u1", "user", null, "", "2025-08-12T12:00:00Z",
                 "Fix the build", null, List.of());
 
         assertEquals("user  \u2022  2025-08-12T12:00:00Z\n\nFix the build", SessionTranscript.message(row));
@@ -50,7 +50,7 @@ public class SessionTranscriptTest {
 
     @Test
     public void messageIncludesReasoningToolsAndUnknownState() {
-        MessageRow row = new MessageRow("assistant", "build", "zai/glm-5.3 (high)", "12:00",
+        MessageRow row = new MessageRow("a1", "assistant", "build", "zai/glm-5.3 (high)", "12:00",
                 "Done.", "Because", List.of(new ToolLine("read", "completed"), new ToolLine("bash", null)));
 
         assertEquals("assistant  \u2022  build  \u2022  zai/glm-5.3 (high)  \u2022  12:00"
@@ -63,7 +63,7 @@ public class SessionTranscriptTest {
     @Test
     public void messageWithoutRoleOrTextStaysUsable() {
         assertEquals("message\n\n" + SessionTranscript.NO_TEXT,
-                SessionTranscript.message(new MessageRow(null, null, "", "", "  ", null, List.of())));
+                SessionTranscript.message(new MessageRow(null, null, null, "", "", "  ", null, List.of())));
         assertEquals(SessionTranscript.NO_TEXT, SessionTranscript.message(null));
     }
 
@@ -72,7 +72,7 @@ public class SessionTranscriptTest {
     @Test
     public void transcriptOfSmallSnapshotIsExact() {
         SessionDetails snapshot = new SessionDetails("ses_1", "T", null, null, null, null,
-                List.of(new MessageRow("user", null, "", "12:00", "hi", null, List.of())), null);
+                List.of(new MessageRow("u1", "user", null, "", "12:00", "hi", null, List.of())), null);
 
         assertEquals("T  \u2022  ses_1\n\n---- [1] user  \u2022  12:00 ----\n\nhi",
                 SessionTranscript.transcript(snapshot));
@@ -83,8 +83,8 @@ public class SessionTranscriptTest {
         SessionDetails snapshot = new SessionDetails("ses_1", "Session One", null, "zai/glm-5.3 (high)",
                 1.75, new TokenTotals(101L, 51L, null, 5L, 2L),
                 List.of(
-                        new MessageRow("user", null, "", "12:00", "go", null, List.of()),
-                        new MessageRow("assistant", "build", "zai/glm-5.3 (high)", "12:01", "Done.",
+                        new MessageRow("u1", "user", null, "", "12:00", "go", null, List.of()),
+                        new MessageRow("a1", "assistant", "build", "zai/glm-5.3 (high)", "12:01", "Done.",
                                 null, List.of())),
                 null);
 
@@ -100,7 +100,7 @@ public class SessionTranscriptTest {
     @Test
     public void untitledSessionHeaderFallsBack() {
         SessionDetails snapshot = new SessionDetails("ses_1", null, null, null, null, null,
-                List.of(new MessageRow("assistant", null, "", "", "hi", null, List.of())), null);
+                List.of(new MessageRow("a1", "assistant", null, "", "", "hi", null, List.of())), null);
 
         assertTrue(SessionTranscript.transcript(snapshot).startsWith("(untitled)  \u2022  ses_1"));
     }

@@ -37,8 +37,18 @@
     --border: #d0d0d0; --code-bg: #f5f5f5; --muted: #777777;
   }
   #chat { padding: 10px 12px 16px 12px; overflow-y: auto; overflow-x: hidden; height: 100%; }
-  .msg { margin: 8px 0; display: flex; }
+  .msg { margin: 8px 0; display: flex; position: relative; }
   .msg.user { justify-content: flex-end; }
+  /* fork-at-message (TUI parity): hover button on every message that has a
+     server-assigned id; user messages sit right-aligned, so their button goes
+     to the LEFT to not cover the bubble */
+  .fork-btn { position: absolute; top: 0; right: 2px; padding: 1px 8px;
+              font: inherit; font-size: 11px; cursor: pointer;
+              color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+              border-radius: 4px; opacity: 0; transition: opacity 0.15s; z-index: 3; }
+  .msg.user .fork-btn { right: auto; left: 2px; }
+  .msg:hover .fork-btn, .fork-btn:focus-visible { opacity: 0.9; }
+  .fork-btn:hover { opacity: 1; }
   .bubble {
     max-width: 88%; padding: 8px 12px; border-radius: 10px;
     overflow-wrap: break-word; line-height: 1.45;
