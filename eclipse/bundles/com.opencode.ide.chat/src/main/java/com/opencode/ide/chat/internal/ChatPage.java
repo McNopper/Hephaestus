@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
@@ -39,9 +40,15 @@ public final class ChatPage implements ChatSessionController.Renderer {
     private final Browser browser;
     private final BrowserFunction reportFunction;
     private final BrowserFunction openExternalFunction;
+    private final BrowserFunction forkAtFunction;
     private boolean pageReady;
     /** Whether reasoning progress is visible; re-applied on page reload (user toggle). */
     private boolean reasoningVisible = true;
+    /**
+     * Receives fork-at-message requests from the page's per-message Fork
+     * buttons ({@code __javaForkAt(mid)}); registered by the owning view.
+     */
+    private volatile Consumer<String> forkHandler;
     private final List<String> pendingJs = new ArrayList<>();
 
     private ChatPage(Browser browser) {
@@ -57,6 +64,20 @@ public final class ChatPage implements ChatSessionController.Renderer {
                 }
                 Platform.getLog(Platform.getBundle(ChatActivator.PLUGIN_ID))
                         .log(new Status(Status.INFO, ChatActivator.PLUGIN_ID, "[chat-page] " + message));
+                return null;
+            }
+        };
+        // JS -> Java fork bridge: a message's Fork button calls
+        // __javaForkAt(messageId) - the view forks the session at that message
+        this.forkAtFunction = new BrowserFunction(browser, "__javaForkAt") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 0 && arguments[0] instanceof String messageId) {
+                    Consumer<String> handler = forkHandler;
+                    if (handler != null && !messageId.isBlank()) {
+                        handler.accept(messageId); // Browser calls run on the UI thread
+                    }
+                }
                 return null;
             }
         };
@@ -123,10 +144,19 @@ public final class ChatPage implements ChatSessionController.Renderer {
         }
         try {
             reportFunction.dispose();
+            forkAtFunction.dispose();
             openExternalFunction.dispose();
         } catch (SWTException e) {
             // browser torn down concurrently - nothing left to release
         }
+    }
+
+    /**
+     * Registers the handler for the page's per-message Fork buttons
+     * ({@code __javaForkAt(messageId)}); {@code null} disables forking.
+     */
+    public void setForkHandler(Consumer<String> handler) {
+        this.forkHandler = handler;
     }
 
     // ---------- rendering (ChatSessionController.Renderer) ----------

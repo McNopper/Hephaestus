@@ -811,6 +811,46 @@ const notALink = { tagName: "SPAN", parentElement: null, getAttribute: () => nul
 check("clicks on non-links are ignored",
   ctx.__linkClick({ target: notALink, preventDefault: () => {} }) === false);
 
+// ---------------- fork-at-message (TUI parity) ----------------
+// History rows of BOTH roles carry the server message id; every id-carrying
+// message gets a hover Fork button that hands the id to Java (__javaForkAt),
+// which forks the session AT that message. A live user echo has no id yet -
+// no button until the history reloads.
+exec("window.__clear()");
+const forkRows = JSON.stringify([
+  { role: "user", id: "u_1", text: "fork me", reasoning: "", meta: "" },
+  { role: "assistant", id: "a_1", text: "answered", reasoning: "", meta: "" },
+  { role: "user", id: "", text: "legacy row without id", reasoning: "", meta: "" }
+]);
+exec("window.__setMessages(" + JSON.stringify(forkRows) + ")");
+const forkUserNode = chatEl.querySelector('.msg.user[data-mid="u_1"]');
+const forkAssistantNode = chatEl.querySelector('.msg.assistant[data-mid="a_1"]');
+check("history user row carries its message id", !!forkUserNode);
+const forkUserBtn = forkUserNode ? forkUserNode.querySelector(".fork-btn") : null;
+const forkAssistantBtn = forkAssistantNode ? forkAssistantNode.querySelector(".fork-btn") : null;
+check("id-carrying user and assistant messages get a Fork button",
+  !!forkUserBtn && !!forkAssistantBtn);
+const legacyUserNodes = chatEl.querySelectorAll(".msg.user");
+check("a history row without an id gets no Fork button",
+  legacyUserNodes.length === 2 && !legacyUserNodes[1].querySelector(".fork-btn"));
+const forkRequested = [];
+ctx.__javaForkAt = (mid) => forkRequested.push(mid);
+if (forkUserBtn && forkUserBtn._listeners && typeof forkUserBtn._listeners.click === "function") {
+  forkUserBtn._listeners.click();
+}
+if (forkAssistantBtn && forkAssistantBtn._listeners && typeof forkAssistantBtn._listeners.click === "function") {
+  forkAssistantBtn._listeners.click();
+}
+check("clicking Fork hands the message id to Java (user and assistant)",
+  forkRequested.length === 2 && forkRequested[0] === "u_1" && forkRequested[1] === "a_1");
+check("fork clicks are reported to Java",
+  reports.some(r => r.startsWith("fork requested at u_1")));
+exec('window.__appendUser("{\\"text\\":\\"live echo (no id yet)\\"}")');
+const liveUserNodes = chatEl.querySelectorAll(".msg.user");
+const liveUser = liveUserNodes[liveUserNodes.length - 1];
+check("a live user echo (no server id yet) has no Fork button",
+  !!liveUser && !liveUser.querySelector(".fork-btn"));
+
 // waiting indicator (user direction 2026-09-16): the prompt echo shows an
 // animated placeholder until the reply's first bubble arrives; terminal
 // signals (assistant start, notice, stopStream, clear) all clear it.

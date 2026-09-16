@@ -216,6 +216,7 @@ public final class SessionDetailsController {
             }
         }
         return new MessageRow(
+                info == null ? null : info.id(),
                 info == null ? null : info.role(),
                 info == null ? null : info.agent(),
                 info == null ? "" : info.modelLabel(),
@@ -277,9 +278,12 @@ public final class SessionDetailsController {
         }
     }
 
-    /** One rendered message: text/reasoning plus its tool calls. */
-    public record MessageRow(String role, String agent, String modelLabel, String timeLabel,
-            String text, String reasoning, List<ToolLine> tools) {
+    /**
+     * One rendered message: the server-assigned message id (drives
+     * fork-at-message), text/reasoning plus its tool calls.
+     */
+    public record MessageRow(String id, String role, String agent, String modelLabel,
+            String timeLabel, String text, String reasoning, List<ToolLine> tools) {
 
         public MessageRow {
             tools = (tools == null) ? List.of() : List.copyOf(tools);

@@ -370,6 +370,16 @@ public class ChatPermissionsTest {
         public void sendingChanged(boolean sending) {
             // not needed here
         }
+
+        @Override
+        public void forked(String forkSessionId, String fromSessionId, String draftPrompt) {
+            // not needed here
+        }
+
+        @Override
+        public void queueChanged() {
+            // not needed here
+        }
     }
 
     private static final class FakeConnection implements ChatServerConnection {

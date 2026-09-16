@@ -58,7 +58,13 @@ import com.opencode.ide.core.OpencodePreferences;
  * row while a reply is in flight (same path as the toolbar Abort and the
  * {@code Ctrl+Alt+Shift+A} binding), and messages typed while a reply streams
  * are queued in a pending list (editable/removable) that auto-sends when the
- * reply completes - see {@link ChatSessionController#submit}.</p>
+ * reply completes - see {@link ChatSessionController#submit}. A queued request
+ * can also be FORKED into a new session before dispatch (the queue row's Fork
+ * button), and every message with a server id carries a hover Fork button that
+ * forks the session AT that message - see
+ * {@link ChatSessionController#forkAt}/{@link ChatSessionController#forkQueued}.
+ * Both fork paths open the fork here in the chat (resumed, history rendered);
+ * the original session stays untouched.</p>
  */
 public class ChatView extends ViewPart {
 
@@ -159,6 +165,22 @@ public class ChatView extends ViewPart {
             // pending submission) coincides with a sending transition
             refreshQueue();
         }
+
+        @Override
+        public void forked(String forkSessionId, String fromSessionId, String draftPrompt) {
+            // Switch to the fork in its own chat window (resumed, history
+            // rendered): the original session - THIS view - stays untouched,
+            // even while a reply is still streaming into it.
+            ChatView fork = ChatView.openResume(getSite().getPage(), forkSessionId);
+            if (fork != null && draftPrompt != null && !draftPrompt.isBlank()) {
+                fork.setInputDraft(draftPrompt);
+            }
+        }
+
+        @Override
+        public void queueChanged() {
+            refreshQueue();
+        }
     };
 
     /** The connection adapter over the core singleton (client + SSE events). */
@@ -193,6 +215,8 @@ public class ChatView extends ViewPart {
             return; // fallback label already shown; no chat UI without the browser
         }
         controller = new ChatSessionController(connection, page, host);
+        // the page's per-message Fork buttons fork the session at that message
+        page.setForkHandler(messageId -> controller.forkAt(messageId));
         composer = new CommandComposer(connection);
         ChatLog.info("chat view created (browser: " + page.browserType() + ", secondary id: "
                 + getViewSite().getSecondaryId() + ")");
@@ -244,7 +268,7 @@ public class ChatView extends ViewPart {
         // here (TUI parity) and auto-send when it completes. Excluded from the
         // layout until the first entry appears, like the picker above it.
         Composite queueRow = new Composite(outer, SWT.NONE);
-        GridLayout queueLayout = new GridLayout(3, false);
+        GridLayout queueLayout = new GridLayout(4, false);
         queueLayout.marginWidth = 0;
         queueLayout.marginHeight = 0;
         queueRow.setLayout(queueLayout);
@@ -256,7 +280,7 @@ public class ChatView extends ViewPart {
         queueList = new org.eclipse.swt.widgets.List(queueRow, SWT.BORDER | SWT.V_SCROLL);
         queueList.setToolTipText(
                 "Pending messages - sent automatically when the current reply finishes.\nENTER while a reply streams queues the typed message here.");
-        queueList.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
+        queueList.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         // Enter / double-click edits the selected pending message (remove +
         // load into the input; ENTER re-queues or sends it)
         queueList.addListener(SWT.DefaultSelection, e -> editSelectedQueued());
@@ -264,7 +288,7 @@ public class ChatView extends ViewPart {
         Button queueEditButton = new Button(queueRow, SWT.PUSH);
         queueEditButton.setText("Edit");
         queueEditButton.setToolTipText("Edit the selected pending message");
-        queueEditButton.setLayoutData(new GridData(SWT.FILL, GridData.CENTER, false, false));
+        queueEditButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
         queueEditButton.addListener(SWT.Selection, e -> editSelectedQueued());
 
         Button queueRemoveButton = new Button(queueRow, SWT.PUSH);
@@ -272,6 +296,16 @@ public class ChatView extends ViewPart {
         queueRemoveButton.setToolTipText("Drop the selected pending message");
         queueRemoveButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
         queueRemoveButton.addListener(SWT.Selection, e -> removeSelectedQueued());
+
+        // Fork (TUI parity - "fork a session from a queued request"): forks
+        // the session at its current head and MOVES the queued prompt into the
+        // fork's input, before it is dispatched here.
+        Button queueForkButton = new Button(queueRow, SWT.PUSH);
+        queueForkButton.setText("Fork");
+        queueForkButton.setToolTipText(
+                "Fork the session at its current head and move this queued prompt into the fork (it is sent there, never here)");
+        queueForkButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+        queueForkButton.addListener(SWT.Selection, e -> forkSelectedQueued());
 
         // row 2: prompt input + send/stop buttons (separate row below the transcript)
         inputRow = new Composite(outer, SWT.NONE);
@@ -809,6 +843,35 @@ public class ChatView extends ViewPart {
             controller.removeQueuedPrompt(index);
         }
         refreshQueue();
+    }
+
+    /**
+     * Fork: moves the selected pending message into a fork of the session,
+     * before it is dispatched here (TUI parity). The controller takes the
+     * submission out of the queue, forks at the current head and reports back
+     * through {@code forked} - which opens the fork in the chat with the text
+     * loaded into its input.
+     */
+    private void forkSelectedQueued() {
+        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        if (index >= 0 && controller != null) {
+            controller.forkQueued(index);
+        }
+        refreshQueue(); // the row disappears immediately (belt and braces:
+                        // the controller also fires queueChanged)
+    }
+
+    /**
+     * Loads text into the prompt input and focuses it - used to move a queued
+     * prompt into a freshly opened fork's input.
+     */
+    public void setInputDraft(String text) {
+        if (input == null || input.isDisposed() || text == null || text.isEmpty()) {
+            return;
+        }
+        input.setText(text);
+        input.setSelection(input.getText().length());
+        input.setFocus();
     }
 
     private ChatSessionController.OutgoingMessage outgoingMessage(String text) {
