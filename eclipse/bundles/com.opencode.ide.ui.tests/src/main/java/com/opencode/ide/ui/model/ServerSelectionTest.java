@@ -60,6 +60,17 @@ public class ServerSelectionTest {
     }
 
     @Test
+    public void mcpDetailsNeedsAnyReachableServerNotASession() {
+        // tier-0 view-only: any selection on a reachable server qualifies —
+        // offline remotes (null client) and the empty target do not
+        OpencodeClient client = client(new ArrayList<>());
+        assertTrue(new ServerSelection(client, true, null, null, false).mcpDetails());
+        assertTrue(new ServerSelection(client, false, null, null, false).mcpDetails());
+        assertFalse(new ServerSelection(null, true, session("ses_1"), null, true).mcpDetails());
+        assertFalse(ServerSelection.EMPTY.mcpDetails());
+    }
+
+    @Test
     public void equalSessionIdsRouteMutationsOnlyToCapturedOwner() throws Exception {
         List<String> primaryCalls = new ArrayList<>();
         List<String> remoteCalls = new ArrayList<>();

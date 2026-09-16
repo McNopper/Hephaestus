@@ -82,11 +82,13 @@ public class ServerMenuSmokeTest {
             enabled(menu, "Open in Chat", true);
             enabled(menu, "Abort session", true);
             enabled(menu, "Delete session...", true);
+            enabled(menu, "MCP servers\u2026", true);
             select(viewer, menu, new TreePath(new Object[] { remote, session }));
             enabled(menu, "Open in Chat", false);
             enabled(menu, "Live output", false);
             enabled(menu, "Abort session", true);
             enabled(menu, "Delete session...", true);
+            enabled(menu, "MCP servers\u2026", true);
             select(viewer, menu, new TreePath(new Object[] { primary, agent }));
             enabled(menu, "New session with this agent", true);
             enabled(menu, "Abort session", false);
@@ -96,9 +98,11 @@ public class ServerMenuSmokeTest {
                     new TreePath(new Object[] { remote, session }));
             enabled(menu, "Delete session...", false);
             enabled(menu, "Copy session id", false);
+            enabled(menu, "MCP servers\u2026", false); // no single owning server
             select(viewer, menu, new TreePath(new Object[] { primary }));
             enabled(menu, "Abort session", false);
             enabled(menu, "New session with this agent", false);
+            enabled(menu, "MCP servers\u2026", true); // server-level action works on the root
         } finally {
             shell.dispose();
             display.dispose();

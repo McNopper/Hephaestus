@@ -1,16 +1,19 @@
 package com.opencode.ide.ui.views;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
+import org.eclipse.core.filesystem.EFS;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.action.IStatusLineManager;
 import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.jface.action.MenuManager;
+import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.layout.TreeColumnLayout;
 import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
@@ -30,6 +33,8 @@ import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.ui.PartInitException;
+import org.eclipse.ui.ide.FileStoreEditorInput;
 import org.eclipse.ui.part.ViewPart;
 
 import com.opencode.ide.client.OpencodeClient;
@@ -42,6 +47,8 @@ import com.opencode.ide.ui.internal.UiActivator;
 import com.opencode.ide.ui.internal.ViewLoadSupport;
 import com.opencode.ide.ui.session.SessionDetailsController;
 import com.opencode.ide.ui.session.SessionEventFilter;
+import com.opencode.ide.ui.session.SessionTranscript;
+import com.opencode.ide.ui.session.SessionTranscriptFiles;
 import com.opencode.ide.ui.session.SessionDetailsController.LifecycleResult;
 import com.opencode.ide.ui.session.SessionDetailsController.MessageRow;
 import com.opencode.ide.ui.session.SessionDetailsController.SessionDetails;
@@ -74,10 +81,26 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  * {@link LifecycleResult} instead of throwing, so a mutating POST is never
  * blindly retried. Success lands as a status line message (Share also copies
  * the URL to the clipboard), failures as the view's usual error pattern.</p>
+ *
+ * <p>The context menu also opens one message or the whole transcript in a
+ * read-only workbench text editor (Batch C): tier-0 view-only, formatted by
+ * the SWT-free {@link SessionTranscript}, written to a delete-on-exit temp
+ * file by {@link SessionTranscriptFiles} and opened through the platform's
+ * {@code FileStoreEditorInput} — the modern workbench removed
+ * {@code IStorageEditorInput}, so an EFS file store is the supported
+ * read-only editor surface. The editor shows a snapshot — it does not
+ * follow live updates.</p>
  */
 public class SessionDetailsView extends ViewPart implements Refreshable {
 
     public static final String ID = "com.opencode.ide.ui.views.SessionDetailsView";
+
+    /**
+     * The workbench's built-in default text editor, opened by id (registry
+     * lookup — no class reference, so no editor bundle dependency). It
+     * renders the temp-file {@code FileStoreEditorInput} natively.
+     */
+    private static final String DEFAULT_TEXT_EDITOR_ID = "org.eclipse.ui.DefaultTextEditor";
 
     private static final int AUTO_REFRESH_MILLIS = 5000;
     private static final int PREVIEW_LENGTH = 120;
@@ -96,6 +119,8 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private int loadSequence;
     /** Local share state: seeds from each snapshot, toggles on Share/Unshare. */
     private boolean shared;
+    /** The last rendered snapshot (drives the editor actions' enablement/content). */
+    private SessionDetails currentSnapshot;
     private Action forkAction;
     private Action shareAction;
     private Action summarizeAction;
@@ -319,7 +344,11 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         }
     }
 
-    /** Context menu on message rows: copy the full message text (per-show enablement). */
+    /**
+     * Context menu on message rows: copy the full message text, or open one
+     * message / the whole transcript in a read-only text editor (per-show
+     * enablement). All view-only — tier-0, no confirmation.
+     */
     private void hookContextMenu() {
         MenuManager manager = new MenuManager();
         manager.setRemoveAllWhenShown(true);
@@ -337,6 +366,35 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             MessageRow row = selectedMessageRow();
             copyText.setEnabled(row != null && row.text() != null && !row.text().isBlank());
             menu.add(copyText);
+            menu.add(new Separator());
+            Action openMessageEditor = new Action("Open message in Editor") {
+                @Override
+                public void run() {
+                    MessageRow selected = selectedMessageRow();
+                    if (selected == null) {
+                        return;
+                    }
+                    String sessionId = currentSnapshot == null ? null : currentSnapshot.sessionId();
+                    openInEditor(SessionTranscript.messageEditorName(sessionId, selectedMessageIndex()),
+                            SessionTranscript.message(selected));
+                }
+            };
+            openMessageEditor.setToolTipText("Open the selected message in a read-only text editor");
+            openMessageEditor.setEnabled(row != null && row.text() != null && !row.text().isBlank());
+            menu.add(openMessageEditor);
+            Action openTranscriptEditor = new Action("Open transcript in Editor") {
+                @Override
+                public void run() {
+                    SessionDetails snapshot = currentSnapshot;
+                    if (snapshot != null) {
+                        openInEditor(SessionTranscript.editorName(snapshot.sessionId()),
+                                SessionTranscript.transcript(snapshot));
+                    }
+                }
+            };
+            openTranscriptEditor.setToolTipText("Open the whole transcript in a read-only text editor");
+            openTranscriptEditor.setEnabled(currentSnapshot != null);
+            menu.add(openTranscriptEditor);
         });
         viewer.getControl().setMenu(manager.createContextMenu(viewer.getControl()));
     }
@@ -350,6 +408,44 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
                 ? structured.getFirstElement()
                 : null;
         return first instanceof MessageRow row ? row : null;
+    }
+
+    /**
+     * 1-based position of the selected message row in the current snapshot
+     * ({@code -1} when unknown); feeds the per-message editor name so two
+     * editors for different messages get distinct tabs. Records compare
+     * structurally, so {@code indexOf} matches the rendered row.
+     */
+    private int selectedMessageIndex() {
+        MessageRow row = selectedMessageRow();
+        if (row == null || currentSnapshot == null) {
+            return -1;
+        }
+        int index = currentSnapshot.rows().indexOf(row);
+        return index < 0 ? -1 : index + 1;
+    }
+
+    /**
+     * Opens generated read-only text in the workbench's default text editor.
+     * Every call writes a fresh snapshot temp file (a transcript grows while
+     * the agent runs, and re-using an open editor would keep stale text).
+     * Failures log and surface on the status line — never a dialog from a
+     * menu run.
+     */
+    private void openInEditor(String name, String content) {
+        if (viewDisposed || viewer == null || viewer.getControl().isDisposed()) {
+            return;
+        }
+        try {
+            Path file = SessionTranscriptFiles.write(name, content);
+            getSite().getPage().openEditor(
+                    new FileStoreEditorInput(EFS.getLocalFileSystem().fromLocalFile(file.toFile())),
+                    DEFAULT_TEXT_EDITOR_ID);
+        } catch (PartInitException e) {
+            showStatus("Opening editor failed");
+            UiActivator.getDefault().getLog().log(
+                    new Status(Status.ERROR, UiActivator.PLUGIN_ID, "Failed to open session text in editor", e));
+        }
     }
 
     private void setAutoRefresh(boolean enabled) {
@@ -439,6 +535,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         if (viewDisposed || viewer.getControl().isDisposed()) {
             return;
         }
+        currentSnapshot = snapshot; // feeds the editor actions (content + enablement)
         headerLabel.setText(headerText(snapshot));
         if (snapshot.errorNote() != null) {
             viewer.setInput(List.of());

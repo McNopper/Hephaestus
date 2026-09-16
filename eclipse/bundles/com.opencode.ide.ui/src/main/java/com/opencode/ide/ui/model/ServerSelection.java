@@ -33,6 +33,15 @@ public record ServerSelection(OpencodeClient client, boolean primary, Session se
         return deleteSession() && primary;
     }
 
+    /**
+     * MCP server details are view-only (tier-0: no confirmation needed) and
+     * read from the owning node's already-loaded list, so any selection on a
+     * reachable server qualifies — offline remotes (null client) do not.
+     */
+    public boolean mcpDetails() {
+        return client != null;
+    }
+
     public boolean agentDetails() {
         return agent != null;
     }

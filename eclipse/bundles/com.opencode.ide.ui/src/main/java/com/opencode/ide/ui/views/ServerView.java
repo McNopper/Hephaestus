@@ -48,6 +48,7 @@ import com.opencode.ide.ui.internal.UiActivator;
 import com.opencode.ide.ui.internal.ViewLoadSupport;
 import com.opencode.ide.ui.model.AgentSessions;
 import com.opencode.ide.ui.model.CwdCheck;
+import com.opencode.ide.ui.model.McpServerRows;
 import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
@@ -351,6 +352,17 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         menu.add(newWithAgent);
+        // server-level, view-only (tier-0): lists the MCP servers already
+        // loaded with the owning node — no IO, no confirmation
+        org.eclipse.jface.action.Action mcpServers = new org.eclipse.jface.action.Action("MCP servers\u2026") {
+            @Override
+            public void run() {
+                showMcpDetails();
+            }
+        };
+        mcpServers.setToolTipText("The MCP servers registered with this opencode server");
+        menu.add(new org.eclipse.jface.action.Separator());
+        menu.add(mcpServers);
         viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
         menu.addMenuListener(manager -> {
             ServerSelection target = selectedTarget();
@@ -362,6 +374,7 @@ public class ServerView extends ViewPart implements Refreshable {
             delete.setEnabled(target.deleteSession());
             agentDetails.setEnabled(target.agentDetails());
             newWithAgent.setEnabled(target.newAgentSession());
+            mcpServers.setEnabled(target.mcpDetails());
         });
         getSite().registerContextMenu(menu, viewer);
 
@@ -442,6 +455,21 @@ public class ServerView extends ViewPart implements Refreshable {
                 ? structured.getFirstElement()
                 : null;
         return first instanceof Agent agent ? agent : null;
+    }
+
+    /**
+     * Read-only MCP details dialog (Batch C): the MCP servers registered
+     * with the selected opencode server, taken from the owning node's
+     * already-loaded list (refresh populated it) — tier-0 view-only, so no
+     * confirmation and no background load.
+     */
+    private void showMcpDetails() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        org.eclipse.jface.dialogs.MessageDialog.openInformation(getSite().getShell(), "MCP servers",
+                McpServerRows.dialogText(owner.label, owner.mcpServers));
     }
 
     /** Read-only agent definition dialog: mode, description, model, enabled tools. */
