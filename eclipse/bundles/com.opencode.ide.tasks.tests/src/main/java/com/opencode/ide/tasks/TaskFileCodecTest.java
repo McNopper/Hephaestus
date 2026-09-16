@@ -221,6 +221,33 @@ public class TaskFileCodecTest {
     }
 
     @Test
+    public void wrongTypedRecordFieldIsQuarantinedNotFatal() {
+        // Review S1 regression: a JSON object where a string belongs throws
+        // UnsupportedOperationException from Gson's getAsString - the narrow
+        // catch let that escape and hide the WHOLE ticket. (Single-element
+        // arrays are Gson-lenient and coerce; the object shape is the fatal
+        // one, verified empirically.)
+        String content = """
+                ---
+                id: T-009
+                title: typed
+                ---
+
+                ## Comments
+                {"ts":"2026-09-16T10:00:00.000Z","by":{"agent":true},"text":"by is an object"}
+                {"ts":"2026-09-16T12:00:00.000Z","by":"pm","text":"healthy line"}
+                """;
+        Task t = TaskFileCodec.read(content);
+        assertEquals("T-009", t.id);
+        assertEquals(1, t.comments.size());
+        assertEquals("healthy line", t.comments.get(0).text());
+        assertEquals(1, t.quarantinedLines.size());
+        assertTrue(t.quarantinedLines.get(0).startsWith("Comments: "));
+        String rewritten = TaskFileCodec.write(t);
+        assertEquals(1, TaskFileCodec.read(rewritten).comments.size());
+    }
+
+    @Test
     public void backtickNPrefixedHistoryLineIsQuarantined() {
         // The exact live corruption (W-007): a PowerShell write accident
         // emitted a literal `n - the PS newline escape - before the JSON object.

@@ -171,6 +171,12 @@ Concretely, a chat agent can already:
   the rest of the repo). The fleet spawns its own authenticated `opencode serve` on
   first dispatch (a fresh password is generated when `OPENCODE_SERVER_PASSWORD` is
   unset) and kills it on shutdown.
+- run the engine **detached from any client** (V-006, opt-in): start the daemon
+  with `eclipse/fleet-daemon.ps1` (pidfile + token in
+  `.git/opencode-fleet/daemon.json`), then set `FLEET_DAEMON=auto|always` for
+  chat sessions to attach as a thin stdio proxy — disconnecting a client no
+  longer kills runs, and a reconnecting client sees the running jobs. Default
+  remains `off` until the in-Eclipse validation run flips it.
 - capture/compare renders via `mcp.graphics`.
 
 The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`

@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.eclipse.core.runtime.Platform;
@@ -124,6 +125,13 @@ public class FleetView extends ViewPart {
     /** SWT-free row/badge formatting for the Events action and dialog. */
     private EventsFeed eventsFeed;
     private final AtomicBoolean diffRunning = new AtomicBoolean();
+    /**
+     * Peer-scan generation: incremented by every refreshFromModel, so a
+     * background peer scan applies its rows only while it is still the
+     * newest refresh (review M1 — the scan runs off the UI thread and must
+     * not race a newer refresh's rows into the viewer).
+     */
+    private final AtomicInteger refreshGeneration = new AtomicInteger();
     private final Runnable modelListener = () -> {
         Display display = Display.getDefault();
         if (display != null && !display.isDisposed()) {
@@ -536,12 +544,59 @@ public class FleetView extends ViewPart {
             return;
         }
         List<FleetJobHandle> own = FleetJobsModel.getDefault().jobs();
+        // Own-engine rows are in-memory and render immediately; the peer scan
+        // hits the on-disk store, whose cross-process FileLock can be held by
+        // a writing peer engine for up to TaskStore.LOCK_TIMEOUT (30 s) — it
+        // must never run on the UI thread (review M1: a peer write froze the
+        // whole workbench). The scan merges back via asyncExec, guarded by a
+        // generation counter so a stale scan cannot overwrite a newer refresh.
+        applyRows(own);
+        Set<String> liveAtScan = liveTaskIds(own);
+        int generation = refreshGeneration.incrementAndGet();
+        Thread peerScan = new Thread(() -> {
+            List<FleetJobHandle> peer = peerRows(liveAtScan);
+            Display display = Display.getDefault();
+            if (display == null || display.isDisposed()) {
+                return;
+            }
+            display.asyncExec(() -> applyPeerRows(generation, peer));
+        }, "fleet-peer-scan");
+        peerScan.setDaemon(true);
+        peerScan.start();
+    }
+
+    /** Task ids of the given own-engine jobs (dedup set for the peer scan). */
+    private static Set<String> liveTaskIds(List<FleetJobHandle> own) {
         Set<String> live = new LinkedHashSet<>();
         for (FleetJobHandle job : own) {
             live.add(job.taskId());
         }
+        return live;
+    }
+
+    /**
+     * Merges a finished peer scan into the view - only while its refresh is
+     * still current and the view alive; own-engine rows are re-read so a job
+     * that became live meanwhile wins over its reconstructed peer row.
+     */
+    private void applyPeerRows(int generation, List<FleetJobHandle> peer) {
+        if (generation != refreshGeneration.get()
+                || viewer == null || viewer.getControl().isDisposed()) {
+            return;
+        }
+        List<FleetJobHandle> own = FleetJobsModel.getDefault().jobs();
+        Set<String> liveNow = liveTaskIds(own);
         List<FleetJobHandle> rows = new ArrayList<>(own);
-        rows.addAll(peerRows(live));
+        for (FleetJobHandle row : peer) {
+            if (!liveNow.contains(row.taskId())) {
+                rows.add(row);
+            }
+        }
+        applyRows(rows);
+    }
+
+    /** Applies rows to the viewer on the UI thread (input, layout, actions). */
+    private void applyRows(List<FleetJobHandle> rows) {
         viewer.setInput(rows);
         boolean empty = rows.isEmpty();
         setLaidOut(tableComposite, !empty);
@@ -559,7 +614,8 @@ public class FleetView extends ViewPart {
      * session's fleet server), rebuilt from the shared on-disk truth via
      * {@link PeerJobReconstructor} — store claims plus fleet worktrees,
      * deduplicated against the live engine's own rows. Any failure yields
-     * no peer rows and never breaks the view.
+     * no peer rows and never breaks the view. BLOCKING (store locks): only
+     * ever called off the UI thread.
      */
     private static List<FleetJobHandle> peerRows(Set<String> liveTaskIds) {
         try {

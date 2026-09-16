@@ -88,7 +88,8 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  * file by {@link SessionTranscriptFiles} and opened through the platform's
  * {@code FileStoreEditorInput} — the modern workbench removed
  * {@code IStorageEditorInput}, so an EFS file store is the supported
- * read-only editor surface. The editor shows a snapshot — it does not
+ * read-only editor surface. The editor shows a snapshot — edits change only
+ * the delete-on-exit temp copy, never the session — and it does not
  * follow live updates.</p>
  */
 public class SessionDetailsView extends ViewPart implements Refreshable {
@@ -346,7 +347,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
     /**
      * Context menu on message rows: copy the full message text, or open one
-     * message / the whole transcript in a read-only text editor (per-show
+     * message / the whole transcript in a text editor (per-show
      * enablement). All view-only — tier-0, no confirmation.
      */
     private void hookContextMenu() {
@@ -379,7 +380,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
                             SessionTranscript.message(selected));
                 }
             };
-            openMessageEditor.setToolTipText("Open the selected message in a read-only text editor");
+            openMessageEditor.setToolTipText("Open the selected message in a text editor (snapshot copy)");
             openMessageEditor.setEnabled(row != null && row.text() != null && !row.text().isBlank());
             menu.add(openMessageEditor);
             Action openTranscriptEditor = new Action("Open transcript in Editor") {
@@ -392,7 +393,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
                     }
                 }
             };
-            openTranscriptEditor.setToolTipText("Open the whole transcript in a read-only text editor");
+            openTranscriptEditor.setToolTipText("Open the whole transcript in a text editor (snapshot copy)");
             openTranscriptEditor.setEnabled(currentSnapshot != null);
             menu.add(openTranscriptEditor);
         });

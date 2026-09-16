@@ -11,8 +11,6 @@ import java.util.List;
 import org.junit.Assume;
 import org.junit.Test;
 
-import com.opencode.ide.git.internal.GitLocator;
-
 /**
  * Tests the pure git-resolution logic (PATH scan first, then explicit
  * fallback probes) without touching the real PATH.

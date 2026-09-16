@@ -96,7 +96,8 @@ public final class TasksRootResolution {
      * {@link OpencodeConnection#repoRootOf} — one shared "same folder level"
      * rule for the spawned server and the board. {@code repoRootOf} returns
      * its input unchanged when no ancestor carries a marker, so the
-     * {@link #isRepo} re-check filters non-repo projects.
+     * {@link OpencodeConnection#isRepoMarker} re-check filters non-repo
+     * projects (review S3: the marker predicate exists exactly once).
      */
     private static Path adoptedStore(List<Path> projectLocations) {
         if (projectLocations == null) {
@@ -108,7 +109,7 @@ public final class TasksRootResolution {
                 continue;
             }
             Path repo = OpencodeConnection.repoRootOf(location);
-            if (!isRepo(repo)) {
+            if (!OpencodeConnection.isRepoMarker(repo)) {
                 continue;
             }
             Path store = repo.resolve(".opencode").resolve("tasks");
@@ -120,12 +121,6 @@ public final class TasksRootResolution {
             }
         }
         return best == null ? null : best.normalize();
-    }
-
-    /** Whether the given directory carries an opencode repo marker. */
-    private static boolean isRepo(Path repo) {
-        return Files.isDirectory(repo.resolve(".opencode"))
-                || Files.isRegularFile(repo.resolve("opencode.json"));
     }
 
     /** The preference text, or {@code null} when unset/blank/unavailable. */

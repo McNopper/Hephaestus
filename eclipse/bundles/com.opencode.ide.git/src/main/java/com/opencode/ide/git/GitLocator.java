@@ -1,4 +1,4 @@
-package com.opencode.ide.git.internal;
+package com.opencode.ide.git;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -9,6 +9,11 @@ import java.util.List;
  * Locates the git executable: PATH first, then well-known Windows install
  * locations. The environment read is kept separate from the probing logic so
  * the probe order is unit-testable without touching the real PATH.
+ *
+ * <p>Exported API (review S2): every bundle that shells out to git resolves
+ * its binary here — one discovery rule product-wide. It previously lived in
+ * the internal package and leaked to consumers via an x-friends exception;
+ * the export makes that coupling a contract instead.</p>
  */
 public final class GitLocator {
 

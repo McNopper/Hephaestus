@@ -172,7 +172,7 @@ public final class BoardModel {
                 List<TicketRow> rows = new ArrayList<>();
                 for (Task t : board.getOrDefault(status, List.of())) {
                     TicketRow row = TicketRow.from(t);
-                    if (row == null || (blockedOnly && !row.blocked())
+                    if (row == null || (blockedOnly && !row.displayBlocked())
                             || (bugsOnly && !row.isBug())
                             || !stageVisible(row.effectiveStage())) {
                         continue;

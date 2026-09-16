@@ -9,8 +9,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.opencode.ide.git.GitLocator;
 import com.opencode.ide.git.GitTuning;
-import com.opencode.ide.git.internal.GitLocator;
 
 /**
  * Minimal git CLI access for the Fleet view ("Open diff"), using the same

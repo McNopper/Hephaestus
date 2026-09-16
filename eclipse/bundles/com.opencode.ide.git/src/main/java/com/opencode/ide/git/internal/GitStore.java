@@ -33,7 +33,7 @@ public final class GitStore {
 
     private static final Duration TIMEOUT = com.opencode.ide.git.GitTuning.SYNC_TIMEOUT;
     private static final Duration DRAIN_WAIT = com.opencode.ide.git.GitTuning.OUTPUT_DRAIN_WAIT;
-    private static final String GIT = GitLocator.resolve().command().toString();
+    private static final String GIT = com.opencode.ide.git.GitLocator.resolve().command().toString();
     private static final String DEFAULT_MESSAGE = "sync task store";
     private static final int LOG_TAIL = com.opencode.ide.git.GitTuning.WARN_TAIL;
 

@@ -358,7 +358,14 @@ public final class TaskFileCodec {
                             parseInstant(str(o, "ts")), str(o, "action"), str(o, "by")));
                     default -> throw new IllegalStateException(name);
                 }
-            } catch (JsonSyntaxException | FormatException e) {
+            } catch (RuntimeException e) {
+                // JsonSyntaxException/FormatException (malformed JSON) plus
+                // wrong-typed field coercion (e.g. a JSON object/array where
+                // a string belongs throws UnsupportedOperationException from
+                // Gson's getAsString) - every shape of one bad line is
+                // quarantined, never the whole ticket (review S1: the
+                // narrow catch let a wrong-typed field make the file
+                // unparseable, hiding the ticket entirely)
                 LOG.log(Level.WARNING, "quarantined malformed " + name + " line in ticket " + t.id
                         + " (skipped, dropped on next rewrite): " + line, e);
                 t.quarantinedLines.add(name + ": " + line);

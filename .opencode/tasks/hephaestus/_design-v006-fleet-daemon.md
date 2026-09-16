@@ -234,3 +234,31 @@ for free; it slots behind the same `FleetDaemon` transport seam.
 6. **Eclipse auto-attach** — should the Fleet view prefer the daemon when one exists? UI
    ticket, decided separately; either way cross-engine visibility stays F-004's store-based
    reconstruction.
+
+## As built (2026-09-16, slices a+b)
+
+Shipped and reactor-green; opt-in only (`FLEET_DAEMON` default `off`). deltas
+against the design above, discovered during implementation:
+
+- **Pidfile shape**: the 4-field form - `{"port","pid","token","startedAt"}`. The
+  design's `serverPid`/`serverPort` fields (orphaned spawned-server reap) are
+  **deferred**; the successor-cleanup path covers the MVP (open question 5:
+  accepted). `startedAt` is the process-start instant (DispatchGuard
+  OWNER-marker semantics) so the pid-reuse check works.
+- **Hello response**: `{"jsonrpc":"2.0","id":1,"result":{"ok":true,"port":...,"pid":...}}`;
+  refusals are `-32000` + connection close. Wrong-token `daemon/shutdown` keeps serving.
+- **Daemon drain**: `FleetTuning.DAEMON_DRAIN_WAIT` (`FLEET_DAEMON_DRAIN_MS`, 5 s).
+- **Launcher**: `eclipse/fleet-daemon.ps1` passes `--root <repo>/.opencode/tasks`
+  (the STORE root - `--root <repo>` would mis-root the task store), appends to
+  `.git/opencode-fleet/daemon.log` via a hidden pwsh wrapper (paths travel as
+  `FLEET_LAUNCH_*` env vars), and quotes `-Dfile.encoding=UTF-8` (pwsh splits
+  bare `-Dfile`).
+- **Mode semantics**: `off`/unset/blank/garbage -> own engine (garbage warns);
+  `auto`+live -> proxy, `auto`+dead -> own engine; `always`+dead -> fail fast
+  (exit 1). Proxy exits 0 on client EOF (detach), 1 on daemon death.
+- **Not built (deferred with the design)**: `fleet_daemon_status`/`fleet_daemon_shutdown`
+  tools, launcher `stop`/`status` subcommands, permission-ask push. Slice (c) -
+  flipping the default to `auto` - waits for the in-Eclipse validation run.
+- Known duplication (accepted, NOTE-level): `FleetDaemon.probe` (start guard) and
+  `DaemonProwl` (client-side liveness) implement the same probe against the same
+  pidfile; consolidate if a third consumer appears.

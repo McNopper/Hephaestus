@@ -220,6 +220,22 @@ public class TaskStoreSemanticsTest {
     }
 
     @Test
+    public void readsOnAMissingProjectNeverMaterializeIt() {
+        // Review S5: task_doctor/task_list on a typo'd project used to
+        // create the directory as a side effect of the read path.
+        assertTrue(store.list("ghost", null, null, null, null).isEmpty());
+        assertEquals(List.of(), store.inconsistencies("ghost"));
+        try {
+            store.get("ghost", "T-001");
+            fail("get on a missing project must be NotFound, not an empty success");
+        } catch (TaskStore.NotFound expected) {
+            // wanted
+        }
+        assertFalse("reads must not create the project directory",
+                java.nio.file.Files.isDirectory(store.root().resolve("ghost")));
+    }
+
+    @Test
     public void claimOrdersByPriorityThenCreatedThenReturnsNull() {
         String low = mkSprintBacklog("developer", "low");
         String high = mkSprintBacklog("developer", "high");

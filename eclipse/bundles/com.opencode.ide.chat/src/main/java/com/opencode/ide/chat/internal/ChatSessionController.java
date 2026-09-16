@@ -138,24 +138,56 @@ public final class ChatSessionController {
      */
     private final ArrayDeque<PendingSubmission> queue = new ArrayDeque<>();
     /**
-     * Late-reply watcher knobs: how often to poll a session whose reply
+     * Late-reply watcher defaults: how often to poll a session whose reply
      * outlived the POST budget, and how long to keep watching before
-     * declaring it stuck. Public and volatile so the separate-bundle tests
-     * can tighten them (OSGi gives host and test bundle distinct class
-     * loaders - package-private access fails at runtime); 5 s poll / 30 min
-     * cap in production.
+     * declaring it stuck. Env: {@code CHAT_LATE_REPLY_POLL_MS} (5 s) and
+     * {@code CHAT_LATE_REPLY_CAP_MS} (30 min) - the same env-knob
+     * discipline as ClientTuning/FleetTuning (review S4: no mutable public
+     * statics). The env is immutable in-process, so tests inject explicit
+     * budgets through the test constructor instead.
      */
-    public static volatile Duration lateReplyPoll = Duration.ofSeconds(5);
-    public static volatile Duration lateReplyCap = Duration.ofMinutes(30);
+    private static final Duration LATE_REPLY_POLL_DEFAULT =
+            envDuration("CHAT_LATE_REPLY_POLL_MS", Duration.ofSeconds(5));
+    private static final Duration LATE_REPLY_CAP_DEFAULT =
+            envDuration("CHAT_LATE_REPLY_CAP_MS", Duration.ofMinutes(30));
+    private final Duration lateReplyPoll;
+    private final Duration lateReplyCap;
     /** Bumped on dispose and by every new watcher: stale watchers exit silently. */
     private volatile int watcherGeneration;
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
 
     public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host) {
+        this(connection, renderer, host, LATE_REPLY_POLL_DEFAULT, LATE_REPLY_CAP_DEFAULT);
+    }
+
+    /**
+     * Test seam: explicit late-reply watcher budgets (env vars cannot be
+     * set from within the JVM). Public because the tests live in a separate
+     * OSGi bundle - package-private access fails across class loaders.
+     */
+    public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host,
+            Duration lateReplyPoll, Duration lateReplyCap) {
         this.connection = connection;
         this.renderer = renderer;
         this.host = host;
+        this.lateReplyPoll = lateReplyPoll == null || lateReplyPoll.isZero()
+                ? LATE_REPLY_POLL_DEFAULT : lateReplyPoll;
+        this.lateReplyCap = lateReplyCap == null || lateReplyCap.isZero()
+                ? LATE_REPLY_CAP_DEFAULT : lateReplyCap;
+    }
+
+    private static Duration envDuration(String envVar, Duration fallback) {
+        String value = System.getenv(envVar);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            long millis = Long.parseLong(value.trim());
+            return millis > 0 ? Duration.ofMillis(millis) : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     // ---------- lifecycle ----------
@@ -274,6 +306,12 @@ public final class ChatSessionController {
 
     /** Resumes {@code sid}: loads its history into the transcript. */
     public void resume(String sid) {
+        if (sending) {
+            // review N1: the running job would settle the OLD reply into the
+            // NEW transcript - same refusal (and reason) as startNewSession
+            renderer.notice("\u26A0 A reply is still streaming - abort it before resuming another session.");
+            return;
+        }
         sessionId = sid;
         host.runInBackground("Loading chat history " + sid, () -> {
             try {

@@ -304,6 +304,18 @@ public final class OpencodeConnection {
     }
 
     /**
+     * O-001 repo-marker predicate: the one shared definition of "this
+     * directory is an opencode repo" ({@code .opencode} dir or
+     * {@code opencode.json}). Every climb - server spawn AND the board's
+     * store adoption - must agree on the marker set or the two drift apart.
+     */
+    public static boolean isRepoMarker(Path dir) {
+        return dir != null
+                && (Files.isDirectory(dir.resolve(".opencode"))
+                        || Files.isRegularFile(dir.resolve("opencode.json")));
+    }
+
+    /**
      * O-001 "same folder level" rule: given a working directory (typically the
      * active project's folder inside a repo), walk up to the nearest ancestor
      * that carries an opencode repo marker - a {@code .opencode} directory or an
@@ -314,8 +326,7 @@ public final class OpencodeConnection {
     public static Path repoRootOf(Path candidate) {
         Path current = candidate.toAbsolutePath().normalize();
         while (current != null) {
-            if (Files.isDirectory(current.resolve(".opencode"))
-                    || Files.isRegularFile(current.resolve("opencode.json"))) {
+            if (isRepoMarker(current)) {
                 return current;
             }
             current = current.getParent();

@@ -44,6 +44,10 @@ public final class FleetTuning {
     public static final Duration SHUTDOWN_GRACE = duration(
             "FLEET_SHUTDOWN_GRACE_MS", Duration.ofSeconds(30));
 
+    /** Daemon stop: how long open client connections may drain. Env: FLEET_DAEMON_DRAIN_MS. */
+    public static final Duration DAEMON_DRAIN_WAIT = duration(
+            "FLEET_DAEMON_DRAIN_MS", Duration.ofSeconds(5));
+
     private static Duration duration(String envVar, Duration fallback) {
         String value = System.getenv(envVar);
         if (value == null || value.isBlank()) { return fallback; }

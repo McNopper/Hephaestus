@@ -62,12 +62,6 @@ public class ChatSessionControllerTest {
         controller = new ChatSessionController(connection, renderer, host);
     }
 
-    @After
-    public void restoreLateReplyKnobs() {
-        ChatSessionController.lateReplyPoll = Duration.ofSeconds(5);
-        ChatSessionController.lateReplyCap = Duration.ofMinutes(30);
-    }
-
     // ---------- sending ----------
 
     @Test
@@ -164,35 +158,36 @@ public class ChatSessionControllerTest {
 
     @Test
     public void sendTimeoutWithBusySessionWatchesThenSettlesFromHistory() {
-        ChatSessionController.lateReplyPoll = Duration.ofMillis(1);
+        ChatSessionController tight = new ChatSessionController(connection, renderer, host,
+                Duration.ofMillis(1), Duration.ofMinutes(30));
         connection.client.sendFailure = promptTimeout();
         connection.client.busyPolls = 1; // recovery probe sees busy, watcher poll sees idle
         connection.client.history = List.of(entry("u1", "user", "hi"),
                 entry("msg_9", "assistant", "late done"));
-        controller.send(new ChatSessionController.OutgoingMessage(
+        tight.send(new ChatSessionController.OutgoingMessage(
                 null, "prov", "m1", null, null, "hi"));
 
         assertTrue("still-running notice expected, got: " + renderer.notices,
                 renderer.notices.stream().anyMatch(n -> n.startsWith("⏳")));
         assertTrue("late final render expected, got: " + renderer.assistants,
                 renderer.assistants.contains("final:msg_9:late done||prov/mod|"));
-        assertFalse(controller.isSending());
+        assertFalse(tight.isSending());
         assertTrue(connection.client.abortCalls.isEmpty());
     }
 
     @Test
     public void sendTimeoutStuckBusyIsAbortedAtTheCap() {
-        ChatSessionController.lateReplyPoll = Duration.ofMillis(1);
-        ChatSessionController.lateReplyCap = Duration.ofMillis(20);
+        ChatSessionController tight = new ChatSessionController(connection, renderer, host,
+                Duration.ofMillis(1), Duration.ofMillis(20));
         connection.client.sendFailure = promptTimeout();
         connection.client.busyPolls = Integer.MAX_VALUE;
-        controller.send(new ChatSessionController.OutgoingMessage(
+        tight.send(new ChatSessionController.OutgoingMessage(
                 null, "prov", "m1", null, null, "hi"));
 
         assertEquals(List.of("ses_1"), connection.client.abortCalls);
         assertTrue("aborted notice expected, got: " + renderer.notices,
                 renderer.notices.stream().anyMatch(n -> n.contains("aborted")));
-        assertFalse(controller.isSending());
+        assertFalse(tight.isSending());
     }
 
     @Test
@@ -605,6 +600,27 @@ public class ChatSessionControllerTest {
     }
 
     // ---------- resume / new session ----------
+
+    @Test
+    public void resumeWhileSendingIsRefused() {
+        // review N1: the running job would settle the OLD reply into the NEW
+        // transcript - same refusal as startNewSession
+        host.holdBackground = true;
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "in flight"));
+        assertTrue(controller.isSending());
+
+        connection.client.history = List.of(entry("a1", "assistant", "other session"));
+        controller.resume("ses_42");
+
+        assertNull("the session must not switch under a running send (none created yet)",
+                controller.sessionId());
+        assertTrue(renderer.histories.isEmpty());
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("still streaming")));
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+    }
 
     @Test
     public void resumeRendersHistoryAndNotice() {

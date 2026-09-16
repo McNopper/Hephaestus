@@ -13,6 +13,13 @@
 #   -Root <dir>   task store root (default: .opencode/tasks under the current
 #                 working directory, i.e. the repository opencode started in)
 #
+# The launched server honors the FLEET_DAEMON environment variable
+# (off|auto|always; see FleetStdioMain): off/default owns a local engine in
+# this process; auto/always attach it as a thin proxy to the detached fleet
+# daemon started by eclipse/fleet-daemon.ps1 instead of spawning another
+# engine. The variable is inherited from the environment - set it in the
+# launching shell or per MCP server in the opencode config.
+#
 # Requirements: a JDK 21+ (java on PATH or JAVA_HOME; the bundles are
 # JavaSE-21), the built fleet+client+git+tasks+tools bundles (mvn package in
 # eclipse/), and gson (resolved from the local Tycho p2 cache or an Eclipse

@@ -180,8 +180,15 @@ public final class TaskStore {
         });
     }
 
-    /** Gets one task by id. */
+    /**
+     * Gets one task by id. A project that does not exist on disk is
+     * "no such ticket" - reads never materialize the project directory
+     * (review S5).
+     */
     public Task get(String project, String id) {
+        if (projectDirectoryMissing(project)) {
+            throw new NotFound("ticket " + id + " not found in project " + project);
+        }
         return transaction(project, data -> {
             Task t = data.tasks.get(id);
             if (t == null) {
@@ -215,8 +222,16 @@ public final class TaskStore {
         }
     }
 
-    /** Lists tasks with optional role/status/sprint/blocked filters (creation order). */
+    /**
+     * Lists tasks with optional role/status/sprint/blocked filters (creation
+     * order). A project that does not exist on disk reads as empty - reads
+     * never materialize the project directory (review S5: task_doctor on a
+     * typo'd project used to create it).
+     */
     public List<Task> list(String project, String role, String status, String sprint, Boolean blocked) {
+        if (projectDirectoryMissing(project)) {
+            return new ArrayList<>(); // mutable: callers sort in place (readiness, backlog)
+        }
         List<Task> out = new ArrayList<>(transaction(project, data -> new ArrayList<>(data.tasks.values())));
         if (role != null) {
             out.removeIf(t -> !role.equals(t.role));
@@ -881,6 +896,15 @@ public final class TaskStore {
         ProjectData(Path dir) {
             this.dir = dir;
         }
+    }
+
+    /**
+     * Whether the project's directory does not exist on disk yet - read
+     * entry points short-circuit on this so they never materialize a
+     * directory as a side effect (writes still create it, as they must).
+     */
+    private boolean projectDirectoryMissing(String project) {
+        return !Files.isDirectory(root.resolve(sanitizeProject(project)));
     }
 
     private <T> T transaction(String project, Function<ProjectData, T> work) {

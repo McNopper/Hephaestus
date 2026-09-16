@@ -16,34 +16,32 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
-## Current state (2026-09-14)
+## Current state (2026-09-16)
 
-The fleet has dispatch, watchdog, merge-back, actuals, store sync and recovery.
-The follow-up review found cross-engine reset and shutdown gaps despite the
-earlier readiness claim. Fixes now reserve reset against live peer dispatch,
-reject dispatch after close, preserve active claims during reconciliation,
-resolve linked-worktree reservations through the common git directory, and
-fail verification when the AC-path diff cannot be read.
-
-Auto-dispatch policy/scheduler/cost aggregation now live in the headless fleet
-bundle and serve both Board and chat (`fleet_auto_start/status/stop`). GUI
-Batch B adds session delete/abort and primary-agent chat launch. The first
-real deployment into the live Eclipse install (2026-09-14, second session)
-fixed four first-launch bugs — eager activator preferences, an SCR circular
-reference that disabled the CDT integration, a spawn-password mismatch causing
-universal HTTP 401, and stale-server port reuse — and recovered the p2-damaged
-install itself (`docs/eclipse-deploy-recovery.md`). Live chat round-trip works;
-the remaining live acceptance work is tracked below. Model write reliability
-is still an observed limitation, not solved by a path-presence check.
+All headless-verifiable work is landed and reactor-green; what remains is
+deliberately **in-Eclipse testing only**. The 2026-09-16 session landed: the
+agent workstreams (peer-job Fleet view, pristine Board labels/icons, tasks
+store hardening with quarantine + `task_doctor`, chat-web polish), chat
+late-reply recovery (timed-out sends watch the still-busy session instead of
+stranding it), the model pin (`enabled_providers` whitelist), MCP endpoint
+token auth (G-003), Board type badges + peer-write visibility + live
+session-busy icons (U-005/B-002/U-007), full menu batch C (U-002), the
+tuning-table sweep (G-004), and the V-006 fleet daemon **slices a+b**
+(daemon core + stdio proxy/launcher, opt-in via `FLEET_DAEMON=auto|always`,
+default `off`). An independent clean-architecture review ran over the
+session's diff; every MUST/SHOULD finding (UI-thread store locks, quarantine
+gap, x-friends coupling, mutable knob statics, read-side directory
+materialization) is fixed with regression tests.
 
 ## Open work
 
 | Item | Size | Notes |
 |---|---|---|
-| **Milestone U — UI verification pass** | M | The deferred Eclipse checklist + CDT marker round trip. First-launch and view-creation checks are done (live session 2026-09-14); per-view context menus, screenshots and panel-content verification remain. `glm-5.3-flash` (multimodal) is now available: automate per-view screenshots and verify panel contents with it instead of human eyeballs. |
-| **Clean Eclipse reinstall / p2 profile repair** | S | The recovered install runs on hand-maintained `bundles.info` lines (see `docs/eclipse-deploy-recovery.md` caveat). A fresh Eclipse CDP package or installer repair removes the crutch. |
-| **Live automatic-dispatch acceptance** | S | Chat controls and shared reservations implemented. Exercise against a real model after the real-git failure/reset/retry regression; model engagement remains variable. |
-| **Linux integration verification** | S/M | Classpath/launcher/path fixes and native GCC/Clang discovery implemented. WSL GCC fixture passes with Ninja and Makefiles; full Linux Java/Tycho run awaits a JDK-equipped environment or CI after the human pushes. Ubuntu remains non-blocking. |
+| **In-Eclipse verification pass** | M | The deferred UI checklist: board/fleet live try (peer refresh, badges, busy icons, menus), CDT marker round trip, per-view screenshots (`glm-5.3-flash` multimodal). Everything else is done — this is the remaining gate. |
+| **V-006 slice (c): default flip** | S | Flip `FLEET_DAEMON` default to `auto` after the in-Eclipse validation run exercises the daemon opt-in. Slices a+b are shipped and tested; design + as-built note on ticket V-006. |
+| **Live automatic-dispatch acceptance** | S | Exercise against a real model during the Eclipse pass; chat controls, shared reservations and the daemon are in place. |
+| **Clean Eclipse reinstall / p2 profile repair** | S | The recovered install runs on hand-maintained `bundles.info` lines (see `docs/eclipse-deploy-recovery.md` caveat). |
+| **Linux integration verification** | S/M | WSL GCC fixture passes; full Linux Java/Tycho run awaits a JDK-equipped environment or CI. Non-blocking. |
 
 ## Completed this session (2026-09-14)
 

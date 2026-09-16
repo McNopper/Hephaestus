@@ -34,7 +34,7 @@ public final class GitWorktreeManager implements WorktreeManager {
     private final String gitOrigin;
 
     public GitWorktreeManager() {
-        GitLocator.Resolution resolution = GitLocator.resolve();
+        com.opencode.ide.git.GitLocator.Resolution resolution = com.opencode.ide.git.GitLocator.resolve();
         this.gitCommand = resolution.command().toString();
         this.gitOrigin = resolution.source();
     }
