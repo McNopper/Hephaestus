@@ -70,6 +70,10 @@
           class="com.opencode.ide.ui.handlers.RefreshViewsHandler"/>
   </extension>
 
+  <extension point="org.eclipse.ui.startup">
+    <startup class="com.opencode.ide.ui.internal.AgentToolsStartup"/>
+  </extension>
+
   <extension point="org.eclipse.ui.bindings">
     <key
           commandId="com.opencode.ide.ui.openPerspective"

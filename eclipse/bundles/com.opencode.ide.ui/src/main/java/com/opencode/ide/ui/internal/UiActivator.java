@@ -8,6 +8,7 @@ import org.eclipse.swt.graphics.Image;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
+import com.opencode.ide.ui.console.AgentToolsConsole;
 import com.opencode.ide.ui.session.SessionBusyPoller;
 
 /**
@@ -49,6 +50,7 @@ public class UiActivator extends AbstractUIPlugin {
     @Override
     public void stop(BundleContext context) throws Exception {
         try {
+            AgentToolsConsole.uninstall();
             ProviderIcons.disposeAll();
             ProviderLogos.disposeAll();
             images.values().forEach(Image::dispose);
