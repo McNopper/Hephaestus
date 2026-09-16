@@ -200,6 +200,12 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         }
     }
 
+    /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see ServerView#contributeActions). */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         Action refreshAction = new Action("Refresh") {
             @Override
@@ -208,6 +214,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             }
         };
         refreshAction.setToolTipText("Reload the session history");
+        refreshAction.setImageDescriptor(icon("refresh"));
         Action autoRefreshAction = new Action("Auto Refresh", IAction.AS_CHECK_BOX) {
             @Override
             public void run() {
@@ -215,6 +222,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             }
         };
         autoRefreshAction.setToolTipText("Refresh automatically every 5 seconds");
+        autoRefreshAction.setImageDescriptor(icon("auto-refresh"));
         forkAction = new Action("Fork") {
             @Override
             public void run() {
@@ -223,6 +231,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             }
         };
         forkAction.setToolTipText("Fork this session at its latest message");
+        forkAction.setImageDescriptor(icon("fork"));
         shareAction = new Action("Share") {
             @Override
             public void run() {
@@ -245,6 +254,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             }
         };
         shareAction.setToolTipText("Publish a read-only share link and copy it to the clipboard");
+        shareAction.setImageDescriptor(icon("share"));
         summarizeAction = new Action("Summarize") {
             @Override
             public void run() {
@@ -253,6 +263,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             }
         };
         summarizeAction.setToolTipText("Compact the session history into a summary");
+        summarizeAction.setImageDescriptor(icon("summarize"));
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(refreshAction);
         toolBar.add(autoRefreshAction);

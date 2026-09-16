@@ -243,6 +243,12 @@ public class RepoView extends ViewPart implements Refreshable {
         return null;
     }
 
+    /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see ServerView#contributeActions). */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         refreshAction = new Action("Refresh") {
             @Override
@@ -251,6 +257,7 @@ public class RepoView extends ViewPart implements Refreshable {
             }
         };
         refreshAction.setToolTipText("Reload the workspace tree from the opencode server");
+        refreshAction.setImageDescriptor(icon("refresh"));
         showTreeAction = new Action("Show Tree") {
             @Override
             public void run() {
@@ -258,6 +265,7 @@ public class RepoView extends ViewPart implements Refreshable {
             }
         };
         showTreeAction.setToolTipText("Leave the search results and restore the file tree");
+        showTreeAction.setImageDescriptor(icon("show-tree"));
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(refreshAction);
         toolBar.add(showTreeAction);

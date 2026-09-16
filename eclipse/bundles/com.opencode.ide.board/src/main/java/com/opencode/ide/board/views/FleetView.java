@@ -260,6 +260,12 @@ public class FleetView extends ViewPart {
         return element instanceof FleetJobHandle row ? row : null;
     }
 
+    /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see BoardView#icon). */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         openDiffAction = new Action("Open diff") {
             @Override
@@ -269,6 +275,7 @@ public class FleetView extends ViewPart {
         };
         openDiffAction.setToolTipText(
                 "Session diff from the opencode server; falls back to a git diff of the task branch");
+        openDiffAction.setImageDescriptor(icon("open-diff"));
         openDiffAction.setEnabled(false);
 
         openFolderAction = new Action("Open folder") {
@@ -278,6 +285,7 @@ public class FleetView extends ViewPart {
             }
         };
         openFolderAction.setToolTipText("Open the job's worktree in the file explorer");
+        openFolderAction.setImageDescriptor(icon("open-folder"));
         openFolderAction.setEnabled(false);
 
         takeOverAction = new Action("Take over") {
@@ -288,6 +296,7 @@ public class FleetView extends ViewPart {
         };
         takeOverAction.setToolTipText(
                 "Hand the session to the attached opencode TUI; without one, open the worktree and mark the job as taken over");
+        takeOverAction.setImageDescriptor(icon("take-over"));
         takeOverAction.setEnabled(false);
 
         permissionsAction = new Action("Permissions") {
@@ -299,6 +308,7 @@ public class FleetView extends ViewPart {
         };
         permissionsAction.setToolTipText(
                 "Pending permission requests of unattended fleet sessions (approve once / always / reject)");
+        permissionsAction.setImageDescriptor(icon("permissions"));
         permissionsAction.setEnabled(false);
 
         eventsAction = new Action("Events") {
@@ -312,6 +322,7 @@ public class FleetView extends ViewPart {
         };
         eventsAction.setToolTipText(
                 "The merged global event feed of all configured connections (newest 50, live while open)");
+        eventsAction.setImageDescriptor(icon("events"));
 
         IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
         toolbar.add(permissionsAction);

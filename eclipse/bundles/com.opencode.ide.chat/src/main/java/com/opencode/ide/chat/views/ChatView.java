@@ -341,6 +341,18 @@ public class ChatView extends ViewPart {
         maybeResumeFromSecondaryId();
     }
 
+    /**
+     * Toolbar icon descriptor from the shared action-icon set vendored in
+     * {@code com.opencode.ide.core} ({@code generate-action-icons.py},
+     * original artwork). Text-only toolbar actions render as flat labels
+     * with no button affordance (user feedback 2026-09-16), so every toolbar
+     * action gets an icon.
+     */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         Action newSessionAction = new Action("New Session") {
             @Override
@@ -349,6 +361,7 @@ public class ChatView extends ViewPart {
             }
         };
         newSessionAction.setToolTipText("Start a fresh chat session");
+        newSessionAction.setImageDescriptor(icon("new-session"));
 
         abortAction = new Action("Abort") {
             @Override
@@ -357,6 +370,7 @@ public class ChatView extends ViewPart {
             }
         };
         abortAction.setToolTipText("Abort the reply currently being generated (Ctrl+Alt+Shift+A)");
+        abortAction.setImageDescriptor(icon("abort"));
         abortAction.setEnabled(false); // enabled while a send is in flight
 
         // Thinking toggle: shows/hides the reasoning progress (live and
@@ -371,6 +385,7 @@ public class ChatView extends ViewPart {
         };
         reasoningAction.setChecked(new OpencodePreferences().isShowReasoning());
         reasoningAction.setToolTipText("Show or hide thinking/reasoning progress (persisted)");
+        reasoningAction.setImageDescriptor(icon("thinking"));
         // push the persisted state into the page (queues until page-ready)
         page.setReasoningVisible(reasoningAction.isChecked());
 

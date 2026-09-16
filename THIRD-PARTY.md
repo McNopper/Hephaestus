@@ -124,6 +124,20 @@ its Ship list so a refresh never overwrites it.
 
 ---
 
+## Action icons (original artwork)
+
+- **What:** the 16×16 view-toolbar icon set used by the Eclipse views
+  (`eclipse/bundles/com.opencode.ide.core/src/main/resources/icons/actions/`,
+  SVG sources under `svg/`, rasterized PNGs consumed via
+  `AbstractUIPlugin.imageDescriptorFromPlugin`).
+- **Source:** drawn for this repository by
+  `eclipse/bundles/com.opencode.ide.core/generate-action-icons.py`
+  (regenerate with `python generate-action-icons.py`; needs cairosvg).
+- **License status:** original artwork, covered by this repository's MIT
+  license (see [`LICENSE`](LICENSE)); no third-party trademarks involved.
+
+---
+
 ## Vendored web assets (Eclipse chat renderer — `eclipse/components/chat-web/web/`)
 
 The chat view's embedded renderer vendors four minified JS/CSS libraries; the

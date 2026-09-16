@@ -268,6 +268,12 @@ public class ProvidersView extends ViewPart implements Refreshable {
                 new Status(Status.ERROR, UiActivator.PLUGIN_ID, "Failed to start provider OAuth", error));
     }
 
+    /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see ServerView#contributeActions). */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         refreshAction = new Action("Refresh") {
             @Override
@@ -276,6 +282,7 @@ public class ProvidersView extends ViewPart implements Refreshable {
             }
         };
         refreshAction.setToolTipText("Refresh providers from the opencode server");
+        refreshAction.setImageDescriptor(icon("refresh"));
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(refreshAction);
     }

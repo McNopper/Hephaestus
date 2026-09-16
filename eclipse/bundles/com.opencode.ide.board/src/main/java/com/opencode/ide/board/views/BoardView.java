@@ -653,6 +653,18 @@ public class BoardView extends ViewPart {
     // Toolbar
     // ------------------------------------------------------------------
 
+    /**
+     * Toolbar icon descriptor from the shared action-icon set vendored in
+     * {@code com.opencode.ide.core} ({@code generate-action-icons.py},
+     * original artwork). Text-only toolbar actions render as flat labels
+     * with no button affordance (user feedback 2026-09-16), so every toolbar
+     * action gets an icon.
+     */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeToolbar() {
         IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
 
@@ -772,6 +784,7 @@ public class BoardView extends ViewPart {
             }
         };
         blockedOnlyAction.setToolTipText("Show only blocked tickets (both layouts)");
+        blockedOnlyAction.setImageDescriptor(icon("blocked-only"));
 
         bugsOnlyAction = new Action("Bugs only", Action.AS_CHECK_BOX) {
             @Override
@@ -783,6 +796,7 @@ public class BoardView extends ViewPart {
             }
         };
         bugsOnlyAction.setToolTipText("Show only bug tickets (both layouts)");
+        bugsOnlyAction.setImageDescriptor(icon("bugs-only"));
 
         stageFilterAction = new Action("Stages", Action.AS_DROP_DOWN_MENU) {
             @Override
@@ -791,6 +805,7 @@ public class BoardView extends ViewPart {
             }
         };
         stageFilterAction.setToolTipText("Show/hide individual V stages (applies to both layouts)");
+        stageFilterAction.setImageDescriptor(icon("stages"));
         stageFilterAction.setMenuCreator(new StageFilterMenuCreator());
 
         refreshAction = new Action("Refresh") {
@@ -800,6 +815,7 @@ public class BoardView extends ViewPart {
             }
         };
         refreshAction.setToolTipText("Reload the board from the task store");
+        refreshAction.setImageDescriptor(icon("refresh"));
 
         syncStoreAction = new Action("Sync store") {
             @Override
@@ -808,7 +824,8 @@ public class BoardView extends ViewPart {
             }
         };
         syncStoreAction.setToolTipText(
-                "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull \u2192 claim \u2192 push)");
+                "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull → claim → push)");
+        syncStoreAction.setImageDescriptor(icon("sync-store"));
 
         costOverviewAction = new Action("Cost overview") {
             @Override
@@ -818,6 +835,7 @@ public class BoardView extends ViewPart {
         };
         costOverviewAction.setToolTipText(
                 "Fleet cost/token actuals recorded on tickets (per sprint and per ticket)");
+        costOverviewAction.setImageDescriptor(icon("cost-overview"));
 
         launchAction = new Action("Launch task") {
             @Override
@@ -826,6 +844,7 @@ public class BoardView extends ViewPart {
             }
         };
         launchAction.setToolTipText("Launch a fleet agent on the selected ticket (sprint-backlog / in-progress)");
+        launchAction.setImageDescriptor(icon("launch"));
         launchAction.setEnabled(false);
 
         autoDispatchAction = new Action("Auto-dispatch") {
@@ -836,8 +855,9 @@ public class BoardView extends ViewPart {
         };
         autoDispatchAction.setToolTipText(
                 "Plan over the current sprint (readiness + cost budget) and launch every admitted ticket as a fleet agent");
+        autoDispatchAction.setImageDescriptor(icon("auto-dispatch"));
 
-        autoLoopAction = new Action("Auto \u25B6", Action.AS_CHECK_BOX) {
+        autoLoopAction = new Action("Auto ▶", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 toggleDispatchLoop();
@@ -845,8 +865,9 @@ public class BoardView extends ViewPart {
         };
         autoLoopAction.setToolTipText("Background auto-dispatch: re-plans the current sprint every 30s and "
                 + "launches admitted tickets until it drains (stops on uncheck or view close)");
+        autoLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        dispatchSettingsAction = new Action("Dispatch settings\u2026") {
+        dispatchSettingsAction = new Action("Dispatch settings…") {
             @Override
             public void run() {
                 openDispatchSettings();
@@ -855,6 +876,7 @@ public class BoardView extends ViewPart {
         dispatchSettingsAction.setToolTipText(
                 "The stored auto-dispatch policy (concurrency, cost budget, STALE re-runs) and the "
                         + "per-launch bootstrap command — both dispatch actions load it at action time");
+        dispatchSettingsAction.setImageDescriptor(icon("dispatch-settings"));
 
         takeOverAction = new Action("Take over") {
             @Override
@@ -864,6 +886,7 @@ public class BoardView extends ViewPart {
         };
         takeOverAction.setToolTipText(
                 "Hand the ticket's fleet session to the attached opencode TUI; without one, open its fleet worktree in the file explorer");
+        takeOverAction.setImageDescriptor(icon("take-over"));
         takeOverAction.setEnabled(false);
 
         toolbar.add(blockedOnlyAction);

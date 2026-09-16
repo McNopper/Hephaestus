@@ -575,6 +575,18 @@ public class ServerView extends ViewPart implements Refreshable {
         }
     }
 
+    /**
+     * Toolbar icon descriptor from the shared action-icon set vendored in
+     * {@code com.opencode.ide.core} ({@code generate-action-icons.py},
+     * original artwork). Text-only toolbar actions render as flat labels
+     * with no button affordance (user feedback 2026-09-16), so every toolbar
+     * action gets an icon.
+     */
+    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+                "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
     private void contributeActions() {
         refreshAction = new Action("Refresh") {            @Override
             public void run() {
@@ -582,6 +594,7 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         refreshAction.setToolTipText("Refresh servers, agents and sessions");
+        refreshAction.setImageDescriptor(icon("refresh"));
         reconnectAction = new Action("Reconnect") {
             @Override
             public void run() {
@@ -589,6 +602,7 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         reconnectAction.setToolTipText("Drop the client/server and reconnect");
+        reconnectAction.setImageDescriptor(icon("reconnect"));
 
         Action expandAllAction = new Action("Expand All") {
             @Override
@@ -599,6 +613,7 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         expandAllAction.setToolTipText("Expand all sessions (incl. subagents)");
+        expandAllAction.setImageDescriptor(icon("expand-all"));
         Action collapseAllAction = new Action("Collapse All") {
             @Override
             public void run() {
@@ -608,6 +623,7 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         };
         collapseAllAction.setToolTipText("Collapse all categories and sessions");
+        collapseAllAction.setImageDescriptor(icon("collapse-all"));
 
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(refreshAction);
