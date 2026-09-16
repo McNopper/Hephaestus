@@ -200,7 +200,10 @@ headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake build
 Agents and docs reference **tiers**, never hard-coded model IDs. The concrete
 model for each tier is configured in `opencode.json` (the default `model`) and
 in any per-agent override (only `graphics-expert` overrides, pinning to
-`very-high`); resolve through `/models`. Tiers and their selection rules are
+`very-high`); resolve through `/models`. The project config additionally
+whitelists `enabled_providers`, so `/models` and the chat's selector combos
+only offer the pinned provider — switching to a different model is a
+deliberate config edit, not a picker slip. Tiers and their selection rules are
 defined in `project-manager-orchestrate-execution`.
 
 | Tier | Selection rule |
