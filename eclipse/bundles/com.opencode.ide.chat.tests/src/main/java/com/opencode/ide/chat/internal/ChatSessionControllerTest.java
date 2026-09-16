@@ -557,6 +557,156 @@ public class ChatSessionControllerTest {
         assertEquals(Boolean.FALSE, host.sendingStates.get(host.sendingStates.size() - 1));
     }
 
+    // ---------- forking (TUI parity: at a message / from a queued request) ----------
+
+    @Test
+    public void forkAtMessageCallsForkSessionAndSwitchesToTheFork() {
+        controller.resume("ses_42");
+
+        controller.forkAt("msg_7");
+
+        assertEquals(List.of(new FakeClient.ForkCall("ses_42", "msg_7")),
+                connection.client.forkCalls);
+        assertEquals(1, host.forks.size());
+        assertEquals("ses_fork1", host.forks.get(0)[0]);
+        assertEquals("ses_42", host.forks.get(0)[1]);
+        assertNull("a plain fork-at-message moves no draft", host.forks.get(0)[2]);
+        assertTrue("switch notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("Forked to session ses_fork1")));
+        assertTrue(host.jobs.contains("Forking session ses_42"));
+    }
+
+    @Test
+    public void forkAtBlankMessageIdForksAtTheLatestMessage() {
+        controller.resume("ses_42");
+
+        controller.forkAt(null);
+        controller.forkAt("   ");
+
+        assertEquals(List.of(new FakeClient.ForkCall("ses_42", null),
+                new FakeClient.ForkCall("ses_42", null)), connection.client.forkCalls);
+        assertEquals(2, host.forks.size());
+    }
+
+    @Test
+    public void forkWithoutASessionIsRefused() {
+        controller.forkAt("msg_1");
+
+        assertTrue(connection.client.forkCalls.isEmpty());
+        assertTrue(host.forks.isEmpty());
+        assertTrue(renderer.notices.contains("⚠ Nothing to fork yet - send a message first."));
+    }
+
+    @Test
+    public void forkFailureShowsANoticeAndDoesNotSwitch() {
+        connection.client.forkFailure = new OpencodeException("boom");
+        controller.resume("ses_42");
+
+        controller.forkAt("msg_7");
+
+        assertEquals(1, connection.client.forkCalls.size());
+        assertTrue(renderer.notices.contains("⚠ Fork failed: boom"));
+        assertTrue(host.forks.isEmpty());
+    }
+
+    @Test
+    public void forkOfASessionWithoutIdIsReportedNotSwitched() {
+        connection.client.forkResult = new Session(null, null, null, null, null, null, null, null, null);
+        controller.resume("ses_42");
+
+        controller.forkAt("msg_7");
+
+        assertTrue("no id - no switch, got: " + host.forks, host.forks.isEmpty());
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("Fork failed")));
+    }
+
+    @Test
+    public void forkWhileAReplyStreamsIsAllowedAndTheOriginalKeepsRunning() {
+        controller.send(msg("seed")); // completes: ses_1 exists
+        host.holdBackground = true;
+        controller.send(msg("streaming")); // reply in flight
+
+        controller.forkAt("msg_0");
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertEquals(List.of(new FakeClient.ForkCall("ses_1", "msg_0")),
+                connection.client.forkCalls);
+        assertEquals(1, host.forks.size());
+        assertEquals("ses_1", host.forks.get(0)[1]);
+        assertEquals("the original messages still went out", List.of("seed", "streaming"),
+                connection.client.requests.stream().map(ChatRequest::text).toList());
+        assertFalse(controller.isSending());
+    }
+
+    @Test
+    public void queuedSubmissionCanBeForkedIntoANewSessionBeforeDispatch() {
+        controller.send(msg("seed")); // completes: ses_1 exists
+        host.holdBackground = true;
+        controller.send(msg("first")); // reply in flight
+        controller.submit(null, msg("second"));
+        assertEquals(List.of("second"), controller.queuedPrompts());
+
+        controller.forkQueued(0);
+
+        assertTrue("the submission left the queue immediately", controller.queuedPrompts().isEmpty());
+        assertTrue("the pending list is told about the removal", host.queueChanges >= 1);
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run); // held send job + fork job
+
+        assertEquals("fork at the current head (latest message)",
+                List.of(new FakeClient.ForkCall("ses_1", null)), connection.client.forkCalls);
+        assertEquals(1, host.forks.size());
+        assertEquals("ses_fork1", host.forks.get(0)[0]);
+        assertEquals("ses_1", host.forks.get(0)[1]);
+        assertEquals("the queued text moved into the fork's input", "second", host.forks.get(0)[2]);
+        assertTrue("the queued prompt is never dispatched to the original session",
+                connection.client.requests.stream().noneMatch(r -> "second".equals(r.text())));
+        assertEquals(List.of("seed", "first"),
+                connection.client.requests.stream().map(ChatRequest::text).toList());
+        assertTrue(host.infos.contains("queue: submission forked into ses_fork1 (before dispatch)"));
+    }
+
+    @Test
+    public void queuedForkOfABadIndexIsANoOp() {
+        controller.send(msg("seed")); // completes: ses_1 exists
+        host.holdBackground = true;
+        controller.send(msg("first"));
+        controller.submit(null, msg("second"));
+
+        controller.forkQueued(5);
+
+        assertEquals(List.of("second"), controller.queuedPrompts());
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+        assertTrue(connection.client.forkCalls.isEmpty());
+        assertTrue(host.forks.isEmpty());
+    }
+
+    @Test
+    public void queuedForkFailurePutsThePromptBackIntoTheQueue() {
+        controller.send(msg("seed")); // completes: ses_1 exists
+        host.holdBackground = true;
+        controller.send(msg("first"));
+        controller.submit(null, msg("second"));
+        connection.client.forkFailure = new OpencodeException("boom");
+
+        controller.forkQueued(0);
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run);
+
+        assertTrue(host.forks.isEmpty());
+        assertEquals("user input is never lost - the prompt is re-queued",
+                List.of("second"), controller.queuedPrompts());
+        assertTrue("the pending list is told about the re-queue", host.queueChanges >= 2);
+        assertTrue("re-queue notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("Fork failed (prompt re-queued): boom")));
+        assertTrue("never dispatched on the failed fork path",
+                connection.client.requests.stream().noneMatch(r -> "second".equals(r.text())));
+    }
+
     // ---------- live deltas ----------
 
     @Test
@@ -987,7 +1137,10 @@ public class ChatSessionControllerTest {
         final List<String> jobs = new ArrayList<>();
         final List<String> statuses = new ArrayList<>();
         final List<Boolean> sendingStates = new ArrayList<>();
+        /** One entry per fork completion: {@code [forkId, fromId, draft]}. */
+        final List<String[]> forks = new ArrayList<>();
         final List<Runnable> queuedBackground = new ArrayList<>();
+        int queueChanges;
         boolean holdBackground;
 
         @Override
@@ -1024,6 +1177,16 @@ public class ChatSessionControllerTest {
         public void sendingChanged(boolean sending) {
             sendingStates.add(sending);
         }
+
+        @Override
+        public void forked(String forkSessionId, String fromSessionId, String draftPrompt) {
+            forks.add(new String[] { forkSessionId, fromSessionId, draftPrompt });
+        }
+
+        @Override
+        public void queueChanged() {
+            queueChanges++;
+        }
     }
 
     private static final class FakeConnection implements ChatServerConnection {
@@ -1056,11 +1219,16 @@ public class ChatSessionControllerTest {
         record CommandCall(String sessionId, String command, List<String> arguments) {
         }
 
+        record ForkCall(String sessionId, String messageId) {
+        }
+
         final List<ChatRequest> requests = new ArrayList<>();
         final List<String> createdSessions = new ArrayList<>();
         final List<String> abortCalls = new ArrayList<>();
         final List<CommandCall> commandCalls = new ArrayList<>();
+        final List<ForkCall> forkCalls = new ArrayList<>();
         int sessionCounter;
+        int forkCounter;
         List<Agent> agents = List.of();
         OpencodeException agentsFailure;
         ProviderList providers = new ProviderList(List.of(), Map.of());
@@ -1070,6 +1238,9 @@ public class ChatSessionControllerTest {
         List<ChatEntry> history = List.of();
         OpencodeException historyFailure;
         OpencodeException abortFailure;
+        OpencodeException forkFailure;
+        /** Non-null: returned as the fork session; null: a fresh ses_forkN id. */
+        Session forkResult;
         Map<String, SessionStatus> sessionStatuses = Map.of();
         OpencodeException statusFailure;
         int busyPolls; // > 0: report ses_1 busy for this many calls, then idle
@@ -1153,6 +1324,19 @@ public class ChatSessionControllerTest {
             if (abortFailure != null) {
                 throw abortFailure;
             }
+        }
+
+        @Override
+        public Session forkSession(String sessionId, String messageId) throws OpencodeException {
+            forkCalls.add(new ForkCall(sessionId, messageId));
+            if (forkFailure != null) {
+                throw forkFailure;
+            }
+            if (forkResult != null) {
+                return forkResult;
+            }
+            forkCounter++;
+            return new Session("ses_fork" + forkCounter, null, "Fork", null, null, null, null, null, null);
         }
 
         @Override

@@ -26,9 +26,10 @@ import com.opencode.ide.client.model.SessionStatus;
  * Per-view chat session logic (SWT-free): creates and resumes sessions, sends
  * messages through the opencode client, turns {@code message.part.delta}
  * events for the current session into live bubble updates, aborts in-flight
- * replies ({@link #abort()}), and reports everything through the
- * {@link Renderer} (the browser page) and {@link Host} (the owning view)
- * callbacks.
+ * replies ({@link #abort()}), forks the session at any history message or
+ * from a queued request ({@link #forkAt}/{@link #forkQueued}), and reports
+ * everything through the {@link Renderer} (the browser page) and {@link Host}
+ * (the owning view) callbacks.
  */
 public final class ChatSessionController {
 
@@ -85,6 +86,22 @@ public final class ChatSessionController {
 
         /** A message is in flight ({@code true}) or done ({@code false}) - send button state. */
         void sendingChanged(boolean sending);
+
+        /**
+         * A fork of the current session completed ({@link #forkAt} /
+         * {@link #forkQueued}): the host switches to the fork - the original
+         * session stays untouched. {@code draftPrompt} carries the queued text
+         * a queued-request fork moved into the fork's input ({@code null} for
+         * a plain fork-at-message).
+         */
+        void forked(String forkSessionId, String fromSessionId, String draftPrompt);
+
+        /**
+         * The pending queue changed outside the submit/dispatch cycle (a
+         * queued submission was taken over by a fork, or re-queued after a
+         * failed fork) - the pending list should re-read the controller.
+         */
+        void queueChanged();
     }
 
     /** One prompt to send: the typed text plus the current agent/model/variant pick. */
@@ -605,6 +622,112 @@ public final class ChatSessionController {
             int dropped = queue.size();
             queue.clear();
             return dropped;
+        }
+    }
+
+    // ---------- forking (opencode TUI parity) ----------
+
+    /**
+     * {@code POST /session/:id/fork} - forks the current session at
+     * {@code messageId} (null/blank = the latest message) and hands the new
+     * session to {@link Host#forked}, which switches to it; the original
+     * session is untouched (a fork is a server-side copy). Safe while a reply
+     * streams: the switch happens in a NEW chat window, so an in-flight reply
+     * keeps rendering here undisturbed.
+     */
+    public void forkAt(String messageId) {
+        String sid = sessionId;
+        if (sid == null) {
+            renderer.notice("\u26A0 Nothing to fork yet - send a message first.");
+            return;
+        }
+        String at = (messageId == null || messageId.isBlank()) ? null : messageId;
+        host.runInBackground("Forking session " + sid, () -> {
+            try {
+                String forkId = forkSessionAt(sid, at);
+                host.info("fork: " + sid + " at " + (at == null ? "latest" : at) + " -> " + forkId);
+                host.runOnUi(() -> {
+                    renderer.notice("\u2442 Forked to session " + forkId + " - the original is untouched.");
+                    host.forked(forkId, sid, null);
+                });
+            } catch (OpencodeException e) {
+                host.runOnUi(() -> renderer.notice("\u26A0 Fork failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * Forks one QUEUED (not yet sent) submission into a new session before it
+     * is dispatched - the opencode TUI's "fork a session from a queued
+     * request": forks the current session at its head (the latest message)
+     * and moves the queued text into the fork's input. The submission leaves
+     * this view's queue immediately; if the fork POST fails it is re-queued at
+     * its old position, so user input is never lost.
+     */
+    public void forkQueued(int index) {
+        String sid = sessionId;
+        if (sid == null) {
+            renderer.notice("\u26A0 Nothing to fork yet - send a message first.");
+            return;
+        }
+        PendingSubmission pending = takeQueued(index);
+        if (pending == null) {
+            return; // bad index / already drained: nothing to fork
+        }
+        host.runOnUi(host::queueChanged); // the pending list loses the row now
+        host.runInBackground("Forking queued submission", () -> {
+            try {
+                String forkId = forkSessionAt(sid, null);
+                String draft = pending.display();
+                host.info("queue: submission forked into " + forkId + " (before dispatch)");
+                host.runOnUi(() -> {
+                    renderer.notice("\u2442 Queued prompt moved into fork " + forkId + ".");
+                    host.forked(forkId, sid, draft);
+                });
+            } catch (OpencodeException e) {
+                requeueAt(pending, index);
+                host.runOnUi(host::queueChanged);
+                host.runOnUi(() -> renderer.notice(
+                        "\u26A0 Fork failed (prompt re-queued): " + e.getMessage()));
+            }
+        });
+    }
+
+    /** Posts the fork and validates the answer; never returns a blank id. */
+    private String forkSessionAt(String sessionId, String messageId) throws OpencodeException {
+        Session forked = connection.getClient().forkSession(sessionId, messageId);
+        String forkId = (forked == null) ? null : forked.id();
+        if (forkId == null || forkId.isBlank()) {
+            throw new OpencodeException("server returned no fork session");
+        }
+        return forkId;
+    }
+
+    /** Removes and returns one queued submission ({@code null} for a bad index). */
+    private PendingSubmission takeQueued(int index) {
+        synchronized (queue) {
+            if (index < 0 || index >= queue.size()) {
+                return null;
+            }
+            int at = 0;
+            for (Iterator<PendingSubmission> it = queue.iterator(); it.hasNext();) {
+                PendingSubmission pending = it.next();
+                if (at++ == index) {
+                    it.remove();
+                    return pending;
+                }
+            }
+            return null;
+        }
+    }
+
+    /** Puts a failed-fork submission back at (near) its old queue position. */
+    private void requeueAt(PendingSubmission pending, int index) {
+        synchronized (queue) {
+            List<PendingSubmission> items = new ArrayList<>(queue);
+            items.add(Math.min(Math.max(index, 0), items.size()), pending);
+            queue.clear();
+            queue.addAll(items);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.opencode.ide.ui.session;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -236,12 +237,87 @@ public class SessionDetailsControllerTest {
         assertNull(snapshot.title());
     }
 
+    // ---------- fork (at a message / at the latest) ----------
+
+    @Test
+    public void rowsCarryTheServerMessageIdForForkAtMessage() {
+        client.messages = List.of(
+                new ChatEntry(user("u1"), List.of(new ChatPart("text", "hi", null, null))),
+                new ChatEntry(assistant("a1", "zai", null, null), List.of()));
+
+        SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+        assertEquals("u1", snapshot.rows().get(0).id());
+        assertEquals("a1", snapshot.rows().get(1).id());
+    }
+
+    @Test
+    public void forkAtMessageCallsForkSessionWithThatMessageId() {
+        SessionDetailsController.LifecycleResult result =
+                new SessionDetailsController("ses_1", () -> client).fork("msg_5");
+
+        assertTrue(result.success());
+        assertEquals("ses_fork", result.detail());
+        assertNull(result.error());
+        assertEquals("ses_1", client.forkSessionId);
+        assertEquals("msg_5", client.forkMessageId);
+    }
+
+    @Test
+    public void forkWithoutMessageIdForksAtTheLatestMessage() {
+        new SessionDetailsController("ses_1", () -> client).fork(null);
+
+        assertEquals("ses_1", client.forkSessionId);
+        assertNull(client.forkMessageId);
+    }
+
+    @Test
+    public void forkFailureYieldsAFailureResultInsteadOfThrowing() {
+        client.forkFailure = new OpencodeException("boom");
+
+        SessionDetailsController.LifecycleResult result =
+                new SessionDetailsController("ses_1", () -> client).fork("msg_5");
+
+        assertFalse(result.success());
+        assertEquals("boom", result.error());
+    }
+
+    @Test
+    public void forkOfASessionWithoutIdYieldsThePlaceholderDetail() {
+        client.forkResult = new Session(null, null, null, null, null, null, null, null, null);
+
+        SessionDetailsController.LifecycleResult result =
+                new SessionDetailsController("ses_1", () -> client).fork("msg_5");
+
+        // the established controller contract maps a missing fork id to "?"
+        // (not a failure); the view treats "?" as "no session to open"
+        assertTrue(result.success());
+        assertEquals("?", result.detail());
+    }
+
     // ---------- fake client (only what the controller touches works) ----------
 
     private static final class FakeClient implements OpencodeClient {
         List<ChatEntry> messages = List.of();
         List<Session> sessions = List.of();
         boolean throwOnMessages;
+        String forkSessionId;
+        String forkMessageId;
+        OpencodeException forkFailure;
+        Session forkResult;
+
+        @Override
+        public Session forkSession(String sessionId, String messageId) throws OpencodeException {
+            if (forkFailure != null) {
+                throw forkFailure;
+            }
+            forkSessionId = sessionId;
+            forkMessageId = messageId;
+            if (forkResult != null) {
+                return forkResult;
+            }
+            return new Session("ses_fork", null, "Fork of Session One", null, null, null, null, null, null);
+        }
 
         @Override
         public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
