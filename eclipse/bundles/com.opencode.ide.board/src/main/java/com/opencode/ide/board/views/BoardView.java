@@ -156,6 +156,8 @@ public class BoardView extends ViewPart {
     private static final String SETTING_MODE = "mode";
     private static final String SETTING_MODE_PIPELINE = "pipeline";
     private static final String SETTING_STAGES = "visibleStages";
+    /** Whether the untracked row below the V shows its table (persisted). */
+    private static final String SETTING_SHOW_UNTRACKED = "showUntracked";
 
     /**
      * Fixed width of every V-model stage column — empty ones keep it too:
@@ -193,6 +195,12 @@ public class BoardView extends ViewPart {
     private Label readinessLabel;
     /** The most recent applied snapshot (column-launch picks the top READY ticket from it). */
     private BoardSnapshot lastSnapshot;
+    /** The untracked group's own row below the V (separator + hideable). */
+    private Composite untrackedRow;
+    private Button untrackedToggle;
+    private PipelineColumnUi untrackedUi;
+    /** Whether the untracked row shows its table (persisted; the V stages are always visible). */
+    private boolean showUntracked = true;
     /** Container that holds whichever layout the current mode builds. */
     private Composite boardArea;
     private Composite flatArea;
@@ -445,8 +453,7 @@ public class BoardView extends ViewPart {
         // leg (requirements at the top, implementation at the vertex), the
         // right column is the verification leg level-paired with it
         // (test-implementation at the vertex, test-requirements at the
-        // top), untracked beside the vertex. Null cells become spacers.
-        // All ten stage columns render even when empty, at the fixed
+        // top). All ten stage columns render even when empty, at the fixed
         // width; nothing collapses to its header.
         for (List<String> row : VStageLayout.grid()) {
             for (String stage : row) {
@@ -458,6 +465,41 @@ public class BoardView extends ViewPart {
                 }
             }
         }
+
+        // The untracked group lives in its OWN row below the V, separated,
+        // and hideable (user direction 2026-09-18): unlike the ten stages
+        // it may vanish - when hidden only the small toggle remains.
+        Label separator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
+        GridData separatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        separatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+        separator.setLayoutData(separatorData);
+
+        untrackedRow = new Composite(pipelineContent, SWT.NONE);
+        GridLayout untrackedLayout = new GridLayout(1, false);
+        untrackedLayout.marginWidth = 0;
+        untrackedLayout.marginHeight = 0;
+        untrackedLayout.verticalSpacing = 2;
+        untrackedRow.setLayout(untrackedLayout);
+        GridData untrackedRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
+        untrackedRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+        untrackedRow.setLayoutData(untrackedRowData);
+
+        untrackedToggle = new Button(untrackedRow, SWT.FLAT);
+        untrackedToggle.setText(showUntracked ? "No stage (0) \u25BE" : "No stage \u25B8 (hidden)");
+        untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
+                + (showUntracked ? "hide" : "show") + " the group");
+        untrackedToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+        untrackedToggle.addListener(SWT.Selection, e -> {
+            showUntracked = !showUntracked;
+            saveSettings();
+            applyUntrackedVisibility();
+            pipelineContent.layout(true, true);
+            pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
+        });
+
+        untrackedUi = createPipelineColumn(untrackedRow, PipelineSnapshot.UNTRACKED);
+        untrackedUi.viewer.getTable().getParent().setLayoutData(untrackedTableData());
+        applyUntrackedVisibility();
         pipelineScroll.setContent(pipelineContent);
     }
 
@@ -498,7 +540,14 @@ public class BoardView extends ViewPart {
     }
 
     private PipelineColumnUi createPipelineColumn(String stage) {
-        Composite column = new Composite(pipelineContent, SWT.NONE);
+        PipelineColumnUi created = createPipelineColumn(pipelineContent, stage);
+        pipelineColumns.add(created);
+        return created;
+    }
+
+    /** Column creation with an explicit parent (the untracked row composes its own). */
+    private PipelineColumnUi createPipelineColumn(Composite parent, String stage) {
+        Composite column = new Composite(parent, SWT.NONE);
         GridLayout layout = new GridLayout(1, false);
         layout.marginWidth = 2;
         layout.marginHeight = 0;
@@ -555,7 +604,30 @@ public class BoardView extends ViewPart {
         return new PipelineColumnUi(stage, headerLabel, blockedLabel, viewer);
     }
 
-    /** Shared viewer wiring: selection/double-click/context menu/tooltips + the flat columns. */
+    /** The untracked table's layout data: spans wide (its row is full-width), content-height. */
+    private static GridData untrackedTableData() {
+        GridData data = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        data.heightHint = 110;
+        return data;
+    }
+
+    /** Shows or hides the untracked group's table + updates the toggle text (persisted setting). */
+    private void applyUntrackedVisibility() {
+        if (untrackedToggle == null || untrackedToggle.isDisposed() || untrackedUi == null) {
+            return;
+        }
+        Composite tableHolder = untrackedUi.viewer.getTable().getParent();
+        if (tableHolder != null && !tableHolder.isDisposed()) {
+            tableHolder.setVisible(showUntracked);
+            GridData data = (GridData) tableHolder.getLayoutData();
+            data.exclude = !showUntracked;
+            tableHolder.setLayoutData(data);
+        }
+        untrackedToggle.setText(showUntracked ? "No stage (…) \u25BE" : "No stage \u25B8 (hidden)");
+        untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
+                + (showUntracked ? "hide" : "show") + " the group");
+    }
+
     /**
      * Shared flat-column ticket viewer. {@code statusPrefixedLabels} picks
      * the card style: plain (status kanban) or status-prefixed (epic
@@ -1497,6 +1569,16 @@ public class BoardView extends ViewPart {
             // rendered with their table — no collapse-to-header anymore.
             ui.viewer.setInput(rows);
         }
+        // the untracked row below the V: count rides the toggle text
+        if (untrackedUi != null && !untrackedUi.viewer.getTable().isDisposed()) {
+            StageColumn untracked = pipeline == null ? null : pipeline.column(PipelineSnapshot.UNTRACKED);
+            List<TicketRow> rows = untracked == null ? List.of() : untracked.rows();
+            untrackedUi.headerLabel.setText(PipelineSnapshot.UNTRACKED);
+            untrackedUi.blockedLabel.setText("(" + rows.size() + ")");
+            untrackedUi.viewer.setInput(rows);
+            untrackedToggle.setText(showUntracked
+                    ? "No stage (" + rows.size() + ") \u25BE" : "No stage (" + rows.size() + ") \u25B8 hidden");
+        }
         pipelineContent.layout(true, true);
         pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
     }
@@ -2132,9 +2214,11 @@ public class BoardView extends ViewPart {
                     } else if ("epic".equalsIgnoreCase(settings.get(SETTING_MODE))) {
                         boardMode = BoardMode.EPIC;
                     }
+                    if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
+                        showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
+                    }
                     String stages = settings.get(SETTING_STAGES);
-                    if (stages != null && !stages.isBlank()) {
-                        visibleStages = new java.util.LinkedHashSet<>(List.of(stages.split(",")));
+                    if (stages != null && !stages.isBlank()) {                        visibleStages = new java.util.LinkedHashSet<>(List.of(stages.split(",")));
                     }
                 }
             } catch (RuntimeException ignored) {
@@ -2182,6 +2266,7 @@ public class BoardView extends ViewPart {
             settings.put(SETTING_MODE, boardMode == BoardMode.PIPELINE ? SETTING_MODE_PIPELINE
                     : boardMode == BoardMode.EPIC ? "epic" : "flat");
             settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
+            settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
             plugin.persistDialogSettings();
         } catch (RuntimeException ignored) {
             // persistence is best-effort

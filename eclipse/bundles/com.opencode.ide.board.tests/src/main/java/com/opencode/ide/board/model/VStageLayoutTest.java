@@ -1,6 +1,7 @@
 package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 
 import java.util.ArrayList;
@@ -26,11 +27,11 @@ public class VStageLayoutTest {
             "test-implementation", "test-design", "test-architecture", "test-system", "test-requirements");
 
     @Test
-    public void gridHasFiveRowsOfThreeCells() {
+    public void gridHasFiveRowsOfTwoCells() {
         List<List<String>> grid = VStageLayout.grid();
         assertEquals(5, grid.size());
         for (List<String> row : grid) {
-            assertEquals(3, row.size());
+            assertEquals(2, row.size());
         }
     }
 
@@ -63,19 +64,12 @@ public class VStageLayoutTest {
     }
 
     @Test
-    public void untrackedSitsBesideTheVertexAndSpacersAreNull() {
-        List<List<String>> grid = VStageLayout.grid();
-        assertEquals(PipelineSnapshot.UNTRACKED, grid.get(4).get(2));
-        int spacers = 0;
-        for (List<String> row : grid) {
-            for (String cell : row) {
-                if (cell == null) {
-                    spacers++;
-                }
-            }
-        }
-        // third column is spare at levels 0-3: 4 spacers + untracked cell
-        assertEquals(4, spacers);
+    public void untrackedIsNotPartOfTheVGeometry() {
+        assertNull(VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
+        boolean anyUntracked = VStageLayout.grid().stream()
+                .flatMap(List::stream)
+                .anyMatch(PipelineSnapshot.UNTRACKED::equals);
+        assertFalse("untracked renders in its own row, not the V grid", anyUntracked);
     }
 
     @Test
@@ -84,7 +78,6 @@ public class VStageLayoutTest {
         assertEquals(new VStageLayout.Cell(4, 0), VStageLayout.cellOf("implementation"));
         assertEquals(new VStageLayout.Cell(4, 1), VStageLayout.cellOf("test-implementation"));
         assertEquals(new VStageLayout.Cell(0, 1), VStageLayout.cellOf("test-requirements"));
-        assertEquals(new VStageLayout.Cell(4, 2), VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
         assertNull(VStageLayout.cellOf(null));
         assertNull(VStageLayout.cellOf("no-such-stage"));
     }
@@ -109,7 +102,9 @@ public class VStageLayoutTest {
                 }
             }
         }
-        assertEquals(VStages.STAGES.size() + 1, seen.size());
+        // the V grid carries exactly the ten canonical stages; untracked
+        // is not part of the geometry (own row in the view)
+        assertEquals(VStages.STAGES.size(), seen.size());
         for (String stage : VStages.STAGES) {
             assertEquals("stage " + stage + " once", 1, seen.stream().filter(s -> s.equals(stage)).count());
         }

@@ -29,8 +29,8 @@ import com.opencode.ide.tasks.VStages;
  */
 public final class VStageLayout {
 
-    /** Grid columns: the two arms plus one spare cell for the untracked group. */
-    public static final int GRID_COLUMNS = 3;
+    /** Grid columns: the two arms. The untracked group is NOT part of the V - the view renders it in its own row below, separated and hideable. */
+    public static final int GRID_COLUMNS = 2;
 
     /** Grid rows: one per V level (both arms carry five stages). */
     public static final int GRID_ROWS = VStages.STAGES.size() / 2;
@@ -44,10 +44,11 @@ public final class VStageLayout {
 
     /**
      * The two-arm arrangement row by row: {@code grid().get(r).get(c)} is
-     * the stage id (or {@link PipelineSnapshot#UNTRACKED}) at that cell,
-     * {@code null} for an empty spacer cell. Every row has exactly
-     * {@link #GRID_COLUMNS} cells, so the grid maps 1:1 onto an SWT
-     * {@code GridLayout} with that many columns.
+     * the stage id at that cell, {@code null} for an empty spacer cell
+     * (none today - both arms are complete - but spacers stay supported).
+     * Every row has exactly {@link #GRID_COLUMNS} cells, so the grid maps
+     * 1:1 onto an SWT {@code GridLayout} with that many columns. The
+     * untracked group is deliberately absent (see class doc).
      */
     public static List<List<String>> grid() {
         String[][] cells = new String[GRID_ROWS][GRID_COLUMNS];
@@ -55,8 +56,6 @@ public final class VStageLayout {
             Cell cell = cellOf(stage);
             cells[cell.row()][cell.column()] = stage;
         }
-        Cell untracked = cellOf(PipelineSnapshot.UNTRACKED);
-        cells[untracked.row()][untracked.column()] = PipelineSnapshot.UNTRACKED;
         List<List<String>> rows = new ArrayList<>(GRID_ROWS);
         for (String[] row : cells) {
             rows.add(Arrays.asList(row));
@@ -65,22 +64,18 @@ public final class VStageLayout {
     }
 
     /**
-     * The grid cell of a canonical stage or of the trailing
-     * {@link PipelineSnapshot#UNTRACKED} group; {@code null} for unknown or
-     * {@code null} ids.
+     * The grid cell of a canonical stage; {@code null} for unknown or
+     * {@code null} ids - and for {@link PipelineSnapshot#UNTRACKED}: the
+     * untracked group is not part of the V geometry (own row, separator,
+     * hideable).
      *
      * <p>Definition stage {@code i} (0-based, requirements first) sits in
      * the left arm at row {@code i}. Its verification pair sits in the
-     * right arm at the SAME level — which, read along the right arm's
-     * bottom&#x2192;top flow, is STAGES position {@code 5 + (4 - i)}. The
-     * untracked group takes the spare third cell beside the vertex.</p>
+     * right arm at the SAME level.</p>
      */
     public static Cell cellOf(String stage) {
-        if (stage == null) {
+        if (stage == null || PipelineSnapshot.UNTRACKED.equals(stage)) {
             return null;
-        }
-        if (PipelineSnapshot.UNTRACKED.equals(stage)) {
-            return new Cell(GRID_ROWS - 1, 2);
         }
         int index = VStages.STAGES.indexOf(stage);
         if (index < 0) {
