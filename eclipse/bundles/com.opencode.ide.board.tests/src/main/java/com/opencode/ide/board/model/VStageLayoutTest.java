@@ -11,104 +11,100 @@ import org.junit.Test;
 import com.opencode.ide.tasks.VStages;
 
 /**
- * U-016: the V-model arrangement of the ten canonical stages — the
- * definition leg descends the left side to the bottom-centre tip, the
- * verification leg ascends to the top right, and the trailing untracked
- * group sits beside the tip. These tests pin the exact grid the Board view
- * renders (a flat single row of ten is NOT the arrangement) and both leg
- * orders.
+ * Pins the boustrophedon V-model layout (U-016, redesigned after the
+ * rubberduck review 2026-09-17): two rows, five stage pairs plus the spare
+ * untracked cell, each definition stage directly above its verification
+ * pair, snake reading order equal to {@link VStages#STAGES}.
  */
 public class VStageLayoutTest {
 
-    @Test
-    public void definitionLegDescendsRequirementsToImplementation() {
-        assertEquals(List.of("requirements", "system", "architecture", "design", "implementation"),
-                VStageLayout.definitionLeg());
-    }
+    private static final List<String> DEFINITION = List.of(
+            "requirements", "system", "architecture", "design", "implementation");
+    private static final List<String> VERIFICATION = List.of(
+            "test-implementation", "test-design", "test-architecture", "test-system", "test-requirements");
 
     @Test
-    public void verificationLegAscendsTestImplementationToTestRequirements() {
-        assertEquals(List.of("test-implementation", "test-design", "test-architecture",
-                "test-system", "test-requirements"), VStageLayout.verificationLeg());
-    }
-
-    @Test
-    public void vOrderIsTheCanonicalStageOrder() {
-        List<String> v = new ArrayList<>(VStageLayout.definitionLeg());
-        v.addAll(VStageLayout.verificationLeg());
-        assertEquals("V order = definition leg + verification leg = the canonical ladder",
-                VStages.STAGES, v);
-    }
-
-    @Test
-    public void definitionLegStepsOneColumnRightPerRowDown() {
-        List<String> leg = VStageLayout.definitionLeg();
-        for (int i = 0; i < leg.size(); i++) {
-            VStageLayout.Cell cell = VStageLayout.cellOf(leg.get(i));
-            assertEquals("row of " + leg.get(i), i, cell.row());
-            assertEquals("column of " + leg.get(i), i, cell.column());
-        }
-    }
-
-    @Test
-    public void verificationLegStepsOneColumnLeftPerRowUp() {
-        List<String> leg = VStageLayout.verificationLeg();
-        for (int level = 0; level < leg.size(); level++) {
-            VStageLayout.Cell cell = VStageLayout.cellOf(leg.get(level));
-            assertEquals("row of " + leg.get(level), leg.size() - 1 - level, cell.row());
-            assertEquals("column of " + leg.get(level), leg.size() + level, cell.column());
-        }
-    }
-
-    @Test
-    public void gridIsARectangleCarryingAllStagesPlusUntracked() {
+    public void gridHasTwoRowsOfSixCells() {
         List<List<String>> grid = VStageLayout.grid();
-        assertEquals(VStageLayout.GRID_ROWS, grid.size());
-        int stages = 0;
-        int untracked = 0;
-        for (List<String> row : grid) {
-            assertEquals("every grid row fills the column count (SWT GridLayout needs that)",
-                    VStageLayout.GRID_COLUMNS, row.size());
+        assertEquals(2, grid.size());
+        assertEquals(6, grid.get(0).size());
+        assertEquals(6, grid.get(1).size());
+    }
+
+    @Test
+    public void topRowIsTheDefinitionLegLeftToRight() {
+        assertEquals(DEFINITION, VStageLayout.grid().get(0).subList(0, 5));
+        assertNull(VStageLayout.grid().get(0).get(5));
+    }
+
+    @Test
+    public void bottomRowMirrorsThePairsUnderTheirDefinitionStages() {
+        List<String> bottom = VStageLayout.grid().get(1);
+        // left to right: test-requirements … test-implementation, then untracked
+        assertEquals("test-requirements", bottom.get(0));
+        assertEquals("test-system", bottom.get(1));
+        assertEquals("test-architecture", bottom.get(2));
+        assertEquals("test-design", bottom.get(3));
+        assertEquals("test-implementation", bottom.get(4));
+        assertEquals(PipelineSnapshot.UNTRACKED, bottom.get(5));
+    }
+
+    @Test
+    public void eachVerificationStageSitsDirectlyBelowItsDefinitionPair() {
+        List<List<String>> grid = VStageLayout.grid();
+        for (int i = 0; i < DEFINITION.size(); i++) {
+            String definition = grid.get(0).get(i);
+            String verification = grid.get(1).get(i);
+            assertEquals("pair " + i, DEFINITION.get(i), definition);
+            assertEquals("pair " + i, VERIFICATION.get(VERIFICATION.size() - 1 - i), verification);
+        }
+    }
+
+    @Test
+    public void everyStageAppearsExactlyOnceAndSpacersAreNull() {
+        List<String> seen = new ArrayList<>();
+        int spacers = 0;
+        for (List<String> row : VStageLayout.grid()) {
             for (String cell : row) {
                 if (cell == null) {
-                    continue;
-                }
-                if (PipelineSnapshot.UNTRACKED.equals(cell)) {
-                    untracked++;
+                    spacers++;
                 } else {
-                    stages++;
+                    seen.add(cell);
                 }
             }
         }
-        assertEquals(VStages.STAGES.size(), stages);
-        assertEquals(1, untracked);
+        assertEquals(VStages.STAGES.size() + 1, seen.size());
+        assertEquals(1, spacers);
+        for (String stage : VStages.STAGES) {
+            assertEquals("stage " + stage + " once", 1, seen.stream().filter(s -> s.equals(stage)).count());
+        }
     }
 
     @Test
-    public void gridCornersFormTheV() {
-        List<List<String>> grid = VStageLayout.grid();
-        // top row: the two ends of the V
-        assertEquals("requirements", grid.get(0).get(0));
-        assertEquals("test-requirements", grid.get(0).get(VStageLayout.GRID_COLUMNS - 1));
-        // bottom row: the V tip and the trailing untracked group beside it
-        int bottom = VStageLayout.GRID_ROWS - 1;
-        assertEquals("implementation", grid.get(bottom).get(VStageLayout.GRID_ROWS - 1));
-        assertEquals("test-implementation", grid.get(bottom).get(VStageLayout.GRID_ROWS));
-        assertEquals(PipelineSnapshot.UNTRACKED, grid.get(bottom).get(VStageLayout.GRID_ROWS + 1));
-    }
-
-    @Test
-    public void legsAreDisjointAndCoverTheLadder() {
-        List<String> both = new ArrayList<>(VStageLayout.definitionLeg());
-        both.addAll(VStageLayout.verificationLeg());
-        assertEquals(VStages.STAGES.size(), VStageLayout.definitionLeg().size()
-                + VStageLayout.verificationLeg().size());
-        assertEquals(VStages.STAGES, both);
-    }
-
-    @Test
-    public void unknownStageHasNoCell() {
-        assertNull(VStageLayout.cellOf("not-a-stage"));
+    public void cellOfPlacesTheCorners() {
+        assertEquals(new VStageLayout.Cell(0, 0), VStageLayout.cellOf("requirements"));
+        assertEquals(new VStageLayout.Cell(0, 4), VStageLayout.cellOf("implementation"));
+        assertEquals(new VStageLayout.Cell(1, 4), VStageLayout.cellOf("test-implementation"));
+        assertEquals(new VStageLayout.Cell(1, 0), VStageLayout.cellOf("test-requirements"));
+        assertEquals(new VStageLayout.Cell(1, 5), VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
         assertNull(VStageLayout.cellOf(null));
+        assertNull(VStageLayout.cellOf("no-such-stage"));
+    }
+
+    @Test
+    public void stageNumbersFollowTheSnakeOrder() {
+        int expected = 1;
+        for (String stage : VStages.STAGES) {
+            assertEquals(stage, expected++, VStageLayout.stageNumber(stage));
+        }
+        assertEquals(0, VStageLayout.stageNumber(PipelineSnapshot.UNTRACKED));
+        assertEquals(0, VStageLayout.stageNumber("no-such-stage"));
+    }
+
+    @Test
+    public void legsMatchTheCanonicalLadder() {
+        assertEquals(VStages.STAGES.subList(0, 5), VStageLayout.definitionLeg());
+        assertEquals(VStages.STAGES.subList(5, 10), VStageLayout.verificationLeg());
+        assertEquals(VERIFICATION, VStageLayout.verificationLeg());
     }
 }

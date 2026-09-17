@@ -1,6 +1,10 @@
 package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -74,5 +78,96 @@ public class BoardColumnOrderTest {
         assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "done"),
                 keys);
         assertEquals("flat order IS the workflow-progress order", Task.VALID_STATUSES, keys);
+    }
+
+    /** Creates a sprint-planned ticket with an explicit priority. */
+    private String priorityTicket(String title, String priority) {
+        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
+                title, "", "task", "developer", priority, 0, List.of(), List.of(), null, "T");
+        var t = store.create("p", spec);
+        store.planSprint("p", "S-01", List.of(t.id), "goal");
+        return t.id;
+    }
+
+    @Test
+    public void cardsWithinAColumnSortByPriorityThenStageDepth() {
+        priorityTicket("low thing", "low");
+        priorityTicket("critical thing", "critical");
+        priorityTicket("medium thing", "medium");
+        priorityTicket("high thing", "high");
+        priorityTicket("also high deeper stage", "high");
+        BoardModel model = new BoardModel(root, "p");
+        model.setSprint("S-01");
+
+        List<String> titles = new ArrayList<>();
+        model.refresh().column("sprint-backlog").forEach(r -> titles.add(r.title()));
+
+        assertEquals("critical first, then highs (id tiebreak), medium, low",
+                List.of("critical thing", "high thing", "also high deeper stage", "medium thing", "low thing"),
+                titles);
+    }
+
+    @Test
+    public void setStatusMovesTheTicketBetweenFlatColumns() {
+        String id = priorityTicket("movable", "high");
+        BoardModel model = new BoardModel(root, "p");
+        model.setSprint("S-01");
+
+        assertNull(model.setStatus(id, "in-progress"));
+
+        assertEquals(1, model.refresh().column("in-progress").size());
+        assertTrue(model.refresh().column("sprint-backlog").isEmpty());
+    }
+
+    @Test
+    public void setStageBackwardNeedsAReasonAndCarriesTheSendBackContract() {
+        String id = sprintTicketAtStage("backmover", "design");
+        BoardModel model = new BoardModel(root, "p");
+        model.setSprint("S-01");
+
+        assertNotNull("backward without a reason is refused", model.setStage(id, "requirements", null));
+        assertNull(model.setStage(id, "requirements", "spec changed"));
+
+        Task moved = store.get("p", id);
+        assertEquals("requirements", moved.stage);
+        assertEquals("product-backlog", moved.status);
+        assertTrue(moved.blocked);
+        assertEquals("sent back from design: spec changed", moved.blocker);
+    }
+
+    @Test
+    public void setStageForwardIsAPlainStageUpdate() {
+        String id = sprintTicketAtStage("forwardmover", "design");
+        BoardModel model = new BoardModel(root, "p");
+        model.setSprint("S-01");
+
+        assertNull(model.setStage(id, "test-design", null));
+
+        Task moved = store.get("p", id);
+        assertEquals("test-design", moved.stage);
+        assertFalse(moved.blocked);
+    }
+
+    @Test
+    public void setStageToNullClearsTheStage() {
+        String id = sprintTicketAtStage("unstager", "system");
+        BoardModel model = new BoardModel(root, "p");
+        model.setSprint("S-01");
+
+        assertNull(model.setStage(id, null, null));
+
+        assertNull(store.get("p", id).stage);
+    }
+
+    /** Creates a sprint-planned ticket pinned to a stage (update-after-create). */
+    private String sprintTicketAtStage(String title, String stage) {
+        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
+                title, "", "task", "developer", "medium", 0, List.of(), List.of(), null, "T");
+        var t = store.create("p", spec);
+        Map<String, Object> changes = new HashMap<>();
+        changes.put("stage", stage);
+        store.update("p", t.id, changes);
+        store.planSprint("p", "S-01", List.of(t.id), "goal");
+        return t.id;
     }
 }

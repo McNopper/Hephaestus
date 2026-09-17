@@ -12,7 +12,7 @@ import com.opencode.ide.tasks.VStages;
  * visible at a glance on the row itself).
  */
 public record TicketRow(String id, String title, String type, String role, int points, String assignee,
-        boolean blocked, String blocker, String status, String stage) {
+        boolean blocked, String blocker, String status, String stage, String priority) {
 
     /** Maps a store {@link Task} to a row ({@code null}-safe: {@code null} in, {@code null} out). */
     public static TicketRow from(Task task) {
@@ -20,7 +20,32 @@ public record TicketRow(String id, String title, String type, String role, int p
             return null;
         }
         return new TicketRow(task.id, task.title, task.type, task.role, task.storyPoints,
-                task.assignee, task.blocked, task.blocker, task.status, task.stage);
+                task.assignee, task.blocked, task.blocker, task.status, task.stage, task.priority);
+    }
+
+    /**
+     * Sort rank of the ticket's priority: critical first, then high, medium,
+     * low; unknown values sort last (stable within equal rank). The board's
+     * within-column ordering uses this (U-016: the None grouping is sorted
+     * by progress - columns in lifecycle order, cards by priority).
+     */
+    public int priorityRank() {
+        return switch (priority == null ? "" : priority.trim().toLowerCase()) {
+            case "critical" -> 0;
+            case "high" -> 1;
+            case "medium" -> 2;
+            case "low" -> 3;
+            default -> 4;
+        };
+    }
+
+    /**
+     * The row's depth along the V ladder ({@link VStages#STAGES} index of
+     * the effective stage), {@code -1} for untracked rows; the secondary
+     * within-column sort key after priority.
+     */
+    public int stageDepth() {
+        return VStages.STAGES.indexOf(effectiveStage());
     }
 
     /**
@@ -88,7 +113,7 @@ public record TicketRow(String id, String title, String type, String role, int p
         };
     }
 
-    /** The flat-board column text: {@code [BLOCKED] ID [type] title}. */
+    /** The flat-board column text: {@code [BLOCKED] ID [type] title · stage}. */
     public String label() {
         StringBuilder sb = new StringBuilder();
         if (displayBlocked()) {
@@ -98,6 +123,11 @@ public record TicketRow(String id, String title, String type, String role, int p
         appendTag(sb, typeTag());
         if (title != null && !title.isBlank()) {
             appendTag(sb, title.trim());
+        }
+        // cross-mode awareness (U-016): even in the flat status kanban a
+        // staged ticket shows its stage at the label's tail
+        if (stage != null && !stage.isBlank()) {
+            appendTag(sb, "· " + stage.trim());
         }
         return sb.toString();
     }

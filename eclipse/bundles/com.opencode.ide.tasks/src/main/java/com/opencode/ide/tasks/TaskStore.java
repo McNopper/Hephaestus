@@ -298,6 +298,10 @@ public final class TaskStore {
                     }
                     case "story_points" -> { t.storyPoints = intOf(e.getValue()); applied.add(e.getKey()); }
                     case "assignee" -> { t.assignee = string(e.getValue()); applied.add(e.getKey()); }
+                    // the blocked flag/blocker text are updatable like any other field (the board's
+                    // drag-and-drop stage move uses this for the send-back contract)
+                    case "blocked" -> { t.blocked = truthy(e.getValue()); applied.add(e.getKey()); }
+                    case "blocker" -> { t.blocker = string(e.getValue()); applied.add(e.getKey()); }
                     case "sprint" -> { t.sprint = string(e.getValue()); applied.add(e.getKey()); }
                     case "epic" -> { t.epic = string(e.getValue()); applied.add(e.getKey()); }
                     case "acceptance_criteria" -> {
@@ -1165,6 +1169,17 @@ public final class TaskStore {
         } catch (NumberFormatException e) {
             throw new Invalid("story_points must be an integer, got: " + v);
         }
+    }
+
+    /** Coerces an update value to a boolean: Boolean, JsonElement primitive, or string ("true"/"false"). */
+    private static boolean truthy(Object v) {
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        if (v instanceof JsonElement e && e.isJsonPrimitive()) {
+            return e.getAsBoolean();
+        }
+        return Boolean.parseBoolean(String.valueOf(v));
     }
 
     @SuppressWarnings("unchecked")

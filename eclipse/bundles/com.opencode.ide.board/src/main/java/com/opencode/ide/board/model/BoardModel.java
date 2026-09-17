@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -184,6 +185,7 @@ public final class BoardModel {
                         blocked++;
                     }
                 }
+                rows.sort(WITHIN_COLUMN);
                 columns.put(status, List.copyOf(rows));
             }
             String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
@@ -217,11 +219,12 @@ public final class BoardModel {
         List<StageColumn> columns = new ArrayList<>();
         for (String stage : VStages.STAGES) {
             if (stageFilter == null || stageFilter.contains(stage)) {
+                byStage.get(stage).sort(WITHIN_COLUMN);
                 columns.add(stageColumn(stage, byStage.get(stage)));
             }
         }
         if (stageFilter == null || stageFilter.contains(PipelineSnapshot.UNTRACKED)) {
-            columns.add(stageColumn(PipelineSnapshot.UNTRACKED, untracked));
+            columns.add(stageColumn(PipelineSnapshot.UNTRACKED, sorted(untracked)));
         }
         return new PipelineSnapshot(List.copyOf(columns));
     }
@@ -266,6 +269,86 @@ public final class BoardModel {
         } catch (RuntimeException e) {
             return failure("send back", id, e);
         }
+    }
+
+    /**
+     * Moves a ticket to another status column (drag-and-drop on the flat
+     * kanban): a plain {@code status} update via the store, same path the
+     * status tools use.
+     *
+     * @return {@code null} on success, a human-readable failure message otherwise.
+     */
+    public String setStatus(String id, String status) {
+        try {
+            store.update(project, id, Map.of("status", status));
+            return null;
+        } catch (RuntimeException e) {
+            return failure("move", id, e);
+        }
+    }
+
+    /**
+     * Moves a ticket to an arbitrary V stage (drag-and-drop on the V-model
+     * layout). A forward (or same-depth) move is a plain {@code stage} update.
+     * A backward move carries the send-back contract: the reason becomes the
+     * blocker text, and — like the store's one-step
+     * {@link #sendBack(String, String)} — the ticket returns to the
+     * product backlog unassigned.
+     *
+     * @param targetStage the stage id to move to, {@code null} to clear the
+     *                    stage (drop on the untracked group)
+     * @param reason      required (non-blank) when the move goes backward,
+     *                    ignored otherwise
+     * @return {@code null} on success, a human-readable failure message otherwise.
+     */
+    public String setStage(String id, String targetStage, String reason) {
+        TicketRow row = row(id);
+        int from = row == null ? -1 : VStages.STAGES.indexOf(row.effectiveStage());
+        int to = targetStage == null ? -1 : VStages.STAGES.indexOf(targetStage);
+        boolean backward = row != null && from >= 0 && to >= 0 && to < from;
+        if (backward && (reason == null || reason.isBlank())) {
+            return "Moving " + id + " back from '" + row.effectiveStage() + "' to '" + targetStage
+                    + "' needs a reason";
+        }
+        try {
+            Map<String, Object> changes = new HashMap<>();
+            changes.put("stage", targetStage);
+            if (backward) {
+                changes.put("status", "product-backlog");
+                changes.put("assignee", null);
+                changes.put("blocked", true);
+                changes.put("blocker", "sent back from " + row.effectiveStage() + ": " + reason.trim());
+            }
+            store.update(project, id, changes);
+            return null;
+        } catch (RuntimeException e) {
+            return failure("move stage", id, e);
+        }
+    }
+
+    /** The row for {@code id} from a plain store read (drag source lookup); {@code null} when gone. */
+    public TicketRow row(String id) {
+        if (id == null) {
+            return null;
+        }
+        try {
+            return TicketRow.from(store.get(project, id));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Within-column card order: priority rank first, then V depth, then id — stable and SWT-free. */
+    private static final java.util.Comparator<TicketRow> WITHIN_COLUMN =
+            java.util.Comparator.comparingInt(TicketRow::priorityRank)
+                    .thenComparingInt(TicketRow::stageDepth)
+                    .thenComparing(TicketRow::id, java.util.Comparator.nullsLast(String::compareTo));
+
+    /** Sorts a mutable copy of the rows into the within-column order (for lists not sorted in place). */
+    private static List<TicketRow> sorted(List<TicketRow> rows) {
+        java.util.ArrayList<TicketRow> copy = new java.util.ArrayList<>(rows);
+        copy.sort(WITHIN_COLUMN);
+        return copy;
     }
 
     private static String failure(String what, String id, RuntimeException e) {

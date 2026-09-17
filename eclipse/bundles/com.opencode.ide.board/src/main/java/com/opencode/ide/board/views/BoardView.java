@@ -20,6 +20,7 @@ import org.eclipse.jface.action.ControlContribution;
 import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.IStatusLineManager;
 import org.eclipse.jface.action.IToolBarManager;
+import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.dialogs.InputDialog;
@@ -41,6 +42,10 @@ import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.DND;
+import org.eclipse.swt.dnd.DragSourceAdapter;
+import org.eclipse.swt.dnd.DragSourceEvent;
+import org.eclipse.swt.dnd.DropTarget;
 import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.events.FocusAdapter;
@@ -58,7 +63,9 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
+import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.Text;
+import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.IViewPart;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.PartInitException;
@@ -97,14 +104,21 @@ import com.opencode.ide.tasks.VStages;
 
 /**
  * The PM Board: a kanban over the Markdown task store, in two layouts. The
- * toolbar carries the store-root and project inputs (persisted via dialog
- * settings), the sprint selector, the "Group by" layout choice (None = the
- * flat five-column status kanban ordered by workflow progress, V-model
- * stages = the ten V-model stage columns arranged as a V plus a trailing
- * untracked group; persisted too), a blocked-only toggle, a
- * bugs-only toggle (U-005 triage), and Refresh / Launch task /
- * Auto-dispatch / Auto (the background loop) / Dispatch settings / Take
- * over. The board refreshes live via {@link TaskStoreWatcher} on
+ * header carries THREE dedicated rows grouped by meaning (U-017): the
+ * store row (store-root and project inputs, persisted via dialog
+ * settings, plus Refresh and Sync store - store-level concerns), the
+ * scope row (the sprint selector, the "Group by" layout choice (None =
+ * the flat five-column status kanban ordered by workflow progress with
+ * cards priority-sorted within columns, V-model stages = the ten V-model
+ * stage columns on a two-row boustrophedon - every column always
+ * renders - plus a trailing untracked group; persisted too), and the
+ * blocked-only / bugs-only (U-005 triage) / stage filters), and the
+ * fleet row (Launch task / Auto-dispatch / Auto (the background loop) /
+ * Dispatch settings / Cost overview / Take over - the fleet controls get
+ * their own prominent row). Tickets drag between columns in both layouts
+ * (U-016): a drop on a flat column changes the status, a drop on a stage
+ * column changes the stage (backward drops carry the send-back reason
+ * contract). The board refreshes live via {@link TaskStoreWatcher} on
  * {@code <root>/<project>} — including peer-agent writes and git-checkout
  * file replacements (B-002) — and survives a missing store (notice instead
  * of exception, polling continues). The watched root is the adopted repo
@@ -260,6 +274,12 @@ public class BoardView extends ViewPart {
         outerLayout.marginHeight = 0;
         outer.setLayout(outerLayout);
 
+        // U-017: the three header rows (store / scope / fleet) stack ABOVE
+        // the board area, so they are created first. Settings load before
+        // the rows so the embedded contributions seed from stored values.
+        loadSettings();
+        contributeToolbar(outer);
+
         boardArea = new Composite(outer, SWT.NONE);
         GridLayout boardLayout = new GridLayout(1, false);
         boardLayout.marginWidth = 0;
@@ -267,8 +287,6 @@ public class BoardView extends ViewPart {
         boardArea.setLayout(boardLayout);
         boardArea.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-        contributeToolbar();
-        loadSettings();
         buildBoardArea();
         initModel();
         try {
@@ -358,10 +376,10 @@ public class BoardView extends ViewPart {
         gridLayout.verticalSpacing = 4;
         pipelineContent.setLayout(gridLayout);
 
-        // The V (U-016): every cell of every grid row is created — null cells
-        // as zero-size spacers — so each stage column lands on its diagonal
-        // position: definition leg descending from the top left, verification
-        // leg ascending to the top right, untracked trailing beside the tip.
+        // The V (U-016, redesigned after the rubberduck review 2026-09-17):
+        // a two-row boustrophedon — definition leg left->right on top,
+        // verification leg right->left below, each definition stage directly
+        // above its verification pair. Null cells become zero-size spacers.
         // All ten stage columns render even when empty, at the fixed width;
         // nothing collapses to its header.
         for (List<String> row : VStageLayout.grid()) {
@@ -391,6 +409,7 @@ public class BoardView extends ViewPart {
         header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
         TableViewer viewer = createTicketViewer(column);
+        hookStatusDrop(viewer.getTable(), status);
         return new ColumnUi(header, viewer);
     }
 
@@ -420,6 +439,15 @@ public class BoardView extends ViewPart {
         Font bold = boldFont();
         Label headerLabel = new Label(header, SWT.NONE);
         headerLabel.setFont(bold);
+        // Numbered snake order (1-10) so the two-row boustrophedon still
+        // reads as ONE sequence; the turn at implementation carries the
+        // down-arrow, pairing with test-implementation directly below
+        // (U-016 rubberduck review). The untracked group is unnumbered.
+        headerLabel.setText(numberedStageHeader(stage));
+        int number = VStageLayout.stageNumber(stage);
+        headerLabel.setToolTipText(number > 0
+                ? "Stage " + number + " of 10 along the V (definition leg 1-5, verification leg 6-10)"
+                : "Tickets without a V stage");
         Label blockedLabel = new Label(header, SWT.NONE);
         blockedLabel.setFont(bold);
 
@@ -436,6 +464,7 @@ public class BoardView extends ViewPart {
         TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
         ticket.setLabelProvider(new BoardRowLabel(true));
         tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
+        hookStageDrop(viewer.getTable(), stage);
 
         return new PipelineColumnUi(stage, headerLabel, blockedLabel, viewer);
     }
@@ -479,6 +508,79 @@ public class BoardView extends ViewPart {
         viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
         ColumnViewerToolTipSupport.enableFor(viewer);
         hookContextMenu(viewer);
+        hookDrag(viewer);
+    }
+
+    /**
+     * Drag-and-drop (U-016 rubberduck review: the kanban's core missing
+     * affordance). Dragging carries the ticket id; each column's table is a
+     * drop target — a flat column drops change the STATUS, a V-model stage
+     * column drops change the STAGE (backward drops ask for the send-back
+     * reason first, exactly like the context-menu send-back).
+     */
+    private void hookDrag(TableViewer viewer) {
+        viewer.addDragSupport(DND.DROP_MOVE, new Transfer[] {TextTransfer.getInstance()},
+                new DragSourceAdapter() {
+                    @Override
+                    public void dragSetData(DragSourceEvent event) {
+                        TicketRow row = selectedRow();
+                        if (row != null && row.id() != null) {
+                            event.data = row.id();
+                        }
+                    }
+                });
+    }
+
+    /** Drop target for a flat status column's table. */
+    private void hookStatusDrop(Table table, String status) {
+        new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
+        table.addListener(DND.Drop, event ->
+                moveDroppedTicket((String) event.data,
+                        () -> model.setStatus((String) event.data, status), "status " + status));
+    }
+
+    /** Drop target for a V-model stage column's table ({@code null} stage = the untracked group). */
+    private void hookStageDrop(Table table, String stage) {
+        table.addListener(DND.Drop, event -> {
+            String id = (String) event.data;
+            if (stage == null || PipelineSnapshot.UNTRACKED.equals(stage)) {
+                moveDroppedTicket(id, () -> model.setStage(id, null, null), "no stage");
+                return;
+            }
+            TicketRow row = model == null ? null : model.row(id);
+            int from = row == null ? -1 : VStages.STAGES.indexOf(row.effectiveStage());
+            int to = VStages.STAGES.indexOf(stage);
+            if (from >= 0 && to >= 0 && to < from) {
+                String previous = row.effectiveStage();
+                InputDialog dialog = new InputDialog(getSite().getShell(), "Send back " + id,
+                        "Reason for moving " + id + " back from '" + previous + "' to '" + stage + "':",
+                        "", text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
+                if (dialog.open() != Window.OK || dialog.getValue() == null || dialog.getValue().trim().isEmpty()) {
+                    return;
+                }
+                String reason = dialog.getValue().trim();
+                moveDroppedTicket(id, () -> model.setStage(id, stage, reason), "stage " + stage);
+            } else {
+                moveDroppedTicket(id, () -> model.setStage(id, stage, null), "stage " + stage);
+            }
+        });
+        new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
+    }
+
+    /** Runs a DnD-triggered model move and reports the outcome in the status line. */
+    private void moveDroppedTicket(String id, java.util.function.Supplier<String> move, String target) {
+        if (id == null || id.isBlank() || model == null) {
+            return;
+        }
+        String error = move.get();
+        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+        if (error != null) {
+            status.setErrorMessage("Move " + id + " failed: " + error);
+        } else {
+            status.setErrorMessage(null);
+            status.setMessage("Moved " + id + " \u2192 " + target);
+        }
+        refresh();
     }
 
     private void hookContextMenu(TableViewer viewer) {
@@ -642,6 +744,8 @@ public class BoardView extends ViewPart {
             sb.append("\nstatus: ").append(safe(row.status()));
             sb.append(" · type: ").append(row.type() == null ? "(none)" : row.type());
             sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
+            sb.append(" · priority: ").append(row.priority() == null || row.priority().isBlank()
+                    ? "medium" : row.priority());
             if (row.displayBlocked()) {
                 sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
             }
@@ -688,10 +792,20 @@ public class BoardView extends ViewPart {
                 "com.opencode.ide.core", "icons/actions/" + name + ".png");
     }
 
-    private void contributeToolbar() {
-        IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
+    /**
+     * One header row (U-017): an embedded flat tool bar inside the view's
+     * header stack — same {@link Action}/{@link ControlContribution}
+     * objects the old single view toolbar held, just grouped by meaning.
+     */
+    private static ToolBarManager headerRow(Composite parent) {
+        ToolBarManager manager = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
+        ToolBar bar = manager.createControl(parent);
+        bar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        return manager;
+    }
 
-        toolbar.add(new ControlContribution("com.opencode.ide.board.inputs") {
+    private void contributeToolbar(Composite parent) {
+        ControlContribution inputsCc = new ControlContribution("com.opencode.ide.board.inputs") {
             @Override
             protected Control createControl(Composite parent) {
                 Composite box = new Composite(parent, SWT.NONE);
@@ -721,9 +835,9 @@ public class BoardView extends ViewPart {
                 hookApply(projectText);
                 return box;
             }
-        });
+        };
 
-        toolbar.add(new ControlContribution("com.opencode.ide.board.sprint") {
+        ControlContribution sprintCc = new ControlContribution("com.opencode.ide.board.sprint") {
             @Override
             protected Control createControl(Composite parent) {
                 Composite box = new Composite(parent, SWT.NONE);
@@ -755,9 +869,9 @@ public class BoardView extends ViewPart {
                 });
                 return box;
             }
-        });
+        };
 
-        toolbar.add(new ControlContribution("com.opencode.ide.board.groupby") {
+        ControlContribution modeCc = new ControlContribution("com.opencode.ide.board.groupby") {
             @Override
             protected Control createControl(Composite parent) {
                 Composite box = new Composite(parent, SWT.NONE);
@@ -796,7 +910,7 @@ public class BoardView extends ViewPart {
                 });
                 return box;
             }
-        });
+        };
 
         blockedOnlyAction = new Action("Blocked only", Action.AS_CHECK_BOX) {
             @Override
@@ -913,17 +1027,32 @@ public class BoardView extends ViewPart {
         takeOverAction.setImageDescriptor(icon("take-over"));
         takeOverAction.setEnabled(false);
 
-        toolbar.add(blockedOnlyAction);
-        toolbar.add(bugsOnlyAction);
-        toolbar.add(stageFilterAction);
-        toolbar.add(refreshAction);
-        toolbar.add(syncStoreAction);
-        toolbar.add(costOverviewAction);
-        toolbar.add(launchAction);
-        toolbar.add(autoDispatchAction);
-        toolbar.add(autoLoopAction);
-        toolbar.add(dispatchSettingsAction);
-        toolbar.add(takeOverAction);
+        // U-017: three dedicated rows replace the single cramped view
+        // toolbar — grouped by meaning (user direction 2026-09-17, refined
+        // by the rubberduck review: Refresh/Sync are store-level and sit
+        // with the store inputs; Cost overview is spend — fleet row).
+        ToolBarManager storeRow = headerRow(parent);
+        storeRow.add(inputsCc);
+        storeRow.add(refreshAction);
+        storeRow.add(syncStoreAction);
+        storeRow.update(true);
+
+        ToolBarManager scopeRow = headerRow(parent);
+        scopeRow.add(sprintCc);
+        scopeRow.add(modeCc);
+        scopeRow.add(blockedOnlyAction);
+        scopeRow.add(bugsOnlyAction);
+        scopeRow.add(stageFilterAction);
+        scopeRow.update(true);
+
+        ToolBarManager fleetRow = headerRow(parent);
+        fleetRow.add(launchAction);
+        fleetRow.add(autoDispatchAction);
+        fleetRow.add(autoLoopAction);
+        fleetRow.add(dispatchSettingsAction);
+        fleetRow.add(costOverviewAction);
+        fleetRow.add(takeOverAction);
+        fleetRow.update(true);
     }
 
     private static GridData fixedSize(int widthHint) {
@@ -1083,6 +1212,17 @@ public class BoardView extends ViewPart {
         updateActionEnablement();
     }
 
+    /**
+     * The numbered V-stage header text: {@code 3 · architecture}, with the
+     * down-arrow turn marker on implementation (the snake continues directly
+     * below in test-implementation); the untracked group stays unnumbered.
+     */
+    private static String numberedStageHeader(String stage) {
+        int number = VStageLayout.stageNumber(stage);
+        String turn = "implementation".equals(stage) ? " \u2193" : "";
+        return number > 0 ? number + " \u00b7 " + stage + turn : stage;
+    }
+
     private void applyFlatSnapshot(BoardSnapshot snapshot) {
         for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
             List<TicketRow> rows = snapshot.column(entry.getKey());
@@ -1100,7 +1240,8 @@ public class BoardView extends ViewPart {
             StageColumn column = pipeline == null ? null : pipeline.column(ui.stage);
             List<TicketRow> rows = column == null ? List.of() : column.rows();
             int blockedCount = column == null ? 0 : column.blockedCount();
-            ui.headerLabel.setText(ui.stage + " (" + rows.size());
+            // keep the numbered snake header (set at creation); append count
+            ui.headerLabel.setText(numberedStageHeader(ui.stage) + " (" + rows.size());
             ui.blockedLabel.setText(" \u00b7 " + blockedCount + " blocked)");
             ui.blockedLabel.setForeground(blockedCount > 0
                     ? ui.blockedLabel.getDisplay().getSystemColor(SWT.COLOR_RED) : null);

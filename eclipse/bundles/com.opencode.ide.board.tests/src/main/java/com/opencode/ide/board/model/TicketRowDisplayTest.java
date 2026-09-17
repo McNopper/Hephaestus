@@ -21,7 +21,7 @@ public class TicketRowDisplayTest {
     private static TicketRow row(String title, String type, String role, boolean blocked,
             String status, String stage) {
         return new TicketRow("T-001", title, type, role, 2, null, blocked,
-                blocked ? "why" : null, status, stage);
+                blocked ? "why" : null, status, stage, "medium");
     }
 
     @Test
@@ -65,7 +65,7 @@ public class TicketRowDisplayTest {
     public void doneRowsNeverRenderBlockedEvenWithLegacyDrift() {
         TicketRow drifted = row("shipped long ago", null, "developer", true, "done", "test-system");
         assertFalse(drifted.displayBlocked());
-        assertEquals("T-001 shipped long ago", drifted.label());
+        assertEquals("T-001 shipped long ago · test-system", drifted.label());
         assertEquals("[D] shipped long ago", drifted.pipelineLabel());
     }
 
@@ -80,26 +80,26 @@ public class TicketRowDisplayTest {
     @Test
     public void pipelineLabelTrimsSurroundingTitleWhitespace() {
         TicketRow padded = new TicketRow("T-9", "  padded  ", null, "developer", 1, null,
-                false, null, "in-progress", null);
+                false, null, "in-progress", null, "medium");
         assertEquals("[IP] padded", padded.pipelineLabel());
     }
 
     @Test
     public void labelShapesWithAndWithoutBlocked() {
-        assertEquals("[BLOCKED] T-001 fix it",
+        assertEquals("[BLOCKED] T-001 fix it · design",
                 row("fix it", null, "developer", true, "in-progress", "design").label());
         assertEquals("T-001 plain", row("plain", null, "developer", false, "done", null).label());
         assertEquals("T-1", new TicketRow("T-1", null, null, "pm", 1, null, false, null,
-                "product-backlog", null).label());
+                "product-backlog", null, "medium").label());
     }
 
     @Test
     public void labelDoesNotTruncateLongTitles() {
         String longTitle = "x".repeat(500);
         TicketRow longRow = new TicketRow("T-42", longTitle, null, "developer", 3, null,
-                false, null, "in-progress", "design");
+                false, null, "in-progress", "design", "medium");
 
-        assertEquals("T-42 " + longTitle, longRow.label());
+        assertEquals("T-42 " + longTitle + " · design", longRow.label());
         assertEquals(longTitle.length() + "[IP] ".length(), longRow.pipelineLabel().length());
     }
 
@@ -115,9 +115,9 @@ public class TicketRowDisplayTest {
     @Test
     public void pointsLabelIsThePlainNumber() {
         assertEquals("3", new TicketRow("T-1", "t", "task", "pm", 3, null, false, null,
-                "done", null).pointsLabel());
+                "done", null, "medium").pointsLabel());
         assertEquals("0", new TicketRow("T-1", "t", "task", "pm", 0, null, false, null,
-                "done", null).pointsLabel());
+                "done", null, "medium").pointsLabel());
     }
 
     // -- U-005: type badges ---------------------------------------------
@@ -141,7 +141,7 @@ public class TicketRowDisplayTest {
         TicketRow bug = row("crash on start", "bug", "developer", false, "in-progress", "design");
         assertTrue(bug.isBug());
         assertEquals("[IP] [bug] crash on start", bug.pipelineLabel());
-        assertEquals("T-001 [bug] crash on start", bug.label());
+        assertEquals("T-001 [bug] crash on start · design", bug.label());
     }
 
     @Test
@@ -182,7 +182,7 @@ public class TicketRowDisplayTest {
         assertTrue(blockedBug.displayBlocked()); // keeps the bold red blocked rendering
         assertTrue(blockedBug.isBug()); // ...plus the bug accent
         assertEquals("[IR] [BLOCKED] [bug] hotfix", blockedBug.pipelineLabel());
-        assertEquals("[BLOCKED] T-001 [bug] hotfix", blockedBug.label());
+        assertEquals("[BLOCKED] T-001 [bug] hotfix · design", blockedBug.label());
     }
 
     @Test
