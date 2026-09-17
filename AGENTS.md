@@ -56,6 +56,13 @@ Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-
 
 ## The ticket / sprint workflow (the PM)
 
+**Autonomy target (user direction 2026-09-18):** waves run themselves on a
+recurring basis — agents execute, review, accept and advance; the human's
+ONLY regular duty is resolving **blocked items agents could not resolve**
+(NEEDS-HUMAN escalation). Everything else should need zero end-user action.
+U-021 (reviewer auto-accept + auto-advance) and U-022 (recurring waves +
+escalation surface) implement this.
+
 **Terminology (user direction 2026-09-18):** the UI says **wave**, not sprint —
 a wave is a named batch of agent work, planned on demand and drained in minutes
 by the fleet (no weekly cadence, no time-box). The store field, tool names
