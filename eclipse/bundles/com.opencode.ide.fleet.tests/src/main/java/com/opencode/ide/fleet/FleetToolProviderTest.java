@@ -128,6 +128,99 @@ public class FleetToolProviderTest {
         assertTrue(store.get(PROJECT, id).blocked);
     }
 
+    /** A requirements-stage ticket in the product backlog (the waves loop's fuel). */
+    private String backlogTicket(String title) {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                title, "", "task", "developer", "high", 2, List.of("ac one"), List.of(), null, "T"));
+        store.update(PROJECT, t.id, java.util.Map.of("stage", "requirements"));
+        return t.id;
+    }
+
+    private JsonObject wavesStatus() {
+        return JsonParser.parseString(provider.call("fleet_waves_status", null).text()).getAsJsonObject();
+    }
+
+    @Test
+    public void wavesStatusDefaultsToDisabled() {
+        JsonObject status = wavesStatus();
+        assertFalse(status.get("enabled").getAsBoolean());
+        assertFalse(status.get("running").getAsBoolean());
+        assertTrue("the disabled state names the opt-in",
+                status.get("hint").getAsString().contains("OFF by default"));
+    }
+
+    @Test
+    public void wavesStartRejectsMissingProjectAndEmptyProjects() {
+        assertThrows(ParamError.class, () -> provider.call("fleet_waves_start", new JsonObject()));
+        McpToolResult unknown = provider.call("fleet_waves_start", args("project", "nope"));
+        assertTrue(unknown.text(), unknown.isError());
+        assertTrue(unknown.text(), unknown.text().contains("no tickets in project nope"));
+    }
+
+    @Test
+    public void wavesStartPlansTheFirstWaveAndStopsCleanly() throws Exception {
+        sessionCompletes();
+        String id = backlogTicket("recurring work");
+        assertOk(provider.call("fleet_waves_start", args("project", PROJECT)));
+
+        JsonObject status = wavesStatus();
+        assertTrue(status.get("enabled").getAsBoolean());
+        assertTrue(status.get("running").getAsBoolean());
+        assertEquals(PROJECT, status.get("project").getAsString());
+        assertEquals(0, status.getAsJsonArray("needs_human").size());
+
+        // the loop's first cycle plans wave 1 from the backlog and launches it
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline
+                && wavesStatus().get("waves_planned").getAsInt() < 1) {
+            Thread.sleep(50);
+        }
+        assertEquals(1, wavesStatus().get("waves_planned").getAsInt());
+        assertEquals(FleetJob.State.MERGED, awaitState(id, FleetJob.State.MERGED));
+
+        assertOk(provider.call("fleet_waves_stop", null));
+        assertFalse(wavesStatus().get("enabled").getAsBoolean());
+    }
+
+    @Test
+    public void wavesSurfacesNeedsHumanRowsForBlockedTickets() throws Exception {
+        sessionCompletes();
+        String id = backlogTicket("waiting at the owner");
+        store.setBlocked(PROJECT, id, "needs a decision", "test");
+        assertOk(provider.call("fleet_waves_start", args("project", PROJECT)));
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        JsonArray needsHuman = wavesStatus().getAsJsonArray("needs_human");
+        while (System.currentTimeMillis() < deadline && needsHuman.size() < 1) {
+            Thread.sleep(50);
+            needsHuman = wavesStatus().getAsJsonArray("needs_human");
+        }
+        assertEquals(1, needsHuman.size());
+        assertEquals(id, needsHuman.get(0).getAsJsonObject().get("id").getAsString());
+        assertEquals("needs a decision",
+                needsHuman.get(0).getAsJsonObject().get("blocker").getAsString());
+        // blocked tickets park the loop — it stays enabled, watching for the unblock
+        assertTrue(wavesStatus().get("running").getAsBoolean());
+        assertEquals(0, wavesStatus().get("waves_planned").getAsInt());
+
+        assertOk(provider.call("fleet_waves_stop", null));
+    }
+
+    @Test
+    public void wavesAndAutoLoopsAreExclusive() {
+        sprintTicket(); // S-01 with one ticket
+        assertOk(provider.call("fleet_auto_start", args("project", PROJECT, "sprint", "S-01")));
+        assertTrue(JsonParser.parseString(provider.call("fleet_auto_status", null).text())
+                .getAsJsonObject().get("running").getAsBoolean());
+
+        assertOk(provider.call("fleet_waves_start", args("project", PROJECT)));
+
+        assertFalse("enabling waves disabled the one-sprint loop",
+                JsonParser.parseString(provider.call("fleet_auto_status", null).text())
+                        .getAsJsonObject().get("running").getAsBoolean());
+        assertTrue(wavesStatus().get("enabled").getAsBoolean());
+    }
+
     private String sprintTicket() {
         Task t = store.create(PROJECT, new TaskStore.CreateSpec(
                 "Fix the widget", "Do the thing.", "task", "developer", "high", 3,

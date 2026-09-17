@@ -34,7 +34,10 @@ import com.opencode.ide.tools.ToolProvider;
  * {@code fleet_permissions}/{@code fleet_permissions_answer} (the chat path
  * of unattended sessions' permission asks - list and answer them without a
  * Board), {@code fleet_sync_store}/{@code fleet_status_store}/{@code fleet_recover_store}
- * (the distributed-fleet store discipline, path-scoped to the store subtree).</p>
+ * (the distributed-fleet store discipline, path-scoped to the store subtree),
+ * and the U-022 autonomy controls: {@code fleet_auto_*} (one-sprint
+ * self-draining loop) and {@code fleet_waves_*} (recurring waves - the
+ * wave-to-wave pump with the NEEDS-HUMAN escalation rows).</p>
  *
  * <p>Parameter names keep the {@code ticket_id}/{@code project} spellings of
  * the {@code task_*} pack. Error channel: {@link ParamError} for structural
@@ -152,6 +155,26 @@ public final class FleetToolProvider implements ToolProvider {
                 return json(control.autoStatus());
             case "fleet_auto_status":
                 return json(control.autoStatus());
+            case "fleet_waves_start":
+            {
+                String initialWave = a.has("sprint") && a.get("sprint").isJsonPrimitive()
+                        && !a.get("sprint").getAsString().isBlank()
+                                ? a.get("sprint").getAsString() : null;
+                try {
+                    control.startWaves(reqStr(a, "project"), initialWave,
+                            a.has("max_concurrent") ? reqInt(a, "max_concurrent") : 4,
+                            a.has("cost_budget_usd") ? a.get("cost_budget_usd").getAsDouble() : 5,
+                            a.has("include_stale") && a.get("include_stale").getAsBoolean());
+                } catch (IllegalArgumentException e) {
+                    throw new ParamError(e.getMessage());
+                }
+                return json(control.wavesStatus());
+            }
+            case "fleet_waves_stop":
+                control.stopWaves();
+                return json(control.wavesStatus());
+            case "fleet_waves_status":
+                return json(control.wavesStatus());
             default:
                 throw new IllegalArgumentException("unknown tool: " + name);
         }
@@ -445,6 +468,35 @@ public final class FleetToolProvider implements ToolProvider {
         out.add(new McpTool("fleet_auto_stop", "Stop this engine's auto-dispatch loop; running jobs settle normally.",
                 schema(new String[0], obj -> { })));
         out.add(new McpTool("fleet_auto_status", "Report this engine's auto-dispatch state and sprint scope.",
+                schema(new String[0], obj -> { })));
+        out.add(new McpTool("fleet_waves_start",
+                "Enable the RECURRING waves mode for one project (U-022): when the active wave "
+                        + "drains, the next wave is planned automatically from the prioritized product "
+                        + "backlog (top-priority READY tickets; concurrency and cost budget respected) - "
+                        + "no human click between waves. The loop parks while blocked (NEEDS-HUMAN) "
+                        + "tickets wait and resumes when a blocker clears; it stops cleanly on budget "
+                        + "exhaustion or when nothing is plannable. OFF by default; the cost budget is "
+                        + "a hard stop. Daemon-attached: under the fleet daemon the loop survives "
+                        + "client disconnects.",
+                schema(new String[]{"project"}, obj -> {
+                    obj.add("project", strP("task store project to pump"));
+                    obj.add("sprint", strP("optional existing sprint adopted as the first wave;"
+                            + " omit to plan wave 1 from the backlog immediately"));
+                    obj.add("max_concurrent", intP("concurrency cap (also the wave size bound), default 4"));
+                    JsonObject budget = new JsonObject();
+                    budget.addProperty("type", "number");
+                    budget.addProperty("description", "hard-stop cost budget USD, default 5; 0 unlimited");
+                    obj.add("cost_budget_usd", budget);
+                    obj.add("include_stale", boolP("rerun stale tickets, default false"));
+                })));
+        out.add(new McpTool("fleet_waves_stop",
+                "Disable the recurring waves mode; accepted workers settle normally.",
+                schema(new String[0], obj -> { })));
+        out.add(new McpTool("fleet_waves_status",
+                "Report the recurring-waves state: enabled/running, project, active wave, waves "
+                        + "planned, stop reason, budget vs. spend, and the NEEDS-HUMAN rows - every "
+                        + "ticket blocked with no in-flight retry, the human's only regular duty. "
+                        + "Clear a blocker (task_clear_blocked) and the loop resumes automatically.",
                 schema(new String[0], obj -> { })));
         out.add(new McpTool("fleet_dispatch",
                 "Launch the task fleet for one ticket (chat-first control of what the Board's "

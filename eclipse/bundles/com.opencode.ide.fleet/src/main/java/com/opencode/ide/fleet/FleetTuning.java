@@ -56,6 +56,20 @@ public final class FleetTuning {
     public static final Duration SERVE_KILL_SETTLE = duration(
             "FLEET_SERVE_KILL_SETTLE_MS", Duration.ofMillis(750));
 
+    /**
+     * U-022: recurring-waves cycle period - how often the loop re-checks
+     * drain state, NEEDS-HUMAN tickets and wave planning. Env: FLEET_WAVE_LOOP_MS.
+     */
+    public static final Duration WAVE_LOOP_PERIOD = duration(
+            "FLEET_WAVE_LOOP_MS", Duration.ofSeconds(5));
+
+    /**
+     * U-022: how often the parked recurring-waves loop repeats its
+     * NEEDS-HUMAN summary (the first appearance is immediate). Env: FLEET_WAVE_SUMMARY_MS.
+     */
+    public static final Duration WAVE_SUMMARY_PERIOD = duration(
+            "FLEET_WAVE_SUMMARY_MS", Duration.ofMinutes(5));
+
     private static Duration duration(String envVar, Duration fallback) {
         String value = System.getenv(envVar);
         if (value == null || value.isBlank()) { return fallback; }
