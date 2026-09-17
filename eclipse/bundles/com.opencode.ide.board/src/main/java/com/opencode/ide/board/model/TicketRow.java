@@ -110,7 +110,12 @@ public record TicketRow(String id, String title, String type, String role, int p
         return typeTag(type);
     }
 
-    /** Compact status prefix for pipeline rows; unknown/null statuses read as "". */
+    /**
+     * Compact status prefix for pipeline/swimlane rows; unknown/null statuses read as "".
+     * @deprecated textual codes ([IP]…) — superseded by {@link #statusSymbol} (user
+     * direction 2026-09-18: pictographs are easier to read; kept for the legend tooltip).
+     */
+    @Deprecated
     public static String statusPrefix(String status) {
         if (status == null) {
             return "";
@@ -123,6 +128,37 @@ public record TicketRow(String id, String title, String type, String role, int p
             case "done" -> "[D]";
             default -> "";
         };
+    }
+
+    /**
+     * The status pictograph for pipeline/swimlane cards (user direction
+     * 2026-09-18: glyphs read faster than bracket codes; the view colors
+     * them - done green, running blue, review amber, backlog gray):
+     * <pre>
+     * product-backlog  ▭  outlined box (idea, not yet in a wave)
+     * sprint-backlog   ○  queued (in a wave, waiting to run)
+     * in-progress      ▶  running
+     * in-review        ◐  half-full (being judged)
+     * done             ✓  done
+     * </pre>
+     */
+    public static String statusSymbol(String status) {
+        return switch (status == null ? "" : status) {
+            case "product-backlog" -> "\u25AD"; // ▭
+            case "sprint-backlog" -> "\u25CB";  // ○
+            case "in-progress" -> "\u25B6";     // ▶
+            case "in-review" -> "\u25D0";       // ◐
+            case "done" -> "\u2713";            // ✓
+            default -> "";
+        };
+    }
+
+    /**
+     * The quiet gray tail for cards: the stage (cross-mode awareness,
+     * U-016) — {@code · design}; empty when the ticket carries no stage.
+     */
+    public String labelTail() {
+        return stage == null || stage.isBlank() ? "" : "· " + stage.trim();
     }
 
     /** The flat-board column text: {@code [BLOCKED] ID [type] title · stage}. */
@@ -138,15 +174,20 @@ public record TicketRow(String id, String title, String type, String role, int p
         }
         // cross-mode awareness (U-016): even in the flat status kanban a
         // staged ticket shows its stage at the label's tail
-        if (stage != null && !stage.isBlank()) {
-            appendTag(sb, "· " + stage.trim());
+        String tail = labelTail();
+        if (!tail.isEmpty()) {
+            appendTag(sb, tail);
         }
         return sb.toString();
     }
 
-    /** The compact pipeline column text: {@code [IP] [BLOCKED] [type] title}. */
+    /** The compact pipeline column text: {@code ▶ [BLOCKED] [type] title}. */
     public String pipelineLabel() {
-        StringBuilder sb = new StringBuilder(statusPrefix(status));
+        StringBuilder sb = new StringBuilder();
+        String symbol = statusSymbol(status);
+        if (!symbol.isEmpty()) {
+            sb.append(symbol);
+        }
         if (displayBlocked()) {
             appendTag(sb, "[BLOCKED]");
         }

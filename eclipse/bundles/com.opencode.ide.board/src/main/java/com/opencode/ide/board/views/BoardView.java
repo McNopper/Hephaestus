@@ -158,6 +158,8 @@ public class BoardView extends ViewPart {
     private static final String SETTING_STAGES = "visibleStages";
     /** Whether the untracked row below the V shows its table (persisted). */
     private static final String SETTING_SHOW_UNTRACKED = "showUntracked";
+    /** Hidden statuses, comma-joined (persisted; empty = all visible). */
+    private static final String SETTING_HIDDEN_STATUSES = "hiddenStatuses";
 
     /**
      * Fixed width of every V-model stage column — empty ones keep it too:
@@ -171,7 +173,7 @@ public class BoardView extends ViewPart {
 
     /** The compact status-prefix legend (tooltip text on pipeline rows). */
     private static final String STATUS_LEGEND =
-            "[PB] product-backlog · [SB] sprint-backlog · [IP] in-progress · [IR] in-review · [D] done";
+            "\u25AD product-backlog · \u25CB sprint-backlog · \u25B6 in-progress · \u25D0 in-review · \u2713 done";
 
     /** The background loop's tick period (H6 piece 4; calibrated later). */
     private static final Duration AUTO_DISPATCH_PERIOD = Duration.ofSeconds(30);
@@ -201,6 +203,12 @@ public class BoardView extends ViewPart {
     private PipelineColumnUi untrackedUi;
     /** Whether the untracked row shows its table (persisted; the V stages are always visible). */
     private boolean showUntracked = true;
+    /**
+     * Hidden STATUSES (user direction 2026-09-18: hide done & co
+     * individually; empty = all visible). Persisted; the flat layout drops
+     * the column, the other layouts drop the cards.
+     */
+    private java.util.Set<String> hiddenStatuses = java.util.Set.of();
     /** Container that holds whichever layout the current mode builds. */
     private Composite boardArea;
     private Composite flatArea;
@@ -224,6 +232,7 @@ public class BoardView extends ViewPart {
     /** U-005's optional triage filter: show only bug tickets (model: {@code bugsOnly}). */
     private Action bugsOnlyAction;
     private Action stageFilterAction;
+    private Action statusFilterAction;
     /** Selected stage ids for the visibility filter; {@code null} = all visible. */
     private Set<String> visibleStages;
     /**
@@ -422,14 +431,20 @@ public class BoardView extends ViewPart {
 
     private void buildFlatArea() {
         flatArea = new Composite(boardArea, SWT.NONE);
-        GridLayout columnLayout = new GridLayout(Task.VALID_STATUSES.size(), true);
+        java.util.List<String> visibleStatuses = new ArrayList<>();
+        for (String status : Task.VALID_STATUSES) {
+            if (!hiddenStatuses.contains(status)) {
+                visibleStatuses.add(status);
+            }
+        }
+        GridLayout columnLayout = new GridLayout(Math.max(1, visibleStatuses.size()), true);
         columnLayout.marginWidth = 0;
         columnLayout.marginHeight = 0;
         columnLayout.horizontalSpacing = 3;
         flatArea.setLayout(columnLayout);
         flatArea.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-        for (String status : Task.VALID_STATUSES) {
+        for (String status : visibleStatuses) {
             columns.put(status, createColumn(status));
         }
     }
@@ -953,12 +968,11 @@ public class BoardView extends ViewPart {
         return element instanceof TicketRow row ? row : null;
     }
 
-    /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows (never for done rows),
-     * red (normal weight) for bug rows — the U-005 triage accent: blocked stays the louder bold-red signal,
-     * bugs read as a steady red "[bug]" row in both light and dark themes. Readiness chips (U-018) ride on
-     * the label tail: {@code · stale} / {@code · waiting} — problems only, READY stays untagged (the fleet
-     * row's ready-count badge covers it), blocked keeps the louder signal. */
-    private static final class BoardRowLabel extends ColumnLabelProvider {
+    /** Row rendering shared by both layouts: status glyph (colored), blocked bug accents, readiness chips.
+     * Blocked rows render their [BLOCKED] tag red bold, bug rows carry a red [bug] tag; readiness chips
+     * (· stale / · waiting) ride on the tail. Uses {@link StyledString} so the glyph and tags carry
+     * their own colors inside one cell (user direction 2026-09-18: pictographs over [IP]-style codes). */
+    private static final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
         private final boolean pipeline;
         private Map<String, StageReadiness.Readiness> readiness = Map.of();
 
@@ -972,14 +986,61 @@ public class BoardView extends ViewPart {
         }
 
         @Override
-        public String getText(Object element) {
-            TicketRow row = asRow(element);
+        public void update(org.eclipse.jface.viewers.ViewerCell cell) {
+            TicketRow row = asRow(cell.getElement());
             if (row == null) {
-                return "";
+                cell.setText("");
+                cell.setStyleRanges(null);
+                return;
             }
-            String base = pipeline ? row.pipelineLabel() : row.label();
+            Display display = cell.getControl().getDisplay();
+            org.eclipse.jface.viewers.StyledString text = new org.eclipse.jface.viewers.StyledString();
+            if (pipeline) {
+                String symbol = TicketRow.statusSymbol(row.status());
+                if (!symbol.isEmpty()) {
+                    text.append(symbol + " ", colorStyler(symbolColor(display, row.status())));
+                }
+            }
+            if (row.displayBlocked()) {
+                text.append("[BLOCKED] ", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
+            }
+            if (row.isBug()) {
+                text.append(row.typeTag() + " ", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
+            } else if (row.typeTag() != null && !row.typeTag().isEmpty()) {
+                text.append(row.typeTag() + " ", colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
+            }
+            text.append(safe(row.title()));
+            // cross-mode awareness + readiness chips in quiet gray
+            String tail = row.labelTail();
+            if (!tail.isEmpty()) {
+                text.append(" " + tail, colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
+            }
             String chip = chipOf(readiness.get(row.id()));
-            return chip.isEmpty() ? base : base + chip;
+            if (!chip.isEmpty()) {
+                text.append(chip, colorStyler(display.getSystemColor(SWT.COLOR_DARK_YELLOW)));
+            }
+            cell.setText(text.getString());
+            cell.setStyleRanges(text.getStyleRanges());
+        }
+
+        /** A foreground-color styler (this JFace names the seam StyledString.Styler). */
+        private static org.eclipse.jface.viewers.StyledString.Styler colorStyler(Color color) {
+            return new org.eclipse.jface.viewers.StyledString.Styler() {
+                @Override
+                public void applyStyles(org.eclipse.swt.graphics.TextStyle style) {
+                    style.foreground = color;
+                }
+            };
+        }
+
+        /** The status glyph's color: done green, running blue, review amber, backlog gray. */
+        private static Color symbolColor(Display display, String status) {
+            return switch (status == null ? "" : status) {
+                case "done" -> display.getSystemColor(SWT.COLOR_DARK_GREEN);
+                case "in-progress" -> display.getSystemColor(SWT.COLOR_BLUE);
+                case "in-review" -> display.getSystemColor(SWT.COLOR_DARK_YELLOW);
+                default -> display.getSystemColor(SWT.COLOR_DARK_GRAY);
+            };
         }
 
         /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
@@ -1017,25 +1078,6 @@ public class BoardView extends ViewPart {
                         .append(" - ").append(safe(verdict.reason()));
             }
             return sb.toString();
-        }
-
-        @Override
-        public Color getForeground(Object element) {
-            TicketRow row = asRow(element);
-            Display display = Display.getCurrent();
-            if (row == null || display == null) {
-                return null;
-            }
-            if (row.displayBlocked() || row.isBug()) {
-                return display.getSystemColor(SWT.COLOR_RED);
-            }
-            return null;
-        }
-
-        @Override
-        public Font getFont(Object element) {
-            TicketRow row = asRow(element);
-            return row != null && row.displayBlocked() ? boldFont() : null;
         }
     }
 
@@ -1195,6 +1237,17 @@ public class BoardView extends ViewPart {
         stageFilterAction.setImageDescriptor(icon("stages"));
         stageFilterAction.setMenuCreator(new StageFilterMenuCreator());
 
+        // U-018: per-status visibility (hide done & co individually)
+        statusFilterAction = new Action("Statuses", Action.AS_DROP_DOWN_MENU) {
+            @Override
+            public void run() {
+                // opening the dropdown shows the menu
+            }
+        };
+        statusFilterAction.setToolTipText("Show/hide individual statuses (e.g. tuck away done) - "
+                + "the flat layout drops the column, the others drop the cards");
+        statusFilterAction.setMenuCreator(new StatusFilterMenuCreator());
+
         refreshAction = new Action("Refresh") {
             @Override
             public void run() {
@@ -1291,6 +1344,7 @@ public class BoardView extends ViewPart {
         scopeRow.add(blockedOnlyAction);
         scopeRow.add(bugsOnlyAction);
         scopeRow.add(stageFilterAction);
+        scopeRow.add(statusFilterAction);
         scopeRow.update(true);
 
         // U-017+U-018: the fleet row carries the dispatch actions AND the
@@ -1386,6 +1440,7 @@ public class BoardView extends ViewPart {
         model = new BoardModel(resolveTasksRoot(rootOverride), projectName);
         model.setMode(boardMode);
         model.setStageFilter(visibleStages);
+        model.setStatusFilter(hiddenStatuses);
         if (stageFilterAction != null) {
             stageFilterAction.setText("Stages: " + StageSelection.label(visibleStages));
         }
@@ -2217,6 +2272,11 @@ public class BoardView extends ViewPart {
                     if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
                         showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
                     }
+                    String hidden = settings.get(SETTING_HIDDEN_STATUSES);
+                    if (hidden != null && !hidden.isBlank()) {
+                        hiddenStatuses = java.util.Set.copyOf(java.util.Arrays.stream(hidden.split(","))
+                                .map(String::trim).filter(s -> !s.isEmpty()).toList());
+                    }
                     String stages = settings.get(SETTING_STAGES);
                     if (stages != null && !stages.isBlank()) {                        visibleStages = new java.util.LinkedHashSet<>(List.of(stages.split(",")));
                     }
@@ -2267,6 +2327,7 @@ public class BoardView extends ViewPart {
                     : boardMode == BoardMode.EPIC ? "epic" : "flat");
             settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
             settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
+            settings.put(SETTING_HIDDEN_STATUSES, String.join(",", hiddenStatuses));
             plugin.persistDialogSettings();
         } catch (RuntimeException ignored) {
             // persistence is best-effort
@@ -2306,6 +2367,76 @@ public class BoardView extends ViewPart {
      * the last visible stage re-enables everything (never an empty board by
      * accident).
      */
+    /** The per-status visibility drop-down (hide done & co individually; persisted). */
+    private final class StatusFilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
+
+        private org.eclipse.swt.widgets.Menu menu;
+
+        @Override
+        public void dispose() {
+            if (menu != null) {
+                menu.dispose();
+                menu = null;
+            }
+        }
+
+        @Override
+        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Control parent) {
+            dispose();
+            menu = new org.eclipse.swt.widgets.Menu(parent);
+            fillMenu();
+            return menu;
+        }
+
+        @Override
+        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Menu parent) {
+            dispose();
+            menu = new org.eclipse.swt.widgets.Menu(parent);
+            fillMenu();
+            return menu;
+        }
+
+        private void fillMenu() {
+            for (String status : Task.VALID_STATUSES) {
+                org.eclipse.swt.widgets.MenuItem item =
+                        new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
+                item.setText(TicketRow.statusSymbol(status) + " " + status
+                        + (hiddenStatuses.contains(status) ? " (hidden)" : ""));
+                item.setSelection(!hiddenStatuses.contains(status));
+                item.addListener(org.eclipse.swt.SWT.Selection,
+                        e -> toggleStatus(status, item.getSelection()));
+            }
+            new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.SEPARATOR);
+            org.eclipse.swt.widgets.MenuItem all =
+                    new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.PUSH);
+            all.setText("Show all statuses");
+            all.addListener(org.eclipse.swt.SWT.Selection, e -> {
+                hiddenStatuses = java.util.Set.of();
+                applyStatusFilter();
+            });
+        }
+
+        private void toggleStatus(String status, boolean visible) {
+            java.util.Set<String> next = new java.util.LinkedHashSet<>(hiddenStatuses);
+            if (visible) {
+                next.remove(status);
+            } else {
+                next.add(status);
+            }
+            hiddenStatuses = java.util.Set.copyOf(next);
+            applyStatusFilter();
+        }
+
+        private void applyStatusFilter() {
+            saveSettings();
+            if (model != null) {
+                model.setStatusFilter(hiddenStatuses);
+            }
+            rebuildBoardArea();
+            refresh();
+        }
+    }
+
     private final class StageFilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
 
         private org.eclipse.swt.widgets.Menu menu;
@@ -2367,6 +2498,7 @@ public class BoardView extends ViewPart {
             if (model != null) {
                 model.setStageFilter(visibleStages);
                 refresh();
+
                 saveSettings();
             }
             updateStageFilterLabel();

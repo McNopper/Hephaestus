@@ -48,6 +48,8 @@ public final class BoardModel {
     private String sprint = BACKLOG;
     /** U-018: free-text filter over id/title (case-insensitive substring, empty = no filter). */
     private String textFilter = "";
+    /** U-018: hidden statuses (per-status visibility; empty = all visible). */
+    private java.util.Set<String> hiddenStatuses = java.util.Set.of();
     private BoardMode mode = BoardMode.FLAT;
     private boolean blockedOnly;
     /**
@@ -125,6 +127,19 @@ public final class BoardModel {
 
     public String textFilter() {
         return textFilter;
+    }
+
+    /**
+     * U-018: hides tickets of the given STATUSES everywhere (flat column
+     * drops out, V/epic cards vanish). {@code null} or empty = all visible.
+     */
+    public void setStatusFilter(java.util.Set<String> hidden) {
+        this.hiddenStatuses = hidden == null || hidden.isEmpty()
+                ? java.util.Set.of() : java.util.Set.copyOf(hidden);
+    }
+
+    public java.util.Set<String> hiddenStatuses() {
+        return hiddenStatuses;
     }
 
     /** @return true when the row's id or title matches the text filter. */
@@ -208,7 +223,8 @@ public final class BoardModel {
                 List<TicketRow> rows = new ArrayList<>();
                 for (Task t : board.getOrDefault(status, List.of())) {
                     TicketRow row = TicketRow.from(t);
-                    if (row == null || (blockedOnly && !row.displayBlocked())
+                    if (row == null || hiddenStatuses.contains(status)
+                            || (blockedOnly && !row.displayBlocked())
                             || (bugsOnly && !row.isBug())
                             || !stageVisible(row.effectiveStage())
                             || !textVisible(row)) {

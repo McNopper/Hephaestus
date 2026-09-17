@@ -58,24 +58,24 @@ public class TicketRowStageTest {
 
     @Test
     public void statusPrefixCoversTheLegend() {
-        assertEquals("[PB]", TicketRow.statusPrefix("product-backlog"));
-        assertEquals("[SB]", TicketRow.statusPrefix("sprint-backlog"));
-        assertEquals("[IP]", TicketRow.statusPrefix("in-progress"));
-        assertEquals("[IR]", TicketRow.statusPrefix("in-review"));
-        assertEquals("[D]", TicketRow.statusPrefix("done"));
-        assertEquals("", TicketRow.statusPrefix("mystery"));
-        assertEquals("", TicketRow.statusPrefix(null));
+        assertEquals("▭", TicketRow.statusSymbol("product-backlog"));
+        assertEquals("○", TicketRow.statusSymbol("sprint-backlog"));
+        assertEquals("▶", TicketRow.statusSymbol("in-progress"));
+        assertEquals("◐", TicketRow.statusSymbol("in-review"));
+        assertEquals("✓", TicketRow.statusSymbol("done"));
+        assertEquals("", TicketRow.statusSymbol("mystery"));
+        assertEquals("", TicketRow.statusSymbol(null));
     }
 
     @Test
     public void pipelineLabelIsCompact() {
         TicketRow blocked = new TicketRow("T-1", "do things", "bug", "developer", 1, null,
                 true, "why", "in-review", "design", "medium", null);
-        assertEquals("[IR] [BLOCKED] [bug] do things", blocked.pipelineLabel());
+        assertEquals("◐ [BLOCKED] [bug] do things", blocked.pipelineLabel());
 
         TicketRow plain = new TicketRow("T-2", "plain", "task", "developer", 1, null,
                 false, null, "done", null, "medium", null);
-        assertEquals("[D] [task] plain", plain.pipelineLabel());
+        assertEquals("✓ [task] plain", plain.pipelineLabel());
     }
 
     @Test

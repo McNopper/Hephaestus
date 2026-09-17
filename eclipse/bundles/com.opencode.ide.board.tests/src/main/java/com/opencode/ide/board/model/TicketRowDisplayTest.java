@@ -26,22 +26,22 @@ public class TicketRowDisplayTest {
 
     @Test
     public void statusPrefixMapsEveryValidStatusPlusUnknown() {
-        assertEquals("[PB]", TicketRow.statusPrefix("product-backlog"));
-        assertEquals("[SB]", TicketRow.statusPrefix("sprint-backlog"));
-        assertEquals("[IP]", TicketRow.statusPrefix("in-progress"));
-        assertEquals("[IR]", TicketRow.statusPrefix("in-review"));
-        assertEquals("[D]", TicketRow.statusPrefix("done"));
-        assertEquals("", TicketRow.statusPrefix("unknown-status"));
-        assertEquals("", TicketRow.statusPrefix(""));
+        assertEquals("▭", TicketRow.statusSymbol("product-backlog"));
+        assertEquals("○", TicketRow.statusSymbol("sprint-backlog"));
+        assertEquals("▶", TicketRow.statusSymbol("in-progress"));
+        assertEquals("◐", TicketRow.statusSymbol("in-review"));
+        assertEquals("✓", TicketRow.statusSymbol("done"));
+        assertEquals("", TicketRow.statusSymbol("unknown-status"));
+        assertEquals("", TicketRow.statusSymbol(""));
     }
 
     @Test
     public void pipelineLabelSeparatesPrefixBlockedAndTitle() {
-        assertEquals("[IR] [BLOCKED] rework", row("rework", null, "developer", true, "in-review", "design")
+        assertEquals("◐ [BLOCKED] rework", row("rework", null, "developer", true, "in-review", "design")
                 .pipelineLabel());
-        assertEquals("[D] shipped", row("shipped", null, "developer", false, "done", null)
+        assertEquals("✓ shipped", row("shipped", null, "developer", false, "done", null)
                 .pipelineLabel());
-        assertEquals("[IP] plain", row("plain", null, "pm", false, "in-progress", "requirements")
+        assertEquals("▶ plain", row("plain", null, "pm", false, "in-progress", "requirements")
                 .pipelineLabel());
     }
 
@@ -55,9 +55,9 @@ public class TicketRowDisplayTest {
 
     @Test
     public void pipelineLabelSkipsMissingPiecesWithoutStraySpaces() {
-        assertEquals("[IR] [BLOCKED]", row(null, null, "developer", true, "in-review", "design")
+        assertEquals("◐ [BLOCKED]", row(null, null, "developer", true, "in-review", "design")
                 .pipelineLabel());
-        assertEquals("[D]", row("  ", null, "developer", true, "done", null)
+        assertEquals("✓", row("  ", null, "developer", true, "done", null)
                 .pipelineLabel());
     }
 
@@ -66,7 +66,7 @@ public class TicketRowDisplayTest {
         TicketRow drifted = row("shipped long ago", null, "developer", true, "done", "test-system");
         assertFalse(drifted.displayBlocked());
         assertEquals("T-001 shipped long ago · test-system", drifted.label());
-        assertEquals("[D] shipped long ago", drifted.pipelineLabel());
+        assertEquals("✓ shipped long ago", drifted.pipelineLabel());
     }
 
     @Test
@@ -81,7 +81,7 @@ public class TicketRowDisplayTest {
     public void pipelineLabelTrimsSurroundingTitleWhitespace() {
         TicketRow padded = new TicketRow("T-9", "  padded  ", null, "developer", 1, null,
                 false, null, "in-progress", null, "medium", null);
-        assertEquals("[IP] padded", padded.pipelineLabel());
+        assertEquals("▶ padded", padded.pipelineLabel());
     }
 
     @Test
@@ -100,7 +100,7 @@ public class TicketRowDisplayTest {
                 false, null, "in-progress", "design", "medium", null);
 
         assertEquals("T-42 " + longTitle + " · design", longRow.label());
-        assertEquals(longTitle.length() + "[IP] ".length(), longRow.pipelineLabel().length());
+        assertEquals(longTitle.length() + "▶ ".length(), longRow.pipelineLabel().length());
     }
 
     @Test
@@ -140,7 +140,7 @@ public class TicketRowDisplayTest {
     public void bugRowsCarryTheTypeTagInBothLayouts() {
         TicketRow bug = row("crash on start", "bug", "developer", false, "in-progress", "design");
         assertTrue(bug.isBug());
-        assertEquals("[IP] [bug] crash on start", bug.pipelineLabel());
+        assertEquals("▶ [bug] crash on start", bug.pipelineLabel());
         assertEquals("T-001 [bug] crash on start · design", bug.label());
     }
 
@@ -160,8 +160,8 @@ public class TicketRowDisplayTest {
         assertFalse(task.label().contains("[bug]"));
         assertFalse(spike.label().contains("[bug]"));
         // neutral types render uncolored: they carry no bug tag anywhere
-        assertEquals("[PB] [story] as a user", story.pipelineLabel());
-        assertEquals("[SB] [task] do work", task.pipelineLabel());
+        assertEquals("▭ [story] as a user", story.pipelineLabel());
+        assertEquals("○ [task] do work", task.pipelineLabel());
     }
 
     @Test
@@ -172,7 +172,7 @@ public class TicketRowDisplayTest {
         assertEquals(title, bug.title()); // the stored title is untouched
         // the decoration is a prefix on the rendered label; the title's own
         // "[bug]" text stays part of the title, the decoration separate
-        assertEquals("[IP] " + "[bug] " + title, bug.pipelineLabel());
+        assertEquals("▶ " + "[bug] " + title, bug.pipelineLabel());
         assertEquals("T-001 [bug] " + title, bug.label());
     }
 
@@ -181,7 +181,7 @@ public class TicketRowDisplayTest {
         TicketRow blockedBug = row("hotfix", "bug", "developer", true, "in-review", "design");
         assertTrue(blockedBug.displayBlocked()); // keeps the bold red blocked rendering
         assertTrue(blockedBug.isBug()); // ...plus the bug accent
-        assertEquals("[IR] [BLOCKED] [bug] hotfix", blockedBug.pipelineLabel());
+        assertEquals("◐ [BLOCKED] [bug] hotfix", blockedBug.pipelineLabel());
         assertEquals("[BLOCKED] T-001 [bug] hotfix · design", blockedBug.label());
     }
 
@@ -189,7 +189,7 @@ public class TicketRowDisplayTest {
     public void missingTypeRendersUntaggedWithoutStraySpaces() {
         TicketRow legacy = row("old ticket", null, "developer", false, "in-progress", null);
         assertEquals("", legacy.typeTag());
-        assertEquals("[IP] old ticket", legacy.pipelineLabel());
+        assertEquals("▶ old ticket", legacy.pipelineLabel());
         assertEquals("T-001 old ticket", legacy.label());
     }
 }
