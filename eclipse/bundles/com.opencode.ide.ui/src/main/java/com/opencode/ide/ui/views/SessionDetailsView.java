@@ -71,6 +71,16 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  * status message — never an exception. A toolbar toggle auto-refreshes every
  * 5s while the view is open.</p>
  *
+ * <p>Openers that cannot see this bundle's classes (the board bundle's
+ * Fleet view opens this view by plain id, U-015 "Watch live") can still arm
+ * Auto Refresh: they set the one-shot {@link #AUTO_REFRESH_HINT_PROPERTY}
+ * system property to the session id right before {@code showView}; because
+ * {@code showView} runs {@link #createPartControl} synchronously on the same
+ * UI thread, the hand-off is race-free. A matching session opens with Auto
+ * Refresh checked (the 5s insurance on top of the always-on SSE reloads);
+ * the user can toggle it off once the watched job settles. The hint is
+ * always consumed, so it can never leak into an unrelated view.</p>
+ *
  * <p>Live updates: the view subscribes to the primary connection's
  * {@code /event} SSE fan-out and reloads (debounced, see
  * {@link #EVENT_REFRESH_DEBOUNCE_MILLIS}) when an event affects THIS
@@ -101,6 +111,18 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
 public class SessionDetailsView extends ViewPart implements Refreshable {
 
     public static final String ID = "com.opencode.ide.ui.views.SessionDetailsView";
+
+    /**
+     * System-property key of the one-shot live-watch hand-off: an opener in
+     * a bundle that cannot depend on this one (the Fleet view) sets it to
+     * the session id it is about to open, immediately before
+     * {@code showView}; {@link #createPartControl} consumes any value on the
+     * same UI-thread call stack (see
+     * {@link #applyAutoRefreshHint(String)}). The key is mirrored as a plain
+     * literal in that bundle — keep both spellings in sync.
+     */
+    public static final String AUTO_REFRESH_HINT_PROPERTY =
+            "com.opencode.ide.ui.sessionDetails.autoRefreshHint";
 
     /**
      * The workbench's built-in default text editor, opened by id (registry
@@ -139,6 +161,8 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private Action forkAction;
     private Action shareAction;
     private Action summarizeAction;
+    /** The Auto Refresh toolbar toggle (field so the live-watch hint can check it). */
+    private Action autoRefreshAction;
 
     /** Tree child node carrying the (collapsed, dimmed) reasoning of a message. */
     private record ReasoningLine(String text) {
@@ -190,8 +214,34 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         } else {
             controller = new SessionDetailsController(sessionId, this::supplyClient);
             registerEventListener();
+            applyAutoRefreshHint(sessionId);
             refresh();
         }
+    }
+
+    /**
+     * Consumes the one-shot {@link #AUTO_REFRESH_HINT_PROPERTY} hand-off
+     * (U-015 "Watch live"): when the property names THIS session, Auto
+     * Refresh arms (toggle checked, 5s timer running) so a running fleet
+     * worker can be watched live; the always-on SSE reloads are unaffected.
+     * Any value is consumed — a stale hint must never switch an unrelated
+     * view into auto-refreshing. Both the setter (before {@code showView})
+     * and this consumer run on the UI thread inside one call stack, so the
+     * hand-off needs no synchronization.
+     */
+    private void applyAutoRefreshHint(String sessionId) {
+        String hint = System.getProperty(AUTO_REFRESH_HINT_PROPERTY);
+        if (hint == null) {
+            return;
+        }
+        System.clearProperty(AUTO_REFRESH_HINT_PROPERTY);
+        if (!sessionId.equals(hint)) {
+            return;
+        }
+        if (autoRefreshAction != null) {
+            autoRefreshAction.setChecked(true);
+        }
+        setAutoRefresh(true);
     }
 
     /**
@@ -229,7 +279,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         };
         refreshAction.setToolTipText("Reload the session history");
         refreshAction.setImageDescriptor(icon("refresh"));
-        Action autoRefreshAction = new Action("Auto Refresh", IAction.AS_CHECK_BOX) {
+        autoRefreshAction = new Action("Auto Refresh", IAction.AS_CHECK_BOX) {
             @Override
             public void run() {
                 setAutoRefresh(isChecked());

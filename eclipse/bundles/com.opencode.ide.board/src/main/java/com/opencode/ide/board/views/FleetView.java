@@ -40,6 +40,8 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.ui.IWorkbenchPage;
+import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.part.ViewPart;
 
 import com.opencode.ide.board.fleet.FleetJobHandle;
@@ -65,9 +67,15 @@ import com.opencode.ide.tasks.TaskStore;
 /**
  * The Fleet view: one row per fleet job in the shared {@link FleetJobsModel}
  * (fed by the Board view's "Launch task"), with state coloring and
- * Open diff / Open folder / Take over actions — in the toolbar AND in a row
- * context menu that additionally offers Copy session id and Abort…
- * (abort asks for confirmation, then POSTs on a background thread). Takeover
+ * Watch live / Open diff / Open folder / Take over actions — in the toolbar
+ * AND in a row context menu that additionally offers Copy session id and
+ * Abort… (abort asks for confirmation, then POSTs on a background thread).
+ * "Watch live" (U-015, also on double-click of a row with a session) opens
+ * the job's worker session in the Session Details view (opened by plain
+ * view id, secondary id = session id — no ui-bundle dependency); while the
+ * job is RUNNING the freshly opened view arms its Auto Refresh via a
+ * one-shot property hand-off (see {@link #openLiveWatch}), and the user can
+ * toggle that off once the job settles. Takeover
  * is TUI-first: the
  * session is handed to the attached opencode TUI via {@link TakeoverRouter}
  * when one answers, else the worktree opens and the job is marked taken
@@ -104,12 +112,32 @@ public class FleetView extends ViewPart {
 
     public static final String ID = "com.opencode.ide.board.views.FleetView";
 
+    /**
+     * Session Details view, opened by plain id exactly like
+     * ServerView#openSessionDetails — a registry lookup, so the board bundle
+     * needs no dependency on the ui bundle. Its secondary id is the session
+     * id ({@code allowMultiple}).
+     */
+    private static final String SESSION_DETAILS_VIEW_ID = "com.opencode.ide.ui.views.SessionDetailsView";
+
+    /**
+     * One-shot Session Details auto-refresh hint, set right before
+     * {@code showView} for a RUNNING job so the freshly created view opens
+     * live-watching (both sides run on the same UI-thread call stack).
+     * Mirrored plain literal of
+     * {@code SessionDetailsView#AUTO_REFRESH_HINT_PROPERTY} — this bundle
+     * cannot see that class; keep the spellings in sync.
+     */
+    private static final String SESSION_DETAILS_AUTO_REFRESH_HINT =
+            "com.opencode.ide.ui.sessionDetails.autoRefreshHint";
+
     private static final String EMPTY_STATE =
             "No fleet jobs yet — launch from the Board view or a chat session's fleet server.";
 
     private TableViewer viewer;
     private Composite tableComposite;
     private Label emptyLabel;
+    private Action watchLiveAction;
     private Action openDiffAction;
     private Action openFolderAction;
     private Action takeOverAction;
@@ -201,6 +229,18 @@ public class FleetView extends ViewPart {
         createColumn("State", 30, row -> row.state() == null ? "" : row.state().toString(), true);
         createColumn("Detail", 120, row -> row.detail(), false);
 
+        // double-click a row that carries a session: watch the worker live
+        // (U-015 — same view as the Watch live action)
+        viewer.addDoubleClickListener(event -> {
+            Object selection = event.getSelection();
+            Object first = (selection instanceof IStructuredSelection structured)
+                    ? structured.getFirstElement()
+                    : null;
+            if (first instanceof FleetJobHandle row && hasSession(row)) {
+                openLiveWatch(row);
+            }
+        });
+
         emptyLabel = new Label(outer, SWT.CENTER | SWT.WRAP);
         emptyLabel.setText(EMPTY_STATE);
         GridData emptyData = new GridData(GridData.FILL_BOTH);
@@ -268,6 +308,17 @@ public class FleetView extends ViewPart {
     }
 
     private void contributeActions() {
+        watchLiveAction = new Action("Watch live") {
+            @Override
+            public void run() {
+                watchLive();
+            }
+        };
+        watchLiveAction.setToolTipText(
+                "Open the job's worker session in Session Details and follow it live while it runs");
+        watchLiveAction.setImageDescriptor(icon("watch"));
+        watchLiveAction.setEnabled(false);
+
         openDiffAction = new Action("Open diff") {
             @Override
             public void run() {
@@ -328,6 +379,7 @@ public class FleetView extends ViewPart {
         IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
         toolbar.add(permissionsAction);
         toolbar.add(eventsAction);
+        toolbar.add(watchLiveAction);
         toolbar.add(openDiffAction);
         toolbar.add(openFolderAction);
         toolbar.add(takeOverAction);
@@ -427,6 +479,17 @@ public class FleetView extends ViewPart {
 
     private void fillContextMenu(IContributionManager manager) {
         FleetJobHandle row = selectedRow();
+        Action watchLive = new Action("Watch live") {
+            @Override
+            public void run() {
+                watchLive();
+            }
+        };
+        watchLive.setToolTipText(
+                "Open the job's worker session in Session Details and follow it live while it runs");
+        watchLive.setImageDescriptor(icon("watch"));
+        watchLive.setEnabled(hasSession(row));
+        manager.add(watchLive);
         Action openDiff = new Action("Open diff") {
             @Override
             public void run() {
@@ -545,10 +608,60 @@ public class FleetView extends ViewPart {
     private void updateActionEnablement() {
         FleetJobHandle row = selectedRow();
         boolean hasSelection = row != null;
+        watchLiveAction.setEnabled(hasSession(row));
         openDiffAction.setEnabled(hasSelection && !diffRunning.get());
         openFolderAction.setEnabled(hasSelection);
         // F-004: peer-engine rows are view-only — no take-over
         takeOverAction.setEnabled(hasSelection && !row.external());
+    }
+
+    /** @return true when the row carries a (non-blank) worker session id — the live view needs one. */
+    private static boolean hasSession(FleetJobHandle row) {
+        return row != null && row.sessionId() != null && !row.sessionId().isBlank();
+    }
+
+    /** Opens the SELECTED row's worker session live (the Watch live action). */
+    private void watchLive() {
+        FleetJobHandle row = selectedRow();
+        if (row == null) {
+            return;
+        }
+        openLiveWatch(row);
+    }
+
+    /**
+     * Opens the job's worker session in the Session Details view by plain
+     * view id (secondary id = session id, exactly ServerView's
+     * openSessionDetails — no ui-bundle dependency); the shared primary
+     * client serves the details view its {@code GET /session/:id/message},
+     * just as it serves this view's session diff. While the job is RUNNING,
+     * a one-shot system-property hint arms the freshly created view's Auto
+     * Refresh (5s insurance on top of its always-on SSE reloads); the user
+     * can toggle it off once the job settles. The hand-off is race-free
+     * because {@code showView} runs {@code createPartControl} synchronously
+     * on this same UI thread; the {@code finally} clears the hint for the
+     * already-open case (createPartControl never ran to consume it), so it
+     * can never leak into an unrelated view.
+     */
+    private void openLiveWatch(FleetJobHandle row) {
+        String sessionId = row.sessionId();
+        if (!hasSession(row)) {
+            return;
+        }
+        if (row.state() == FleetJobHandle.State.RUNNING) {
+            System.setProperty(SESSION_DETAILS_AUTO_REFRESH_HINT, sessionId);
+        }
+        try {
+            getSite().getPage().showView(SESSION_DETAILS_VIEW_ID,
+                    sessionId.replace('%', '_'), IWorkbenchPage.VIEW_ACTIVATE);
+        } catch (PartInitException e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage();
+            logWarn("Opening the live view of session " + sessionId + " failed: " + message);
+            MessageDialog.openError(getSite().getShell(), "Watch live",
+                    "Opening the live view of session " + sessionId + " failed:\n" + message);
+        } finally {
+            System.clearProperty(SESSION_DETAILS_AUTO_REFRESH_HINT);
+        }
     }
 
     private void refreshFromModel() {
