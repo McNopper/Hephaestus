@@ -1088,7 +1088,7 @@ public class BoardView extends ViewPart {
             }
         };
 
-        blockedOnlyAction = new Action("Blocked only", Action.AS_CHECK_BOX) {
+        blockedOnlyAction = new Action("Needs me (blocked)", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 if (model != null) {
@@ -1097,7 +1097,8 @@ public class BoardView extends ViewPart {
                 }
             }
         };
-        blockedOnlyAction.setToolTipText("Show only blocked tickets (both layouts)");
+        blockedOnlyAction.setToolTipText("Show only tickets waiting at the user - they are parked "
+                + "(never dispatched); fix + Resume returns them into the wave cycle");
         blockedOnlyAction.setImageDescriptor(icon("blocked-only"));
 
         bugsOnlyAction = new Action("Bugs only", Action.AS_CHECK_BOX) {
