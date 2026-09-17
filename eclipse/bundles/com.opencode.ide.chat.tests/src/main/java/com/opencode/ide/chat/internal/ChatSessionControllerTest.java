@@ -167,8 +167,11 @@ public class ChatSessionControllerTest {
         tight.send(new ChatSessionController.OutgoingMessage(
                 null, "prov", "m1", null, null, "hi"));
 
-        assertTrue("still-running notice expected, got: " + renderer.notices,
-                renderer.notices.stream().anyMatch(n -> n.startsWith("⏳")));
+        // No still-running banner anymore (user feedback 2026-09-18): a
+        // long generation is normal - the watcher runs silently and the
+        // only notice is the completion one
+        assertFalse("no banner notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.startsWith("\u23f3")));
         assertTrue("late final render expected, got: " + renderer.assistants,
                 renderer.assistants.contains("final:msg_9:late done||prov/mod|"));
         assertFalse(tight.isSending());

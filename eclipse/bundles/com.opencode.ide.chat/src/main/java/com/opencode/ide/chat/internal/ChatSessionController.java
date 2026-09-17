@@ -901,8 +901,13 @@ public final class ChatSessionController {
             finalizeLateReply(sid);
             return true;
         }
-        host.runOnUi(() -> renderer.notice("⏳ " + what + " exceeded the POST budget - the reply"
-                + " is still running. Stop aborts it; the transcript keeps streaming."));
+        // No user-visible notice here (user feedback 2026-09-18: the ⏳
+        // banner read as a problem every long reply): a healthy long
+        // generation is the NORMAL case - the streaming transcript, the
+        // waiting spinner and the Stop control already say "still running".
+        // The watcher settles silently; only genuine failures notice.
+        host.info(what + " POST timed out but session " + sid
+                + " is busy - late-reply watcher took over (transcript keeps streaming)");
         startLateReplyWatcher(sid);
         return true;
     }
