@@ -1053,6 +1053,17 @@ public class BoardView extends ViewPart {
         fleetRow.add(costOverviewAction);
         fleetRow.add(takeOverAction);
         fleetRow.update(true);
+
+        // Icon-paint fix (user report 2026-09-17): embedded tool bars created
+        // before the view is shown paint their item images zero-sized until a
+        // user interaction forces a layout - pack each row and lay out the
+        // whole header so every icon is visible from the first paint.
+        for (Control child : parent.getChildren()) {
+            if (child instanceof ToolBar bar) {
+                bar.pack(true);
+            }
+        }
+        parent.layout(true, true);
     }
 
     private static GridData fixedSize(int widthHint) {

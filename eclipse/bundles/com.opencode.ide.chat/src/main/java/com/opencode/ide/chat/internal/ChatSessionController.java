@@ -157,7 +157,9 @@ public final class ChatSessionController {
     /**
      * Late-reply watcher defaults: how often to poll a session whose reply
      * outlived the POST budget, and how long to keep watching before
-     * declaring it stuck. Env: {@code CHAT_LATE_REPLY_POLL_MS} (5 s) and
+     * declaring it stuck - the SILENCE cap: the deadline is reset by every
+     * streamed delta, so a run that keeps streaming is never stuck. Env:
+     * {@code CHAT_LATE_REPLY_POLL_MS} (5 s) and
      * {@code CHAT_LATE_REPLY_CAP_MS} (30 min) - the same env-knob
      * discipline as ClientTuning/FleetTuning (review S4: no mutable public
      * statics). The env is immutable in-process, so tests inject explicit
@@ -178,6 +180,15 @@ public final class ChatSessionController {
     private final Duration abortSettle;
     /** Bumped on dispose and by every new watcher: stale watchers exit silently. */
     private volatile int watcherGeneration;
+    /**
+     * Wall-clock of the last streamed delta for the current session (0 =
+     * none yet). The late-reply watcher treats STREAM PROGRESS as life: a
+     * run that keeps streaming is never "stuck", however long it takes -
+     * the cap applies to SILENCE, not to total runtime (user report
+     * 2026-09-17: healthy 30-minute Kimi generations were aborted because
+     * /session/status kept saying busy).
+     */
+    private volatile long lastStreamActivityMillis;
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
 
@@ -257,6 +268,8 @@ public final class ChatSessionController {
                 if (!known) {
                     streamedMids.add(messageId);
                 }
+                // stream progress = life for the late-reply watcher
+                lastStreamActivityMillis = System.currentTimeMillis();
                 host.runOnUi(() -> {
                     renderer.startAssistant(messageId);
                     if (textPart) {
@@ -897,14 +910,23 @@ public final class ChatSessionController {
     /**
      * Watches a session whose reply outlived the POST budget: polls the
      * status until it goes idle (finished - settle from history; a Stop-abort
-     * lands here too) or until the cap (stuck - abort server-side, report,
-     * release the view). Generation-guarded: dispose() or a superseding
-     * watcher kills a stale loop silently.
+     * lands here too) or until the SILENCE cap trips (abort server-side,
+     * report, release the view). Generation-guarded: dispose() or a
+     * superseding watcher kills a stale loop silently.
+     *
+     * <p>Progress-aware (user report 2026-09-17): every streamed delta
+     * moves {@link #lastStreamActivityMillis}, and the deadline is
+     * {@code lastActivity + cap} - a run that keeps streaming is never
+     * stuck, however long it takes. The cap measures SILENCE (no delta for
+     * the full window), which tolerates quiet tool phases up to the cap.
+     * {@code /session/status} staying "busy" alone no longer kills a
+     * healthy generation.</p>
      */
     private void startLateReplyWatcher(String sid) {
         int generation = ++watcherGeneration;
+        lastStreamActivityMillis = System.currentTimeMillis();
         host.runInBackground("Watching late opencode reply " + sid, () -> {
-            long deadline = System.currentTimeMillis() + lateReplyCap.toMillis();
+            long deadline = lastStreamActivityMillis + lateReplyCap.toMillis();
             while (generation == watcherGeneration && sid.equals(sessionId)) {
                 String type = null;
                 boolean probed = false;
@@ -921,15 +943,16 @@ public final class ChatSessionController {
                     finalizeLateReply(sid);
                     return;
                 }
+                deadline = lastStreamActivityMillis + lateReplyCap.toMillis();
                 if (System.currentTimeMillis() >= deadline) {
-                    host.info("late reply for " + sid + " exceeded the " + lateReplyCap.toMinutes()
-                            + "-minute cap - aborting the stuck run");
+                    host.info("late reply for " + sid + " went silent for "
+                            + lateReplyCap.toMinutes() + " minutes - aborting the stuck run");
                     try {
                         connection.getClient().abortSession(sid);
                     } catch (OpencodeException abortError) {
                         host.error("late-reply abort failed for session " + sid, abortError);
                     }
-                    host.runOnUi(() -> renderer.notice("⚠ The reply was still busy after "
+                    host.runOnUi(() -> renderer.notice("⚠ The reply went silent for "
                             + lateReplyCap.toMinutes() + " minutes - the stuck run was aborted."
                             + " Re-send your message."));
                     finishSend();
