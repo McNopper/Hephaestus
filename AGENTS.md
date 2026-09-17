@@ -60,8 +60,11 @@ Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-
 recurring basis — agents execute, review, accept and advance; the human's
 ONLY regular duty is resolving **blocked items agents could not resolve**
 (NEEDS-HUMAN escalation). Everything else should need zero end-user action.
-U-021 (reviewer auto-accept + auto-advance) and U-022 (recurring waves +
-escalation surface) implement this.
+U-021 (reviewer auto-accept + auto-advance), U-022 (recurring waves +
+escalation surface) and U-023 (clarification loop: agents pass back to the
+originator agent; round-trip limits escalate to the human) implement this —
+the Hephaestus principle: fully autonomous fleets and waves, the human as
+last resort.
 
 **Terminology (user direction 2026-09-18):** the UI says **wave**, not sprint —
 a wave is a named batch of agent work, planned on demand and drained in minutes
