@@ -735,6 +735,77 @@ public class BoardView extends ViewPart {
         };
         sendBack.setEnabled(canSendBack(row));
         manager.add(sendBack);
+        manager.add(new Separator());
+        // U-022 fine-grained fleet controls: hold/resume one ticket and
+        // abort one running job - not everything runs or everything pauses
+        Action holdAction = new Action(row != null && row.displayBlocked()
+                ? "Resume (release into dispatch)" : "Hold (pause auto-dispatch)") {
+            @Override
+            public void run() {
+                if (row == null || model == null) {
+                    return;
+                }
+                String error = row.displayBlocked() ? model.resume(row.id()) : model.hold(row.id());
+                IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+                if (error != null) {
+                    status.setErrorMessage(error);
+                } else {
+                    status.setErrorMessage(null);
+                    status.setMessage(row.displayBlocked()
+                            ? "Resumed " + row.id() : "Held " + row.id() + " (auto-dispatch skips it)");
+                }
+                refresh();
+            }
+        };
+        holdAction.setEnabled(row != null);
+        manager.add(holdAction);
+        Action abortJob = new Action("Abort fleet job\u2026") {
+            @Override
+            public void run() {
+                abortFleetJob(row);
+            }
+        };
+        abortJob.setEnabled(runningJobOf(row) != null);
+        manager.add(abortJob);
+    }
+
+    /** The RUNNING fleet job for a row, {@code null} when none. */
+    private FleetJobHandle runningJobOf(TicketRow row) {
+        if (row == null || row.id() == null) {
+            return null;
+        }
+        for (FleetJobHandle job : FleetJobsModel.getDefault().jobs()) {
+            if (row.id().equals(job.taskId()) && job.state() == FleetJobHandle.State.RUNNING) {
+                return job;
+            }
+        }
+        return null;
+    }
+
+    /** Aborts the row's running fleet job (confirmation, then the server-side abort). */
+    private void abortFleetJob(TicketRow row) {
+        FleetJobHandle job = runningJobOf(row);
+        if (job == null || job.sessionId() == null || job.sessionId().isBlank()) {
+            return;
+        }
+        String sessionId = job.sessionId();
+        boolean confirmed = MessageDialog.openConfirm(getSite().getShell(), "Abort fleet job",
+                "Abort the running agent of session " + sessionId + "?\n(ticket " + row.id() + ")");
+        if (!confirmed) {
+            return;
+        }
+        ExecutorService executor = refreshExecutor;
+        if (executor == null) {
+            return;
+        }
+        executor.execute(() -> {
+            try {
+                OpencodeConnection.getInstance().getClient().abortSession(sessionId);
+                statusMessage("Abort posted for " + row.id());
+            } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+                logError("Abort failed for session " + sessionId, e);
+            }
+        });
     }
 
     /** Copies the ticket id to the clipboard and confirms in the status line. */
@@ -1152,7 +1223,7 @@ public class BoardView extends ViewPart {
         // U-017+U-018: the fleet row carries the dispatch actions AND the
         // live readiness verdicts of the current sprint ("n ready · m stale")
         Composite fleetRow = new Composite(parent, SWT.NONE);
-        GridLayout fleetLayout = new GridLayout(2, false);
+        GridLayout fleetLayout = new GridLayout(4, false);
         fleetLayout.marginWidth = 0;
         fleetLayout.marginHeight = 0;
         fleetLayout.horizontalSpacing = 10;
@@ -1166,6 +1237,41 @@ public class BoardView extends ViewPart {
         readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
                 + "what the fleet can dispatch now, and what went stale");
         readinessLabel.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
+
+        // U-022 fine-grained fleet control: the agent-concurrency cap right
+        // in the fleet row (not buried in Dispatch settings) - "how many
+        // run at once" is the dial between run-all and pause-all
+        new Label(fleetRow, SWT.NONE).setText("Agents:");
+        Combo concurrency = new Combo(fleetRow, SWT.DROP_DOWN | SWT.READ_ONLY);
+        concurrency.setItems("1", "2", "4", "8");
+        concurrency.setToolTipText("Maximum fleet agents running concurrently (the dispatch policy's cap)");
+        concurrency.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+        int currentCap = storedDispatch().policy().maxConcurrent();
+        int currentIdx = java.util.Arrays.asList("1", "2", "4", "8")
+                .indexOf(String.valueOf(currentCap));
+        concurrency.select(currentIdx >= 0 ? currentIdx : 1);
+        concurrency.addSelectionListener(new SelectionAdapter() {
+            @Override
+            public void widgetSelected(SelectionEvent e) {
+                if (dispatchStore == null || concurrency.isDisposed()) {
+                    return;
+                }
+                try {
+                    int cap = Integer.parseInt(concurrency.getItem(
+                            Math.max(0, concurrency.getSelectionIndex())));
+                    DispatchPolicyStore.DispatchSettings stored = storedDispatch();
+                    var policy = stored.policy();
+                    DispatchPolicyStore.DispatchSettings changed = new DispatchPolicyStore.DispatchSettings(
+                            com.opencode.ide.fleet.dispatch.AutoDispatch.of(cap,
+                                    policy.costBudgetUsd(), policy.includeStale()),
+                            stored.bootstrapAgent(), stored.bootstrapCommand());
+                    dispatchStore.save(changed);
+                    statusMessage("Dispatch concurrency cap: " + cap);
+                } catch (RuntimeException ex) {
+                    logError("Could not persist the concurrency cap", ex);
+                }
+            }
+        });
 
         fleetBar.add(launchAction);
         fleetBar.add(autoDispatchAction);

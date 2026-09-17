@@ -405,6 +405,33 @@ public final class BoardModel {
         return ordered;
     }
 
+    /**
+     * U-022 fine-grained fleet control: puts ONE ticket on hold — blocked
+     * with the dedicated marker, which the readiness verdicts treat as
+     * BLOCKED (auto-dispatch skips it) but the board renders like any
+     * blocked ticket with a self-explaining reason.
+     *
+     * @return {@code null} on success, a human-readable failure message otherwise.
+     */
+    public String hold(String id) {
+        try {
+            store.setBlocked(project, id, "on hold by user (paused for auto-dispatch)", "board");
+            return null;
+        } catch (RuntimeException e) {
+            return failure("hold", id, e);
+        }
+    }
+
+    /** Releases a held/blocked ticket back into the dispatch loop. */
+    public String resume(String id) {
+        try {
+            store.clearBlocked(project, id, "board");
+            return null;
+        } catch (RuntimeException e) {
+            return failure("resume", id, e);
+        }
+    }
+
     /** Sorts a mutable copy of the rows into the within-column order (for lists not sorted in place). */
     private static List<TicketRow> sorted(List<TicketRow> rows) {
         java.util.ArrayList<TicketRow> copy = new java.util.ArrayList<>(rows);
