@@ -48,7 +48,12 @@ import com.opencode.ide.fleet.dispatch.DispatchScheduler;
  * <p>Lifecycle: {@link #close()} stops accepting launches and kills the
  * spawned server. The stdio entry point ({@link FleetStdioMain}) registers
  * that as a JVM shutdown hook so the child server never outlives the MCP
- * server process.</p>
+ * server process. B-004 adds two lifecycle guarantees for the spawned
+ * serve: a launch that settles FAILED recycles the engine when idle (the
+ * serve is killed so it cannot lock the failed worktree's files - no orphan
+ * survives the job end), and a cached engine whose serve died is detected
+ * and respawned before its recorded endpoint is reused (a dead serve never
+ * fails every later dispatch with "Cannot reach opencode server").</p>
  */
 public final class FleetControl implements AutoCloseable {
 
@@ -58,6 +63,27 @@ public final class FleetControl implements AutoCloseable {
     /** The assembled engine plus whatever resources must be released with it. */
     public interface Engine extends AutoCloseable {
         TaskFleet fleet();
+
+        /**
+         * B-004: whether the engine's spawned {@code opencode serve} is still
+         * alive - the liveness probe consulted before the recorded endpoint
+         * is REUSED ({@link FleetControl#engine()} respawns when it is dead,
+         * so one killed serve can never fail every later dispatch with
+         * "Cannot reach opencode server"). Default {@code true}: fakes and
+         * engine-less implementations have nothing that can die.
+         */
+        default boolean serverAlive() {
+            return true;
+        }
+
+        /**
+         * B-004: the OS pid of the spawned serve while it is alive, for
+         * diagnostics ({@code fleet_reset} names it when worktree removal
+         * keeps failing). Default {@code null} = unknown.
+         */
+        default Long serverPid() {
+            return null;
+        }
 
         /**
          * Live progress probe for a tracked job's session (the
@@ -244,6 +270,16 @@ public final class FleetControl implements AutoCloseable {
             }
 
             @Override
+            public boolean serverAlive() {
+                return server.isRunning();
+            }
+
+            @Override
+            public Long serverPid() {
+                return server.getProcessId();
+            }
+
+            @Override
             public FleetRunner.Activity probe(String ticketId) {
                 FleetJob job = fleet.jobs().get(ticketId);
                 if (job == null || job.sessionId() == null) {
@@ -334,8 +370,72 @@ public final class FleetControl implements AutoCloseable {
         }
         if (engine == null) {
             engine = engineFactory.apply(storeRoot);
+        } else if (!engine.serverAlive()) {
+            // B-004 stale endpoint: PROBE BEFORE REUSE. A serve that died
+            // (killed by an operator, an OOM kill, a crashed child) must
+            // never make every later dispatch fail with "Cannot reach
+            // opencode server at <recorded endpoint>" - close the dead
+            // engine (its event stream) and spawn a fresh one, exactly like
+            // the lazy first spawn. Live-found 2026-09-17: only a full
+            // daemon restart used to recover from this.
+            com.opencode.ide.client.ClientLog.warning(
+                    "fleet: the spawned opencode serve is dead - respawning before reuse"
+                            + " (the recorded endpoint went stale)");
+            try {
+                engine.close();
+            } catch (RuntimeException e) {
+                com.opencode.ide.client.ClientLog.warning(
+                        "closing the dead engine failed (ignored): " + e.getMessage());
+            }
+            engine = engineFactory.apply(storeRoot);
         }
         return engine;
+    }
+
+    /**
+     * B-004: closes the engine - killing the spawned {@code opencode serve}
+     * process tree it owns - when nothing is in flight, so the serve's locks
+     * release: its file watchers and bash-tool children hold handles INSIDE
+     * the task worktrees, which is what made {@code fleet_reset} fail with
+     * "Permission denied" and left the branch behind. The next dispatch
+     * spawns a fresh serve lazily via {@link #engineLocked()}. Never spawns
+     * an engine and never throws.
+     *
+     * @return the OS pid of the killed serve when a LIVE serve was killed,
+     *         else {@code null} (no engine, serve already dead, or other
+     *         launches still in flight)
+     */
+    public Long recycleEngineIfIdle(String reason) {
+        Engine current;
+        Long pid;
+        synchronized (this) {
+            if (closed || engine == null || !inFlight.isEmpty()) {
+                return null;
+            }
+            current = engine;
+            pid = engine.serverAlive() ? engine.serverPid() : null;
+            engine = null;
+        }
+        com.opencode.ide.client.ClientLog.info("fleet: recycling the engine (" + reason + ")"
+                + (pid != null ? " - killing the spawned opencode serve pid " + pid : ""));
+        try {
+            current.close();
+        } catch (RuntimeException e) {
+            com.opencode.ide.client.ClientLog.warning(
+                    "closing the recycled engine failed (ignored): " + e.getMessage());
+        }
+        return pid;
+    }
+
+    /**
+     * B-004: the live serve's OS pid for diagnostics - {@code fleet_reset}
+     * names it in the error when worktree removal keeps failing. {@code null}
+     * when there is no engine, the serve is dead, or the pid is unknown.
+     */
+    public Long engineServePid() {
+        synchronized (this) {
+            return engine != null && engine.serverAlive() ? engine.serverPid() : null;
+        }
     }
 
     /** @return whether the engine (and in real mode the server) is up. */
@@ -402,13 +502,14 @@ public final class FleetControl implements AutoCloseable {
             com.opencode.ide.client.ClientLog.info(
                     "fleet dispatch " + ticketId + " accepted (budget " + timeout + ")");
             executor.execute(() -> {
+                FleetJob settled = null;
                 try {
                     try {
                         try {
                             if (autoPolicy == null) {
-                                e.fleet().launch(project, ticketId, repoRoot, timeout);
+                                settled = e.fleet().launch(project, ticketId, repoRoot, timeout);
                             } else {
-                                e.fleet().launchAuto(project, ticketId, repoRoot, timeout, guard, autoPolicy.includeStale());
+                                settled = e.fleet().launchAuto(project, ticketId, repoRoot, timeout, guard, autoPolicy.includeStale());
                             }
                         } finally {
                             com.opencode.ide.client.ClientLog.info("fleet dispatch " + ticketId + " settled");
@@ -419,12 +520,19 @@ public final class FleetControl implements AutoCloseable {
                         }
                         com.opencode.ide.client.ClientLog.info("fleet launch of " + ticketId + " deferred: " + ex.getMessage());
                     } catch (RuntimeException ex) {
+                        // the launch violated its never-throws contract: the
+                        // engine's state is unknown - treat it as a failure
+                        // for the recycle decision below
+                        settled = new FleetJob(ticketId, null, null, FleetJob.State.FAILED, ex.getMessage());
                         com.opencode.ide.client.ClientLog.warning(
                                 "fleet launch of " + ticketId + " threw: " + ex.getMessage());
                     } finally {
                         inFlight.remove(ticketId);
                         guard.close();
                     }
+                    // B-004, after the in-flight marker is gone so sibling
+                    // launches still holding it protect their serve
+                    recycleEngineAfterFailure(ticketId, settled);
                     StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
                 } catch (RuntimeException ex) {
                     com.opencode.ide.client.ClientLog.warning(
@@ -435,6 +543,28 @@ public final class FleetControl implements AutoCloseable {
             inFlight.remove(ticketId);
             guard.close();
             throw ex;
+        }
+    }
+
+    /**
+     * B-004 leaked-serve fix: a launch that settles FAILED leaves nothing on
+     * the spawned serve worth keeping - and the serve actively harms recovery:
+     * its watchers and bash-tool children hold handles INSIDE the failed
+     * ticket's worktree, so {@code fleet_reset} hit "Permission denied" and
+     * the branch survived to block the re-dispatch ("branch already exists").
+     * When no other launch is in flight (this ticket's marker is already
+     * gone), the engine - and with it the serve it owns - is closed; no
+     * orphan survives the job end. The next dispatch spawns a fresh serve
+     * lazily. A MERGED launch keeps the serve alive for healthy reuse.
+     */
+    private void recycleEngineAfterFailure(String ticketId, FleetJob settled) {
+        if (settled == null || settled.state() != FleetJob.State.FAILED) {
+            return;
+        }
+        Long killed = recycleEngineIfIdle("ticket " + ticketId + " failed");
+        if (killed != null) {
+            com.opencode.ide.client.ClientLog.info("fleet: killed the spawned opencode serve (pid "
+                    + killed + ") after ticket " + ticketId + " failed - the next dispatch respawns it");
         }
     }
 

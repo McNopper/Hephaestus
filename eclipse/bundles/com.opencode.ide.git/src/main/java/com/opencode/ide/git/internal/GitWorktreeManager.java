@@ -124,6 +124,15 @@ public final class GitWorktreeManager implements WorktreeManager {
             if (branchExists(repo, branch)) {
                 git(repo, "branch", force ? "-D" : "-d", branch);
             }
+            // B-004: a previous `git worktree remove --force` that failed on
+            // locked files already deleted the ADMIN registration while the
+            // DIRECTORY survived (live-proven: git removes the admin before
+            // unlinking the tree) - so the worktree is invisible to find()
+            // from now on, yet the residue blocks the next `worktree add`
+            // ("Worktree path already exists"). Consume the residue here.
+            if (force) {
+                deleteTree(FleetGit.worktreePath(repoRoot, taskId));
+            }
             return;
         }
         List<String> removeArgs = new ArrayList<>(List.of("worktree", "remove"));
@@ -131,8 +140,61 @@ public final class GitWorktreeManager implements WorktreeManager {
             removeArgs.add("--force");
         }
         removeArgs.add(wt.path().toString());
-        git(repo, removeArgs.toArray(new String[0]));
+        try {
+            git(repo, removeArgs.toArray(new String[0]));
+        } catch (WorktreeException removeFailed) {
+            // B-004 live-found 2026-09-17: a leaked process holding files in
+            // the worktree (a spawned opencode serve's watchers, a bash-tool
+            // child with its CWD there) makes `git worktree remove --force`
+            // fail - on Windows with "Permission denied" (exit 255) - and
+            // the thrown error used to abort the whole reset BEFORE the
+            // branch cleanup, so the next dispatch hit "Branch
+            // opencode/<taskId> already exists". Recover instead: delete the
+            // tree ourselves (locked files survive, everything else goes),
+            // prune the stale registration, and only then give up - with the
+            // original git error and the live-process explanation.
+            if (!force) {
+                throw removeFailed;
+            }
+            if (deleteTree(wt.path())) {
+                // directory gone: drop the now-dangling registration so the
+                // branch deletion below is not refused over a dead worktree
+                run(repo, DEFAULT_TIMEOUT, "worktree", "prune");
+            } else {
+                try {
+                    git(repo, removeArgs.toArray(new String[0])); // one retry: some locks release between attempts
+                } catch (WorktreeException retryFailed) {
+                    throw new WorktreeException("git worktree remove failed for " + wt.path()
+                            + " - a live process holds files inside the worktree (stop it and retry): "
+                            + removeFailed.getMessage());
+                }
+            }
+        }
         git(repo, "branch", force ? "-D" : "-d", wt.branch());
+    }
+
+    /**
+     * B-004: best-effort recursive delete of a worktree directory - the
+     * recovery path when {@code git worktree remove --force} cannot (a
+     * process holds files inside). Locked files survive; everything else
+     * goes. Never throws.
+     *
+     * @return whether the directory is gone afterwards
+     */
+    private static boolean deleteTree(Path root) {
+        try (var walk = Files.walk(root)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    p.toFile().setWritable(true);
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // locked by a live process - leave it
+                }
+            });
+        } catch (IOException ignored) {
+            // the tree could not be walked at all - report "still there"
+        }
+        return !Files.exists(root);
     }
 
     @Override

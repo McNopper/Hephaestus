@@ -48,6 +48,8 @@ public final class FleetToolProvider implements ToolProvider {
 
     private final Path root;
     private final FleetControl control;
+    /** B-004 test seam: the worktree manager {@code fleet_reset} removes residue through. */
+    private final com.opencode.ide.git.WorktreeManager worktrees;
 
     /** @param root the task store root, as for {@code TaskToolProvider}. */
     public FleetToolProvider(Path root) {
@@ -56,8 +58,18 @@ public final class FleetToolProvider implements ToolProvider {
 
     /** Test seam: inject a prepared control (e.g. a fake engine). */
     public FleetToolProvider(Path root, FleetControl control) {
+        this(root, control, com.opencode.ide.git.FleetGit.defaultManager());
+    }
+
+    /**
+     * Test seam: inject the {@link com.opencode.ide.git.WorktreeManager} the
+     * {@code fleet_reset} recovery path uses (failure injection without
+     * processes).
+     */
+    FleetToolProvider(Path root, FleetControl control, com.opencode.ide.git.WorktreeManager worktrees) {
         this.root = root;
         this.control = control;
+        this.worktrees = worktrees;
     }
 
     /** Releases the engine (and in real mode the spawned opencode server). */
@@ -305,11 +317,31 @@ public final class FleetToolProvider implements ToolProvider {
             String project, String ticketId, Path repoRoot) {
         StringBuilder report = new StringBuilder();
         try {
-            com.opencode.ide.git.WorktreeManager worktrees = com.opencode.ide.git.FleetGit.defaultManager();
             worktrees.remove(repoRoot, ticketId, true);
             report.append("worktree+branch removed; ");
         } catch (RuntimeException e) {
-            return McpToolResult.error("reset " + ticketId + " failed removing worktree: " + e.getMessage());
+            // B-004 live-found 2026-09-17: a leaked process holding files in
+            // the worktree (typically this engine's own spawned opencode
+            // serve - its watchers and bash-tool children keep handles
+            // inside) makes `git worktree remove --force` fail with
+            // "Permission denied", which used to abort the WHOLE reset
+            // before the branch cleanup - so the next dispatch hit "Branch
+            // opencode/<id> already exists". Kill the engine's serve (when
+            // idle), let the OS release the dead process's handles, then
+            // retry the removal once.
+            Long killedPid = control.recycleEngineIfIdle("fleet_reset " + ticketId);
+            if (killedPid != null) {
+                settleAfterServeKill();
+            }
+            try {
+                worktrees.remove(repoRoot, ticketId, true);
+                report.append(killedPid != null
+                        ? "worktree+branch removed (killed the leaked engine serve pid "
+                                + killedPid + " first); "
+                        : "worktree+branch removed on retry; ");
+            } catch (RuntimeException retry) {
+                return McpToolResult.error(worktreeRemovalFailed(ticketId, retry));
+            }
         }
         try {
             java.util.Map<String, Object> release = new java.util.HashMap<>();
@@ -333,6 +365,35 @@ public final class FleetToolProvider implements ToolProvider {
             return McpToolResult.error("reset " + ticketId + " failed clearing blocker: " + e.getMessage());
         }
         return text("reset " + ticketId + ": " + report);
+    }
+
+    /**
+     * B-004: the retry also failed - name the likely file holder. When this
+     * engine's serve is still alive it could not be killed (launches are in
+     * flight), so it is the prime suspect and is named by pid; otherwise an
+     * unrelated process holds the worktree and the error says how to find
+     * it (pure Java cannot enumerate handle holders).
+     */
+    private String worktreeRemovalFailed(String ticketId, RuntimeException retry) {
+        String base = "reset " + ticketId + " failed removing worktree: " + retry.getMessage();
+        Long servePid = control.engineServePid();
+        if (servePid != null) {
+            return base + " - this engine's opencode serve (pid " + servePid + ") is still running"
+                    + " with launches in flight and is the likely file holder; retry once they settle"
+                    + " (fleet_jobs)";
+        }
+        return base + " - a process outside this engine holds files in the worktree; find and stop it"
+                + " (Windows: Resource Monitor > CPU > Associated Handles, or Sysinternals handle.exe),"
+                + " then retry fleet_reset";
+    }
+
+    /** B-004: brief pause so the OS finishes releasing the killed serve's handles. */
+    private static void settleAfterServeKill() {
+        try {
+            Thread.sleep(FleetTuning.SERVE_KILL_SETTLE.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static McpToolResult json(Object element) {
@@ -444,7 +505,9 @@ public final class FleetToolProvider implements ToolProvider {
                 "Consume a settled run's residue: remove the worktree + branch and release the "
                         + "ticket to sprint-backlog (claim and blocker cleared) - a plain "
                         + "re-dispatch then works with no manual git surgery. Refused while "
-                        + "the job is RUNNING.",
+                        + "the job is RUNNING. When a leaked process holds the worktree's files, "
+                        + "this engine's spawned opencode serve is killed first (when idle) and "
+                        + "the removal retried; a still-failing removal names the locking pid.",
                 schema(new String[]{"project", "ticket_id"}, obj -> {
                     obj.add("project", strP("task store project (subdirectory of the store root)"));
                     obj.add("ticket_id", strP("the ticket whose residue to consume"));
