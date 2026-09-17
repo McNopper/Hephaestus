@@ -48,6 +48,14 @@ public final class FleetTuning {
     public static final Duration DAEMON_DRAIN_WAIT = duration(
             "FLEET_DAEMON_DRAIN_MS", Duration.ofSeconds(5));
 
+    /**
+     * B-004: pause after killing a leaked serve before retrying worktree
+     * removal - the OS releases a dead process's file handles asynchronously
+     * (notably on Windows). Env: FLEET_SERVE_KILL_SETTLE_MS.
+     */
+    public static final Duration SERVE_KILL_SETTLE = duration(
+            "FLEET_SERVE_KILL_SETTLE_MS", Duration.ofMillis(750));
+
     private static Duration duration(String envVar, Duration fallback) {
         String value = System.getenv(envVar);
         if (value == null || value.isBlank()) { return fallback; }

@@ -317,6 +317,54 @@ public class GitWorktreeManagerTest {
         assertEquals(changed.toString(), 2, changed.size());
     }
 
+    /**
+     * B-004 live-found 2026-09-17: a leaked process holding files in the
+     * worktree (a spawned opencode serve's watchers / a bash-tool child with
+     * its CWD there) made {@code git worktree remove --force} fail with
+     * "Permission denied" (exit 255), and the raw error aborted the whole
+     * reset before the branch cleanup. Reproduced here with a REAL locker
+     * process whose CWD is the worktree: while it lives, the removal fails
+     * with the live-process explanation; after it dies, the same removal
+     * recovers and consumes worktree AND branch.
+     */
+    @Test(timeout = 60_000)
+    public void forceRemoveSurvivesALiveProcessHoldingTheWorktree() throws Exception {
+        Assume.assumeTrue("Windows CWD-lock semantics required (the incident platform)",
+                System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win"));
+        Worktree wt = manager.create(repo, "t1");
+        // the "leaked serve": a live process with its working directory
+        // inside the worktree - Windows refuses to delete such a directory
+        Process locker = new ProcessBuilder("ping", "-n", "61", "127.0.0.1")
+                .directory(wt.path().toFile())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        try {
+            assertTrue("locker process is alive", locker.isAlive());
+            try {
+                manager.remove(repo, "t1", true);
+                // a git build that still manages the removal is fine - the
+                // cleanup assertions below are the contract
+            } catch (WorktreeException e) {
+                assertTrue("the error explains the live-process cause: " + e.getMessage(),
+                        e.getMessage().contains("live process"));
+                assertTrue("the branch is not silently lost while removal failed",
+                        gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
+            }
+            // the engine's own recovery: the locker dies (killed serve),
+            // then the SAME removal must succeed
+            locker.destroyForcibly();
+            assertTrue(locker.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+            manager.remove(repo, "t1", true);
+            assertFalse("the worktree directory is gone", Files.exists(wt.path()));
+            assertFalse("the branch is consumed too",
+                    gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
+            assertTrue("no registration residue", manager.find(repo, "t1").isEmpty());
+        } finally {
+            locker.destroyForcibly();
+        }
+    }
+
     private void commitIn(Path worktree, String message) throws Exception {
         git(worktree, "add", ".");
         git(worktree, "commit", "-m", message);
