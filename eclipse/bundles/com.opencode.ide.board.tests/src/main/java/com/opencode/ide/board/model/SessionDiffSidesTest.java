@@ -113,14 +113,27 @@ public class SessionDiffSidesTest {
     }
 
     @Test
-    public void missingRevisionsYieldUnresolvedSides() {
+    public void blankRevisionsFallBackToHeadBeforeAndEmptyAfter() {
+        // blank before -> HEAD; blank after -> nothing (renders empty right side)
         List<SessionDiffSides.Side> sides = SessionDiffSides.resolve(repo,
                 List.of(new FileDiff("file.txt", null, null, "patch")));
 
         assertEquals(1, sides.size());
-        assertNull(sides.get(0).before());
-        assertNull(sides.get(0).after());
-        assertEquals(0, SessionDiffSides.resolved(sides));
+        assertEquals("old line\n", sides.get(0).before());
+        assertEquals("", sides.get(0).after());
+        assertEquals(1, SessionDiffSides.resolved(sides));
+    }
+
+    @Test
+    public void workingRevisionReadsTheWorktreeFile() throws Exception {
+        Files.writeString(repo.resolve("file.txt"), "worktree state\n", StandardCharsets.UTF_8);
+
+        List<SessionDiffSides.Side> sides = SessionDiffSides.resolve(repo,
+                List.of(new FileDiff("file.txt", "HEAD", "WORKING", "patch")));
+
+        assertEquals(1, sides.size());
+        assertEquals("old line\n", sides.get(0).before());
+        assertEquals("worktree state\n", sides.get(0).after());
     }
 
     @Test

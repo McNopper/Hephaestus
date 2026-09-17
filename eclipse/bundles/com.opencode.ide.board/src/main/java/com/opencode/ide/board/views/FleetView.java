@@ -739,6 +739,11 @@ public class FleetView extends ViewPart {
                     org.eclipse.compare.CompareUI.openCompareEditor(
                             new SessionDiffCompareInput(dialogTitle, compareSides));
                 } else {
+                    if (result != null) {
+                        // breadcrumb: why the compare editor was not used
+                        getViewSite().getActionBars().getStatusLineManager().setMessage(
+                                "Diff sides unresolvable - showing the patch text instead");
+                    }
                     new TextDialog(getSite().getShell(), dialogTitle, result).open();
                 }
             });

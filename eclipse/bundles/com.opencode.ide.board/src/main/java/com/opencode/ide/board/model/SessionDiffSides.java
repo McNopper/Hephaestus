@@ -37,9 +37,18 @@ public final class SessionDiffSides {
 
     /**
      * Resolves the sides for the given diffs (never null; entries keep the
-     * input order). A file without both revisions, or whose {@code git show}
-     * fails, yields a {@link Side} with null texts — the caller decides how
-     * to present those.
+     * input order). Side semantics, tolerant of what the server actually
+     * sends:
+     * <ul>
+     *   <li>{@code "WORKING"} (any case) — the current worktree file at
+     *       {@code <repoRoot>/<path>} (missing file reads as empty).</li>
+     *   <li>a git revision — validated via {@code git rev-parse}, then
+     *       {@code git show <rev>:<path>}.</li>
+     *   <li>blank BEFORE defaults to {@code HEAD}; blank AFTER defaults to
+     *       the worktree file.</li>
+     * </ul>
+     * Files where nothing resolves yield null sides — the caller decides
+     * how to present those.
      */
     public static List<Side> resolve(Path repoRoot, List<FileDiff> diffs) {
         List<Side> sides = new ArrayList<>();
@@ -55,8 +64,8 @@ public final class SessionDiffSides {
                 sides.add(new Side(path, null, null));
                 continue;
             }
-            String before = revisionText(repoRoot, file.before(), path);
-            String after = revisionText(repoRoot, file.after(), path);
+            String before = resolveSide(repoRoot, file.before(), path, "HEAD");
+            String after = resolveSide(repoRoot, file.after(), path, null);
             if (before == null && after == null) {
                 sides.add(new Side(path, null, null));
             } else {
@@ -81,15 +90,23 @@ public final class SessionDiffSides {
     }
 
     /**
-     * {@code git show <rev>:<path>} as UTF-8 text; null when rev is blank,
-     * does not resolve, or the command fails. GitCli hides exit codes, so
-     * existence is proven first via {@code git rev-parse <rev>} (empty
-     * stdout means the rev is unknown) — otherwise a failed {@code show}
-     * would be indistinguishable from an empty file.
+     * Resolves one side: {@code WORKING} (any case) reads the worktree
+     * file; a blank value falls back to {@code fallbackRev} ("HEAD" for the
+     * before side, none for after); anything else must resolve as a git
+     * revision. GitCli hides exit codes, so existence is proven first via
+     * {@code git rev-parse} — otherwise a failed {@code show} would be
+     * indistinguishable from an empty file.
      */
-    private static String revisionText(Path repoRoot, String revision, String path) {
-        if (revision == null || revision.isBlank()) {
+    private static String resolveSide(Path repoRoot, String value, String path, String fallbackRev) {
+        if (value != null && "working".equalsIgnoreCase(value.trim())) {
+            return worktreeText(repoRoot, path);
+        }
+        String revision = value == null || value.isBlank() ? fallbackRev : value.trim();
+        if (revision == null) {
             return null;
+        }
+        if ("working".equalsIgnoreCase(revision)) {
+            return worktreeText(repoRoot, path);
         }
         try {
             String sha = GitCli.run(List.of("git", "-C", repoRoot.toString(),
@@ -102,6 +119,15 @@ public final class SessionDiffSides {
             return out == null ? null : out;
         } catch (RuntimeException e) {
             return null;
+        }
+    }
+
+    /** The worktree file's current content; a missing file reads as empty (deleted side). */
+    private static String worktreeText(Path repoRoot, String path) {
+        try {
+            return java.nio.file.Files.readString(repoRoot.resolve(path), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
         }
     }
 
