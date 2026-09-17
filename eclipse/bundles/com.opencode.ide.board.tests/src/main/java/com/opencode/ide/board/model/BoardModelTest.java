@@ -88,7 +88,9 @@ public class BoardModelTest {
     }
 
     @Test
-    public void backlogPseudoSprintShowsOnlyUnassignedTickets() {
+    public void boardShowsAllTicketsWaveAgnostic() {
+        // user direction 2026-09-18: display is wave-agnostic (all tickets);
+        // BACKLOG only scopes dispatch
         newSprintTicket("sprinted");
         Task loose = store.create("p", TaskStore.CreateSpec.of("loose"));
         store.update("p", loose.id, Map.of("status", (Object) "in-progress"));
@@ -100,7 +102,8 @@ public class BoardModelTest {
 
         assertEquals(1, snapshot.column("in-progress").size());
         assertEquals(1, snapshot.column("product-backlog").size());
-        assertEquals(2, snapshot.total());
+        assertEquals(1, snapshot.column("sprint-backlog").size());
+        assertEquals(3, snapshot.total());
         assertEquals(loose.id, snapshot.column("in-progress").get(0).id());
     }
 

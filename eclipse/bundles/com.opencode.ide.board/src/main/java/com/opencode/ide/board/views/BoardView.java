@@ -200,7 +200,6 @@ public class BoardView extends ViewPart {
     private Composite pipelineContent;
     private Text rootText;
     private Text projectText;
-    private Combo sprintCombo;
     private Combo modeCombo;
     /** U-018: free-text filter input on the scope row. */
     private Text filterText;
@@ -226,7 +225,6 @@ public class BoardView extends ViewPart {
      * again.
      */
     private boolean sprintPicked;
-    private boolean updatingSprintCombo;
     private boolean updatingModeCombo;
     private String rootOverride = "";
     private String projectName = BoardModel.DEFAULT_PROJECT;
@@ -963,42 +961,6 @@ public class BoardView extends ViewPart {
             }
         };
 
-        ControlContribution sprintCc = new ControlContribution("com.opencode.ide.board.sprint") {
-            @Override
-            protected Control createControl(Composite parent) {
-                Composite box = new Composite(parent, SWT.NONE);
-                GridLayout layout = new GridLayout(2, false);
-                layout.marginWidth = 0;
-                layout.marginHeight = 0;
-                layout.horizontalSpacing = 4;
-                box.setLayout(layout);
-                new Label(box, SWT.NONE).setText("Wave:");
-                sprintCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                sprintCombo.setToolTipText("Selected wave - a named batch of agent work, planned on "
-                        + "demand and drained in minutes by Launch/Auto (no time-box). The store field "
-                        + "stays 'sprint' for schema stability.");
-                sprintCombo.setLayoutData(fixedSize(110));
-                sprintCombo.addSelectionListener(new SelectionAdapter() {
-                    @Override
-                    public void widgetSelected(SelectionEvent e) {
-                        if (updatingSprintCombo) {
-                            return;
-                        }
-                        int index = sprintCombo.getSelectionIndex();
-                        if (index >= 0 && model != null) {
-                            // explicit user choice — the B-002 auto-select
-                            // must never override it afterwards
-                            sprintPicked = true;
-                            cancelDispatchForSelection();
-                            model.setSprint(sprintCombo.getItem(index));
-                            refresh();
-                        }
-                    }
-                });
-                return box;
-            }
-        };
-
         ControlContribution modeCc = new ControlContribution("com.opencode.ide.board.groupby") {
             @Override
             protected Control createControl(Composite parent) {
@@ -1181,7 +1143,6 @@ public class BoardView extends ViewPart {
         storeRow.update(true);
 
         ToolBarManager scopeRow = headerRow(parent);
-        scopeRow.add(sprintCc);
         scopeRow.add(modeCc);
         scopeRow.add(blockedOnlyAction);
         scopeRow.add(bugsOnlyAction);
@@ -1367,21 +1328,18 @@ public class BoardView extends ViewPart {
         } else {
             applyFlatSnapshot(snapshot);
         }
-        refreshSprintCombo(sprints);
-        if (maybeAutoSelectSprint(sprints, snapshot)) {
-            return; // sprint switched: the refresh this triggers re-renders everything
-        }
+        maybeAutoSelectSprint(sprints);
         if (snapshot.error() != null) {
             setContentDescription(snapshot.error());
         } else {
-            String goal = snapshot.sprintGoal();
-            StringBuilder description = new StringBuilder(model.sprint())
+            StringBuilder description = new StringBuilder("all tickets")
                     .append("  \u2022  ").append(snapshot.total()).append(" tickets");
             if (snapshot.blockedCount() > 0) {
                 description.append("  \u2022  ").append(snapshot.blockedCount()).append(" blocked");
             }
-            if (goal != null && !goal.isBlank()) {
-                description.append("  \u2022  ").append(goal);
+            if (!BoardModel.BACKLOG.equals(model.sprint())) {
+                // dispatch scope visibility: Launch/Auto drain this wave
+                description.append("  \u2022  wave ").append(model.sprint());
             }
             String spent = cost == null ? "" : cost.spentSuffix(model.sprint());
             if (!spent.isEmpty()) {
@@ -1436,52 +1394,25 @@ public class BoardView extends ViewPart {
         pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
     }
 
-    private void refreshSprintCombo(List<String> sprints) {
-        if (sprintCombo == null || sprintCombo.isDisposed() || model == null) {
+    /**
+     * B-002 (dispatch scope only): when the model still sits on the
+     * unpicked {@code (backlog)} default while real waves exist, point the
+     * DISPATCH scope at the newest wave — Launch/Auto drain it. The board's
+     * DISPLAY is wave-agnostic now (all tickets, user direction
+     * 2026-09-18), so this no longer re-renders anything.
+     */
+    private void maybeAutoSelectSprint(List<String> sprints) {
+        if (model == null || sprints == null || sprints.isEmpty()) {
             return;
         }
-        updatingSprintCombo = true;
-        try {
-            List<String> items = new ArrayList<>(sprints);
-            String current = model.sprint();
-            if (!items.contains(current)) {
-                items.add(current);
-            }
-            sprintCombo.setItems(items.toArray(new String[0]));
-            sprintCombo.select(Math.max(0, items.indexOf(current)));
-        } finally {
-            updatingSprintCombo = false;
-        }
-    }
-
-    /**
-     * B-002: a refresh that finds the board sitting empty on the unpicked
-     * {@code (backlog)} default while real sprints exist switches to the
-     * newest one — the live case where a peer plans a sprint, moves the
-     * tickets into it, and the board silently shows nothing instead. The
-     * decision lives in {@link SprintSelection} (SWT-free, tested); an
-     * explicit user pick (or a non-empty board) always wins.
-     *
-     * @return whether the sprint changed (caller skips the rest; the
-     *         triggered refresh re-renders title, columns and counts)
-     */
-    private boolean maybeAutoSelectSprint(List<String> sprints, BoardSnapshot snapshot) {
-        if (model == null || snapshot.error() != null) {
-            return false;
-        }
-        String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints,
-                snapshot.total());
+        String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints, 0);
         if (candidate == null) {
-            return false;
+            return;
         }
-        // a sprint switch invalidates the dispatch loop's context, exactly
+        // a wave switch invalidates the dispatch loop's context, exactly
         // like a manual selection (captureDispatch snapshots the sprint)
         cancelDispatchForSelection();
         model.setSprint(candidate);
-        refreshSprintCombo(sprints);
-        statusMessage("Auto-selected sprint " + candidate + " \u2014 (backlog) was empty");
-        refresh();
-        return true;
     }
 
     private void restartWatcher() {

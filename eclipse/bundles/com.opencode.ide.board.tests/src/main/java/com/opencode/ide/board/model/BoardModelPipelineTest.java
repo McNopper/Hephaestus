@@ -182,7 +182,9 @@ public class BoardModelPipelineTest {
     }
 
     @Test
-    public void pipelineRespectsSprintSelection() {
+    public void pipelineShowsAllTicketsRegardlessOfSprintSelection() {
+        // user direction 2026-09-18: the wave selector is gone - the board
+        // displays ALL tickets; the selected sprint only scopes dispatch
         sprintTicket("in sprint", "design", "developer");
         var loose = store.create("p", TaskStore.CreateSpec.of("loose"));
         store.update("p", loose.id, Map.of("stage", (Object) "design"));
@@ -191,13 +193,11 @@ public class BoardModelPipelineTest {
         model.setMode(BoardModel.BoardMode.PIPELINE);
         model.setSprint("S-01");
         PipelineSnapshot sprintBoard = model.refresh().pipeline();
-        assertEquals(1, sprintBoard.column("design").rows().size());
-        assertEquals("in sprint", sprintBoard.column("design").rows().get(0).title());
+        assertEquals(2, sprintBoard.column("design").rows().size());
 
         model.setSprint(BoardModel.BACKLOG);
         PipelineSnapshot backlogBoard = model.refresh().pipeline();
-        assertEquals(1, backlogBoard.column("design").rows().size());
-        assertEquals(loose.id, backlogBoard.column("design").rows().get(0).id());
+        assertEquals(2, backlogBoard.column("design").rows().size());
     }
 
     @Test

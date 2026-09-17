@@ -186,9 +186,11 @@ public final class BoardModel {
             return BoardSnapshot.empty("Task store not found: " + dir);
         }
         try {
-            Map<String, List<Task>> board = BACKLOG.equals(sprint)
-                    ? unassignedBoard()
-                    : store.board(project, sprint);
+            // U-020 follow-up (user direction 2026-09-18): the board shows
+            // ALL tickets - the wave selector is gone, scope comes from the
+            // filters (blocked/bugs/stages/text). The selected sprint stays
+            // an internal DISPATCH scope only (Launch/Auto drain it).
+            Map<String, List<Task>> board = store.board(project, null);
             // U-018: dispatch-readiness verdicts over the WHOLE sprint task
             // set (epic chains and upstream stages need the unfiltered
             // tickets), computed once per refresh and carried in the snapshot
