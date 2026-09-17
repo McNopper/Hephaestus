@@ -23,6 +23,7 @@ import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.fleet.dispatch.AutoDispatch;
 import com.opencode.ide.fleet.dispatch.CostOverview;
 import com.opencode.ide.fleet.dispatch.DispatchScheduler;
+import com.opencode.ide.fleet.dispatch.RecurringWaves;
 
 /**
  * Headless wiring for the task fleet: the chat-first control plane behind the
@@ -124,10 +125,13 @@ public final class FleetControl implements AutoCloseable {
     private String autoProject;
     private String autoSprint;
     private long autoGeneration;
+    private RecurringWaves waves;
+    private long wavesGeneration;
 
     /** Starts the same readiness/cost policy used by the Board, over an explicit sprint. */
     public void startAuto(String project, String sprint, int maxConcurrent,
             double budgetUsd, boolean includeStale) {
+        stopWaves(); // the one-sprint loop and the recurring mode are exclusive
         if (project == null || project.isBlank() || sprint == null || sprint.isBlank()) {
             throw new IllegalArgumentException("project and sprint must be explicit nonblank names");
         }
@@ -202,6 +206,147 @@ public final class FleetControl implements AutoCloseable {
         return Map.of("running", scheduler != null && scheduler.isRunning(),
                 "project", autoProject == null ? "" : autoProject,
                 "sprint", autoSprint == null ? "" : autoSprint);
+    }
+
+    /**
+     * U-022: enables the recurring-waves mode for one project — the
+     * always-on wave-to-wave pump. When the active wave drains, the next
+     * wave is planned automatically from the prioritized product backlog
+     * (top-priority READY tickets, concurrency + cost budget respected) —
+     * no human click between waves. The loop parks while NEEDS-HUMAN
+     * tickets wait (clearing a blocker resumes it automatically) and stops
+     * cleanly on budget exhaustion or when nothing is plannable. Deliberately
+     * OFF by default: only this explicit call (or the Board's toggle) turns
+     * it on; the cost budget is a hard stop. The loop lives in this engine,
+     * so under the fleet daemon it survives every client disconnect.
+     *
+     * @param project    the task store project to pump
+     * @param initialWave an existing sprint adopted as the first wave
+     *                   ({@code null}/blank plans wave 1 from the backlog
+     *                   immediately)
+     * @param maxConcurrent the concurrency cap (also the wave size bound)
+     * @param budgetUsd  the hard-stop cost budget; 0 means unlimited
+     * @param includeStale whether STALE re-runs are admitted
+     */
+    public void startWaves(String project, String initialWave, int maxConcurrent,
+            double budgetUsd, boolean includeStale) {
+        if (project == null || project.isBlank()) {
+            throw new IllegalArgumentException("project must be an explicit nonblank name");
+        }
+        TaskStore store = new TaskStore(storeRoot);
+        if (store.list(project, null, null, null, null).isEmpty()) {
+            throw new IllegalStateException("no tickets in project " + project);
+        }
+        String wave = initialWave == null || initialWave.isBlank() ? null : initialWave;
+        if (wave != null && store.list(project, null, null, wave, null).isEmpty()) {
+            throw new IllegalStateException("no tickets in wave " + wave + " of " + project);
+        }
+        stopAuto();
+        AutoDispatch policy = AutoDispatch.of(maxConcurrent, budgetUsd, includeStale);
+        RecurringWaves previous;
+        RecurringWaves loop;
+        synchronized (this) {
+            if (closed) {
+                throw new IllegalStateException("fleet control is closed");
+            }
+            previous = waves;
+            waves = null;
+            long generation = ++wavesGeneration;
+            loop = new RecurringWaves(store, project, policy, wave,
+                    () -> DispatchGuard.runningIds(repoRoot),
+                    (id, attempt) -> dispatchWave(store, project, id, policy, generation, attempt),
+                    notice -> com.opencode.ide.client.ClientLog.warning("fleet waves: " + notice),
+                    null);
+            waves = loop;
+        }
+        // started OUTSIDE the control monitor: the loop's cycles take this
+        // monitor from their launch seam (dispatchWave), so starting it
+        // while holding it would invert the lock order.
+        loop.start(FleetTuning.WAVE_LOOP_PERIOD);
+        if (previous != null) {
+            previous.stop();
+        }
+    }
+
+    /**
+     * The wave-admission seam (the recurring twin of {@link #dispatchAuto}):
+     * revalidates the ticket against the ACTIVE wave at admission time —
+     * the wave may have moved on since the drain planned it.
+     */
+    private void dispatchWave(TaskStore store, String project, String id,
+            AutoDispatch policy, long generation, DispatchScheduler.LaunchAttempt attempt) {
+        DispatchGuard.admit(repoRoot, policy.maxConcurrent(), () -> {
+            synchronized (this) {
+                RecurringWaves loop = waves;
+                if (closed || generation != wavesGeneration || loop == null) {
+                    throw new DispatchGuard.AdmissionDeferred("recurring waves stopped or replaced");
+                }
+                String wave = loop.activeWave();
+                // Plans are advisory. Revalidate readiness and spend under the
+                // same process lock used to count and reserve capacity.
+                var scope = store.list(project, null, null, null, null);
+                var candidate = scope.stream()
+                        .filter(t -> id.equals(t.id) && wave != null && wave.equals(t.sprint)).toList();
+                var overview = CostOverview.of(scope);
+                var current = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)).plan(candidate,
+                        com.opencode.ide.tasks.StageReadiness.evaluate(scope),
+                        overview, DispatchGuard.runningIds(repoRoot));
+                if (!current.launch().contains(id)) {
+                    throw new DispatchGuard.AdmissionDeferred("ticket no longer admissible: " + id);
+                }
+                dispatchLocked(project, id, DEFAULT_TIMEOUT, policy, attempt);
+            }
+            return null;
+        });
+    }
+
+    /** Disables the recurring-waves mode; accepted workers settle normally. */
+    public void stopWaves() {
+        RecurringWaves previous;
+        synchronized (this) {
+            previous = waves;
+            waves = null;
+            wavesGeneration++;
+        }
+        if (previous != null) {
+            previous.stop();
+        }
+    }
+
+    /**
+     * The recurring-waves state for the {@code fleet_waves_status} tool:
+     * enabled/running, project, active wave, waves planned, stop reason,
+     * budget vs. spend, and the NEEDS-HUMAN rows (blocked tickets with no
+     * in-flight retry — the human's only regular duty).
+     */
+    public Map<String, Object> wavesStatus() {
+        RecurringWaves loop;
+        synchronized (this) {
+            loop = waves;
+        }
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        if (loop == null) {
+            out.put("enabled", false);
+            out.put("running", false);
+            out.put("hint", "recurring waves are OFF by default - fleet_waves_start enables them per project");
+            return out;
+        }
+        RecurringWaves.Status s = loop.status();
+        out.put("enabled", true);
+        out.put("running", s.running());
+        out.put("project", s.project());
+        out.put("wave", s.wave() == null ? "" : s.wave());
+        out.put("waves_planned", s.wavesPlanned());
+        out.put("stop_reason", s.stopReason() == null ? "" : s.stopReason().name());
+        out.put("budget_usd", s.budgetUsd());
+        out.put("spend_usd", s.spendUsd());
+        java.util.List<Map<String, String>> needsHuman = new java.util.ArrayList<>();
+        for (com.opencode.ide.fleet.dispatch.NeedsHuman.Escalation e : s.needsHuman()) {
+            needsHuman.add(Map.of("id", e.id(), "blocker", e.blocker() == null ? "" : e.blocker()));
+        }
+        out.put("needs_human", needsHuman);
+        out.put("last_notice", s.lastNotice());
+        return out;
     }
 
     /**
@@ -634,6 +779,7 @@ public final class FleetControl implements AutoCloseable {
             closing = engine;
         }
         stopAuto();
+        stopWaves();
         // R3 drain-then-kill: a launch mid-merge holds repo state (worktree,
         // MERGE_HEAD, the store claim) - interrupting it mid-git is exactly
         // the crash the review flagged. Give in-flight launches a bounded

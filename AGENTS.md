@@ -200,6 +200,17 @@ The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
 `fleet_fleet_auto_status`, and `fleet_fleet_auto_stop`. Board and chat share the
 headless scheduling policy and repository reservations.
 
+The U-022 **recurring-waves mode** is chat-triggerable via `fleet_fleet_waves_start`
+(per project, optional first wave, concurrency + hard-stop cost budget),
+`fleet_fleet_waves_status` (active wave, waves planned, stop reason, and the
+**NEEDS-HUMAN rows** — every ticket blocked with no in-flight retry), and
+`fleet_fleet_waves_stop`. When the active wave drains, the next wave is planned
+automatically from the prioritized backlog (top-priority READY tickets) — no human
+click between waves. The loop parks while NEEDS-HUMAN tickets wait (clearing a
+blocker resumes it automatically; the Board's readiness badge carries the
+needs-me count) and stops cleanly on budget exhaustion or when nothing is
+plannable. OFF by default; under the fleet daemon it survives client disconnects.
+
 Not yet chat-triggerable: *proactive* ask-surfacing inside
 the dispatching chat (answering works via `fleet_fleet_permissions*`) and
 board rendering. For unattended runs, prefer making risky

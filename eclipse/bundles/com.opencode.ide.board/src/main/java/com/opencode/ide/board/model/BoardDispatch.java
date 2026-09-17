@@ -3,7 +3,9 @@ package com.opencode.ide.board.model;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import com.opencode.ide.board.fleet.FleetJobHandle;
@@ -48,14 +50,38 @@ public final class BoardDispatch {
         return admit(id, policy, null);
     }
 
-    private FleetJobHandle admit(String id, AutoDispatch policy, LaunchAttempt attempt) {
+    /** The launch-feedback variant the schedulers hand their attempt token to. */
+    public FleetJobHandle admit(String id, AutoDispatch policy, LaunchAttempt attempt) {
+        return admitMatching(task -> BoardModel.BACKLOG.equals(model.sprint())
+                ? task.sprint == null : model.sprint().equals(task.sprint), id, policy, attempt);
+    }
+
+    /**
+     * U-022 wave admission: the sprint filter follows the RECURRING loop's
+     * active wave (read under the admission lock, so a wave that moved on
+     * since planning refuses cleanly instead of launching a stale id).
+     */
+    public FleetJobHandle admitWave(Supplier<String> activeWave, String id, AutoDispatch policy,
+            LaunchAttempt attempt) {
+        return admitMatching(task -> {
+            String wave = activeWave.get();
+            return wave != null && wave.equals(task.sprint);
+        }, id, policy, attempt);
+    }
+
+    /** Live fleet jobs of this repo (the recurring-waves loop's running seam). */
+    public Set<String> runningIds() {
+        return DispatchGuard.runningIds(FleetControl.repoRootOf(model.root()));
+    }
+
+    private FleetJobHandle admitMatching(Predicate<Task> sprintScope, String id, AutoDispatch policy,
+            LaunchAttempt attempt) {
         Path repo = FleetControl.repoRootOf(model.root());
         return DispatchGuard.admit(repo, policy.maxConcurrent(), () -> {
             requireActive();
             List<Task> scope = model.projectTasks();
             List<Task> candidate = scope.stream().filter(task -> id.equals(task.id))
-                    .filter(task -> BoardModel.BACKLOG.equals(model.sprint())
-                            ? task.sprint == null : model.sprint().equals(task.sprint))
+                    .filter(sprintScope)
                     .toList();
             CostOverview cost = CostOverview.of(scope);
             var plan = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(cost)).plan(candidate,

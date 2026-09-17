@@ -69,6 +69,16 @@ public record BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintG
         return count(StageReadiness.Kind.STALE);
     }
 
+    /**
+     * @return how many tickets the readiness verdict calls BLOCKED — the
+     * U-022 NEEDS-HUMAN count: blocked tickets no live fleet job is retrying
+     * park at the human (dispatch skips them); clearing the blocker returns
+     * them into the cyclic pump.
+     */
+    public long needsHumanCount() {
+        return count(StageReadiness.Kind.BLOCKED);
+    }
+
     private long count(StageReadiness.Kind kind) {
         return readiness.values().stream().filter(r -> r != null && r.kind() == kind).count();
     }

@@ -84,6 +84,7 @@ import com.opencode.ide.board.model.BoardModel.BoardMode;
 import com.opencode.ide.board.model.BoardSnapshot;
 import com.opencode.ide.board.model.DispatchPolicyStore;
 import com.opencode.ide.fleet.dispatch.DispatchScheduler;
+import com.opencode.ide.fleet.dispatch.RecurringWaves;
 import com.opencode.ide.board.model.FleetJobsModel;
 import com.opencode.ide.board.model.PipelineSnapshot;
 import com.opencode.ide.board.model.SprintSelection;
@@ -96,6 +97,7 @@ import com.opencode.ide.board.model.TicketRow;
 import com.opencode.ide.board.model.VStageLayout;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.fleet.Bootstrap;
+import com.opencode.ide.fleet.FleetTuning;
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.StoreGitStatus;
 import com.opencode.ide.git.StoreSync;
@@ -182,6 +184,8 @@ public class BoardView extends ViewPart {
     private DispatchPolicyStore dispatchStore;
     /** The H6 background dispatch loop while "Auto" is on; null otherwise. */
     private DispatchScheduler dispatchScheduler;
+    /** The U-022 recurring-waves loop while "Waves" is on; null otherwise. */
+    private RecurringWaves wavesLoop;
     private AtomicBoolean dispatchCancelled = new AtomicBoolean();
     private boolean dispatchPending;
 
@@ -210,6 +214,8 @@ public class BoardView extends ViewPart {
     private Action launchAction;
     private Action autoDispatchAction;
     private Action autoLoopAction;
+    /** U-022: the recurring-waves toggle — wave-to-wave planning without clicks. */
+    private Action wavesLoopAction;
     private Action dispatchSettingsAction;
     private Action takeOverAction;
     private Action blockedOnlyAction;
@@ -1182,6 +1188,18 @@ public class BoardView extends ViewPart {
                 + "launches admitted tickets until it drains (stops on uncheck or view close)");
         autoLoopAction.setImageDescriptor(icon("auto-loop"));
 
+        wavesLoopAction = new Action("Waves ▶", Action.AS_CHECK_BOX) {
+            @Override
+            public void run() {
+                toggleWavesLoop();
+            }
+        };
+        wavesLoopAction.setToolTipText("Recurring waves (U-022): drains the active wave, then plans the next "
+                + "from the prioritized backlog automatically — no click between waves. Parks while "
+                + "NEEDS-HUMAN (blocked) tickets wait and resumes when a blocker clears; stops cleanly on "
+                + "budget exhaustion or when nothing is plannable. OFF by default; per project.");
+        wavesLoopAction.setImageDescriptor(icon("auto-loop"));
+
         dispatchSettingsAction = new Action("Dispatch settings…") {
             @Override
             public void run() {
@@ -1277,6 +1295,7 @@ public class BoardView extends ViewPart {
         fleetBar.add(launchAction);
         fleetBar.add(autoDispatchAction);
         fleetBar.add(autoLoopAction);
+        fleetBar.add(wavesLoopAction);
         fleetBar.add(dispatchSettingsAction);
         fleetBar.add(costOverviewAction);
         fleetBar.add(takeOverAction);
@@ -1423,10 +1442,16 @@ public class BoardView extends ViewPart {
             label.setReadiness(snapshot.readiness());
         }
         if (readinessLabel != null && !readinessLabel.isDisposed()) {
+            // U-022: the badge extends to the NEEDS-HUMAN count — blocked
+            // tickets no live fleet job is retrying park at the human; the
+            // recurring loop resumes automatically once a blocker clears.
             readinessLabel.setText(snapshot.readyCount() + " ready \u00b7 " + snapshot.staleCount()
-                    + " stale" + (snapshot.staleCount() > 0 ? " (re-run needed)" : ""));
+                    + " stale" + (snapshot.staleCount() > 0 ? " (re-run needed)" : "")
+                    + (snapshot.needsHumanCount() > 0
+                            ? " \u00b7 " + snapshot.needsHumanCount() + " needs me" : ""));
             readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
-                    + "what the fleet can dispatch now, and what went stale");
+                    + "what the fleet can dispatch now, what went stale, and what is blocked "
+                    + "at the human (NEEDS-HUMAN: clear the blocker to resume the loop)");
         }
         if (boardMode == BoardMode.PIPELINE) {
             applyPipelineSnapshot(snapshot);
@@ -1609,6 +1634,7 @@ public class BoardView extends ViewPart {
         launchAction.setEnabled(!dispatchPending && canLaunch(row));
         autoDispatchAction.setEnabled(!dispatchPending);
         autoLoopAction.setEnabled(!dispatchPending);
+        wavesLoopAction.setEnabled(!dispatchPending);
         takeOverAction.setEnabled(row != null);
     }
 
@@ -1823,7 +1849,12 @@ public class BoardView extends ViewPart {
     private void cancelDispatchForSelection() {
         stopDispatchLoop(null);
         autoLoopAction.setChecked(false);
-        autoLoopAction.setText("Auto \u25B6");
+        autoLoopAction.setText("Auto ▶");
+        // a project/root/sprint switch invalidates the waves loop's context
+        // exactly like the one-sprint loop's — turn it off with the toggle
+        stopWavesLoop(null);
+        wavesLoopAction.setChecked(false);
+        wavesLoopAction.setText("Waves ▶");
     }
 
     private void stopDispatchLoop(String message) {
@@ -1842,6 +1873,75 @@ public class BoardView extends ViewPart {
             });
             stop.setSystem(true);
             stop.schedule();
+        }
+        if (message != null) {
+            statusMessage(message);
+        }
+    }
+
+    /**
+     * "Waves ▶/■" toggle (U-022, the recurring mode): a {@link RecurringWaves}
+     * loop over this project — drains the active wave (the selected sprint,
+     * or the newest one), then plans the next from the prioritized backlog
+     * with no click in between; parks on NEEDS-HUMAN, stops cleanly on budget
+     * exhaustion or nothing-plannable. The Board path runs in this Eclipse
+     * session; for a loop that survives client disconnects enable it through
+     * the fleet daemon's {@code fleet_waves_start} tool. OFF by default.
+     */
+    private void toggleWavesLoop() {
+        if (wavesLoopAction == null) {
+            return;
+        }
+        boolean on = wavesLoopAction.isChecked();
+        wavesLoopAction.setText(on ? "Waves ■" : "Waves ▶");
+        if (on) {
+            startWavesLoop();
+        } else {
+            stopWavesLoop("Recurring waves stopped.");
+        }
+    }
+
+    private void startWavesLoop() {
+        if (model == null || launcher == null || dispatchPending) {
+            wavesLoopAction.setChecked(false);
+            wavesLoopAction.setText("Waves ▶");
+            return;
+        }
+        stopWavesLoop(null);
+        stopDispatchLoop(null); // the one-sprint loop and recurring waves are exclusive
+        AutoDispatch policy = storedDispatch().policy();
+        BoardDispatch dispatch = captureDispatch();
+        String initialWave = BoardModel.BACKLOG.equals(model.sprint()) ? null : model.sprint();
+        // the loop is created inside the Job; the holder hands its live wave
+        // to the admission seam (set before the first cycle runs)
+        final RecurringWaves[] holder = new RecurringWaves[1];
+        Job start = Job.create("Starting recurring waves", monitor -> {
+            RecurringWaves loop = new RecurringWaves(new TaskStore(model.root()), model.project(),
+                    policy, initialWave, dispatch::runningIds,
+                    (id, attempt) -> dispatch.admitWave(
+                            () -> holder[0] == null ? null : holder[0].activeWave(), id, policy, attempt),
+                    notice -> logNotice("recurring waves: " + notice), null);
+            holder[0] = loop;
+            loop.start(FleetTuning.WAVE_LOOP_PERIOD);
+            wavesLoop = loop;
+            return Status.OK_STATUS;
+        });
+        start.setSystem(true);
+        start.schedule();
+        statusMessage("Recurring waves on — drains the active wave, then plans the next"
+                + " automatically (parks on NEEDS-HUMAN, budget is a hard stop).");
+    }
+
+    private static void logNotice(String message) {
+        Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
+                .log(new Status(Status.INFO, BoardPlugin.PLUGIN_ID, message));
+    }
+
+    private void stopWavesLoop(String message) {
+        RecurringWaves previous = wavesLoop;
+        wavesLoop = null;
+        if (previous != null) {
+            previous.requestStop(); // no join: a cycle mid-flight must not freeze SWT
         }
         if (message != null) {
             statusMessage(message);
@@ -2199,6 +2299,7 @@ public class BoardView extends ViewPart {
     public void dispose() {
         saveSettings();
         stopDispatchLoop(null);
+        stopWavesLoop(null);
         if (watcher != null) {
             watcher.stop();
             watcher = null;

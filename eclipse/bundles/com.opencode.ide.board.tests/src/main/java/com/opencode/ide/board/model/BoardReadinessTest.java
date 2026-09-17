@@ -86,6 +86,24 @@ public class BoardReadinessTest {
         assertEquals(StageReadiness.Kind.BLOCKED, snapshot.readinessOf(blocked).kind());
     }
 
+    /** U-022: the badge's NEEDS-HUMAN count — every BLOCKED verdict is a ticket at the human. */
+    @Test
+    public void needsHumanCountCountsBlockedVerdicts() {
+        String blocked = ticket("walled", "requirements", "high");
+        String waiting = ticket("waits upstream", "design", "medium");
+        String fine = ticket("fine", "requirements", "low");
+        plan(blocked);
+        plan(waiting);
+        plan(fine);
+        store.setBlocked("p", blocked, "needs input", "test");
+
+        BoardSnapshot snapshot = modelRefresh();
+
+        assertEquals(1, snapshot.needsHumanCount());
+        assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, snapshot.readinessOf(waiting).kind());
+        assertEquals(1, snapshot.readyCount());
+    }
+
     @Test
     public void unstagedTicketsAreNotApplicableButNeverNull() {
         String plain = ticket("no stage", null, "low");
