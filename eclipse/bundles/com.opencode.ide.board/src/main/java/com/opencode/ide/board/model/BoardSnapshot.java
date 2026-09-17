@@ -24,17 +24,24 @@ import com.opencode.ide.tasks.Task;
  */
 public record BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
         int total, int blockedCount, String error, PipelineSnapshot pipeline,
-        Map<String, StageReadiness.Readiness> readiness) {
+        Map<String, StageReadiness.Readiness> readiness,
+        Map<String, List<TicketRow>> epicLanes) {
 
     /** FLAT-mode shape: no pipeline grouping. */
     public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
             int total, int blockedCount, String error) {
-        this(columns, sprintGoal, total, blockedCount, error, null, Map.of());
+        this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of());
     }
 
     public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
             int total, int blockedCount, String error, PipelineSnapshot pipeline) {
-        this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of());
+        this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of());
+    }
+
+    public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
+            int total, int blockedCount, String error, PipelineSnapshot pipeline,
+            Map<String, StageReadiness.Readiness> readiness) {
+        this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of());
     }
 
     /** An all-empty board carrying an error/notice message. */

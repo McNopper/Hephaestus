@@ -16,7 +16,7 @@ import com.opencode.ide.tasks.Task;
 public class TicketRowStageTest {
 
     private static TicketRow row(String stage, String role) {
-        return new TicketRow("T-001", "title", "task", role, 2, null, false, null, "in-progress", stage, "medium");
+        return new TicketRow("T-001", "title", "task", role, 2, null, false, null, "in-progress", stage, "medium", null);
     }
 
     @Test
@@ -70,17 +70,17 @@ public class TicketRowStageTest {
     @Test
     public void pipelineLabelIsCompact() {
         TicketRow blocked = new TicketRow("T-1", "do things", "bug", "developer", 1, null,
-                true, "why", "in-review", "design", "medium");
+                true, "why", "in-review", "design", "medium", null);
         assertEquals("[IR] [BLOCKED] [bug] do things", blocked.pipelineLabel());
 
         TicketRow plain = new TicketRow("T-2", "plain", "task", "developer", 1, null,
-                false, null, "done", null, "medium");
+                false, null, "done", null, "medium", null);
         assertEquals("[D] [task] plain", plain.pipelineLabel());
     }
 
     @Test
     public void nullFieldsAreLabelSafe() {
-        TicketRow empty = new TicketRow(null, null, null, null, 0, null, false, null, null, null, null);
+        TicketRow empty = new TicketRow(null, null, null, null, 0, null, false, null, null, null, null, null);
         assertEquals("", empty.pipelineLabel());
         assertEquals("", empty.label());
         assertNull(empty.effectiveStage());

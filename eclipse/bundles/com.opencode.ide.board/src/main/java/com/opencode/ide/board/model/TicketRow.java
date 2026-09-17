@@ -12,7 +12,7 @@ import com.opencode.ide.tasks.VStages;
  * visible at a glance on the row itself).
  */
 public record TicketRow(String id, String title, String type, String role, int points, String assignee,
-        boolean blocked, String blocker, String status, String stage, String priority) {
+        boolean blocked, String blocker, String status, String stage, String priority, String epic) {
 
     /** Maps a store {@link Task} to a row ({@code null}-safe: {@code null} in, {@code null} out). */
     public static TicketRow from(Task task) {
@@ -20,7 +20,19 @@ public record TicketRow(String id, String title, String type, String role, int p
             return null;
         }
         return new TicketRow(task.id, task.title, task.type, task.role, task.storyPoints,
-                task.assignee, task.blocked, task.blocker, task.status, task.stage, task.priority);
+                task.assignee, task.blocked, task.blocker, task.status, task.stage, task.priority,
+                task.epic);
+    }
+
+    /**
+     * The swimlane key for the Epic layout (U-018): the stored epic id, or
+     * {@code NO_EPIC} for unepicked tickets (they swim together).
+     */
+    public static final String NO_EPIC = "(no epic)";
+
+    /** @return the epic lane key - the epic id or {@link #NO_EPIC}; never blank. */
+    public String epicLane() {
+        return epic == null || epic.isBlank() ? NO_EPIC : epic.trim();
     }
 
     /**

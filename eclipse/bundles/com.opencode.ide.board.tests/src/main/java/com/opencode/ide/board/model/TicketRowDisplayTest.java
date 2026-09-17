@@ -21,7 +21,7 @@ public class TicketRowDisplayTest {
     private static TicketRow row(String title, String type, String role, boolean blocked,
             String status, String stage) {
         return new TicketRow("T-001", title, type, role, 2, null, blocked,
-                blocked ? "why" : null, status, stage, "medium");
+                blocked ? "why" : null, status, stage, "medium", null);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class TicketRowDisplayTest {
     @Test
     public void pipelineLabelTrimsSurroundingTitleWhitespace() {
         TicketRow padded = new TicketRow("T-9", "  padded  ", null, "developer", 1, null,
-                false, null, "in-progress", null, "medium");
+                false, null, "in-progress", null, "medium", null);
         assertEquals("[IP] padded", padded.pipelineLabel());
     }
 
@@ -90,14 +90,14 @@ public class TicketRowDisplayTest {
                 row("fix it", null, "developer", true, "in-progress", "design").label());
         assertEquals("T-001 plain", row("plain", null, "developer", false, "done", null).label());
         assertEquals("T-1", new TicketRow("T-1", null, null, "pm", 1, null, false, null,
-                "product-backlog", null, "medium").label());
+                "product-backlog", null, "medium", null).label());
     }
 
     @Test
     public void labelDoesNotTruncateLongTitles() {
         String longTitle = "x".repeat(500);
         TicketRow longRow = new TicketRow("T-42", longTitle, null, "developer", 3, null,
-                false, null, "in-progress", "design", "medium");
+                false, null, "in-progress", "design", "medium", null);
 
         assertEquals("T-42 " + longTitle + " · design", longRow.label());
         assertEquals(longTitle.length() + "[IP] ".length(), longRow.pipelineLabel().length());
@@ -115,9 +115,9 @@ public class TicketRowDisplayTest {
     @Test
     public void pointsLabelIsThePlainNumber() {
         assertEquals("3", new TicketRow("T-1", "t", "task", "pm", 3, null, false, null,
-                "done", null, "medium").pointsLabel());
+                "done", null, "medium", null).pointsLabel());
         assertEquals("0", new TicketRow("T-1", "t", "task", "pm", 0, null, false, null,
-                "done", null, "medium").pointsLabel());
+                "done", null, "medium", null).pointsLabel());
     }
 
     // -- U-005: type badges ---------------------------------------------

@@ -41,11 +41,13 @@ public final class BoardModel {
     public static final String DEFAULT_PROJECT = "hephaestus";
 
     /** The board layout: flat status kanban or V-model pipeline. */
-    public enum BoardMode { FLAT, PIPELINE }
+    public enum BoardMode { FLAT, PIPELINE, EPIC }
 
     private TaskStore store;
     private String project;
     private String sprint = BACKLOG;
+    /** U-018: free-text filter over id/title (case-insensitive substring, empty = no filter). */
+    private String textFilter = "";
     private BoardMode mode = BoardMode.FLAT;
     private boolean blockedOnly;
     /**
@@ -111,6 +113,28 @@ public final class BoardModel {
 
     public void setBlockedOnly(boolean blockedOnly) {
         this.blockedOnly = blockedOnly;
+    }
+
+    /**
+     * U-018: the free-text filter over id and title (case-insensitive
+     * substring). Empty/null clears it. Applies to every layout.
+     */
+    public void setTextFilter(String text) {
+        this.textFilter = text == null ? "" : text.trim();
+    }
+
+    public String textFilter() {
+        return textFilter;
+    }
+
+    /** @return true when the row's id or title matches the text filter. */
+    private boolean textVisible(TicketRow row) {
+        if (textFilter.isEmpty()) {
+            return true;
+        }
+        String needle = textFilter.toLowerCase();
+        return (row.id() != null && row.id().toLowerCase().contains(needle))
+                || (row.title() != null && row.title().toLowerCase().contains(needle));
     }
 
     /** True when only bug tickets are shown (applies to both modes). */
@@ -184,7 +208,8 @@ public final class BoardModel {
                     TicketRow row = TicketRow.from(t);
                     if (row == null || (blockedOnly && !row.displayBlocked())
                             || (bugsOnly && !row.isBug())
-                            || !stageVisible(row.effectiveStage())) {
+                            || !stageVisible(row.effectiveStage())
+                            || !textVisible(row)) {
                         continue;
                     }
                     rows.add(row);
@@ -199,7 +224,8 @@ public final class BoardModel {
             }
             String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
             PipelineSnapshot pipeline = mode == BoardMode.PIPELINE ? pipelineOf(allRows) : null;
-            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness);
+            Map<String, List<TicketRow>> epicLanes = mode == BoardMode.EPIC ? epicLanesOf(allRows) : Map.of();
+            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness, epicLanes);
         } catch (RuntimeException e) {
             return BoardSnapshot.empty("Task store unreadable: " + e.getMessage());
         }
@@ -352,6 +378,30 @@ public final class BoardModel {
             java.util.Comparator.comparingInt(TicketRow::priorityRank)
                     .thenComparingInt(TicketRow::stageDepth)
                     .thenComparing(TicketRow::id, java.util.Comparator.nullsLast(String::compareTo));
+
+    /**
+     * U-018 epic swimlanes: all sprint rows grouped by epic lane key
+     * ({@link TicketRow#epicLane()}), epics alphabetical with the
+     * no-epic lane last, each lane priority-sorted (the within-column
+     * order) so the top of a lane is its most important work.
+     */
+    private static Map<String, List<TicketRow>> epicLanesOf(List<TicketRow> rows) {
+        Map<String, List<TicketRow>> lanes = new java.util.TreeMap<>(String::compareToIgnoreCase);
+        for (TicketRow row : rows) {
+            lanes.computeIfAbsent(row.epicLane(), k -> new ArrayList<>()).add(row);
+        }
+        Map<String, List<TicketRow>> ordered = new LinkedHashMap<>();
+        for (Map.Entry<String, List<TicketRow>> entry : lanes.entrySet()) {
+            if (!TicketRow.NO_EPIC.equals(entry.getKey())) {
+                ordered.put(entry.getKey(), sorted(entry.getValue()));
+            }
+        }
+        List<TicketRow> noEpic = lanes.get(TicketRow.NO_EPIC);
+        if (noEpic != null && !noEpic.isEmpty()) {
+            ordered.put(TicketRow.NO_EPIC, sorted(noEpic));
+        }
+        return ordered;
+    }
 
     /** Sorts a mutable copy of the rows into the within-column order (for lists not sorted in place). */
     private static List<TicketRow> sorted(List<TicketRow> rows) {

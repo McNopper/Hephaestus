@@ -202,6 +202,8 @@ public class BoardView extends ViewPart {
     private Text projectText;
     private Combo sprintCombo;
     private Combo modeCombo;
+    /** U-018: free-text filter input on the scope row. */
+    private Text filterText;
     private Action refreshAction;
 
     private Action syncStoreAction;
@@ -340,6 +342,8 @@ public class BoardView extends ViewPart {
         pipelineContent = null;
         if (boardMode == BoardMode.PIPELINE) {
             buildPipelineArea();
+        } else if (boardMode == BoardMode.EPIC) {
+            buildEpicArea();
         } else {
             buildFlatArea();
         }
@@ -355,6 +359,59 @@ public class BoardView extends ViewPart {
             child.dispose();
         }
         buildBoardArea();
+    }
+
+    /**
+     * U-018 epic swimlanes: one section per epic (header + a single
+     * status-prefixed, priority-sorted table). The area is rebuilt on every
+     * apply because the lane set changes with the tickets (rebuilds are
+     * cheap - a handful of epics - and refreshes are coalesced).
+     */
+    private void buildEpicArea() {
+        flatArea = new Composite(boardArea, SWT.NONE);
+        GridLayout lanes = new GridLayout(1, false);
+        lanes.marginWidth = 0;
+        lanes.marginHeight = 0;
+        lanes.verticalSpacing = 6;
+        flatArea.setLayout(lanes);
+        flatArea.setLayoutData(new GridData(GridData.FILL_BOTH));
+    }
+
+    /** Rebuilds the epic lanes from the snapshot's lane map. */
+    private void applyEpicSnapshot(BoardSnapshot snapshot) {
+        if (flatArea == null || flatArea.isDisposed()) {
+            return;
+        }
+        for (Control child : flatArea.getChildren()) {
+            child.dispose();
+        }
+        rowLabels.clear(); // epic labels are rebuilt with the lanes
+        Map<String, List<TicketRow>> lanes = snapshot.epicLanes();
+        if (lanes.isEmpty()) {
+            Label empty = new Label(flatArea, SWT.NONE);
+            empty.setText("(no tickets match the current filters)");
+            empty.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+        }
+        for (Map.Entry<String, List<TicketRow>> lane : lanes.entrySet()) {
+            Label laneHeader = new Label(flatArea, SWT.NONE);
+            List<TicketRow> rows = lane.getValue();
+            laneHeader.setText(lane.getKey() + "  (" + rows.size() + ")");
+            laneHeader.setFont(boldFont());
+            laneHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+            // swimlane cards are status-prefixed (the lane mixes statuses);
+            // readiness chips ride along via the shared label registry
+            TableViewer viewer = createTicketViewer(flatArea, true);
+            // lane tables size to their content (capped), not FILL_BOTH -
+            // every lane stays visible in one scrollable stack
+            GridData laneTable = new GridData(SWT.FILL, SWT.CENTER, true, false);
+            laneTable.heightHint = Math.min(Math.max(rows.size(), 1), 8) * 18 + 8;
+            viewer.getTable().getParent().setLayoutData(laneTable);
+            viewer.setInput(rows);
+        }
+        for (BoardRowLabel label : rowLabels) {
+            label.setReadiness(snapshot.readiness());
+        }
+        flatArea.layout(true, true);
     }
 
     private void buildFlatArea() {
@@ -435,7 +492,7 @@ public class BoardView extends ViewPart {
             launchNext.addListener(SWT.Selection, e -> launchFirstReady("sprint-backlog"));
         }
 
-        TableViewer viewer = createTicketViewer(column);
+        TableViewer viewer = createTicketViewer(column, false);
         hookStatusDrop(viewer.getTable(), status);
         return new ColumnUi(header, viewer);
     }
@@ -499,7 +556,12 @@ public class BoardView extends ViewPart {
     }
 
     /** Shared viewer wiring: selection/double-click/context menu/tooltips + the flat columns. */
-    private TableViewer createTicketViewer(Composite column) {
+    /**
+     * Shared flat-column ticket viewer. {@code statusPrefixedLabels} picks
+     * the card style: plain (status kanban) or status-prefixed (epic
+     * swimlanes, which mix statuses inside a lane).
+     */
+    private TableViewer createTicketViewer(Composite column, boolean statusPrefixedLabels) {
         Composite tableComposite = new Composite(column, SWT.NONE);
         TableColumnLayout tableLayout = new TableColumnLayout();
         tableComposite.setLayout(tableLayout);
@@ -512,9 +574,9 @@ public class BoardView extends ViewPart {
         hookViewerBehavior(viewer);
 
         TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
-        BoardRowLabel flatRowLabel = new BoardRowLabel(false);
-        ticket.setLabelProvider(flatRowLabel);
-        rowLabels.add(flatRowLabel);
+        BoardRowLabel rowLabel = new BoardRowLabel(statusPrefixedLabels);
+        ticket.setLabelProvider(rowLabel);
+        rowLabels.add(rowLabel);
         tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
 
         TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
@@ -937,27 +999,31 @@ public class BoardView extends ViewPart {
             @Override
             protected Control createControl(Composite parent) {
                 Composite box = new Composite(parent, SWT.NONE);
-                GridLayout layout = new GridLayout(2, false);
+                GridLayout layout = new GridLayout(4, false);
                 layout.marginWidth = 0;
                 layout.marginHeight = 0;
                 layout.horizontalSpacing = 4;
                 box.setLayout(layout);
                 new Label(box, SWT.NONE).setText("Group by:");
                 modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                modeCombo.setItems("None", "V-model stages");
+                modeCombo.setItems("None", "V-model stages", "Epic");
                 modeCombo.setToolTipText("None: five-column status kanban ordered by workflow progress. "
                         + "V-model stages: the ten V-model stage columns arranged as a V "
-                        + "(requirements \u2192 test-requirements); every column shows, empty ones too.");
+                        + "(requirements \u2192 test-requirements); every column shows, empty ones too. "
+                        + "Epic: swimlanes per epic (status-prefixed cards, priority-sorted).");
                 modeCombo.setLayoutData(fixedSize(140));
-                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : 0);
+                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
                 modeCombo.addSelectionListener(new SelectionAdapter() {
                     @Override
                     public void widgetSelected(SelectionEvent e) {
                         if (updatingModeCombo || modeCombo.isDisposed()) {
                             return;
                         }
-                        BoardMode picked = modeCombo.getSelectionIndex() == 1
-                                ? BoardMode.PIPELINE : BoardMode.FLAT;
+                        BoardMode picked = switch (modeCombo.getSelectionIndex()) {
+                            case 1 -> BoardMode.PIPELINE;
+                            case 2 -> BoardMode.EPIC;
+                            default -> BoardMode.FLAT;
+                        };
                         if (picked == boardMode) {
                             return;
                         }
@@ -967,6 +1033,17 @@ public class BoardView extends ViewPart {
                         }
                         saveSettings();
                         rebuildBoardArea();
+                        refresh();
+                    }
+                });
+                // U-018: free-text filter over id/title on the scope row
+                filterText = new Text(box, SWT.SEARCH | SWT.ICON_CANCEL | SWT.BORDER);
+                filterText.setMessage("Filter tickets\u2026");
+                filterText.setToolTipText("Show only tickets whose id or title contains this text");
+                filterText.setLayoutData(fixedSize(140));
+                filterText.addModifyListener(e -> {
+                    if (model != null && filterText != null && !filterText.isDisposed()) {
+                        model.setTextFilter(filterText.getText());
                         refresh();
                     }
                 });
@@ -1281,6 +1358,8 @@ public class BoardView extends ViewPart {
         }
         if (boardMode == BoardMode.PIPELINE) {
             applyPipelineSnapshot(snapshot);
+        } else if (boardMode == BoardMode.EPIC) {
+            applyEpicSnapshot(snapshot);
         } else {
             applyFlatSnapshot(snapshot);
         }
@@ -1324,8 +1403,7 @@ public class BoardView extends ViewPart {
         return number > 0 ? number + " \u00b7 " + stage + turn : stage;
     }
 
-    private void applyFlatSnapshot(BoardSnapshot snapshot) {
-        for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
+    private void applyFlatSnapshot(BoardSnapshot snapshot) {        for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
             List<TicketRow> rows = snapshot.column(entry.getKey());
             entry.getValue().viewer.setInput(rows);
             entry.getValue().header.setText(entry.getKey() + " (" + rows.size() + ")");
@@ -2009,6 +2087,8 @@ public class BoardView extends ViewPart {
                     }
                     if (SETTING_MODE_PIPELINE.equalsIgnoreCase(settings.get(SETTING_MODE))) {
                         boardMode = BoardMode.PIPELINE;
+                    } else if ("epic".equalsIgnoreCase(settings.get(SETTING_MODE))) {
+                        boardMode = BoardMode.EPIC;
                     }
                     String stages = settings.get(SETTING_STAGES);
                     if (stages != null && !stages.isBlank()) {
@@ -2037,7 +2117,7 @@ public class BoardView extends ViewPart {
         updatingModeCombo = true;
         try {
             if (modeCombo != null && !modeCombo.isDisposed()) {
-                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : 0);
+                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
             }
         } finally {
             updatingModeCombo = false;
@@ -2057,7 +2137,8 @@ public class BoardView extends ViewPart {
             }
             settings.put(SETTING_ROOT, rootOverride == null ? "" : rootOverride);
             settings.put(SETTING_PROJECT, model == null ? projectName : model.project());
-            settings.put(SETTING_MODE, boardMode == BoardMode.PIPELINE ? SETTING_MODE_PIPELINE : "flat");
+            settings.put(SETTING_MODE, boardMode == BoardMode.PIPELINE ? SETTING_MODE_PIPELINE
+                    : boardMode == BoardMode.EPIC ? "epic" : "flat");
             settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
             plugin.persistDialogSettings();
         } catch (RuntimeException ignored) {
