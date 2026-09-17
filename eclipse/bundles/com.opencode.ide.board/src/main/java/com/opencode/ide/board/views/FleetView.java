@@ -47,6 +47,7 @@ import com.opencode.ide.board.fleet.TaskFleetLauncher;
 import com.opencode.ide.board.internal.BoardPlugin;
 import com.opencode.ide.board.internal.GitCli;
 import com.opencode.ide.board.model.DiffSource;
+import com.opencode.ide.board.model.SessionDiffSides;
 import com.opencode.ide.board.model.EventsFeed;
 import com.opencode.ide.board.model.FleetJobsModel;
 import com.opencode.ide.board.model.PeerJobReconstructor;
@@ -682,6 +683,7 @@ public class FleetView extends ViewPart {
             String title = null;
             String text = null;
             String failure = null;
+            List<SessionDiffSides.Side> sides = null;
             if (preferServer) {
                 try {
                     List<FileDiff> diffs = OpencodeConnection.getInstance().getClient()
@@ -689,6 +691,14 @@ public class FleetView extends ViewPart {
                     if (!diffs.isEmpty()) {
                         title = "Diff " + taskId + " (session " + sessionId + ")";
                         text = SessionDiffText.format(diffs);
+                        // the built-in compare editor (user direction 2026-09-17):
+                        // resolve before/after from the diffs' git revisions —
+                        // falls back to the plain-text patch when they don't resolve
+                        Path resolveRoot = repoRoot != null ? repoRoot : repoRootOf(row);
+                        sides = SessionDiffSides.resolve(resolveRoot, diffs);
+                        if (SessionDiffSides.resolved(sides) == 0) {
+                            sides = null;
+                        }
                     }
                 } catch (OpencodeException | RuntimeException e) {
                     // no authoritative diff (server down, unknown session) — try git
@@ -712,6 +722,7 @@ public class FleetView extends ViewPart {
             String dialogTitle = title;
             String result = text;
             String error = failure;
+            List<SessionDiffSides.Side> compareSides = sides;
             Display display = Display.getDefault();
             if (display == null || display.isDisposed()) {
                 return;
@@ -724,6 +735,9 @@ public class FleetView extends ViewPart {
                 updateActionEnablement();
                 if (error != null) {
                     MessageDialog.openError(getSite().getShell(), "Open diff", error);
+                } else if (compareSides != null) {
+                    org.eclipse.compare.CompareUI.openCompareEditor(
+                            new SessionDiffCompareInput(dialogTitle, compareSides));
                 } else {
                     new TextDialog(getSite().getShell(), dialogTitle, result).open();
                 }
