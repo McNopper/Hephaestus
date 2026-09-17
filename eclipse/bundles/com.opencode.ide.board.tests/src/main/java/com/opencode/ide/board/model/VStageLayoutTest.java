@@ -11,10 +11,12 @@ import org.junit.Test;
 import com.opencode.ide.tasks.VStages;
 
 /**
- * Pins the boustrophedon V-model layout (U-016, redesigned after the
- * rubberduck review 2026-09-17): two rows, five stage pairs plus the spare
- * untracked cell, each definition stage directly above its verification
- * pair, snake reading order equal to {@link VStages#STAGES}.
+ * Pins the two-arm V-model layout (U-016, orientation reworked 2026-09-18
+ * on user direction): the LEFT column carries the definition leg top to
+ * bottom, the RIGHT column carries the verification leg level-paired with
+ * it (test-requirements at the top, test-implementation at the vertex),
+ * the untracked group sits beside the vertex, and the snake reading order
+ * equals {@link VStages#STAGES}.
  */
 public class VStageLayoutTest {
 
@@ -24,81 +26,93 @@ public class VStageLayoutTest {
             "test-implementation", "test-design", "test-architecture", "test-system", "test-requirements");
 
     @Test
-    public void gridHasTwoRowsOfSixCells() {
+    public void gridHasFiveRowsOfThreeCells() {
         List<List<String>> grid = VStageLayout.grid();
-        assertEquals(2, grid.size());
-        assertEquals(6, grid.get(0).size());
-        assertEquals(6, grid.get(1).size());
-    }
-
-    @Test
-    public void topRowIsTheDefinitionLegLeftToRight() {
-        assertEquals(DEFINITION, VStageLayout.grid().get(0).subList(0, 5));
-        assertNull(VStageLayout.grid().get(0).get(5));
-    }
-
-    @Test
-    public void bottomRowMirrorsThePairsUnderTheirDefinitionStages() {
-        List<String> bottom = VStageLayout.grid().get(1);
-        // left to right: test-requirements … test-implementation, then untracked
-        assertEquals("test-requirements", bottom.get(0));
-        assertEquals("test-system", bottom.get(1));
-        assertEquals("test-architecture", bottom.get(2));
-        assertEquals("test-design", bottom.get(3));
-        assertEquals("test-implementation", bottom.get(4));
-        assertEquals(PipelineSnapshot.UNTRACKED, bottom.get(5));
-    }
-
-    @Test
-    public void eachVerificationStageSitsDirectlyBelowItsDefinitionPair() {
-        List<List<String>> grid = VStageLayout.grid();
-        for (int i = 0; i < DEFINITION.size(); i++) {
-            String definition = grid.get(0).get(i);
-            String verification = grid.get(1).get(i);
-            assertEquals("pair " + i, DEFINITION.get(i), definition);
-            assertEquals("pair " + i, VERIFICATION.get(VERIFICATION.size() - 1 - i), verification);
+        assertEquals(5, grid.size());
+        for (List<String> row : grid) {
+            assertEquals(3, row.size());
         }
     }
 
     @Test
-    public void everyStageAppearsExactlyOnceAndSpacersAreNull() {
-        List<String> seen = new ArrayList<>();
+    public void leftColumnIsTheDefinitionLegTopToBottom() {
+        for (int i = 0; i < 5; i++) {
+            assertEquals(DEFINITION.get(i), VStageLayout.grid().get(i).get(0));
+        }
+    }
+
+    @Test
+    public void rightColumnIsTheVerificationLegPairedByLevel() {
+        List<List<String>> grid = VStageLayout.grid();
+        // top level pairs requirements with test-requirements; the vertex
+        // level pairs implementation with test-implementation
+        assertEquals("test-requirements", grid.get(0).get(1));
+        assertEquals("test-system", grid.get(1).get(1));
+        assertEquals("test-architecture", grid.get(2).get(1));
+        assertEquals("test-design", grid.get(3).get(1));
+        assertEquals("test-implementation", grid.get(4).get(1));
+    }
+
+    @Test
+    public void eachLevelPairsADefinitionStageWithItsVerificationStage() {
+        List<List<String>> grid = VStageLayout.grid();
+        for (int i = 0; i < DEFINITION.size(); i++) {
+            assertEquals("level " + i, DEFINITION.get(i), grid.get(i).get(0));
+            assertEquals("level " + i, VERIFICATION.get(VERIFICATION.size() - 1 - i), grid.get(i).get(1));
+        }
+    }
+
+    @Test
+    public void untrackedSitsBesideTheVertexAndSpacersAreNull() {
+        List<List<String>> grid = VStageLayout.grid();
+        assertEquals(PipelineSnapshot.UNTRACKED, grid.get(4).get(2));
         int spacers = 0;
-        for (List<String> row : VStageLayout.grid()) {
+        for (List<String> row : grid) {
             for (String cell : row) {
                 if (cell == null) {
                     spacers++;
-                } else {
-                    seen.add(cell);
                 }
             }
         }
-        assertEquals(VStages.STAGES.size() + 1, seen.size());
-        assertEquals(1, spacers);
-        for (String stage : VStages.STAGES) {
-            assertEquals("stage " + stage + " once", 1, seen.stream().filter(s -> s.equals(stage)).count());
-        }
+        // third column is spare at levels 0-3: 4 spacers + untracked cell
+        assertEquals(4, spacers);
     }
 
     @Test
     public void cellOfPlacesTheCorners() {
         assertEquals(new VStageLayout.Cell(0, 0), VStageLayout.cellOf("requirements"));
-        assertEquals(new VStageLayout.Cell(0, 4), VStageLayout.cellOf("implementation"));
-        assertEquals(new VStageLayout.Cell(1, 4), VStageLayout.cellOf("test-implementation"));
-        assertEquals(new VStageLayout.Cell(1, 0), VStageLayout.cellOf("test-requirements"));
-        assertEquals(new VStageLayout.Cell(1, 5), VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
+        assertEquals(new VStageLayout.Cell(4, 0), VStageLayout.cellOf("implementation"));
+        assertEquals(new VStageLayout.Cell(4, 1), VStageLayout.cellOf("test-implementation"));
+        assertEquals(new VStageLayout.Cell(0, 1), VStageLayout.cellOf("test-requirements"));
+        assertEquals(new VStageLayout.Cell(4, 2), VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
         assertNull(VStageLayout.cellOf(null));
         assertNull(VStageLayout.cellOf("no-such-stage"));
     }
 
     @Test
-    public void stageNumbersFollowTheSnakeOrder() {
+    public void stageNumbersFollowTheVOrder() {
         int expected = 1;
         for (String stage : VStages.STAGES) {
             assertEquals(stage, expected++, VStageLayout.stageNumber(stage));
         }
         assertEquals(0, VStageLayout.stageNumber(PipelineSnapshot.UNTRACKED));
         assertEquals(0, VStageLayout.stageNumber("no-such-stage"));
+    }
+
+    @Test
+    public void everyStageAppearsExactlyOnce() {
+        List<String> seen = new ArrayList<>();
+        for (List<String> row : VStageLayout.grid()) {
+            for (String cell : row) {
+                if (cell != null) {
+                    seen.add(cell);
+                }
+            }
+        }
+        assertEquals(VStages.STAGES.size() + 1, seen.size());
+        for (String stage : VStages.STAGES) {
+            assertEquals("stage " + stage + " once", 1, seen.stream().filter(s -> s.equals(stage)).count());
+        }
     }
 
     @Test

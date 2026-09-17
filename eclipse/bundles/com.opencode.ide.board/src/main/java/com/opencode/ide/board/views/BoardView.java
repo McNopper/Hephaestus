@@ -162,10 +162,10 @@ public class BoardView extends ViewPart {
      * all ten columns always render (U-016), so the V stays complete and
      * recognizable on an empty board. No collapse-to-header anymore.
      */
-    private static final int PIPELINE_COLUMN_WIDTH = 190;
+    private static final int PIPELINE_COLUMN_WIDTH = 260;
 
     /** Fixed height of a V-model stage column; fuller tables scroll internally. */
-    private static final int V_COLUMN_HEIGHT = 170;
+    private static final int V_COLUMN_HEIGHT = 150;
 
     /** The compact status-prefix legend (tooltip text on pipeline rows). */
     private static final String STATUS_LEGEND =
@@ -442,12 +442,14 @@ public class BoardView extends ViewPart {
         gridLayout.verticalSpacing = 4;
         pipelineContent.setLayout(gridLayout);
 
-        // The V (U-016, redesigned after the rubberduck review 2026-09-17):
-        // a two-row boustrophedon — definition leg left->right on top,
-        // verification leg right->left below, each definition stage directly
-        // above its verification pair. Null cells become zero-size spacers.
-        // All ten stage columns render even when empty, at the fixed width;
-        // nothing collapses to its header.
+        // The V (U-016, orientation per user direction 2026-09-18): two
+        // vertical arms side by side - the left column is the definition
+        // leg (requirements at the top, implementation at the vertex), the
+        // right column is the verification leg level-paired with it
+        // (test-implementation at the vertex, test-requirements at the
+        // top), untracked beside the vertex. Null cells become spacers.
+        // All ten stage columns render even when empty, at the fixed
+        // width; nothing collapses to its header.
         for (List<String> row : VStageLayout.grid()) {
             for (String stage : row) {
                 if (stage == null) {
@@ -1401,7 +1403,7 @@ public class BoardView extends ViewPart {
      */
     private static String numberedStageHeader(String stage) {
         int number = VStageLayout.stageNumber(stage);
-        String turn = "implementation".equals(stage) ? " \u2193" : "";
+        String turn = "implementation".equals(stage) ? " \u2192" : "";
         return number > 0 ? number + " \u00b7 " + stage + turn : stage;
     }
 

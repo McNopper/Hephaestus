@@ -7,34 +7,35 @@ import java.util.List;
 import com.opencode.ide.tasks.VStages;
 
 /**
- * SWT-free geometry of the board's V-model arrangement (U-016): the ten
- * canonical stages on a <em>two-row boustrophedon</em> grid — the definition
- * leg reads left&#x2192;right on the top row, the verification leg continues
- * right&#x2192;left on the bottom row, so the flow snakes through all ten
- * stages and each definition stage sits <em>directly above</em> its
- * verification pair (requirements/test-requirements &#x2026;
- * implementation/test-implementation). That vertical pairing encodes the
- * V-model's verification mapping better than a literal diagonal V would,
- * tiles a rectangle without dead space, and keeps the board at five columns
- * per row instead of ten — no guaranteed horizontal scrolling. The trailing
- * untracked group parks in the spare bottom-right cell.
+ * SWT-free geometry of the board's V-model arrangement (U-016, orientation
+ * reworked on user direction 2026-09-18): <em>two vertical arms side by
+ * side</em> — the LEFT column is the V's left arm, the definition leg
+ * reading top&#x2192;bottom (requirements at the top, implementation at the
+ * vertex), and the RIGHT column is the right arm, the verification leg
+ * reading bottom&#x2192;top (test-implementation at the vertex,
+ * test-requirements at the top). Each height level pairs a definition
+ * stage with its verification stage (requirements | test-requirements,
+ * &#x2026;, implementation | test-implementation), which is exactly the
+ * classic V-diagram orientation; the flow snakes down the left arm, turns
+ * at the vertex, and climbs the right arm. The trailing untracked group
+ * parks in the spare third column cell beside the vertex.
  *
  * <p>The reading order of the snake equals {@link VStages#STAGES} — the
  * canonical ladder — so the geometry can never drift from it: stage number
  * {@code n} (1-based, for the numbered column headers) is simply the index
  * in that list plus one. The Board view renders {@link #grid()} cell by
  * cell ({@code null} cells become spacers); the tests pin the shape, the
- * pairing, and both leg orders.</p>
+ * level pairing, and both leg orders.</p>
  */
 public final class VStageLayout {
 
-    /** Grid columns: five stage pairs plus one spare cell for the untracked group. */
-    public static final int GRID_COLUMNS = VStages.STAGES.size() / 2 + 1;
+    /** Grid columns: the two arms plus one spare cell for the untracked group. */
+    public static final int GRID_COLUMNS = 3;
 
-    /** Grid rows: two — definition leg on top, verification leg below. */
-    public static final int GRID_ROWS = 2;
+    /** Grid rows: one per V level (both arms carry five stages). */
+    public static final int GRID_ROWS = VStages.STAGES.size() / 2;
 
-    /** A cell in the layout grid: row 0 is the top, column 0 the left edge. */
+    /** A cell in the layout grid: row 0 is the top, column 0 the left arm. */
     public record Cell(int row, int column) {
     }
 
@@ -42,8 +43,8 @@ public final class VStageLayout {
     }
 
     /**
-     * The boustrophedon arrangement row by row: {@code grid().get(r).get(c)}
-     * is the stage id (or {@link PipelineSnapshot#UNTRACKED}) at that cell,
+     * The two-arm arrangement row by row: {@code grid().get(r).get(c)} is
+     * the stage id (or {@link PipelineSnapshot#UNTRACKED}) at that cell,
      * {@code null} for an empty spacer cell. Every row has exactly
      * {@link #GRID_COLUMNS} cells, so the grid maps 1:1 onto an SWT
      * {@code GridLayout} with that many columns.
@@ -68,18 +69,18 @@ public final class VStageLayout {
      * {@link PipelineSnapshot#UNTRACKED} group; {@code null} for unknown or
      * {@code null} ids.
      *
-     * <p>Definition stage {@code i} (0-based, requirements first) sits on the
-     * top row in column {@code i}. Its verification pair sits directly below
-     * in the same column — which, read along the bottom row's right&#x2192;left
-     * flow, is position {@code 5 - i} in the snake. The untracked group takes
-     * the spare sixth cell of the bottom row, after the snake's tail.</p>
+     * <p>Definition stage {@code i} (0-based, requirements first) sits in
+     * the left arm at row {@code i}. Its verification pair sits in the
+     * right arm at the SAME level — which, read along the right arm's
+     * bottom&#x2192;top flow, is STAGES position {@code 5 + (4 - i)}. The
+     * untracked group takes the spare third cell beside the vertex.</p>
      */
     public static Cell cellOf(String stage) {
         if (stage == null) {
             return null;
         }
         if (PipelineSnapshot.UNTRACKED.equals(stage)) {
-            return new Cell(1, GRID_COLUMNS - 1);
+            return new Cell(GRID_ROWS - 1, 2);
         }
         int index = VStages.STAGES.indexOf(stage);
         if (index < 0) {
@@ -87,21 +88,19 @@ public final class VStageLayout {
         }
         int half = VStages.STAGES.size() / 2;
         if (index < half) {
-            // definition leg: top row, left to right
-            return new Cell(0, index);
+            // left arm: definition leg, top to bottom
+            return new Cell(index, 0);
         }
-        // verification leg: bottom row, placed under its definition pair
-        // (test-implementation below implementation, …, test-requirements
-        // below requirements)
-        return new Cell(1, half - 1 - (index - half));
+        // right arm: verification leg, placed at its definition pair's level
+        return new Cell(half - 1 - (index - half), 1);
     }
 
     /**
      * The 1-based reading number of a canonical stage (its position along
-     * the snake: 1 = requirements &#x2026; 5 = implementation (the turn),
+     * the V: 1 = requirements &#x2026; 5 = implementation (the vertex),
      * 6 = test-implementation &#x2026; 10 = test-requirements); 0 for the
      * untracked group and unknown ids. The numbered headers use this so the
-     * two-row layout still reads unambiguously as one sequence.
+     * two-arm layout still reads unambiguously as one sequence.
      */
     public static int stageNumber(String stage) {
         int index = VStages.STAGES.indexOf(stage);
