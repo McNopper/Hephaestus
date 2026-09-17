@@ -64,9 +64,12 @@ public final class FleetToolProvider implements ToolProvider {
     /**
      * Test seam: inject the {@link com.opencode.ide.git.WorktreeManager} the
      * {@code fleet_reset} recovery path uses (failure injection without
-     * processes).
+     * processes). Public because the tests live in a separate OSGi bundle —
+     * package-private access fails across Equinox class loaders (the same
+     * lesson as {@code ToolInvocation#tail}, hit live 2026-09-18 on the
+     * B-004 merge).
      */
-    FleetToolProvider(Path root, FleetControl control, com.opencode.ide.git.WorktreeManager worktrees) {
+    public FleetToolProvider(Path root, FleetControl control, com.opencode.ide.git.WorktreeManager worktrees) {
         this.root = root;
         this.control = control;
         this.worktrees = worktrees;
