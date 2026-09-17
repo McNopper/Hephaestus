@@ -43,6 +43,10 @@ final class FakeClient implements OpencodeClient {
     /** Thread-safe since the 2026-08-28 watchdog redesign: the prompt runs on its own thread while the watchdog probes. */
     volatile String sessionType = "busy";
     volatile String replyOnSend;
+    /** When set, the sendMessage assistant reply carries this agent (the review-actuals path, U-021). */
+    volatile String replyAgent;
+    /** When set, the sendMessage assistant reply carries this cost (the review-actuals path, U-021). */
+    volatile Double replyCost;
     volatile boolean failSessionCreation;
     /** When set, {@link #getMessages(String)} fails - used to prove telemetry is best-effort. */
     volatile boolean failGetMessages;
@@ -133,9 +137,17 @@ final class FakeClient implements OpencodeClient {
         List<ChatEntry> entries = messagesBySession.get(request.sessionId());
         entries.add(entry(request.sessionId(), "user", request.text()));
         if (replyOnSend != null) {
-            entries.add(entry(request.sessionId(), "assistant", replyOnSend));
+            entries.add(replyEntry(request.sessionId(), replyOnSend));
         }
         return entries.get(entries.size() - 1);
+    }
+
+    /** The sendMessage assistant reply, optionally carrying agent/cost actuals (U-021 review tests). */
+    private ChatEntry replyEntry(String sessionId, String text) {
+        ChatMessageInfo info = new ChatMessageInfo(
+                "msg_" + (++messageCounter), sessionId, "assistant",
+                null, replyAgent, null, null, replyCost, null, null, null, null, null);
+        return new ChatEntry(info, List.of(new ChatPart("text", text, null, null)));
     }
 
     /** The prompt timeout of the last 2-arg send, for budget-wiring assertions. */

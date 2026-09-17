@@ -241,7 +241,12 @@ public final class FleetControl implements AutoCloseable {
                 new TaskStore(root),
                 new RoleAgents(),
                 () -> client,
-                bridge);
+                bridge)
+                // U-021 autonomous acceptance: a merged run that settles
+                // in-review gets a reviewer session whose verdict drives
+                // done+advance / send-back through the store — the V
+                // pipeline drives itself per stage
+                .withAutonomousAcceptance();
         FleetRunner engineRunner = new FleetRunner(client, FleetGit.defaultManager());
         OpencodeEventStream events = client.getGlobalEvents(bridge::onEvent, connected -> { });
         events.start();

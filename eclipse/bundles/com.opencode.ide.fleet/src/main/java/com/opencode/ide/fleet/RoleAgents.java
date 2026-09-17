@@ -9,6 +9,12 @@ import java.util.Map;
  * Unknown roles (and {@code null}) map to {@code null}, meaning the server's
  * default agent.
  *
+ * <p>U-021 adds the {@code reviewer} role: the autonomous-acceptance pass
+ * resolves its review session through this table like any stage role, so an
+ * operator can retarget or remove it with a constructor override (the
+ * cross-vendor principle prefers a different model family than the
+ * executors).</p>
+ *
  * <p>Overridable by constructor: override entries win over the defaults, an
  * override with a {@code null} value removes the mapping (server default),
  * and new keys add mappings. Pure Java, no Eclipse/OSGi.</p>
@@ -20,6 +26,7 @@ public final class RoleAgents {
             "tester", "executor",
             "architect", "manifest-author",
             "pm", "project-manager",
+            "reviewer", "reviewer",
             "cpp-engineer", "cpp-tools",
             "graphics-engineer", "graphics-expert");
 

@@ -168,6 +168,49 @@ public class FleetRunner {
     }
 
     /**
+     * Starts a worktree-FREE session (U-021 autonomous acceptance: the
+     * read-only review pass over a merged ticket): creates the session
+     * directly in {@code task.baseWorktree()} — the merged main worktree;
+     * a reviewer has nothing to branch and nothing to merge — then sends
+     * the prompt on its own daemon thread exactly like {@link #begin}, so
+     * the {@link TaskFleet} watchdog, stall/budget handling and permission
+     * watching apply unchanged. The returned job is never merged back:
+     * {@link #mergeBack} refuses it ("unknown task") on purpose.
+     */
+    public Submission beginSession(FleetTask task) {
+        String sessionId = null;
+        try {
+            Session session = client.createSession(task.title(), task.baseWorktree());
+            final String sid = session.id();
+            sessionId = sid;
+            // before anything else touches the session: permission watching
+            // needs the id before the first prompt (see onSessionCreated)
+            if (onSessionCreated != null && sid != null) {
+                onSessionCreated.accept(sid);
+            }
+            java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
+            Thread t = new Thread(() -> {
+                try {
+                    prompt.complete(client.sendMessage(
+                            chatRequest(sid, task), FleetTuning.MAX_TICKET_BUDGET));
+                } catch (Throwable e) {
+                    prompt.completeExceptionally(e);
+                }
+            }, "fleet-review-" + task.taskId());
+            t.setDaemon(true);
+            t.start();
+            return new Submission(
+                    new FleetJob(task.taskId(), sid, task.baseWorktree(), FleetJob.State.RUNNING, null),
+                    prompt);
+        } catch (OpencodeException e) {
+            return new Submission(
+                    new FleetJob(task.taskId(), sessionId, task.baseWorktree(),
+                            FleetJob.State.FAILED, e.getMessage()),
+                    java.util.concurrent.CompletableFuture.failedFuture(e));
+        }
+    }
+
+    /**
      * One watchdog probe of a running session: message count (progress
      * signal), the completion flag (idle + last message is an assistant reply
      * with text - the same contract as {@link #isComplete}), the busy flag
@@ -202,6 +245,15 @@ public class FleetRunner {
         } catch (OpencodeException | RuntimeException e) {
             LOG.log(Level.WARNING, "aborting session " + sessionId + " failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * The session's full message history — the review verdict and the review
+     * run's actuals both come from the last assistant reply; delegates to
+     * the client.
+     */
+    public List<ChatEntry> messages(String sessionId) throws OpencodeException {
+        return client.getMessages(sessionId);
     }
 
     /**

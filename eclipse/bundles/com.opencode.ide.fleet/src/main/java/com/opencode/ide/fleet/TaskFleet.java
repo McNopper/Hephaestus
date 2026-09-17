@@ -11,10 +11,12 @@ import java.util.logging.Logger;
 
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
+import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.tasks.VStages;
 
 /**
  * Task-driven front end over the {@link FleetRunner} engine: pre-claims the
@@ -47,6 +49,22 @@ import com.opencode.ide.tasks.TaskStore;
  * when the launch ends (merged, failed, aborted) the session's pending
  * requests are dropped again. Without a bridge the fleet runs unchanged.</p>
  *
+ * <p>U-021 AUTONOMOUS ACCEPTANCE (opt-in via {@link
+ * #withAutonomousAcceptance()}; the production engine wiring enables it):
+ * when a MERGED launch leaves the ticket {@code in-review} — the agent
+ * finished the stage's work and left the accept gate to the engine — a
+ * second, read-only REVIEW session under the reviewer agent judges the
+ * acceptance criteria against the recorded artifacts and the merged
+ * commit's CI status ({@link ReviewPrompt}), and the engine applies the
+ * parsed verdict ({@link ReviewVerdict}): PASS&nbsp;&rarr;&nbsp;done +
+ * {@link TaskStore#advance} into the next stage's backlog (the
+ * auto-dispatch loop drains it - no human click); FAIL&nbsp;&rarr;&nbsp;
+ * {@link TaskStore#sendBack} with the reviewer's reasons (blocked = the
+ * human-escalation signal); UNCLEAR (or a failed/unparsable review)
+ * &rarr;&nbsp;stays in-review with a comment - the sampled human surface.
+ * The review run's actuals land on the ticket like any worker run, so the
+ * wave budget absorbs its cost.</p>
+ *
  * <p>Pure Java, no Eclipse/OSGi - the later Fleet view drives this.</p>
  */
 public final class TaskFleet {
@@ -60,6 +78,13 @@ public final class TaskFleet {
      * claims; keep it a literal-free single source.
      */
     public static final String ASSIGNEE = "fleet";
+    /**
+     * The author of every autonomous-acceptance store write (U-021): the
+     * verdict comments and the {@code by} of the advance/send-back history
+     * events — and the ROLE key the review session dispatches under
+     * ({@link RoleAgents} maps it to the reviewer agent).
+     */
+    public static final String REVIEWER = "reviewer";
     /** Path-like strings inside acceptance criteria (e.g. {@code src/Foo.java}) - the AC-path gate's expected set. */
     private static final java.util.regex.Pattern AC_PATH =
             java.util.regex.Pattern.compile("[\\w/.-]+\\.\\w{1,5}");
@@ -74,12 +99,35 @@ public final class TaskFleet {
     private final java.util.Set<String> inFlight = ConcurrentHashMap.newKeySet();
     /** A running session with no new messages for this long is aborted by the watchdog (test seam). */
     private Duration stallTimeout = FleetTuning.STALL_TIMEOUT;
+    /**
+     * U-021 autonomous acceptance: dispatch the reviewer session when a
+     * launch merges and settles the ticket to in-review. Off in the plain
+     * constructors so worker-path tests keep the pre-U-021 settle behavior;
+     * the production engine wiring (FleetControl.spawnEngine, the Board's
+     * TaskFleetLauncher) turns it on.
+     */
+    private boolean reviewOnSettle;
 
     /** @param stallTimeout the watchdog's no-progress threshold; returns this for chaining */
     public TaskFleet withStallTimeout(Duration stallTimeout) {
         this.stallTimeout = stallTimeout == null || stallTimeout.isNegative() || stallTimeout.isZero()
                 ? FleetTuning.STALL_TIMEOUT
                 : stallTimeout;
+        return this;
+    }
+
+    /**
+     * U-021 autonomous acceptance: after a MERGED launch leaves the ticket
+     * in-review, dispatch the read-only REVIEW session (reviewer agent) and
+     * apply its verdict through the store — PASS: done + advance into the
+     * next stage's backlog (the auto-dispatch loop drains it, no human
+     * click); FAIL: send-back with the reviewer's reasons (blocked = the
+     * human-escalation signal); UNCLEAR: stays in-review with a comment.
+     *
+     * @return this for chaining
+     */
+    public TaskFleet withAutonomousAcceptance() {
+        this.reviewOnSettle = true;
         return this;
     }
 
@@ -196,10 +244,11 @@ public final class TaskFleet {
      * ({@link #launchableTicket}) &rarr; pre-claim on the main branch
      * ({@link #claimAndCommit}) &rarr; submit + watchdog
      * ({@link #runSession}) &rarr; merge-back + bookkeeping + telemetry +
-     * reap ({@link #mergeAndRecord}). Every stage failure routes through
-     * {@link #blocked} so the ticket never strands as a zombie claim, and
-     * the permission watch that started with the session is dropped on
-     * EVERY outcome (the {@code finally}).
+     * reap ({@link #mergeAndRecord}) &rarr; optional autonomous acceptance
+     * ({@link #reviewSettledTicket}, U-021). Every stage failure routes
+     * through {@link #blocked} so the ticket never strands as a zombie
+     * claim, and the permission watch that started with the session is
+     * dropped on EVERY outcome (the {@code finally}).
      */
     private FleetJob launchGuarded(String project, String taskId, Path baseWorktree, Duration timeout,
             Bootstrap bootstrap) {
@@ -223,7 +272,14 @@ public final class TaskFleet {
             if (job.state() != FleetJob.State.COMPLETED) {
                 return blocked(job, project, taskId, "fleet: " + job.detail());
             }
-            return mergeAndRecord(project, taskId, job, baseWorktree);
+            FleetJob merged = mergeAndRecord(project, taskId, job, baseWorktree);
+            if (reviewOnSettle && merged.state() == FleetJob.State.MERGED) {
+                // U-021: acceptance is the first automated gate — the settle
+                // path does not end at in-review, the reviewer session
+                // decides it. Fully contained: can never fail the launch.
+                reviewSettledTicket(project, taskId, baseWorktree, timeout);
+            }
+            return merged;
         } catch (RuntimeException e) {
             // R1 total-failure contract: after the pre-claim, NO path may
             // throw past this point - a thrown WorktreeException/UncheckedIo
@@ -394,6 +450,206 @@ public final class TaskFleet {
         reapMergedWorktree(baseWorktree, taskId);
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
         return job;
+    }
+
+    /**
+     * Stage 4 — autonomous acceptance (U-021): when the merged ticket
+     * settled to {@code in-review} (the agent finished the stage's work and
+     * left the accept gate to the engine), dispatch ONE read-only review
+     * session under the reviewer agent ({@link RoleAgents} role
+     * {@code reviewer}) — its {@link ReviewPrompt} judges every acceptance
+     * criterion against the recorded artifacts and the CI status of the
+     * merged commit — settle it through the same watchdog contract as a
+     * worker run, record its actuals like any run ({@link
+     * #recordReviewActuals}), and apply the parsed verdict ({@link
+     * #applyVerdict}). Skipped when the agent already moved the ticket
+     * itself (done, advanced, or sent back mid-run): the pipeline has
+     * exactly one driver. Fully contained: no review-path failure can throw
+     * past this method or fail the already-MERGED launch — the worst case
+     * leaves the ticket in-review with a comment (the sampled human
+     * surface).
+     */
+    private void reviewSettledTicket(String project, String taskId, Path baseWorktree, Duration timeout) {
+        try {
+            Task ticket = store.get(project, taskId);
+            if (!"in-review".equals(ticket.status)) {
+                return;
+            }
+            FleetTask reviewTask = new FleetTask(
+                    taskId,
+                    "Review " + ticket.id + ": " + ticket.title,
+                    ReviewPrompt.forTicket(ticket).project(project).build(),
+                    roleAgents.agentFor(REVIEWER),
+                    null,
+                    null,
+                    baseWorktree);
+            com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": dispatching review session");
+            FleetJob reviewJob = settleReview(runner.beginSession(reviewTask), timeout);
+            recordReviewActuals(project, taskId, reviewJob);
+            if (reviewJob.state() != FleetJob.State.COMPLETED) {
+                store.addComment(project, taskId,
+                        "review: not performed - " + reviewJob.detail()
+                                + "; the ticket waits in in-review for a human accept",
+                        REVIEWER);
+                com.opencode.ide.client.ClientLog.info("fleet " + taskId
+                        + ": review session did not complete: " + reviewJob.detail());
+                return;
+            }
+            applyVerdict(project, taskId, ReviewVerdict.parse(lastAssistantText(reviewJob.sessionId())));
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "fleet review of ticket " + taskId
+                    + " failed; ticket stays in-review", e);
+            try {
+                store.addComment(project, taskId,
+                        "review: not performed - " + e.getMessage()
+                                + "; the ticket waits in in-review for a human accept",
+                        REVIEWER);
+            } catch (RuntimeException suppressed) {
+                LOG.log(Level.WARNING, "recording the failed-review comment on "
+                        + taskId + " failed too", suppressed);
+            }
+        }
+    }
+
+    /**
+     * Settles the review session through the same {@link #watchdog} contract
+     * as a worker run (stall-, budget- and permission-wait aware) and drops
+     * the permission watch on every outcome.
+     */
+    private FleetJob settleReview(FleetRunner.Submission submission, Duration timeout) {
+        FleetJob job = submission.job();
+        if (job.state() == FleetJob.State.FAILED) {
+            if (permissions != null && job.sessionId() != null) {
+                permissions.sessionEnded(job.sessionId());
+            }
+            return job;
+        }
+        try {
+            return watchdog(submission, timeout);
+        } catch (OpencodeException e) {
+            return withState(job, FleetJob.State.FAILED, e.getMessage());
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "fleet review watchdog failed unexpectedly", e);
+            return withState(job, FleetJob.State.FAILED, e.getMessage());
+        } finally {
+            if (permissions != null && job.sessionId() != null) {
+                permissions.sessionEnded(job.sessionId());
+            }
+        }
+    }
+
+    /**
+     * Applies the parsed review verdict through the store (U-021):
+     * <ul>
+     *   <li><b>PASS</b> — the ticket moves to {@code done}, then
+     *       {@link TaskStore#advance} runs, putting the NEXT stage's ticket
+     *       into the wave backlog (the existing auto-dispatch loop drains
+     *       it — no human click). At the V tip there is no next stage, and
+     *       an unstaged ticket has no pipeline: both stay {@code done}.</li>
+     *   <li><b>FAIL</b> — {@link TaskStore#sendBack} with the reviewer's
+     *       reasons: the previous stage's backlog, blocked with the reason —
+     *       exactly the human-escalation signal. The first stage
+     *       ({@code requirements}) and unstaged tickets have nowhere to go
+     *       back to and are blocked in place.</li>
+     *   <li><b>UNCLEAR</b> — and a reply with no parseable verdict, which is
+     *       treated the same way — the ticket stays in-review with the
+     *       reviewer's doubt as a comment: the sampled human surface.</li>
+     * </ul>
+     */
+    private void applyVerdict(String project, String taskId, ReviewVerdict verdict) {
+        Task ticket = store.get(project, taskId);
+        if (verdict == null) {
+            store.addComment(project, taskId,
+                    "review: UNCLEAR - the review reply carried no parseable verdict"
+                            + "; the ticket waits in in-review for a human accept",
+                    REVIEWER);
+            return;
+        }
+        switch (verdict.decision()) {
+            case PASS -> {
+                store.addComment(project, taskId,
+                        "review: PASS" + reasonSuffix(verdict.reason()), REVIEWER);
+                if (!"done".equals(ticket.status)) {
+                    store.update(project, taskId, Map.of("status", "done"));
+                }
+                if (ticket.stage == null) {
+                    return; // unstaged ticket: accepted and done, no pipeline to advance
+                }
+                try {
+                    store.advance(project, taskId, REVIEWER);
+                } catch (TaskStore.Invalid e) {
+                    // the V tip has no next stage: accepted and done, the
+                    // pipeline is complete — exactly the expected terminus
+                    LOG.fine(() -> "fleet review of " + taskId
+                            + " accepted the V-tip stage " + ticket.stage + "; staying done");
+                }
+            }
+            case FAIL -> {
+                String reason = verdict.reasonOrDefault();
+                store.addComment(project, taskId,
+                        "review: FAIL" + reasonSuffix(reason), REVIEWER);
+                if (ticket.stage != null && VStages.previous(ticket.stage) != null) {
+                    store.sendBack(project, taskId, reason, REVIEWER);
+                } else {
+                    // requirements (the first stage) or an unstaged ticket:
+                    // no previous stage to return to — block in place
+                    store.setBlocked(project, taskId, "review failed: " + reason, REVIEWER);
+                }
+            }
+            case UNCLEAR -> store.addComment(project, taskId,
+                    "review: UNCLEAR" + reasonSuffix(verdict.reasonOrDefault())
+                            + "; the ticket waits in in-review for a human accept",
+                    REVIEWER);
+        }
+    }
+
+    /** {@code ""} for a blank reason, else {@code " - <reason>"} — the verdict comment suffix. */
+    private static String reasonSuffix(String reason) {
+        return reason == null || reason.isBlank() ? "" : " - " + reason.strip();
+    }
+
+    /**
+     * The review reply's text (the LAST non-blank assistant message of the
+     * review session), or {@code null}; never throws — an unreadable reply
+     * parses as no verdict and stays in-review.
+     */
+    private String lastAssistantText(String sessionId) {
+        try {
+            List<ChatEntry> messages = runner.messages(sessionId);
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                ChatEntry m = messages.get(i);
+                if (m != null && m.info() != null && "assistant".equals(m.info().role())
+                        && m.text() != null && !m.text().isBlank()) {
+                    return m.text();
+                }
+            }
+        } catch (OpencodeException | RuntimeException e) {
+            LOG.log(Level.WARNING, "fleet review reply unavailable for session " + sessionId, e);
+        }
+        return null;
+    }
+
+    /**
+     * U-021 AC: the review run's actuals land on the ticket like any worker
+     * run — the standard {@code fleet actuals:} comment (see
+     * {@link FleetTelemetry#actualsComment(List)}) — so the wave's cost
+     * overview (CostOverview parses exactly those comments) absorbs the
+     * reviewer session's cost against the budget. Best-effort: a telemetry
+     * hiccup is logged and never gates the verdict.
+     */
+    private void recordReviewActuals(String project, String taskId, FleetJob reviewJob) {
+        if (reviewJob.sessionId() == null) {
+            return;
+        }
+        try {
+            String comment = FleetTelemetry.actualsComment(runner.messages(reviewJob.sessionId()));
+            if (comment != null) {
+                store.addComment(project, taskId, comment, REVIEWER);
+            }
+        } catch (OpencodeException | RuntimeException e) {
+            LOG.log(Level.WARNING,
+                    "fleet review actuals unavailable for ticket " + taskId + "; ignored", e);
+        }
     }
 
     /**

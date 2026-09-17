@@ -27,6 +27,8 @@ public class RoleAgentsTest {
         assertEquals("manifest-author", agents.agentFor("architect"));
         assertEquals("the pm ROLE dispatches to the readable project-manager AGENT",
                 "project-manager", agents.agentFor("pm"));
+        assertEquals("the reviewer ROLE (U-021 autonomous acceptance) dispatches to the reviewer agent",
+                "reviewer", agents.agentFor("reviewer"));
         assertEquals("cpp-tools", agents.agentFor("cpp-engineer"));
         assertEquals("graphics-expert", agents.agentFor("graphics-engineer"));
     }

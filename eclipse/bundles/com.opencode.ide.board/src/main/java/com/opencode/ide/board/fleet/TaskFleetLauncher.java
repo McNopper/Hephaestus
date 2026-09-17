@@ -357,7 +357,12 @@ public final class TaskFleetLauncher implements FleetLauncher {
                 new TaskStore(storeRoot),
                 new RoleAgents(),
                 null,
-                PERMISSION_BRIDGE);
+                PERMISSION_BRIDGE)
+                // U-021 autonomous acceptance: a merged run that settles
+                // in-review gets a reviewer session whose verdict drives
+                // done+advance / send-back through the store — the V
+                // pipeline drives itself per stage
+                .withAutonomousAcceptance();
     }
 
     /**
