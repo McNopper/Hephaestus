@@ -56,6 +56,12 @@ Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-
 
 ## The ticket / sprint workflow (the PM)
 
+**Terminology (user direction 2026-09-18):** the UI says **wave**, not sprint —
+a wave is a named batch of agent work, planned on demand and drained in minutes
+by the fleet (no weekly cadence, no time-box). The store field, tool names
+(`task_plan_sprint`) and ticket frontmatter keep `sprint` as the schema key for
+stability; treat "wave" and "sprint" as synonyms everywhere else.
+
 The **task store** stores **tickets** and **sprints**, scoped per **project** (one
 subdirectory of `.opencode/tasks/` each, so several independent projects run at once).
 **The store is the ground truth — the single coordination blackboard.** The Eclipse Board

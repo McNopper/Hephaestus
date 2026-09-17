@@ -970,9 +970,11 @@ public class BoardView extends ViewPart {
                 layout.marginHeight = 0;
                 layout.horizontalSpacing = 4;
                 box.setLayout(layout);
-                new Label(box, SWT.NONE).setText("Sprint:");
+                new Label(box, SWT.NONE).setText("Wave:");
                 sprintCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                sprintCombo.setToolTipText("Selected sprint (works in both layouts)");
+                sprintCombo.setToolTipText("Selected wave - a named batch of agent work, planned on "
+                        + "demand and drained in minutes by Launch/Auto (no time-box). The store field "
+                        + "stays 'sprint' for schema stability.");
                 sprintCombo.setLayoutData(fixedSize(110));
                 sprintCombo.addSelectionListener(new SelectionAdapter() {
                     @Override
