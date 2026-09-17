@@ -158,6 +158,24 @@ ICONS = {
         f'<path d="M8 2.4a4 4 0 0 1 4 4c0 2.9 1 3.9 1.5 4.4h-11c.5-.5 1.5-1.5 1.5-4.4a4 4 0 0 1 4-4z" {OPEN}/>',
         f'<path d="M6.8 13.3a1.3 1.3 0 0 0 2.4 0" {OPEN}/>',
     ],
+    # ticket type glyphs (the board's Type column; user direction 2026-09-18)
+    "type-bug": [
+        f'<ellipse cx="8" cy="9.2" rx="3.1" ry="4" {OPEN}/>',
+        f'<path d="M8 5.2V3.2M5.8 3.6h4.4" {OPEN}/>',
+        f'<path d="M2.6 8.4h2.3M11.1 8.4h2.3M3.2 12.2l1.8-1M11 11.2l1.8 1M5.2 6L3.8 4.6M10.8 6l1.4-1.4" {OPEN}/>',
+    ],
+    "type-story": [
+        f'<path d="M3 2.5h8.5a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H3z" {OPEN}/>',
+        f'<path d="M3 2.5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2" {OPEN}/>',
+        f'<path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" {OPEN}/>',
+    ],
+    "type-task": [
+        f'<rect x="2.5" y="2.5" width="11" height="11" rx="1.5" {OPEN}/>',
+        f'<path d="M5 8l2.2 2.2L11.5 5.5" {OPEN}/>',
+    ],
+    "type-spike": [
+        f'<path d="M9 1.8L4.2 9h3L6.4 14.2 12 7H8.8z" {OPEN}/>',
+    ],
 }
 
 

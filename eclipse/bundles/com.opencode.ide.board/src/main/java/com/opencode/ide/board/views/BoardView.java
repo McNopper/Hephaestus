@@ -109,7 +109,7 @@ import com.opencode.ide.tasks.VStages;
  * header carries THREE dedicated rows grouped by meaning (U-017): the
  * store row (store-root and project inputs, persisted via dialog
  * settings, plus Refresh and Sync store - store-level concerns), the
- * scope row (the sprint selector, the "Group by" layout choice (None =
+ * scope row (the "Group by" layout choice (Progress =
  * the flat five-column status kanban ordered by workflow progress with
  * cards priority-sorted within columns, V-model stages = the ten V-model
  * stage columns on a two-row boustrophedon - every column always
@@ -527,8 +527,7 @@ public class BoardView extends ViewPart {
         column.setLayoutData(new GridData(GridData.FILL_BOTH));
 
         Composite headerLine = new Composite(column, SWT.NONE);
-        GridLayout headerLayout = new GridLayout(
-                "sprint-backlog".equals(status) ? 2 : 1, false);
+        GridLayout headerLayout = new GridLayout(1, false);
         headerLayout.marginWidth = 0;
         headerLayout.marginHeight = 0;
         headerLayout.horizontalSpacing = 2;
@@ -539,15 +538,6 @@ public class BoardView extends ViewPart {
         header.setText(status + " (0)");
         header.setFont(boldFont());
         header.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, true, false));
-        if ("sprint-backlog".equals(status)) {
-            // U-018: one-click dispatch - launches the top READY ticket of
-            // this column (the within-column order is priority-sorted)
-            Button launchNext = new Button(headerLine, SWT.FLAT);
-            launchNext.setText("\u25B6");
-            launchNext.setToolTipText("Launch the top READY ticket in sprint-backlog");
-            launchNext.setLayoutData(new GridData(SWT.END, SWT.CENTER, false, false));
-            launchNext.addListener(SWT.Selection, e -> launchFirstReady("sprint-backlog"));
-        }
 
         TableViewer viewer = createTicketViewer(column, false);
         hookStatusDrop(viewer.getTable(), status);
@@ -1157,8 +1147,8 @@ public class BoardView extends ViewPart {
                 box.setLayout(layout);
                 new Label(box, SWT.NONE).setText("Group by:");
                 modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                modeCombo.setItems("None", "V-model stages", "Epic");
-                modeCombo.setToolTipText("None: five-column status kanban ordered by workflow progress. "
+                modeCombo.setItems("Progress", "V-model stages", "Epic");
+                modeCombo.setToolTipText("Progress: five-column status kanban ordered by workflow progress. "
                         + "V-model stages: the ten V-model stage columns arranged as a V "
                         + "(requirements \u2192 test-requirements); every column shows, empty ones too. "
                         + "Epic: swimlanes per epic (status-prefixed cards, priority-sorted).");
@@ -1794,42 +1784,6 @@ public class BoardView extends ViewPart {
         runDispatchJob("Launching " + row.id(), () -> dispatch.launch(row.id()), handle -> {
             revealFleetView();
             statusMessage("Launched " + row.id());
-        });
-    }
-
-    /**
-     * U-018 column-level launch: the sprint-backlog header's ▶ dispatches
-     * the top READY ticket of the column (rows are priority-sorted, so
-     * "top" means highest priority first). Status-line feedback names the
-     * launched id - or why nothing launched.
-     */
-    private void launchFirstReady(String status) {
-        if (dispatchPending) {
-            return;
-        }
-        BoardSnapshot snapshot = lastSnapshot;
-        if (snapshot == null) {
-            return;
-        }
-        TicketRow pick = null;
-        for (TicketRow row : snapshot.column(status)) {
-            StageReadiness.Readiness verdict = snapshot.readinessOf(row.id());
-            if (verdict != null && verdict.kind() == StageReadiness.Kind.READY
-                    && canLaunch(row)) {
-                pick = row;
-                break;
-            }
-        }
-        if (pick == null) {
-            statusMessage("No READY ticket in " + status + " (verdicts: "
-                    + snapshot.readyCount() + " ready in the sprint)");
-            return;
-        }
-        final TicketRow launched = pick;
-        BoardDispatch dispatch = captureDispatch();
-        runDispatchJob("Launching " + launched.id(), () -> dispatch.launch(launched.id()), handle -> {
-            revealFleetView();
-            statusMessage("Launched " + launched.id());
         });
     }
 
