@@ -57,6 +57,7 @@ import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.program.Program;
+import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
@@ -98,6 +99,7 @@ import com.opencode.ide.fleet.Bootstrap;
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.StoreGitStatus;
 import com.opencode.ide.git.StoreSync;
+import com.opencode.ide.tasks.StageReadiness;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.VStages;
@@ -185,6 +187,12 @@ public class BoardView extends ViewPart {
 
     private final Map<String, ColumnUi> columns = new LinkedHashMap<>();
     private final List<PipelineColumnUi> pipelineColumns = new ArrayList<>();
+    /** U-018: every live row label provider, fed the readiness verdicts per snapshot apply. */
+    private final List<BoardRowLabel> rowLabels = new ArrayList<>();
+    /** Fleet-row readiness badge ("n ready · m stale"). */
+    private Label readinessLabel;
+    /** The most recent applied snapshot (column-launch picks the top READY ticket from it). */
+    private BoardSnapshot lastSnapshot;
     /** Container that holds whichever layout the current mode builds. */
     private Composite boardArea;
     private Composite flatArea;
@@ -326,6 +334,7 @@ public class BoardView extends ViewPart {
     private void buildBoardArea() {
         columns.clear();
         pipelineColumns.clear();
+        rowLabels.clear(); // the old labels belong to disposed columns
         flatArea = null;
         pipelineScroll = null;
         pipelineContent = null;
@@ -403,10 +412,28 @@ public class BoardView extends ViewPart {
         column.setLayout(layout);
         column.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-        Label header = new Label(column, SWT.NONE);
+        Composite headerLine = new Composite(column, SWT.NONE);
+        GridLayout headerLayout = new GridLayout(
+                "sprint-backlog".equals(status) ? 2 : 1, false);
+        headerLayout.marginWidth = 0;
+        headerLayout.marginHeight = 0;
+        headerLayout.horizontalSpacing = 2;
+        headerLine.setLayout(headerLayout);
+        headerLine.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+        Label header = new Label(headerLine, SWT.NONE);
         header.setText(status + " (0)");
         header.setFont(boldFont());
-        header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        header.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, true, false));
+        if ("sprint-backlog".equals(status)) {
+            // U-018: one-click dispatch - launches the top READY ticket of
+            // this column (the within-column order is priority-sorted)
+            Button launchNext = new Button(headerLine, SWT.FLAT);
+            launchNext.setText("\u25B6");
+            launchNext.setToolTipText("Launch the top READY ticket in sprint-backlog");
+            launchNext.setLayoutData(new GridData(SWT.END, SWT.CENTER, false, false));
+            launchNext.addListener(SWT.Selection, e -> launchFirstReady("sprint-backlog"));
+        }
 
         TableViewer viewer = createTicketViewer(column);
         hookStatusDrop(viewer.getTable(), status);
@@ -462,7 +489,9 @@ public class BoardView extends ViewPart {
         viewer.setContentProvider(ArrayContentProvider.getInstance());
         hookViewerBehavior(viewer);
         TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
-        ticket.setLabelProvider(new BoardRowLabel(true));
+        BoardRowLabel pipelineRowLabel = new BoardRowLabel(true);
+        ticket.setLabelProvider(pipelineRowLabel);
+        rowLabels.add(pipelineRowLabel);
         tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
         hookStageDrop(viewer.getTable(), stage);
 
@@ -483,7 +512,9 @@ public class BoardView extends ViewPart {
         hookViewerBehavior(viewer);
 
         TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
-        ticket.setLabelProvider(new BoardRowLabel(false));
+        BoardRowLabel flatRowLabel = new BoardRowLabel(false);
+        ticket.setLabelProvider(flatRowLabel);
+        rowLabels.add(flatRowLabel);
         tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
 
         TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
@@ -719,18 +750,44 @@ public class BoardView extends ViewPart {
 
     /** Row rendering shared by both layouts: label + tooltip, red bold for blocked rows (never for done rows),
      * red (normal weight) for bug rows — the U-005 triage accent: blocked stays the louder bold-red signal,
-     * bugs read as a steady red "[bug]" row in both light and dark themes. */
+     * bugs read as a steady red "[bug]" row in both light and dark themes. Readiness chips (U-018) ride on
+     * the label tail: {@code · stale} / {@code · waiting} — problems only, READY stays untagged (the fleet
+     * row's ready-count badge covers it), blocked keeps the louder signal. */
     private static final class BoardRowLabel extends ColumnLabelProvider {
         private final boolean pipeline;
+        private Map<String, StageReadiness.Readiness> readiness = Map.of();
 
         BoardRowLabel(boolean pipeline) {
             this.pipeline = pipeline;
         }
 
+        /** Latest per-ticket dispatch verdicts (UI thread, before setInput). */
+        void setReadiness(Map<String, StageReadiness.Readiness> readiness) {
+            this.readiness = readiness == null ? Map.of() : readiness;
+        }
+
         @Override
         public String getText(Object element) {
             TicketRow row = asRow(element);
-            return row == null ? "" : (pipeline ? row.pipelineLabel() : row.label());
+            if (row == null) {
+                return "";
+            }
+            String base = pipeline ? row.pipelineLabel() : row.label();
+            String chip = chipOf(readiness.get(row.id()));
+            return chip.isEmpty() ? base : base + chip;
+        }
+
+        /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
+        private static String chipOf(StageReadiness.Readiness verdict) {
+            if (verdict == null) {
+                return "";
+            }
+            return switch (verdict.kind()) {
+                case STALE -> " \u00b7 stale";
+                case WAIT_UPSTREAM -> " \u00b7 waiting";
+                case BLOCKED -> " \u00b7 blocked-upstream";   // blocked flag may be clear while the verdict still blames it
+                default -> "";
+            };
         }
 
         @Override
@@ -748,6 +805,11 @@ public class BoardView extends ViewPart {
                     ? "medium" : row.priority());
             if (row.displayBlocked()) {
                 sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
+            }
+            StageReadiness.Readiness verdict = readiness.get(row.id());
+            if (verdict != null) {
+                sb.append("\nreadiness: ").append(verdict.kind())
+                        .append(" - ").append(safe(verdict.reason()));
             }
             return sb.toString();
         }
@@ -1045,14 +1107,31 @@ public class BoardView extends ViewPart {
         scopeRow.add(stageFilterAction);
         scopeRow.update(true);
 
-        ToolBarManager fleetRow = headerRow(parent);
-        fleetRow.add(launchAction);
-        fleetRow.add(autoDispatchAction);
-        fleetRow.add(autoLoopAction);
-        fleetRow.add(dispatchSettingsAction);
-        fleetRow.add(costOverviewAction);
-        fleetRow.add(takeOverAction);
-        fleetRow.update(true);
+        // U-017+U-018: the fleet row carries the dispatch actions AND the
+        // live readiness verdicts of the current sprint ("n ready · m stale")
+        Composite fleetRow = new Composite(parent, SWT.NONE);
+        GridLayout fleetLayout = new GridLayout(2, false);
+        fleetLayout.marginWidth = 0;
+        fleetLayout.marginHeight = 0;
+        fleetLayout.horizontalSpacing = 10;
+        fleetRow.setLayout(fleetLayout);
+        fleetRow.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        ToolBarManager fleetBar = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
+        ToolBar fleetToolBar = fleetBar.createControl(fleetRow);
+        fleetToolBar.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+        readinessLabel = new Label(fleetRow, SWT.NONE);
+        readinessLabel.setText("0 ready · 0 stale");
+        readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
+                + "what the fleet can dispatch now, and what went stale");
+        readinessLabel.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
+
+        fleetBar.add(launchAction);
+        fleetBar.add(autoDispatchAction);
+        fleetBar.add(autoLoopAction);
+        fleetBar.add(dispatchSettingsAction);
+        fleetBar.add(costOverviewAction);
+        fleetBar.add(takeOverAction);
+        fleetBar.update(true);
 
         // Icon-paint fix (user report 2026-09-17): embedded tool bars created
         // before the view is shown paint their item images zero-sized until a
@@ -1189,6 +1268,17 @@ public class BoardView extends ViewPart {
     /** UI-thread apply of a snapshot computed in the background (mode-aware). */
     private void applySnapshot(BoardSnapshot snapshot, List<String> sprints, CostOverview cost,
             StoreGitStatus store) {
+        lastSnapshot = snapshot;
+        // U-018: readiness chips on every card + the fleet-row verdict badge
+        for (BoardRowLabel label : rowLabels) {
+            label.setReadiness(snapshot.readiness());
+        }
+        if (readinessLabel != null && !readinessLabel.isDisposed()) {
+            readinessLabel.setText(snapshot.readyCount() + " ready \u00b7 " + snapshot.staleCount()
+                    + " stale" + (snapshot.staleCount() > 0 ? " (re-run needed)" : ""));
+            readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
+                    + "what the fleet can dispatch now, and what went stale");
+        }
         if (boardMode == BoardMode.PIPELINE) {
             applyPipelineSnapshot(snapshot);
         } else {
@@ -1447,6 +1537,42 @@ public class BoardView extends ViewPart {
         runDispatchJob("Launching " + row.id(), () -> dispatch.launch(row.id()), handle -> {
             revealFleetView();
             statusMessage("Launched " + row.id());
+        });
+    }
+
+    /**
+     * U-018 column-level launch: the sprint-backlog header's ▶ dispatches
+     * the top READY ticket of the column (rows are priority-sorted, so
+     * "top" means highest priority first). Status-line feedback names the
+     * launched id - or why nothing launched.
+     */
+    private void launchFirstReady(String status) {
+        if (dispatchPending) {
+            return;
+        }
+        BoardSnapshot snapshot = lastSnapshot;
+        if (snapshot == null) {
+            return;
+        }
+        TicketRow pick = null;
+        for (TicketRow row : snapshot.column(status)) {
+            StageReadiness.Readiness verdict = snapshot.readinessOf(row.id());
+            if (verdict != null && verdict.kind() == StageReadiness.Kind.READY
+                    && canLaunch(row)) {
+                pick = row;
+                break;
+            }
+        }
+        if (pick == null) {
+            statusMessage("No READY ticket in " + status + " (verdicts: "
+                    + snapshot.readyCount() + " ready in the sprint)");
+            return;
+        }
+        final TicketRow launched = pick;
+        BoardDispatch dispatch = captureDispatch();
+        runDispatchJob("Launching " + launched.id(), () -> dispatch.launch(launched.id()), handle -> {
+            revealFleetView();
+            statusMessage("Launched " + launched.id());
         });
     }
 

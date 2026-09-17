@@ -165,6 +165,15 @@ public final class BoardModel {
             Map<String, List<Task>> board = BACKLOG.equals(sprint)
                     ? unassignedBoard()
                     : store.board(project, sprint);
+            // U-018: dispatch-readiness verdicts over the WHOLE sprint task
+            // set (epic chains and upstream stages need the unfiltered
+            // tickets), computed once per refresh and carried in the snapshot
+            List<Task> sprintTasks = new ArrayList<>();
+            for (List<Task> tasks : board.values()) {
+                sprintTasks.addAll(tasks);
+            }
+            Map<String, com.opencode.ide.tasks.StageReadiness.Readiness> readiness =
+                    com.opencode.ide.tasks.StageReadiness.evaluate(sprintTasks);
             Map<String, List<TicketRow>> columns = new LinkedHashMap<>();
             List<TicketRow> allRows = new ArrayList<>();
             int total = 0;
@@ -190,7 +199,7 @@ public final class BoardModel {
             }
             String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
             PipelineSnapshot pipeline = mode == BoardMode.PIPELINE ? pipelineOf(allRows) : null;
-            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline);
+            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness);
         } catch (RuntimeException e) {
             return BoardSnapshot.empty("Task store unreadable: " + e.getMessage());
         }
