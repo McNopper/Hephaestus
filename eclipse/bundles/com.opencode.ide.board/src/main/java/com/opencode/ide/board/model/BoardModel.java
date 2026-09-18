@@ -448,6 +448,41 @@ public final class BoardModel {
         }
     }
 
+    /**
+     * U-025: archives a done ticket (moves it to {@code _archive/}, out of
+     * the active board/readiness/dispatch; the record keeps history and
+     * artifacts). The Archive row lists what lives there.
+     */
+    public String archive(String id) {
+        try {
+            store.archive(project, id, "board");
+            return null;
+        } catch (RuntimeException e) {
+            return failure("archive", id, e);
+        }
+    }
+
+    /** The project's archived tickets as display rows (newest last). */
+    public List<TicketRow> archivedRows() {
+        try {
+            return store.archived(project).stream()
+                    .map(TicketRow::from)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    /** The archive size for the collapsed toggle label (cheap: file count). */
+    public int archiveCount() {
+        try {
+            return store.archived(project).size();
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
     /** Sorts a mutable copy of the rows into the within-column order (for lists not sorted in place). */
     private static List<TicketRow> sorted(List<TicketRow> rows) {
         java.util.ArrayList<TicketRow> copy = new java.util.ArrayList<>(rows);

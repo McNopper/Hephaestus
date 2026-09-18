@@ -162,6 +162,8 @@ public class BoardView extends ViewPart {
     private static final String SETTING_SHOW_UNTRACKED = "showUntracked";
     /** Hidden statuses, comma-joined (persisted; empty = all visible). */
     private static final String SETTING_HIDDEN_STATUSES = "hiddenStatuses";
+    /** Whether the Archive row shows its table (persisted). */
+    private static final String SETTING_SHOW_ARCHIVE = "showArchive";
 
     /**
      * Fixed width of every V-model stage column — empty ones keep it too:
@@ -207,6 +209,11 @@ public class BoardView extends ViewPart {
     private PipelineColumnUi untrackedUi;
     /** Whether the untracked row shows its table (persisted; the V stages are always visible). */
     private boolean showUntracked = true;
+    /** U-025: the Archive row (done tickets archived with their wave). */
+    private Composite archiveRow;
+    private Button archiveToggle;
+    private TableViewer archiveViewer;
+    private boolean showArchive = false;
     /**
      * Hidden STATUSES (user direction 2026-09-18: hide done & co
      * individually; empty = all visible). Persisted; the flat layout drops
@@ -524,6 +531,40 @@ public class BoardView extends ViewPart {
         untrackedUi = createPipelineColumn(untrackedRow, PipelineSnapshot.UNTRACKED);
         untrackedUi.viewer.getTable().getParent().setLayoutData(untrackedTableData());
         applyUntrackedVisibility();
+
+        // U-025: the Archive row - done tickets land here (wave close
+        // archives them, or the Archive context action); hidden by
+        // default, listing loads only while visible
+        Label archiveSeparator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
+        GridData archiveSeparatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        archiveSeparatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+        archiveSeparator.setLayoutData(archiveSeparatorData);
+
+        archiveRow = new Composite(pipelineContent, SWT.NONE);
+        GridLayout archiveLayout = new GridLayout(1, false);
+        archiveLayout.marginWidth = 0;
+        archiveLayout.marginHeight = 0;
+        archiveLayout.verticalSpacing = 2;
+        archiveRow.setLayout(archiveLayout);
+        GridData archiveRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
+        archiveRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+        archiveRow.setLayoutData(archiveRowData);
+
+        archiveToggle = new Button(archiveRow, SWT.FLAT);
+        archiveToggle.setText(showArchive ? "Archive (…) \u25BE" : "Archive \u25B8 (hidden)");
+        archiveToggle.setToolTipText("Done tickets archived with their wave - out of the active "
+                + "board, record kept. Click to " + (showArchive ? "hide" : "show"));
+        archiveToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+        archiveToggle.addListener(SWT.Selection, e -> {
+            showArchive = !showArchive;
+            saveSettings();
+            refresh();
+        });
+
+        archiveViewer = createTicketViewer(archiveRow, true);
+        archiveViewer.getTable().getParent().setLayoutData(untrackedTableData());
+        applyArchiveVisibility();
+
         pipelineScroll.setContent(pipelineContent);
     }
 
@@ -640,6 +681,21 @@ public class BoardView extends ViewPart {
         untrackedToggle.setText(showUntracked ? "No stage (…) \u25BE" : "No stage \u25B8 (hidden)");
         untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
                 + (showUntracked ? "hide" : "show") + " the group");
+    }
+
+    /** Archive-row visibility (the table only exists while shown). */
+    private void applyArchiveVisibility() {
+        if (archiveRow == null || archiveRow.isDisposed() || archiveViewer == null) {
+            return;
+        }
+        Composite tableHolder = archiveViewer.getTable().getParent();
+        if (tableHolder != null && !tableHolder.isDisposed()) {
+            tableHolder.setVisible(showArchive);
+            GridData data = (GridData) tableHolder.getLayoutData();
+            data.exclude = !showArchive;
+            tableHolder.setLayoutData(data);
+        }
+        archiveToggle.setText(showArchive ? "Archive \u25BE" : "Archive \u25B8 (hidden)");
     }
 
     /**
@@ -964,6 +1020,26 @@ public class BoardView extends ViewPart {
         };
         abortJob.setEnabled(runningJobOf(row) != null);
         manager.add(abortJob);
+        // U-025: done tickets can leave the active board into the archive
+        Action archive = new Action("Archive") {
+            @Override
+            public void run() {
+                if (row == null || model == null) {
+                    return;
+                }
+                String error = model.archive(row.id());
+                IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+                if (error != null) {
+                    status.setErrorMessage(error);
+                } else {
+                    status.setErrorMessage(null);
+                    status.setMessage("Archived " + row.id() + " (see the Archive row)");
+                }
+                refresh();
+            }
+        };
+        archive.setEnabled(row != null && "done".equals(row.status()));
+        manager.add(archive);
     }
 
     /** The RUNNING fleet job for a row, {@code null} when none. */
@@ -1763,6 +1839,14 @@ public class BoardView extends ViewPart {
             untrackedToggle.setText(showUntracked
                     ? "No stage (" + rows.size() + ") \u25BE" : "No stage (" + rows.size() + ") \u25B8 hidden");
         }
+        // the Archive row: loads only while visible (U-025)
+        if (archiveViewer != null && !archiveViewer.getTable().isDisposed() && model != null) {
+            List<TicketRow> archived = showArchive ? model.archivedRows() : List.of();
+            archiveViewer.setInput(archived);
+            applyArchiveVisibility();
+            archiveToggle.setText((showArchive ? "Archive (" + archived.size() + ") \u25BE"
+                    : "Archive (" + model.archiveCount() + ") \u25B8 hidden"));
+        }
         pipelineContent.layout(true, true);
         pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
     }
@@ -2440,6 +2524,9 @@ public class BoardView extends ViewPart {
                     if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
                         showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
                     }
+                    if (settings.get(SETTING_SHOW_ARCHIVE) != null) {
+                        showArchive = Boolean.parseBoolean(settings.get(SETTING_SHOW_ARCHIVE));
+                    }
                     String hidden = settings.get(SETTING_HIDDEN_STATUSES);
                     if (hidden != null && !hidden.isBlank()) {
                         hiddenStatuses = java.util.Set.copyOf(java.util.Arrays.stream(hidden.split(","))
@@ -2496,6 +2583,7 @@ public class BoardView extends ViewPart {
             settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
             settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
             settings.put(SETTING_HIDDEN_STATUSES, String.join(",", hiddenStatuses));
+            settings.put(SETTING_SHOW_ARCHIVE, String.valueOf(showArchive));
             plugin.persistDialogSettings();
         } catch (RuntimeException ignored) {
             // persistence is best-effort

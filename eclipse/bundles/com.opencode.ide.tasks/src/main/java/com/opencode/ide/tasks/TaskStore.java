@@ -653,6 +653,73 @@ public final class TaskStore {
      * tickets keep their sprint/status, but a stale blocked flag on one is
      * cleared (a done ticket is never blocked).
      */
+    /**
+     * Archives a ticket (user direction 2026-09-19: done tickets leave the
+     * active board at some point): the {@code <id>.md} file moves to
+     * {@code <project>/_archive/} — the archive keeps the full ticket
+     * record (history, artifacts, actuals), but the live listing (and with
+     * it the board, readiness and dispatch) no longer sees it. The loader
+     * only scans top-level {@code *.md}, so the move is the whole trick.
+     */
+    public Map<String, Object> archive(String project, String id, String by) {
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            t.updatedAt = now();
+            t.history("archived", by);
+            try {
+                Path archiveDir = data.dir.resolve("_archive");
+                Files.createDirectories(archiveDir);
+                Path target = archiveDir.resolve(id + ".md");
+                if (!TaskFileCodec.isValidId(id)) {
+                    throw new Invalid("refusing to archive ticket with unsafe id '" + id + "'");
+                }
+                writeAtomic(target, TaskFileCodec.write(t));
+                Files.deleteIfExists(data.dir.resolve(id + ".md"));
+            } catch (IOException e) {
+                throw new UncheckedIo("cannot archive " + id + ": " + e.getMessage(), e);
+            }
+            data.tasks.remove(id);
+            data.changed.remove(id);   // persist must not rewrite it to the live dir
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("id", id);
+            out.put("archived", true);
+            return out;
+        });
+    }
+
+    /**
+     * The project's archived tickets ({@code _archive/*.md}), newest-last by
+     * file name; read-only view over the same codec. An absent archive
+     * directory reads as empty.
+     */
+    public List<Task> archived(String project) {
+        Path dir = root.resolve(TaskStore.sanitizeProject(project)).resolve("_archive");
+        if (!Files.isDirectory(dir)) {
+            return new ArrayList<>();
+        }
+        List<Path> files = new ArrayList<>();
+        try (var stream = Files.list(dir)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String n = p.getFileName().toString();
+                        return n.endsWith(".md") && !n.startsWith(".") && !n.startsWith("_");
+                    })
+                    .forEach(files::add);
+        } catch (IOException e) {
+            throw new UncheckedIo("cannot list archive " + dir, e);
+        }
+        files.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        List<Task> out = new ArrayList<>();
+        for (Path p : files) {
+            try {
+                out.add(TaskFileCodec.read(Files.readString(p, StandardCharsets.UTF_8)));
+            } catch (IOException | RuntimeException e) {
+                LOG.log(Level.WARNING, "skipping unparsable archived ticket " + p + ": " + e.getMessage(), e);
+            }
+        }
+        return out;
+    }
+
     public Map<String, Object> closeSprint(String project, String sprintId) {
         return transaction(project, data -> {
             Task.Sprint sprint = data.sprints.get(sprintId);
@@ -668,6 +735,13 @@ public final class TaskStore {
                     if (clearBlockedWhenDone(t)) {
                         data.changed.add(t.id);
                     }
+                    // NOT archived here on purpose (U-025 lesson, live
+                    // 2026-09-19): downstream stages need their done
+                    // upstream tickets visible for the readiness epic
+                    // chain - archiving on wave close orphaned WAIT_UPSTREAM
+                    // children. Auto-archiving returns once readiness
+                    // consults the archive; until then the Archive context
+                    // action is the manual path.
                     continue;
                 }
                 t.sprint = null;
