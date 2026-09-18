@@ -56,6 +56,13 @@ Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-
 
 ## The ticket / sprint workflow (the PM)
 
+**V-model execution (user direction 2026-09-19):** a staged ticket wanders
+through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
+feature (e.g. no architecture-level change needed) is a **pass-through**:
+the ticket advances with a recorded rationale ("no architecture impact:
+local change") instead of a full dispatch. Every stage is visited; not
+every stage does work. (U-029 implements the pass-through semantics.)
+
 **Autonomy target (user direction 2026-09-18):** waves run themselves on a
 recurring basis — agents execute, review, accept and advance; the human's
 ONLY regular duty is resolving **blocked items agents could not resolve**
