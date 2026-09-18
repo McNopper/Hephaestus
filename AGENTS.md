@@ -63,6 +63,13 @@ the ticket advances with a recorded rationale ("no architecture impact:
 local change") instead of a full dispatch. Every stage is visited; not
 every stage does work. (U-029 implements the pass-through semantics.)
 
+**Pump strategy (user direction 2026-09-19):** every wave tick tries to
+RESOLVE BLOCKED ITEMS FIRST — route a blocked ticket to the previous stage
+(vertical send-back on the definition chain) or report it horizontally
+(the verification-definition pair at the same V level) — and only then
+plans new launches. NEEDS-HUMAN is the last resort after agents had their
+attempt. (U-031 implements the resolution-first tick order.)
+
 **The repo works as one (user direction 2026-09-19):** skills, agents, docs,
 store and engine form a single system - after behavior changes, the
 corresponding skills/agents/docs are revisited in the same flow (the pump
