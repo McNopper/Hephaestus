@@ -50,6 +50,14 @@ ICONS = {
         f'<circle cx="8" cy="6.5" r="1" {FILLED}/>',
         f'<circle cx="10.5" cy="6.5" r="1" {FILLED}/>',
     ],
+    "undo": [
+        f'<path d="M2.8 5.2h7.4a3.6 3.6 0 0 1 3.6 3.6 3.6 3.6 0 0 1-3.6 3.6H7" {OPEN}/>',
+        f'<path d="M5.6 2.4L2.8 5.2 5.6 8" {OPEN}/>',
+    ],
+    "redo": [
+        f'<path d="M13.2 5.2H5.8a3.6 3.6 0 0 0-3.6 3.6 3.6 3.6 0 0 0 3.6 3.6H9" {OPEN}/>',
+        f'<path d="M10.4 2.4l2.8 2.8-2.8 2.8" {OPEN}/>',
+    ],
     # shared
     "refresh": [
         f'<path d="M13.2 8a5.2 5.2 0 1 1-1.5-3.7" {OPEN}/>',

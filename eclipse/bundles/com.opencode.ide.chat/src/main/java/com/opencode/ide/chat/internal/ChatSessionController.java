@@ -21,15 +21,18 @@ import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.VcsInfo;
 
 /**
  * Per-view chat session logic (SWT-free): creates and resumes sessions, sends
  * messages through the opencode client, turns {@code message.part.delta}
  * events for the current session into live bubble updates, aborts in-flight
  * replies ({@link #abort()}), forks the session at any history message or
- * from a queued request ({@link #forkAt}/{@link #forkQueued}), and reports
- * everything through the {@link Renderer} (the browser page) and {@link Host}
- * (the owning view) callbacks.
+ * from a queued request ({@link #forkAt}/{@link #forkQueued}), undoes and
+ * redoes exchanges through the server's revert/unrevert endpoints
+ * ({@link #undoLastTurn()}/{@link #redoReverted()}), and reports everything
+ * through the {@link Renderer} (the browser page) and {@link Host} (the
+ * owning view) callbacks.
  */
 public final class ChatSessionController {
 
@@ -102,6 +105,16 @@ public final class ChatSessionController {
          * failed fork) - the pending list should re-read the controller.
          */
         void queueChanged();
+
+        /**
+         * Undo/redo enablement changed. The flags follow the server state:
+         * they flip on the history the server served (a user message to
+         * revert exists) and on the revert/unrevert POST results (the server
+         * holds reverted messages). Default no-op so hosts without
+         * undo/redo controls (and existing test fakes) stay compiling.
+         */
+        default void undoRedoChanged(boolean canUndo, boolean canRedo) {
+        }
     }
 
     /** One prompt to send: the typed text plus the current agent/model/variant pick. */
@@ -191,6 +204,15 @@ public final class ChatSessionController {
     private volatile long lastStreamActivityMillis;
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
+    /**
+     * Undo/redo enablement, both derived from server answers only: the last
+     * history the server served carries a user message to revert, and a
+     * revert POST succeeded whose messages an unrevert can restore. Never
+     * guessed locally - the server is the authority (another client may have
+     * reverted or sent messages in between).
+     */
+    private volatile boolean historyHasUserMessage;
+    private volatile boolean serverHasReverted;
 
     public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host) {
         this(connection, renderer, host, LATE_REPLY_POLL_DEFAULT, LATE_REPLY_CAP_DEFAULT, ABORT_SETTLE_DEFAULT);
@@ -344,9 +366,12 @@ public final class ChatSessionController {
         }
         clearQueued(); // defensive: a fresh conversation starts with an empty queue
         sessionId = null;
+        historyHasUserMessage = false;
+        serverHasReverted = false;
         renderer.clear();
         host.statusChanged("New session (created on first message)");
         renderer.notice("Fresh session - your next message starts a new conversation.");
+        fireUndoRedoChanged();
     }
 
     /** Resumes {@code sid}: loads its history into the transcript. */
@@ -358,29 +383,38 @@ public final class ChatSessionController {
             return;
         }
         sessionId = sid;
+        serverHasReverted = false; // the resumed session's reverted state is unknown here
         host.runInBackground("Loading chat history " + sid, () -> {
             try {
                 List<ChatEntry> entries = connection.getClient().getMessages(sid);
-                List<Map<String, Object>> rows = new ArrayList<>();
-                for (ChatEntry entry : entries) {
-                    String meta = (entry.info() != null) ? entry.info().modelLabel() : "";
-                    Map<String, Object> row = new LinkedHashMap<>();
-                    row.put("role", entry.isUser() ? "user" : "assistant");
-                    row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
-                    row.put("text", entry.text());
-                    row.put("reasoning", entry.reasoning());
-                    row.put("meta", meta);
-                    row.put("tools", toolLinesOf(entry));
-                    rows.add(row);
-                }
+                historyHasUserMessage = lastUserMessageId(entries) != null;
+                List<Map<String, Object>> rows = historyRows(entries);
                 host.runOnUi(() -> {
                     renderer.setMessages(rows);
                     renderer.notice("Resumed session " + sid + " - continuing the conversation.");
+                    fireUndoRedoChanged();
                 });
             } catch (OpencodeException e) {
                 host.runOnUi(() -> host.statusChanged("Error loading history: " + e.getMessage()));
             }
         });
+    }
+
+    /** Maps served history entries into the renderer's transcript rows. */
+    private static List<Map<String, Object>> historyRows(List<ChatEntry> entries) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ChatEntry entry : entries) {
+            String meta = (entry.info() != null) ? entry.info().modelLabel() : "";
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("role", entry.isUser() ? "user" : "assistant");
+            row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
+            row.put("text", entry.text());
+            row.put("reasoning", entry.reasoning());
+            row.put("meta", meta);
+            row.put("tools", toolLinesOf(entry));
+            rows.add(row);
+        }
+        return rows;
     }
 
     /** Compact tool-call lines of an entry ({@code tool} parts: name + state). */
@@ -464,6 +498,8 @@ public final class ChatSessionController {
                     message.variant(), message.system(), message.text());
             ChatEntry reply = connection.getClient().sendMessage(request);
             settleReply(reply);
+            historyHasUserMessage = true; // the prompt is recorded server-side now
+            host.runOnUi(this::fireUndoRedoChanged);
         } catch (OpencodeException e) {
             if (sid != null && isPromptTimeout(e)) {
                 handedOff = recoverFromPromptTimeout(sid, "Send");
@@ -515,6 +551,8 @@ public final class ChatSessionController {
             sid = ensureSession();
             ChatEntry reply = connection.getClient().runCommand(sid, command, arguments);
             settleReply(reply);
+            historyHasUserMessage = true; // the command run is recorded as a user message
+            host.runOnUi(this::fireUndoRedoChanged);
         } catch (OpencodeException e) {
             if (sid != null && isPromptTimeout(e)) {
                 handedOff = recoverFromPromptTimeout(sid, "Command");
@@ -986,6 +1024,7 @@ public final class ChatSessionController {
     private void finalizeLateReply(String sid) {
         try {
             List<ChatEntry> entries = connection.getClient().getMessages(sid);
+            historyHasUserMessage = lastUserMessageId(entries) != null;
             ChatEntry last = entries.isEmpty() ? null : entries.get(entries.size() - 1);
             if (last == null || last.isUser()) {
                 host.runOnUi(() -> renderer.notice(
@@ -995,6 +1034,7 @@ public final class ChatSessionController {
                 settleReply(last);
                 host.runOnUi(() -> renderer.notice("Reply completed (after the POST budget)."));
             }
+            host.runOnUi(this::fireUndoRedoChanged);
         } catch (OpencodeException e) {
             host.error("late-reply history fetch failed for session " + sid, e);
             host.runOnUi(() -> renderer.notice("⚠ Could not load the finished reply: "
@@ -1002,6 +1042,201 @@ public final class ChatSessionController {
         } finally {
             finishSend();
         }
+    }
+
+    // ---------- undo / redo (revert, opencode TUI parity) ----------
+
+    /**
+     * Recognizes the built-in slash commands this chat handles locally
+     * instead of sending them to the server: {@code /undo} and {@code /redo}
+     * (opencode TUI parity - the TUI handles these itself, they are not
+     * custom commands). An exact match wins only: {@code /undo now} or
+     * {@code /undone} are ordinary input.
+     *
+     * @return {@code "undo"} or {@code "redo"} for an exact (case-insensitive,
+     *         whitespace-trimmed) match, {@code null} for anything else
+     */
+    public static String builtInSlashCommand(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.strip();
+        if ("/undo".equalsIgnoreCase(trimmed)) {
+            return "undo";
+        }
+        if ("/redo".equalsIgnoreCase(trimmed)) {
+            return "redo";
+        }
+        return null;
+    }
+
+    /** @return true while a revert is possible (a session with a user message exists). */
+    public boolean canUndo() {
+        return sessionId != null && historyHasUserMessage;
+    }
+
+    /** @return true while the server holds reverted messages an unrevert restores. */
+    public boolean canRedo() {
+        return sessionId != null && serverHasReverted;
+    }
+
+    /**
+     * Undoes the last exchange ({@code POST /session/:id/revert} at the
+     * newest user message): the user message and every reply after it leave
+     * the conversation, and the file changes the reverted turn made are
+     * restored from the git snapshot the server took before it. The
+     * transcript re-renders from the authoritative history and a marker
+     * notice says what happened - plainly warning that file changes were
+     * NOT restored when the project is not a git repo. Refused while a reply
+     * is in flight (a revert during generation would race the streaming
+     * transcript).
+     */
+    public void undoLastTurn() {
+        String sid = sessionId;
+        if (sid == null) {
+            renderer.notice("\u26A0 Nothing to undo yet - send a message first.");
+            return;
+        }
+        if (sending) {
+            renderer.notice("\u26A0 A reply is still streaming - abort it before undoing.");
+            return;
+        }
+        host.runInBackground("Reverting last exchange " + sid, () -> runUndoJob(sid));
+    }
+
+    private void runUndoJob(String sid) {
+        try {
+            List<ChatEntry> entries = connection.getClient().getMessages(sid);
+            String lastUser = lastUserMessageId(entries);
+            if (lastUser == null) {
+                historyHasUserMessage = false; // the server says there is no user message
+                host.runOnUi(() -> {
+                    renderer.notice("\u26A0 Nothing to undo - this session has no user message to revert.");
+                    fireUndoRedoChanged();
+                });
+                return;
+            }
+            boolean reverted = connection.getClient().revertMessage(sid, lastUser, null);
+            host.info("undo: revert(" + sid + ", " + lastUser + ") -> " + reverted);
+            if (!reverted) {
+                historyHasUserMessage = false; // the server refused: nothing left to revert
+                host.runOnUi(() -> {
+                    renderer.notice("\u26A0 Nothing to undo - the server has nothing left to revert.");
+                    fireUndoRedoChanged();
+                });
+                return;
+            }
+            serverHasReverted = true;
+            renderAfterRevertChange(sid, undoNotice(isGitRepository()));
+        } catch (OpencodeException e) {
+            host.error("undo failed for session " + sid, e);
+            host.runOnUi(() -> renderer.notice("\u26A0 Undo failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Redoes the undone exchange ({@code POST /session/:id/unrevert}): the
+     * server restores every message it reverted for this session, the
+     * transcript re-renders from the authoritative history, and redo
+     * enablement drops (everything is back). Always posts when a session
+     * exists - the server is the authority, so a manual {@code /redo} after
+     * resuming a session reverted elsewhere still works; a {@code false}
+     * answer just reports "nothing to redo".
+     */
+    public void redoReverted() {
+        String sid = sessionId;
+        if (sid == null) {
+            renderer.notice("\u26A0 Nothing to redo yet - send a message first.");
+            return;
+        }
+        if (sending) {
+            renderer.notice("\u26A0 A reply is still streaming - abort it before redoing.");
+            return;
+        }
+        host.runInBackground("Restoring reverted exchange " + sid, () -> runRedoJob(sid));
+    }
+
+    private void runRedoJob(String sid) {
+        try {
+            boolean restored = connection.getClient().unrevertSession(sid);
+            host.info("redo: unrevert(" + sid + ") -> " + restored);
+            if (!restored) {
+                serverHasReverted = false;
+                host.runOnUi(() -> {
+                    renderer.notice("\u26A0 Nothing to redo - the server holds no reverted messages.");
+                    fireUndoRedoChanged();
+                });
+                return;
+            }
+            serverHasReverted = false;
+            renderAfterRevertChange(sid, "\u21B7 Redone - the reverted exchange is back.");
+        } catch (OpencodeException e) {
+            host.error("redo failed for session " + sid, e);
+            host.runOnUi(() -> renderer.notice("\u26A0 Redo failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Re-renders the transcript from the authoritative history after a
+     * revert/unrevert (the marker notice makes the state change visible) and
+     * re-fires undo/redo enablement from what the server served.
+     */
+    private void renderAfterRevertChange(String sid, String notice) throws OpencodeException {
+        List<ChatEntry> entries = connection.getClient().getMessages(sid);
+        historyHasUserMessage = lastUserMessageId(entries) != null;
+        List<Map<String, Object>> rows = historyRows(entries);
+        host.runOnUi(() -> {
+            renderer.setMessages(rows);
+            renderer.notice(notice);
+            fireUndoRedoChanged();
+        });
+    }
+
+    /**
+     * @return the undo notice, telling plainly that file changes were NOT
+     *         restored when the project is not a git repo (opencode reverts
+     *         files via git snapshots)
+     */
+    private static String undoNotice(boolean gitRepository) {
+        if (gitRepository) {
+            return "\u21A9 Undid the last exchange (message and replies)"
+                    + " - file changes restored from the git snapshot.";
+        }
+        return "\u21A9 Undid the last exchange (message and replies)"
+                + " - \u26A0 this project is not a git repo: file changes were NOT restored"
+                + " (opencode reverts files via git snapshots).";
+    }
+
+    /**
+     * {@code GET /vcs}: both fields null means "not inside a git repository"
+     * (see {@link VcsInfo}). A failed probe degrades to "assume repo" - the
+     * revert itself succeeded, and a wrong warning would be worse than none.
+     */
+    private boolean isGitRepository() {
+        try {
+            VcsInfo vcs = connection.getClient().getVcsInfo();
+            return vcs != null && (vcs.branch() != null || vcs.repository() != null);
+        } catch (OpencodeException e) {
+            host.error("vcs probe failed while undoing", e);
+            return true;
+        }
+    }
+
+    /** The newest user message id of a served history ({@code null} when there is none). */
+    private static String lastUserMessageId(List<ChatEntry> entries) {
+        String lastUser = null;
+        for (ChatEntry entry : entries) {
+            if (entry.isUser() && entry.info() != null
+                    && entry.info().id() != null && !entry.info().id().isBlank()) {
+                lastUser = entry.info().id();
+            }
+        }
+        return lastUser;
+    }
+
+    /** Notifies the host of the current undo/redo enablement (UI thread). */
+    private void fireUndoRedoChanged() {
+        host.undoRedoChanged(canUndo(), canRedo());
     }
 
     // ---------- abort ----------

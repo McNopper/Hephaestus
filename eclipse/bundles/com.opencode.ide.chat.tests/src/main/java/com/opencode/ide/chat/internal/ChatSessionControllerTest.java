@@ -38,14 +38,17 @@ import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.VcsInfo;
 
 /**
  * Unit tests for the session logic extracted from the (formerly ~700-line)
  * ChatView: sending (session creation, model fallback, final render, failure
  * notices), slash-command execution, the TUI-style pending queue (typing
- * ahead while a reply streams, auto-dispatch, edit/remove), abort, resume,
- * live deltas, and disposal - against fake connection/renderer/host
- * collaborators, with inline executors (no SWT anywhere).
+ * ahead while a reply streams, auto-dispatch, edit/remove), abort, undo/redo
+ * through the server's revert/unrevert endpoints (including the non-git-repo
+ * warning and enablement), resume, live deltas, and disposal - against fake
+ * connection/renderer/host collaborators, with inline executors (no SWT
+ * anywhere).
  */
 public class ChatSessionControllerTest {
 
@@ -710,6 +713,252 @@ public class ChatSessionControllerTest {
                 connection.client.requests.stream().noneMatch(r -> "second".equals(r.text())));
     }
 
+    // ---------- undo / redo (revert through the server) ----------
+
+    @Test
+    public void undoRevertsLastUserExchangeReloadsHistoryAndEnablesRedo() {
+        connection.client.history = List.of(
+                entry("u1", "user", "one"),
+                entry("a1", "assistant", "answer one"),
+                entry("u2", "user", "two"),
+                entry("a2", "assistant", "answer two"));
+        controller.resume("ses_42");
+        // the server drops reverted messages from GET /session/:id/message
+        connection.client.onRevert = () -> connection.client.history = List.of(
+                entry("u1", "user", "one"),
+                entry("a1", "assistant", "answer one"));
+
+        controller.undoLastTurn();
+
+        assertEquals("revert at the newest user message (its replies go with it)",
+                List.of(new FakeClient.RevertCall("ses_42", "u2", null)),
+                connection.client.revertCalls);
+        assertTrue(host.jobs.contains("Reverting last exchange ses_42"));
+        assertEquals("history re-rendered without the reverted tail", 2,
+                renderer.histories.get(renderer.histories.size() - 1).size());
+        assertTrue("undo marker notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.startsWith("\u21A9")
+                        && n.contains("git snapshot")));
+        boolean[] state = host.undoRedoStates.get(host.undoRedoStates.size() - 1);
+        assertTrue("one exchange left - undo again possible", state[0]);
+        assertTrue("the server holds the reverted messages - redo enabled", state[1]);
+        assertTrue(controller.canUndo());
+        assertTrue(controller.canRedo());
+    }
+
+    @Test
+    public void repeatedUndoRevertsEarlierExchanges() {
+        connection.client.history = List.of(
+                entry("u1", "user", "one"), entry("a1", "assistant", "answer one"),
+                entry("u2", "user", "two"), entry("a2", "assistant", "answer two"));
+        controller.resume("ses_42");
+        connection.client.onRevert = () -> connection.client.history = List.of(
+                entry("u1", "user", "one"), entry("a1", "assistant", "answer one"));
+
+        controller.undoLastTurn();
+        controller.undoLastTurn();
+
+        assertEquals("each undo reverts the then-newest user message",
+                List.of(new FakeClient.RevertCall("ses_42", "u2", null),
+                        new FakeClient.RevertCall("ses_42", "u1", null)),
+                connection.client.revertCalls);
+    }
+
+    @Test
+    public void undoWithoutASessionIsRefused() {
+        controller.undoLastTurn();
+
+        assertTrue(connection.client.revertCalls.isEmpty());
+        assertTrue(renderer.notices.contains("\u26A0 Nothing to undo yet - send a message first."));
+    }
+
+    @Test
+    public void undoWhileAReplyStreamsIsRefused() {
+        controller.resume("ses_42");
+        host.holdBackground = true;
+        controller.send(msg("hi"));
+        assertTrue(controller.isSending());
+
+        controller.undoLastTurn();
+
+        assertTrue("a revert during generation would race the streaming transcript",
+                connection.client.revertCalls.isEmpty());
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("abort it before undoing")));
+
+        host.holdBackground = false;
+        host.queuedBackground.forEach(Runnable::run); // settle the held send
+    }
+
+    @Test
+    public void undoWithoutAnyUserMessageNotifiesAndDisablesUndo() {
+        connection.client.history = List.of(entry("a1", "assistant", "only an answer"));
+        controller.resume("ses_42");
+
+        controller.undoLastTurn();
+
+        assertTrue(connection.client.revertCalls.isEmpty());
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("Nothing to undo")));
+        boolean[] state = host.undoRedoStates.get(host.undoRedoStates.size() - 1);
+        assertFalse(state[0]);
+        assertFalse(state[1]);
+    }
+
+    @Test
+    public void undoWhenTheServerHasNothingToRevertIsReportedAndDisablesUndo() {
+        connection.client.history = List.of(entry("u1", "user", "one"));
+        connection.client.revertResult = false;
+        controller.resume("ses_42");
+
+        controller.undoLastTurn();
+
+        assertEquals(1, connection.client.revertCalls.size());
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("nothing left to revert")));
+        assertFalse("the server's answer is the truth, not the local history view",
+                host.undoRedoStates.get(host.undoRedoStates.size() - 1)[0]);
+    }
+
+    @Test
+    public void undoTellsPlainlyWhenTheProjectIsNotAGitRepo() {
+        connection.client.vcs = new VcsInfo(null, null);
+        connection.client.history = List.of(
+                entry("u1", "user", "one"), entry("a1", "assistant", "answer"));
+        controller.resume("ses_42");
+
+        controller.undoLastTurn();
+
+        assertTrue("plain non-git warning expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.startsWith("\u21A9")
+                        && n.contains("not a git repo") && n.contains("NOT restored")));
+        assertEquals(1, connection.client.revertCalls.size());
+    }
+
+    @Test
+    public void undoFailureShowsANotice() {
+        connection.client.revertFailure = new OpencodeException("boom");
+        connection.client.history = List.of(entry("u1", "user", "one"));
+        controller.resume("ses_42");
+
+        controller.undoLastTurn();
+
+        assertTrue(renderer.notices.contains("\u26A0 Undo failed: boom"));
+        assertTrue(host.infos.contains("ERROR undo failed for session ses_42"));
+    }
+
+    @Test
+    public void redoRestoresTheRevertedExchangeAndDisablesRedo() {
+        List<ChatEntry> full = List.of(
+                entry("u1", "user", "one"), entry("a1", "assistant", "answer one"),
+                entry("u2", "user", "two"), entry("a2", "assistant", "answer two"));
+        connection.client.history = full;
+        controller.resume("ses_42");
+        connection.client.onRevert = () -> connection.client.history = List.of(
+                entry("u1", "user", "one"), entry("a1", "assistant", "answer one"));
+        controller.undoLastTurn();
+        connection.client.onRevert = null;
+        connection.client.onUnrevert = () -> connection.client.history = full;
+
+        controller.redoReverted();
+
+        assertEquals(List.of("ses_42"), connection.client.unrevertCalls);
+        assertTrue(host.jobs.contains("Restoring reverted exchange ses_42"));
+        assertTrue("redo marker notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.startsWith("\u21B7")));
+        assertEquals("history re-rendered with the restored exchange", 4,
+                renderer.histories.get(renderer.histories.size() - 1).size());
+        boolean[] state = host.undoRedoStates.get(host.undoRedoStates.size() - 1);
+        assertTrue(state[0]);
+        assertFalse("everything is back - nothing left to redo", state[1]);
+        assertFalse(controller.canRedo());
+    }
+
+    @Test
+    public void redoWhenTheServerHoldsNothingIsReportedAndDisablesRedo() {
+        connection.client.unrevertResult = false;
+        controller.resume("ses_42");
+
+        controller.redoReverted();
+
+        assertEquals(List.of("ses_42"), connection.client.unrevertCalls);
+        assertTrue(renderer.notices.stream().anyMatch(n -> n.contains("Nothing to redo")));
+        assertFalse(host.undoRedoStates.get(host.undoRedoStates.size() - 1)[1]);
+    }
+
+    @Test
+    public void redoWithoutASessionIsRefused() {
+        controller.redoReverted();
+
+        assertTrue(connection.client.unrevertCalls.isEmpty());
+        assertTrue(renderer.notices.contains("\u26A0 Nothing to redo yet - send a message first."));
+    }
+
+    @Test
+    public void redoFailureShowsANotice() {
+        connection.client.unrevertFailure = new OpencodeException("boom");
+        controller.resume("ses_42");
+
+        controller.redoReverted();
+
+        assertTrue(renderer.notices.contains("\u26A0 Redo failed: boom"));
+        assertTrue(host.infos.contains("ERROR redo failed for session ses_42"));
+    }
+
+    @Test
+    public void builtInSlashCommandsAreRecognizedExactly() {
+        assertEquals("undo", ChatSessionController.builtInSlashCommand("/undo"));
+        assertEquals("undo", ChatSessionController.builtInSlashCommand(" /UNDO "));
+        assertEquals("redo", ChatSessionController.builtInSlashCommand("/Redo"));
+        assertNull(ChatSessionController.builtInSlashCommand(null));
+        assertNull(ChatSessionController.builtInSlashCommand(""));
+        assertNull(ChatSessionController.builtInSlashCommand("undo"));
+        assertNull(ChatSessionController.builtInSlashCommand("/undo now"));
+        assertNull(ChatSessionController.builtInSlashCommand("/undone"));
+        assertNull(ChatSessionController.builtInSlashCommand("redo /redo"));
+    }
+
+    @Test
+    public void sendCompletingEnablesUndo() {
+        controller.send(msg("hello"));
+
+        assertTrue(controller.canUndo());
+        assertFalse(controller.canRedo());
+        boolean[] state = host.undoRedoStates.get(host.undoRedoStates.size() - 1);
+        assertTrue(state[0]);
+        assertFalse(state[1]);
+    }
+
+    @Test
+    public void commandCompletingEnablesUndo() {
+        controller.sendCommand(commandSelection("/build", "build", List.of()));
+
+        assertTrue(controller.canUndo());
+    }
+
+    @Test
+    public void resumeComputesUndoEnablementFromTheServedHistory() {
+        connection.client.history = List.of(entry("u1", "user", "one"));
+        controller.resume("ses_42");
+        assertTrue(controller.canUndo());
+        assertFalse(controller.canRedo());
+
+        connection.client.history = List.of();
+        controller.resume("ses_43");
+        assertFalse(controller.canUndo());
+    }
+
+    @Test
+    public void startNewSessionResetsUndoRedoEnablement() {
+        controller.send(msg("hello"));
+        assertTrue(controller.canUndo());
+
+        controller.startNewSession();
+
+        assertFalse(controller.canUndo());
+        assertFalse(controller.canRedo());
+        boolean[] state = host.undoRedoStates.get(host.undoRedoStates.size() - 1);
+        assertFalse(state[0]);
+        assertFalse(state[1]);
+    }
+
     // ---------- live deltas ----------
 
     @Test
@@ -1142,6 +1391,8 @@ public class ChatSessionControllerTest {
         final List<Boolean> sendingStates = new ArrayList<>();
         /** One entry per fork completion: {@code [forkId, fromId, draft]}. */
         final List<String[]> forks = new ArrayList<>();
+        /** One entry per undo/redo enablement change: {@code [canUndo, canRedo]}. */
+        final List<boolean[]> undoRedoStates = new ArrayList<>();
         final List<Runnable> queuedBackground = new ArrayList<>();
         int queueChanges;
         boolean holdBackground;
@@ -1190,6 +1441,11 @@ public class ChatSessionControllerTest {
         public void queueChanged() {
             queueChanges++;
         }
+
+        @Override
+        public void undoRedoChanged(boolean canUndo, boolean canRedo) {
+            undoRedoStates.add(new boolean[] { canUndo, canRedo });
+        }
     }
 
     private static final class FakeConnection implements ChatServerConnection {
@@ -1225,11 +1481,16 @@ public class ChatSessionControllerTest {
         record ForkCall(String sessionId, String messageId) {
         }
 
+        record RevertCall(String sessionId, String messageId, String partId) {
+        }
+
         final List<ChatRequest> requests = new ArrayList<>();
         final List<String> createdSessions = new ArrayList<>();
         final List<String> abortCalls = new ArrayList<>();
         final List<CommandCall> commandCalls = new ArrayList<>();
         final List<ForkCall> forkCalls = new ArrayList<>();
+        final List<RevertCall> revertCalls = new ArrayList<>();
+        final List<String> unrevertCalls = new ArrayList<>();
         int sessionCounter;
         int forkCounter;
         List<Agent> agents = List.of();
@@ -1249,6 +1510,14 @@ public class ChatSessionControllerTest {
         int busyPolls; // > 0: report ses_1 busy for this many calls, then idle
         int configCalls;
         int providersCalls;
+        boolean revertResult = true;
+        boolean unrevertResult = true;
+        OpencodeException revertFailure;
+        OpencodeException unrevertFailure;
+        /** Simulates the server dropping restored/re-reverted messages from GET /message. */
+        Runnable onRevert;
+        Runnable onUnrevert;
+        VcsInfo vcs = new VcsInfo("main", "git@github.com:o/r.git");
 
         @Override
         public HealthStatus getHealth() {
@@ -1350,6 +1619,36 @@ public class ChatSessionControllerTest {
                 throw commandFailure;
             }
             return reply;
+        }
+
+        @Override
+        public boolean revertMessage(String sessionId, String messageId, String partId)
+                throws OpencodeException {
+            revertCalls.add(new RevertCall(sessionId, messageId, partId));
+            if (revertFailure != null) {
+                throw revertFailure;
+            }
+            if (onRevert != null) {
+                onRevert.run();
+            }
+            return revertResult;
+        }
+
+        @Override
+        public boolean unrevertSession(String sessionId) throws OpencodeException {
+            unrevertCalls.add(sessionId);
+            if (unrevertFailure != null) {
+                throw unrevertFailure;
+            }
+            if (onUnrevert != null) {
+                onUnrevert.run();
+            }
+            return unrevertResult;
+        }
+
+        @Override
+        public VcsInfo getVcsInfo() {
+            return vcs;
         }
 
         @Override

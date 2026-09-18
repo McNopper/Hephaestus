@@ -65,6 +65,14 @@ import com.opencode.ide.core.OpencodePreferences;
  * {@link ChatSessionController#forkAt}/{@link ChatSessionController#forkQueued}.
  * Both fork paths open the fork here in the chat (resumed, history rendered);
  * the original session stays untouched.</p>
+ *
+ * <p>TUI-parity undo/redo: the toolbar Undo/Redo actions and the built-in
+ * {@code /undo} / {@code /redo} slash commands revert the last exchange
+ * (user message plus replies) through the server's revert endpoint and
+ * restore it via unrevert - file changes made by the reverted turn come back
+ * from the opencode git snapshot, with a plain warning when the project is
+ * not a git repo. Enablement follows the server state - see
+ * {@link ChatSessionController#undoLastTurn}/{@link ChatSessionController#redoReverted}.</p>
  */
 public class ChatView extends ViewPart {
 
@@ -89,6 +97,8 @@ public class ChatView extends ViewPart {
     private Button sendButton;
     private Button stopButton;
     private Action abortAction;
+    private Action undoAction;
+    private Action redoAction;
     private Combo agentCombo;
     private final ChatSelectorState selectors = new ChatSelectorState();
     private Combo modelCombo;
@@ -180,6 +190,18 @@ public class ChatView extends ViewPart {
         @Override
         public void queueChanged() {
             refreshQueue();
+        }
+
+        @Override
+        public void undoRedoChanged(boolean canUndo, boolean canRedo) {
+            // the flags were computed from the server state at fire time on
+            // the UI thread - straight into the toolbar actions
+            if (undoAction != null) {
+                undoAction.setEnabled(canUndo);
+            }
+            if (redoAction != null) {
+                redoAction.setEnabled(canRedo);
+            }
         }
     };
 
@@ -407,6 +429,30 @@ public class ChatView extends ViewPart {
         abortAction.setImageDescriptor(icon("abort"));
         abortAction.setEnabled(false); // enabled while a send is in flight
 
+        // TUI-parity undo/redo: revert the last exchange / restore it. Both
+        // are also reachable as the built-in /undo /redo slash commands (see
+        // send()); enablement follows the server state via undoRedoChanged.
+        undoAction = new Action("Undo") {
+            @Override
+            public void run() {
+                controller.undoLastTurn();
+            }
+        };
+        undoAction.setToolTipText(
+                "Undo the last exchange: revert the last user message and its replies (/undo) - file changes are restored from the git snapshot");
+        undoAction.setImageDescriptor(icon("undo"));
+        undoAction.setEnabled(false); // enabled once the server has a user message to revert
+
+        redoAction = new Action("Redo") {
+            @Override
+            public void run() {
+                controller.redoReverted();
+            }
+        };
+        redoAction.setToolTipText("Restore the reverted messages (/redo)");
+        redoAction.setImageDescriptor(icon("redo"));
+        redoAction.setEnabled(false); // enabled once the server holds reverted messages
+
         // Thinking toggle: shows/hides the reasoning progress (live and
         // history) - a persisted preference, re-applied when the page reloads
         Action reasoningAction = new Action("Thinking", org.eclipse.jface.action.IAction.AS_CHECK_BOX) {
@@ -425,6 +471,8 @@ public class ChatView extends ViewPart {
 
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(newSessionAction);
+        toolBar.add(undoAction);
+        toolBar.add(redoAction);
         toolBar.add(abortAction);
         toolBar.add(reasoningAction);
     }
@@ -763,6 +811,21 @@ public class ChatView extends ViewPart {
     private void send() {
         String text = input.getText().trim();
         if (text.isEmpty()) {
+            return;
+        }
+        // Built-in slash commands are handled locally BEFORE the composer's
+        // custom-command resolve (opencode TUI parity: /undo and /redo are
+        // TUI actions there too, not custom commands). An exact match only -
+        // anything else (including a custom command picked from the picker)
+        // takes the normal paths below.
+        String builtIn = ChatSessionController.builtInSlashCommand(text);
+        if (builtIn != null) {
+            input.setText(""); // fires the modify listener, hiding the picker
+            if ("undo".equals(builtIn)) {
+                controller.undoLastTurn();
+            } else {
+                controller.redoReverted();
+            }
             return;
         }
         submitSelection(composer.resolve(text));
