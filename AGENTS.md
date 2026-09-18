@@ -63,6 +63,12 @@ the ticket advances with a recorded rationale ("no architecture impact:
 local change") instead of a full dispatch. Every stage is visited; not
 every stage does work. (U-029 implements the pass-through semantics.)
 
+**The repo works as one (user direction 2026-09-19):** skills, agents, docs,
+store and engine form a single system - after behavior changes, the
+corresponding skills/agents/docs are revisited in the same flow (the pump
+runs coherence passes; U-030). Divergence between what the engine does and
+what the skills prescribe is a defect, not cosmetics.
+
 **Autonomy target (user direction 2026-09-18):** waves run themselves on a
 recurring basis — agents execute, review, accept and advance; the human's
 ONLY regular duty is resolving **blocked items agents could not resolve**
