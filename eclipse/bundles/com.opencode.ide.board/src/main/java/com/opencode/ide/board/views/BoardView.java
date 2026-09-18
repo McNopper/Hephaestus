@@ -213,6 +213,9 @@ public class BoardView extends ViewPart {
      * the column, the other layouts drop the cards.
      */
     private java.util.Set<String> hiddenStatuses = java.util.Set.of();
+    /** Cached ticket-type images (bug/story/task/spike); disposed with the view. */
+    private final java.util.Map<String, org.eclipse.swt.graphics.Image> typeImages =
+            new java.util.HashMap<>();
     /** Container that holds whichever layout the current mode builds. */
     private Composite boardArea;
     private Composite flatArea;
@@ -644,6 +647,21 @@ public class BoardView extends ViewPart {
      * the card style: plain (status kanban) or status-prefixed (epic
      * swimlanes, which mix statuses inside a lane).
      */
+    /**
+     * Shared flat-area ticket viewer. {@code statusPrefixedLabels} picks the
+     * card style for LANES (epic swimlanes: one styled card column); the
+     * Progress layout ({@code false}) gets REAL columns instead of composed
+     * strings (user direction 2026-09-18): status glyph | type icon |
+     * title | points - sortable, no string building.
+     */
+    /** The cached type image (created once per type; null for unknown types). */
+    private org.eclipse.swt.graphics.Image typeImage(String type) {
+        return typeImages.computeIfAbsent(type, t -> {
+            org.eclipse.jface.resource.ImageDescriptor descriptor = icon("type-" + t);
+            return descriptor == null ? null : descriptor.createImage();
+        });
+    }
+
     private TableViewer createTicketViewer(Composite column, boolean statusPrefixedLabels) {
         Composite tableComposite = new Composite(column, SWT.NONE);
         TableColumnLayout tableLayout = new TableColumnLayout();
@@ -655,6 +673,102 @@ public class BoardView extends ViewPart {
         viewer.getTable().setLinesVisible(true);
         viewer.setContentProvider(ArrayContentProvider.getInstance());
         hookViewerBehavior(viewer);
+
+        if (!statusPrefixedLabels) {
+            // Progress layout: glyph | type icon | title | points
+            TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
+            status.getColumn().setToolTipText("status glyph");
+            status.setLabelProvider(new ColumnLabelProvider() {
+                @Override
+                public String getText(Object element) {
+                    TicketRow row = asRow(element);
+                    return row == null ? "" : TicketRow.statusSymbol(row.status());
+                }
+
+                @Override
+                public Color getForeground(Object element) {
+                    TicketRow row = asRow(element);
+                    Display display = Display.getCurrent();
+                    if (row == null || display == null) {
+                        return null;
+                    }
+                    return switch (row.status() == null ? "" : row.status()) {
+                        case "done" -> display.getSystemColor(SWT.COLOR_DARK_GREEN);
+                        case "in-progress" -> display.getSystemColor(SWT.COLOR_BLUE);
+                        case "in-review" -> display.getSystemColor(SWT.COLOR_DARK_YELLOW);
+                        default -> display.getSystemColor(SWT.COLOR_DARK_GRAY);
+                    };
+                }
+            });
+            tableLayout.setColumnData(status.getColumn(), new ColumnWeightData(8, 26, false));
+
+            TableViewerColumn type = new TableViewerColumn(viewer, SWT.CENTER);
+            type.getColumn().setToolTipText("ticket type");
+            type.setLabelProvider(new ColumnLabelProvider() {
+                @Override
+                public org.eclipse.swt.graphics.Image getImage(Object element) {
+                    TicketRow row = asRow(element);
+                    if (row == null || row.type() == null || row.type().isBlank()) {
+                        return null;
+                    }
+                    return typeImage(row.type().trim().toLowerCase());
+                }
+            });
+            tableLayout.setColumnData(type.getColumn(), new ColumnWeightData(8, 26, false));
+
+            TableViewerColumn title = new TableViewerColumn(viewer, SWT.NONE);
+            title.setLabelProvider(new ColumnLabelProvider() {
+                @Override
+                public String getText(Object element) {
+                    TicketRow row = asRow(element);
+                    if (row == null) {
+                        return "";
+                    }
+                    String base = row.title() == null || row.title().isBlank()
+                            ? safe(row.id()) : row.title().trim();
+                    return row.displayBlocked() ? "[BLOCKED] " + base : base;
+                }
+
+                @Override
+                public Color getForeground(Object element) {
+                    TicketRow row = asRow(element);
+                    Display display = Display.getCurrent();
+                    return row != null && row.displayBlocked() && display != null
+                            ? display.getSystemColor(SWT.COLOR_RED) : null;
+                }
+
+                @Override
+                public String getToolTipText(Object element) {
+                    TicketRow row = asRow(element);
+                    if (row == null) {
+                        return null;
+                    }
+                    StringBuilder sb = new StringBuilder(safe(row.id()))
+                            .append(" \u2014 ").append(safe(row.title()));
+                    sb.append("\nstatus: ").append(safe(row.status()))
+                            .append(" · type: ").append(row.type() == null ? "(none)" : row.type())
+                            .append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage())
+                            .append(" · priority: ").append(row.priority() == null
+                                    || row.priority().isBlank() ? "medium" : row.priority());
+                    if (row.displayBlocked()) {
+                        sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
+                    }
+                    return sb.toString();
+                }
+            });
+            tableLayout.setColumnData(title.getColumn(), new ColumnWeightData(100, 110, true));
+
+            TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
+            points.setLabelProvider(new ColumnLabelProvider() {
+                @Override
+                public String getText(Object element) {
+                    TicketRow row = asRow(element);
+                    return row == null ? "" : row.pointsLabel();
+                }
+            });
+            tableLayout.setColumnData(points.getColumn(), new ColumnWeightData(12, 26, false));
+            return viewer;
+        }
 
         TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
         BoardRowLabel rowLabel = new BoardRowLabel(statusPrefixedLabels);
@@ -2400,6 +2514,8 @@ public class BoardView extends ViewPart {
         saveSettings();
         stopDispatchLoop(null);
         stopWavesLoop(null);
+        typeImages.values().forEach(org.eclipse.swt.graphics.Image::dispose);
+        typeImages.clear();
         if (watcher != null) {
             watcher.stop();
             watcher = null;
