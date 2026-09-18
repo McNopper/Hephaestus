@@ -137,6 +137,27 @@ public class AutonomousAcceptanceTest {
     }
 
     @Test
+    public void failedReviewAtTheFirstStageBlocksInPlaceForTheHuman() {
+        String id = stagedTicket(VStages.first());
+        workerCompletesAndReviewReplies(
+                "criterion 1 is not met.\nVERDICT: FAIL - criterion 1 unmet: no goals captured");
+
+        fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        Task after = store.get(PROJECT, id);
+        assertEquals("requirements has no previous stage to send back to",
+                VStages.first(), after.stage);
+        assertEquals("a first-stage FAIL stays at the accept gate", "in-review", after.status);
+        assertTrue("blocked in place is the human-escalation signal", after.blocked);
+        assertTrue(after.blocker.startsWith("review failed: "));
+        assertTrue("the reviewer's reasons ride on the blocker",
+                after.blocker.contains("no goals captured"));
+        assertTrue(after.comments.stream()
+                .anyMatch(c -> "reviewer".equals(c.by()) && c.text().startsWith("review: FAIL")
+                        && c.text().contains("no goals captured")));
+    }
+
+    @Test
     public void unclearReviewLeavesTheTicketInReviewWithAComment() {
         String id = stagedTicket("design");
         workerCompletesAndReviewReplies(
@@ -164,6 +185,24 @@ public class AutonomousAcceptanceTest {
         assertEquals("the V tip has no task_advance: PASS ends in done", "done", after.status);
         assertEquals(VStages.last(), after.stage);
         assertFalse(after.blocked);
+    }
+
+    @Test
+    public void acceptedUnstagedTicketIsDoneWithNoPipelineToAdvance() {
+        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
+                "Untracked work", "Do the thing.", "task", "developer", "high", 3,
+                List.of("ac one"), List.of(), null, "U");
+        String id = store.create(PROJECT, spec).id; // no stage: legacy/untracked
+        workerCompletesAndReviewReplies("VERDICT: PASS - criterion met");
+
+        fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        Task after = store.get(PROJECT, id);
+        assertEquals("accepted and done", "done", after.status);
+        assertNull("an unstaged ticket has no pipeline to advance", after.stage);
+        assertFalse(after.blocked);
+        assertTrue(after.comments.stream()
+                .anyMatch(c -> "reviewer".equals(c.by()) && c.text().startsWith("review: PASS")));
     }
 
     @Test
@@ -234,5 +273,29 @@ public class AutonomousAcceptanceTest {
         assertTrue(client.sessionDirectories.get(0).endsWith(id));
         assertEquals("no second worktree/branch for a read-only review",
                 List.of(id), worktrees.createdTaskIds);
+    }
+
+    @Test
+    public void failedReviewSessionNeverFailsTheLaunchTicketWaitsInReview() {
+        String id = stagedTicket("implementation");
+        client.replyOnSend = "done";
+        client.sessionType = "idle";
+        // the worker session already exists; failing session creation hits
+        // only the review session (the containment path)
+        worktrees.onMergeBack = () -> client.failSessionCreation = true;
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals("no review-path failure can fail the merged launch",
+                FleetJob.State.MERGED, job.state());
+        Task after = store.get(PROJECT, id);
+        assertEquals("the ticket waits for a human accept", "in-review", after.status);
+        assertEquals("implementation", after.stage);
+        assertFalse(after.blocked);
+        assertTrue("the not-performed comment names the failure",
+                after.comments.stream()
+                        .anyMatch(c -> "reviewer".equals(c.by())
+                                && c.text().startsWith("review: not performed")
+                                && c.text().contains("session create failed")));
     }
 }
