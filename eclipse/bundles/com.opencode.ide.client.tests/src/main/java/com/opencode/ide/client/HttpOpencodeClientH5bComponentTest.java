@@ -108,8 +108,9 @@ public class HttpOpencodeClientH5bComponentTest {
                     {"data":[{"path":"src/new.cpp","added":12,"removed":0,"status":"added"},
                              {"path":"src/old.cpp","added":1,"removed":5,"status":"modified"}]}
                     """;
-            // {type, content, diff?, …} envelope; content is base64 when type=binary
-            case "/api/file/content" -> "{\"type\":\"text\",\"content\":\"int main() { return 0; }\"}";
+            // v2 serves raw file bytes at /fs/read/<path> (no JSON envelope);
+            // the stub sees the DECODED path (getPath() unescapes %20)
+            case "/api/fs/read/src/a b/main.cpp" -> "int main() { return 0; }";
             // {"<providerID>": [{"type":"oauth"|"api","label":…, prompts?}, …]} - a MAP of method lists
             case "/api/provider/auth" -> """
                     {"anthropic":[{"type":"oauth","label":"Anthropic Console","prompts":[]}],
@@ -165,12 +166,11 @@ public class HttpOpencodeClientH5bComponentTest {
     }
 
     @Test
-    public void fileContentReturnsEnvelopeContentAndEncodesPath() throws Exception {
+    public void fileContentReturnsRawBytesAndEncodesPath() throws Exception {
         String content = client.getFileContent("src/a b/main.cpp");
         assertEquals("int main() { return 0; }", content);
-        assertEquals("/api/file/content", lastPath.get());
-        assertTrue("path must survive encoding: " + lastQuery.get(),
-                lastQuery.get().startsWith("path=src%2Fa%20b%2Fmain.cpp"));
+        assertEquals("v2 reads raw bytes at /fs/read/<path>", "/api/fs/read/src/a b/main.cpp", lastPath.get());
+        assertNull("no query string on the v2 route", lastQuery.get());
     }
 
     @Test
@@ -180,9 +180,10 @@ public class HttpOpencodeClientH5bComponentTest {
     }
 
     @Test
-    public void fileContentToleratesMalformedBody() throws Exception {
+    public void fileContentPassesTextThroughUnparsed() throws Exception {
+        // raw bytes are returned as-is - there is no JSON envelope to reject
         bodyOverride.set("<<not-json>>");
-        assertNull(client.getFileContent("src/a.cpp"));
+        assertEquals("<<not-json>>", client.getFileContent("src/a.cpp"));
     }
 
     @Test

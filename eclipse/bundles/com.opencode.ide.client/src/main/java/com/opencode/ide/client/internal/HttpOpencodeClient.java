@@ -334,7 +334,9 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<SessionTodo> getSessionTodos(String sessionId) throws OpencodeException {
-        return getList("/session/" + sessionId + "/todo", SessionTodo.class);
+        // v2 has no per-session todo endpoint (the v1 /todo route and the
+        // todo.updated event are both gone) - tolerate 404 as an empty list
+        return getListOrEmptyOn404("/session/" + sessionId + "/todo", SessionTodo.class);
     }
 
     @Override
@@ -780,22 +782,17 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public String getFileContent(String path) throws OpencodeException {
-        String target = "/file/content?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8).replace("+", "%20");
+        // v2: GET /fs/read/<path> answers the RAW file bytes (v1 wrapped the
+        // content in a JSON envelope). Keep '/' intact, encode the rest.
+        String encoded = URLEncoder.encode(path, StandardCharsets.UTF_8)
+                .replace("+", "%20").replace("%2F", "/");
+        String target = "/fs/read/" + encoded;
         HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return null;
         }
         String body = response.body();
-        if (body == null || body.isBlank()) {
-            return null;
-        }
-        try {
-            // lenient envelope: {"type":"text","content":"…"} (content is base64 for binary)
-            return stringOf(JsonParser.parseString(body).getAsJsonObject(), "content");
-        } catch (JsonParseException | IllegalStateException e) {
-            ClientLog.warning("opencode GET " + target + ": malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
-            return null;
-        }
+        return (body == null || body.isEmpty()) ? null : body;
     }
 
     @Override

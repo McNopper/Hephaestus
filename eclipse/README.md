@@ -19,7 +19,7 @@ for a second backend, extracted when one actually arrives).
 |---|---|---|---|
 | `com.opencode.ide.client` | **opencode** | `com.google.gson` only — **Eclipse-free, build-enforced** | Pure-Java opencode HTTP client, DTOs (records mirroring the server's OpenAPI), `ChatRequests`/`McpRequests`, SSE parsing + event stream, server launcher, `ClientLog` seam. Reusable as a plain library outside Eclipse/OSGi. |
 | `com.opencode.ide.core` | **eclipse adapter** | `client` + `mcp` + Eclipse runtime + equinox.security | Eclipse glue: preferences (secure remote credentials), activator (installs the Eclipse `ClientLog` adapter, bridges the tasksRoot preference into the MCP endpoint), `ProjectContext` service tracking, `OpencodeConnection` + `ConnectionsManager` (plural connections) lifecycle. |
-| `com.opencode.ide.ui` | **eclipse** | `core` + `client` + `org.eclipse.ui`/`jface`/`swt` | The **OpenCode** perspective, the Server/Providers/**Repo** views, the connection preference page. Server view: project/VCS header (dirty + cwd-mismatch warning) + *Working set* category + agent-nested live sessions (double-click = transcript, **live busy icons** refreshed from the server's session-status map); Session details carries Fork/Share/Summarize lifecycle actions plus **Open message/transcript in Editor** (snapshot copy) and the server rows offer an **MCP servers…** dialog; Providers view shows auth state + *Connect…* (OAuth URL); Repo view = lazy file tree + fuzzy file/`@`symbol/`/`text search over the opencode endpoints. |
+| `com.opencode.ide.ui` | **eclipse** | `core` + `client` + `org.eclipse.ui`/`jface`/`swt` | The **OpenCode** perspective, the Server/Providers/**Repo** views, the connection preference page. Server view: project/VCS header (dirty + cwd-mismatch warning) + *Working set* category + agent-nested live sessions (double-click = transcript, **live busy icons** refreshed from the server's session-status map); Session details carries Fork/Summarize lifecycle actions plus **Open message/transcript in Editor** (snapshot copy) and the server rows offer an **MCP servers…** dialog; Providers view shows auth state + *Connect…* (OAuth URL); Repo view = lazy file tree + fuzzy file/`@`symbol/`/`text search over the opencode endpoints. |
 | `com.opencode.ide.chat` | **chat ui** | `core` + `client` + SWT `Browser` (no `ui` dependency) | Eclipse **host** for the chat-web component: `ChatPage` (browser facade) + `ChatSessionController` (SWT-free) + embedded `ChatWebServer` serving the component's assets. Composer carries the `/command` picker (`CommandComposer`); exported `ChatPermissionSink` seam routes chat-session permission asks into the shared queue. |
 | `components/chat-web` | **non-Java** | — (static assets + node checks) | The standalone chat renderer (markdown + KaTeX + highlight.js + mermaid) with a documented bridge contract — hostable in any environment that serves files and calls JS. |
 | `com.opencode.ide.git` | **agentic git** | — (git CLI) — Eclipse-free | `WorktreeManager`: branch + worktree per agent task (under `.git/opencode-fleet/`), serial merge-back with clean conflict abort. Fleet isolation layer. `StoreGitStatus`/`StoreSync` = distributed-fleet store discipline (status summary; commit → pull-rebase → push with recover — see [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md)). |
@@ -128,6 +128,19 @@ Apply these to every change so the plugin stays consistent:
   `Provider.models` is a map keyed by model id. Every path is prefixed **`/api`**, list
   endpoints wrap their rows in `{data:[…]}`, and the server requires HTTP Basic auth.
   Re-validate the records against a live server on every opencode upgrade.
+- **v2 connection model (2026-09-20).** The local/primary connection now prefers
+  **attaching to the shared background service** every v2 client (TUI, CLI) uses:
+  `OpencodeServiceDiscovery` reads the registration file
+  (`~/.local/state/opencode/service.json`), probes `/api/info`, and starts
+  `opencode serve --service` when absent — with the private-spawn path as fallback
+  (preference *Attach to the shared opencode service (v2)*, default ON). Two v2
+  realities shape the views: **session state is global per user** (every server
+  lists every session), so the Server view scopes its list via
+  `GET /session?directory=…`; **event streams stay per-process**, which is why the
+  **fleet deliberately keeps its own spawned server** (a quiet stream, a private
+  password, a killable budget). Chat is async in v2: `POST /session/:id/prompt`
+  (+`/agent` `/model` `/synthetic`) then poll `GET …/message` until
+  `time.completed`; shell commands follow the same split.
 - **Server readiness ≠ health.** The spawn launcher must wait for `/api/info` **and** a data
   endpoint (`/api/agent`) before returning — `/api/info` answers before the data endpoints are
   populated. Views retry on failure as insurance.
@@ -196,7 +209,10 @@ site at `releng/com.opencode.ide.repository/target/repository/`.
 
 ## Use the first feature (query providers & agents)
 
-1. Start an opencode server in a terminal (or let the plugin spawn it — Phase 2):
+1. Start an opencode server in a terminal — or, on v2, simply have any opencode
+   client running: the plugin **attaches to the shared background service** by
+   default and starts it when missing (it can also spawn a private server — the
+   *Attach to the shared opencode service (v2)* preference controls this):
    ```
    opencode serve --hostname 127.0.0.1 --port 4096
    ```

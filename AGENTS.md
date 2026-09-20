@@ -244,8 +244,17 @@ servers/skills)/Providers/Board
 views, the MCP build-tools endpoint `eclipse-build`, a git-worktree agent fleet, and the
 headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
 
+- **opencode v2 (2026-09-20, pin 2.0.10).** The client speaks the v2 API: `/api` paths with
+  Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
+  single `/api/event` stream (v2 event names; `location.directory` scopes client-side). The
+  interactive connection **attaches to the shared background service** by default
+  (`OpencodeServiceDiscovery`; preference-controlled, spawn as fallback). Two v2 realities to
+  keep in mind when touching this code: **session state is global per user** (the Server view
+  scopes via `?directory=`), **event streams are per-process** — which is why the fleet
+  deliberately keeps spawning its own `opencode serve`. Session share and TUI steering are gone
+  in v2; text/symbol search has no v2 equivalent.
 - **Build:** `cd eclipse; .\build.ps1 clean verify` (Java 21 + Tycho; Node for the chat-web checks).
-- **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`).
+- **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
 - **Docs:** `eclipse/README.md`, `eclipse/ARCHITECTURE.md`, and the root `ROADMAP.md`.
 
 ## Model tiers (model-neutral agents)

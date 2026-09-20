@@ -110,11 +110,13 @@ Agent backends (axis 4):  opencode HttpOpencodeClient (today) · M4 below
 
 `ActivityTracker` consumes the same `/api/event` SSE stream the Server view subscribes to and derives:
 per-session `running` (from `session.status`, whose `data.status` is an object `{type: busy|idle|retry}`
-in v2, vs `session.idle`/deleted), `thinking` (`session.reasoning.delta` on, any other non-tool part
-off), tool invocations (`part.type=="tool"`: name from `part.tool`, state from `part.state.status`
-running/completed/error, null ⇒ running), and the **active-files map** — a file (first non-blank
-of `part.input.filePath|path|file|absolutePath`) is listed while its tool is RUNNING and removed
-on COMPLETED/ERROR. Snapshots are immutable; listeners fire only on real changes. The ui Server
+in v2, vs `session.idle`/deleted), `thinking` (`session.reasoning.started` on, `reasoning.ended`/
+`session.text.started`/any tool event off), tool invocations (v2 flat events: `session.tool.called`/
+`tool.input.started` carry `id`, `name` and `input` → RUNNING; `session.tool.success`/`tool.failed`
+carry only the invocation `id` → COMPLETED/ERROR, so the tracker **inherits name and file from the
+tracked invocation**), and the **active-files map** — a file (first non-blank of
+`input.filePath|path|file|absolutePath`) is listed while its tool is RUNNING and removed on
+COMPLETED/ERROR. Snapshots are immutable; listeners fire only on real changes. The ui Server
 view renders `thinking…` / `tool: <name> — <file>` labels and the "Active files" node from it.
 
 ## The web bridge contract (chat-web's public API)

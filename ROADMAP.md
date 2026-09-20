@@ -16,6 +16,27 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
+## Current state (2026-09-20)
+
+**The opencode v1 → v2 migration is landed and reactor-green** (27/27 modules,
+1480 tests, commit `df28c93`). The harness now speaks the v2 API end-to-end —
+`/api` paths with Basic auth, `{data:[…]}` envelopes, the async
+`POST /session/:id/prompt` + reply polling (chat and fleet keep their
+synchronous contract), v2 event names (`session.text.delta`,
+`session.tool.*`, `session.execution.*`) over the single `/api/event` stream,
+the v2 DTOs (`Agent` without `native`, `Model.cost` as a price-tier array),
+OAuth over `/api/integration`, async shell, `/fs/list` + `/fs/find`, and the
+version pin at 2.0.10. The interactive connection **attaches to the shared v2
+background service** by default (registration-file discovery + probe +
+auto-start, spawn as fallback; new preference); the **fleet deliberately keeps
+its own spawned server** — v2 makes session *state* global per user (the
+Server view scopes by `?directory=`) but keeps event *streams* per-process,
+which the fleet's completion detection and password/budget isolation rely on.
+Feature deltas v2 forces: session share removed, TUI steering no-ops,
+text/symbol search empty (no v2 equivalent). The repo default model moved to
+`kimi-code-plan-global/k3-256k` (the Z.AI plan is rate-limited until
+2026-09-23).
+
 ## Current state (2026-09-16)
 
 All headless-verifiable work is landed and reactor-green; what remains is

@@ -49,10 +49,13 @@ tool layer is a `ToolProvider` SPI so Python/other language packs can plug in la
 
 - **Foundation (Phases 0–5):** Tycho 5 reactor + Maven Wrapper; bundles `core`/`ui`/`chat`/`cdt` +
   feature + p2 repo; target = Eclipse 4.40 / Java 21 / CDT 12.5.
-- **Core:** `HttpOpencodeClient` (Gson, basic-auth, HTTP/1.1), `OpencodeConnection` with **spawn +
-  connect**, readiness probe (`/api/info` **and** `/api/agent`), retry, **JVM shutdown hook** (no
-  orphaned servers), `ProjectContext` seam, `OpencodePreferences` (default = spawn), and the
-  **`/api/event` SSE fan-out** (`OpencodeEventStream` + `Sse`) that drives live updates.
+- **Core:** `HttpOpencodeClient` (Gson, basic-auth, HTTP/1.1), `OpencodeConnection` with
+  **shared-service attach → spawn** (v2: discovers the per-user background service from its
+  registration file, starts `opencode serve --service` when absent, falls back to a private
+  spawn; `attachSharedService` preference) **+ connect**, readiness probe (`/api/info` **and**
+  `/api/agent`), retry, **JVM shutdown hook** (no orphaned servers), `ProjectContext` seam,
+  `OpencodePreferences` (default = spawn + attach), and the **`/api/event` SSE fan-out**
+  (`OpencodeEventStream` + `Sse`) that drives live updates.
 - **UI:** unified **Server** view (per-server explorer, subagents nested by `parentID`, live via SSE
   with a per-session activity indicator), flat **Providers** view (one row per model, filter + sort,
   provider badge icons), OpenCode perspective, connection preference page.
