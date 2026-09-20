@@ -45,7 +45,8 @@ materialization) is fixed with regression tests.
 
 ## Completed this session (2026-09-14)
 
-- ✅ opencode pin bumped to 1.18.30 (live-smoked against the running 1.18.30 server)
+- ✅ opencode pin bumped to 1.18.30 (live-smoked against the running 1.18.30 server) —
+  **superseded by the opencode v2 migration: the pin is now 2.0.10**
 - ✅ SessionEvents dead wiring cut (interface deleted, tests renamed to watchdog)
 - ✅ launchGuarded decomposed into named stages (claimAndCommit → runSession → mergeAndRecord)
 - ✅ WatchingClient → runner-level onSessionCreated callback (net −488 lines)

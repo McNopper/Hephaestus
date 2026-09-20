@@ -2,6 +2,7 @@ package com.opencode.ide.fleet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
@@ -25,11 +26,12 @@ import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
 
 /**
  * Unit tests for {@link GlobalEventsAggregator}: two-connection delivery with
- * connection tags, de-duplication across connections and on re-delivery, seen
- * window rotation, recent ordering and bounds, listener failure isolation,
- * unsubscribe/close lifecycle, failed subscriptions keeping others alive, the
- * duplicate counter, and a concurrency smoke (parallel pushes from both
- * connections are each counted once).
+ * connection tags, de-duplication across connections and on re-delivery,
+ * directory-aware identity (v2 serves one {@code /api/event} stream for every
+ * project), seen window rotation, recent ordering and bounds, listener failure
+ * isolation, unsubscribe/close lifecycle, failed subscriptions keeping others
+ * alive, the duplicate counter, and a concurrency smoke (parallel pushes from
+ * both connections are each counted once).
  */
 public class GlobalEventsAggregatorTest {
 
@@ -82,12 +84,17 @@ public class GlobalEventsAggregatorTest {
     }
 
     private static OpencodeEvent event(String type, String detail) {
+        return event(type, detail, null);
+    }
+
+    /** An event carrying the v2 frame's {@code location.directory} scope. */
+    private static OpencodeEvent event(String type, String detail, String directory) {
         JsonObject properties = JsonParser.parseString("{\"detail\":\"" + detail + "\"}").getAsJsonObject();
-        return new OpencodeEvent(type, properties);
+        return new OpencodeEvent(type, properties, directory);
     }
 
     private static void push(FakeFactory factory, String connectionId, String detail) {
-        factory.sinks.get(connectionId).accept(event("session.updated", detail));
+        factory.sinks.get(connectionId).accept(event("session.renamed", detail));
     }
 
     private static List<String> details(List<ObservedEvent> events) {
@@ -126,7 +133,7 @@ public class GlobalEventsAggregatorTest {
         assertEquals(1, aggregator.droppedDuplicates());
         ObservedEvent delivered = aggregator.recent(1).get(0);
         assertEquals("connA", delivered.connectionId()); // first arrival wins the tag
-        assertEquals("session.updated", delivered.type());
+        assertEquals("session.renamed", delivered.type());
     }
 
     @Test
@@ -154,6 +161,48 @@ public class GlobalEventsAggregatorTest {
 
         assertEquals(2, aggregator.deliveredCount());
         assertEquals(0, aggregator.droppedDuplicates());
+    }
+
+    @Test
+    public void theEventDirectoryIsCarriedThroughToTheFanOut() {
+        // v2 serves ONE /api/event stream for every project, so the connection
+        // id says which SERVER an event came from - the project scope is the
+        // frame's location.directory, which consumers filter on
+        FakeFactory factory = new FakeFactory();
+        GlobalEventsAggregator aggregator = new GlobalEventsAggregator(16, 16, factory);
+        List<ObservedEvent> received = new CopyOnWriteArrayList<>();
+        aggregator.addListener(received::add);
+        aggregator.subscribe("connA", new FakeClient());
+
+        factory.sinks.get("connA").accept(event("session.idle", "e1", "C:/wt/ticket-1"));
+        factory.sinks.get("connA").accept(event("session.idle", "e2", "C:/wt/ticket-2"));
+        factory.sinks.get("connA").accept(event("session.idle", "e3", null));
+
+        assertEquals(List.of("C:/wt/ticket-1", "C:/wt/ticket-2"),
+                received.stream().map(ObservedEvent::directory).filter(d -> d != null).toList());
+        assertNull("a location-less frame keeps a null directory",
+                aggregator.recent(1).get(0).directory());
+        // the scoping a consumer does: one project out of the shared stream
+        assertEquals(List.of("e1"), details(received.stream()
+                .filter(e -> "C:/wt/ticket-1".equals(e.directory())).toList()));
+    }
+
+    @Test
+    public void equalPayloadsFromDifferentDirectoriesAreTwoEvents() {
+        // the single v2 stream carries every worktree: without the directory
+        // in the identity, two projects reporting the same payload would
+        // collapse into one delivery
+        FakeFactory factory = new FakeFactory();
+        GlobalEventsAggregator aggregator = new GlobalEventsAggregator(16, 16, factory);
+        aggregator.subscribe("connA", new FakeClient());
+
+        factory.sinks.get("connA").accept(event("server.connected", "e1", "C:/wt/ticket-1"));
+        factory.sinks.get("connA").accept(event("server.connected", "e1", "C:/wt/ticket-2"));
+        factory.sinks.get("connA").accept(event("server.connected", "e1", "C:/wt/ticket-2"));
+
+        assertEquals(2, aggregator.deliveredCount());
+        assertEquals("the re-delivery of the second directory is the only duplicate",
+                1, aggregator.droppedDuplicates());
     }
 
     @Test
@@ -356,7 +405,7 @@ public class GlobalEventsAggregatorTest {
                     start.await();
                     for (int i = 0; i < perThread; i++) {
                         factory.sinks.get(connectionId)
-                                .accept(event("message.part.updated", connectionId + "-" + i));
+                                .accept(event("session.text.delta", connectionId + "-" + i));
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

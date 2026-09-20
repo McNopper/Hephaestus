@@ -9,7 +9,7 @@ import com.opencode.ide.client.activity.PermissionRequest;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * Bridges the opencode {@code /event} SSE stream into
+ * Bridges the opencode {@code /api/event} SSE stream into
  * {@link ChatPermissions}: parses each event with the shape-tolerant
  * {@link PermissionEvents} and dispatches {@code permission.asked} /
  * {@code permission.replied} to the registered {@link ChatPermissionSink}.

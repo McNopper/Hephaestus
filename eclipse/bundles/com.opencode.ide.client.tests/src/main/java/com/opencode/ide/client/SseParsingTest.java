@@ -12,24 +12,25 @@ import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
  * Unit tests for the pure SSE wire-format parser {@link Sse} - no server, no I/O.
+ * Fixtures use the v2 frame shape {@code {id, created, type, location, data}}.
  */
 public class SseParsingTest {
 
     @Test
     public void parsesSingleEvent() {
-        String sse = "data: {\"type\":\"session.created\",\"properties\":{\"info\":{\"id\":\"ses_1\"}}}\n\n";
+        String sse = "data: {\"id\":\"evt_1\",\"created\":1,\"type\":\"session.created\",\"data\":{\"sessionID\":\"ses_1\"}}\n\n";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("session.created", events.get(0).type());
-        assertEquals("ses_1", events.get(0).at("info.id"));
+        assertEquals("ses_1", events.get(0).string("sessionID"));
     }
 
     @Test
     public void parsesMultipleEvents() {
         String sse = """
-                data: {"type":"session.status","properties":{"sessionID":"ses_a"}}
+                data: {"id":"evt_1","created":1,"type":"session.status","data":{"sessionID":"ses_a"}}
 
-                data: {"type":"session.idle","properties":{"sessionID":"ses_b"}}
+                data: {"id":"evt_2","created":2,"type":"session.idle","data":{"sessionID":"ses_b"}}
 
                 """;
         List<OpencodeEvent> events = Sse.events(sse);
@@ -41,17 +42,17 @@ public class SseParsingTest {
 
     @Test
     public void joinsMultiLineDataFrames() {
-        String sse = "data: {\"type\":\"x\",\ndata: \"properties\":{\"k\":\"v\"}}\n\n";
+        String sse = "data: {\"type\":\"x\",\ndata: \"data\":{\"k\":\"v\"}}\n\n";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("x", events.get(0).type());
-        // the event's `properties` field is the inner object, so "v" lives at key "k"
+        // the event payload is the `data` object, so "v" lives at key "k"
         assertEquals("v", events.get(0).at("k"));
     }
 
     @Test
     public void skipsMalformedFrames() {
-        String sse = "data: {\"type\":\"ok\",\"properties\":{}}\n\ndata: this-is-not-json\n\ndata: {broken\n\n";
+        String sse = "data: {\"type\":\"ok\",\"data\":{}}\n\ndata: this-is-not-json\n\ndata: {broken\n\n";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("ok", events.get(0).type());
@@ -62,7 +63,7 @@ public class SseParsingTest {
         String sse = """
                 : comment line
                 event: session.status
-                data: {"type":"session.status","properties":{"sessionID":"ses_x"}}
+                data: {"type":"session.status","data":{"sessionID":"ses_x"}}
 
                 """;
         List<OpencodeEvent> events = Sse.events(sse);
@@ -85,7 +86,7 @@ public class SseParsingTest {
 
     @Test
     public void unterminatedFrameAtEndOfInputIsEmitted() {
-        String sse = "data: {\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"ses_z\"}}";
+        String sse = "data: {\"type\":\"session.idle\",\"data\":{\"sessionID\":\"ses_z\"}}";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("session.idle", events.get(0).type());
@@ -94,7 +95,7 @@ public class SseParsingTest {
 
     @Test
     public void unterminatedMultiLineFrameAtEndOfInputIsEmitted() {
-        String sse = "data: {\"type\":\"x\",\ndata: \"properties\":{\"k\":\"v\"}}";
+        String sse = "data: {\"type\":\"x\",\ndata: \"data\":{\"k\":\"v\"}}";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("x", events.get(0).type());
@@ -103,7 +104,7 @@ public class SseParsingTest {
 
     @Test
     public void terminatedThenUnterminatedFramesBothEmitted() {
-        String sse = "data: {\"type\":\"a\",\"properties\":{}}\n\ndata: {\"type\":\"b\",\"properties\":{}}";
+        String sse = "data: {\"type\":\"a\",\"data\":{}}\n\ndata: {\"type\":\"b\",\"data\":{}}";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(2, events.size());
         assertEquals("a", events.get(0).type());
@@ -127,22 +128,25 @@ public class SseParsingTest {
     }
 
     @Test
-    public void unwrapsGlobalEventPayloadEnvelope() {
-        // /global/event frame shape: {"directory":…, "project":…, "payload":{"id","type","properties"}}
-        String sse = "data: {\"directory\":\"/repo\",\"project\":\"p1\","
-                + "\"payload\":{\"id\":\"evt_1\",\"type\":\"session.created\",\"properties\":{\"info\":{\"id\":\"ses_g1\"}}}}\n\n";
-        List<OpencodeEvent> events = Sse.events(sse);
-        assertEquals(1, events.size());
-        assertEquals("session.created", events.get(0).type());
-        assertEquals("ses_g1", events.get(0).at("info.id"));
-    }
-
-    @Test
-    public void plainFramesWithoutEnvelopeStillParse() {
-        String sse = "data: {\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"ses_1\"}}\n\n";
+    public void locationDirectoryScopesTheEvent() {
+        // v2 serves ONE stream for every directory; the frame's location is
+        // what ties an event to a project or worktree
+        String sse = "data: {\"id\":\"evt_1\",\"created\":1,\"type\":\"session.idle\","
+                + "\"location\":{\"directory\":\"C:\\\\Development\\\\GitHub\\\\Hephaestus\"},"
+                + "\"data\":{\"sessionID\":\"ses_g1\"}}\n\n";
         List<OpencodeEvent> events = Sse.events(sse);
         assertEquals(1, events.size());
         assertEquals("session.idle", events.get(0).type());
-        assertEquals("ses_1", events.get(0).string("sessionID"));
+        assertEquals("ses_g1", events.get(0).string("sessionID"));
+        assertEquals("C:\\Development\\GitHub\\Hephaestus", events.get(0).directory());
+    }
+
+    @Test
+    public void framesWithoutLocationHaveNoDirectory() {
+        String sse = "data: {\"type\":\"server.connected\",\"data\":{}}\n\n";
+        List<OpencodeEvent> events = Sse.events(sse);
+        assertEquals(1, events.size());
+        assertEquals("server.connected", events.get(0).type());
+        assertNull(events.get(0).directory());
     }
 }

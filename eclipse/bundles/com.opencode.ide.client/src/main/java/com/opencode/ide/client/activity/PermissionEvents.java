@@ -13,19 +13,20 @@ import com.opencode.ide.client.model.OpencodeEvent;
  * {@code null}, missing or non-string fields are read leniently, and parsing
  * never throws — a malformed event simply produces {@code null}.
  *
- * <p><b>Event contract (verified against the opencode
- * {@code v1.18.0} tag, {@code packages/schema/src/v1/permission.ts} and the
- * SSE handler in {@code .../httpapi/handlers/event.ts}):</b></p>
+ * <p><b>Event contract (v2, verified against a live opencode 2.0.10 server):</b></p>
  * <ul>
- *   <li>{@code permission.asked} — properties
- *   {@code { id, sessionID, permission, patterns: string[], metadata,
- *   always: string[], tool? }}: a new request is pending. {@code id} is the
- *   {@code per_...} permission id used in the answer endpoint;
- *   {@code permission} the category (e.g. {@code "bash"}); {@code metadata}
- *   an open record (its string values carry display hints like the command).</li>
- *   <li>{@code permission.replied} — properties
+ *   <li>{@code permission.asked} — data
+ *   {@code { sessionID, action, resources: string[], save?, metadata,
+ *   source: { type, messageID, id } }}: a new request is pending. The
+ *   permission id used in the answer endpoint lives at {@code source.id}
+ *   (v1 had a top-level {@code id}); {@code action} is the category (e.g.
+ *   {@code "bash"}, v1 called it {@code permission}); {@code resources} are
+ *   the patterns (v1 called them {@code patterns}). {@code metadata} is an
+ *   open record whose string values carry display hints like the command.</li>
+ *   <li>{@code permission.replied} — data
  *   {@code { sessionID, requestID, reply: once|always|reject }}: the request
- *   was answered (possibly by another client — e.g. an attached TUI).</li>
+ *   was answered (possibly by another client — e.g. an attached TUI).
+ *   Unchanged from v1.</li>
  * </ul>
  *
  * <p>Older/other builds reportedly emit a {@code permission.updated}-style
@@ -70,13 +71,20 @@ public final class PermissionEvents {
 
     private static PermissionRequest parseAsked(OpencodeEvent event) {
         String sessionId = first(event.string("sessionID"), event.string("sessionId"));
-        String permissionId = first(event.string("id"), event.string("permissionID"),
-                event.string("permissionId"));
+        // v2 keeps the permission id at source.id; v1 had a top-level id
+        String permissionId = first(event.at("source.id"), event.string("id"),
+                event.string("permissionID"), event.string("permissionId"));
         if (sessionId == null || permissionId == null) {
             return null;
         }
-        return new PermissionRequest(sessionId, permissionId, event.string("permission"),
-                strings(event, "patterns"), metadataTitle(event), PermissionRequest.Status.PENDING);
+        // v2 renamed the fields: action (was permission), resources (was patterns)
+        String category = first(event.string("action"), event.string("permission"));
+        List<String> patterns = strings(event, "resources");
+        if (patterns.isEmpty()) {
+            patterns = strings(event, "patterns");
+        }
+        return new PermissionRequest(sessionId, permissionId, category, patterns,
+                metadataTitle(event), PermissionRequest.Status.PENDING);
     }
 
     private static PermissionRequest parseReplied(OpencodeEvent event) {

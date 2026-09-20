@@ -9,14 +9,14 @@ import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
  * Event-to-queue bridge for the fleet's {@link PermissionQueue}: feed it the
- * opencode {@code /event} SSE stream ({@link #onEvent}, e.g. via
+ * opencode {@code /api/event} SSE stream ({@link #onEvent}, e.g. via
  * {@link #subscribe(SseSessionEvents.Subscriber)} on the owner-run stream),
  * and it enqueues {@code permission.asked} events of the fleet's own sessions
  * while dropping them again on {@code permission.replied} or
  * {@code session.deleted}.
  *
  * <p><b>Why the runner-level session-created callback:</b> the fleet's
- * prompt call ({@code POST /session/:id/message}) blocks until the agent's
+ * prompt call ({@code POST /session/:id/prompt}) blocks until the agent's
  * final reply — and an unattended session that asks for permission waits,
  * mid-run, inside that very call. The session must therefore be watched
  * from the moment it is created (before the prompt is sent), not after
@@ -26,6 +26,13 @@ import com.opencode.ide.client.model.OpencodeEvent;
  * every session the runner creates is then registered with this bridge.
  * {@link TaskFleet} calls {@link #sessionEnded(String)} when the job leaves
  * the launch (completed, aborted, failed) so pending entries are dropped.</p>
+ *
+ * <p><b>v2 payloads:</b> the only field this class reads itself is
+ * {@code sessionID}, which v2 kept on {@code session.deleted} (and on every
+ * other session event). Everything else — the permission id, category and
+ * patterns — is resolved by the shape-tolerant
+ * {@link PermissionEvents#parse(OpencodeEvent)} in the client bundle, which
+ * stays the single place that knows the wire shape.</p>
  *
  * <p>Never throws on any event; foreign sessions are ignored. Pure Java, no
  * Eclipse/OSGi.</p>
@@ -78,12 +85,19 @@ public final class FleetPermissionBridge {
      * session; {@code permission.asked}/{@code permission.replied} of watched
      * sessions are forwarded to the queue. Unknown sessions, foreign event
      * types and malformed payloads are ignored — this method never throws.
+     *
+     * <p><b>v2 payloads:</b> {@code permission.asked} keeps its identity at
+     * {@code source.id} and renames the category/patterns fields; that shape is
+     * resolved in the client-owned {@link PermissionEvents#parse(OpencodeEvent)}
+     * (the single place that knows the wire shape), so this bridge only reads
+     * the {@code sessionID} itself.</p>
      */
     public void onEvent(OpencodeEvent event) {
         if (event == null || event.type() == null) {
             return;
         }
         if ("session.deleted".equals(event.type())) {
+            // v2 keeps the name and the flat {sessionID} payload
             String sessionId = event.string("sessionID");
             if (sessionId != null && sessions.contains(sessionId)) {
                 sessionEnded(sessionId);

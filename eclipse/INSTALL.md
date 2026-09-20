@@ -7,7 +7,7 @@ Source lives in the repo's `eclipse/` folder.
 
 ## Prerequisites
 
-- **opencode** installed and on PATH (`opencode --version` → 1.18.x). Pinned and endpoint-verified against 1.18.30 (see `ServerVersionPin`).
+- **opencode** installed and on PATH (`opencode --version` → 2.x). Pinned and endpoint-verified against 2.0.10 (see `ServerVersionPin`).
 - A JDK 21+ on the machine (the `build.ps1` wrapper auto-detects one;
   `JAVA_HOME` does not have to be valid).
 - **Node.js on PATH** — only needed for the chat web renderer/bridge checks that run inside
@@ -169,7 +169,8 @@ one-time setup:
 
 - **Perspective not visible** after a dropins/p2 update → start Eclipse once with `-clean`.
 - **Views show "Error: …"** → check the server is reachable:
-  `Invoke-RestMethod http://127.0.0.1:4096/global/health` (should report `healthy=true`).
+  `opencode api get /api/info` (answers with `version`/`pid`/`urls` — reachability *is* health in v2;
+  it also prints the server's actual base URL, since the port is dynamic).
 - **Spawn mode: "opencode binary not found"** → set the binary path in Preferences → OpenCode
   (e.g. `C:\Users\<you>\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe`).
 - **Chat renders blank / a feature (math, mermaid) stops working** → the chat page reports every

@@ -31,13 +31,19 @@ public class ServerLabelsTest {
     // ---------- fixtures ----------
 
     private static Session session(String id, String parentID, long updated) {
-        return new Session(id, "slug-" + id, "Title " + id, null, parentID,
-                new Session.Time(NOW, updated), null, null, null);
+        return new Session(id, null, "Title " + id, null, parentID, null,
+                new Session.Time(NOW, updated, 0L), null, null, null, null);
     }
 
-    private static Agent agent(String mode, boolean nativeAgent, String description) {
-        return new Agent("name", description, mode, nativeAgent, null, null, null, null, null, null,
-                null, null, null);
+    private static Agent agent(String mode, String description) {
+        // v2 Agent.Info: (id, name, description, mode, hidden, permissions,
+        // steps, color, model, system) — no native/builtIn component any more
+        return new Agent("name", "name", description, mode, null, null, null, null, null, null);
+    }
+
+    /** A bare v2 session: only the fields a label test cares about. */
+    private static Session named(String id, String title, String agent) {
+        return new Session(id, null, title, agent, null, null, null, null, null, null, null);
     }
 
     private record FakeServer(String name, List<Session> sessions) {
@@ -88,40 +94,37 @@ public class ServerLabelsTest {
 
     @Test
     public void agentDetailCombinesModeNativeAndDescription() {
-        assertEquals("build • native — Runs the build",
-                ServerLabels.agentDetail(agent("build", true, "Runs the build")));
-        assertEquals("", ServerLabels.agentDetail(agent(null, false, null)));
-        assertEquals(" — writes code", ServerLabels.agentDetail(agent(null, false, "writes code")));
+        Agent a = agent("build", "Runs the build");
+        // v2's Agent.Info carries neither `native` nor `builtIn` and
+        // Agent#isNative() is hardcoded to false, so the marker is dormant —
+        // assert against the record's own answer instead of hard-coding the
+        // v1 expectation, and the test survives the marker being retired
+        String nativeMarker = a.isNative() ? " • native" : "";
+
+        assertEquals("build" + nativeMarker + " — Runs the build", ServerLabels.agentDetail(a));
+        assertEquals("", ServerLabels.agentDetail(agent(null, null)));
+        assertEquals(" — writes code", ServerLabels.agentDetail(agent(null, "writes code")));
     }
 
     // ---------- session labels ----------
 
     @Test
-    public void sessionNamePrefersTitleThenSlugThenIdAndPrefixesAgent() {
-        assertEquals("Fix build",
-                ServerLabels.sessionName(new Session("s1", "slug", "Fix build", null, null, null, null, null, null)));
-        assertEquals("slug-one",
-                ServerLabels.sessionName(new Session("s1", "slug-one", null, null, null, null, null, null, null)));
-        assertEquals("slug-one",
-                ServerLabels.sessionName(new Session("s1", "slug-one", "", null, null, null, null, null, null)));
-        assertEquals("s1",
-                ServerLabels.sessionName(new Session("s1", null, null, null, null, null, null, null, null)));
-        assertEquals("build — Fix build",
-                ServerLabels.sessionName(new Session("s1", "slug", "Fix build", "build", null, null, null, null, null)));
+    public void sessionNamePrefersTitleThenIdAndPrefixesAgent() {
+        // v2 sessions carry no slug, so the fallback chain is title -> id
+        assertEquals("Fix build", ServerLabels.sessionName(named("s1", "Fix build", null)));
+        assertEquals("s1", ServerLabels.sessionName(named("s1", null, null)));
+        assertEquals("s1", ServerLabels.sessionName(named("s1", "", null)));
+        assertEquals("build — Fix build", ServerLabels.sessionName(named("s1", "Fix build", "build")));
     }
 
     @Test
     public void nestedSessionNameShowsBareTitleWithoutAgentPrefix() {
         // nested under the agent row, the agent prefix would be noise
-        assertEquals("Fix build",
-                ServerLabels.nestedSessionName(new Session("s1", "slug", "Fix build", "build", null, null, null, null, null)));
-        assertEquals("slug-one",
-                ServerLabels.nestedSessionName(new Session("s1", "slug-one", null, "build", null, null, null, null, null)));
-        assertEquals("s1",
-                ServerLabels.nestedSessionName(new Session("s1", null, null, null, null, null, null, null, null)));
+        assertEquals("Fix build", ServerLabels.nestedSessionName(named("s1", "Fix build", "build")));
+        assertEquals("s1", ServerLabels.nestedSessionName(named("s1", null, "build")));
+        assertEquals("s1", ServerLabels.nestedSessionName(named("s1", null, null)));
         // the Sessions category keeps the agent-prefixed form
-        assertEquals("build — Fix build",
-                ServerLabels.sessionName(new Session("s1", "slug", "Fix build", "build", null, null, null, null, null)));
+        assertEquals("build — Fix build", ServerLabels.sessionName(named("s1", "Fix build", "build")));
     }
 
     @Test
@@ -137,7 +140,7 @@ public class ServerLabelsTest {
 
     @Test
     public void sessionNameAppendsWorkingSuffixOnlyWhileWorking() {
-        Session s = new Session("s1", "slug", "Fix build", "build", null, null, null, null, null);
+        Session s = named("s1", "Fix build", "build");
 
         assertEquals("build — Fix build", ServerLabels.sessionName(s, false));
         assertEquals("build — Fix build  • working", ServerLabels.sessionName(s, true));
@@ -147,8 +150,8 @@ public class ServerLabelsTest {
 
     @Test
     public void sessionDetailAppendsRelativeUpdateTime() {
-        Session s = new Session("s1", null, null, null, null,
-                new Session.Time(NOW, NOW - 5 * 60_000L - 10_000L), null, null, null);
+        Session s = new Session("s1", null, null, null, null, null,
+                new Session.Time(NOW, NOW - 5 * 60_000L - 10_000L, 0L), null, null, null, null);
 
         assertEquals("busy • updated 5m ago", ServerLabels.sessionDetail(s, null, "busy"));
     }
@@ -220,6 +223,32 @@ public class ServerLabelsTest {
                 ServerLabels.fileActivityName(new FileActivity("session-abcdefgh123", "edit", "src/Main.java")));
         assertEquals("abc", ServerLabels.shortId("abc"));
         assertEquals("", ServerLabels.shortId(null));
+    }
+
+    @Test
+    public void activityLabelMapsV2EventTypesToTheLiveLabel() {
+        // v1 carried the part kind in the payload (part.type of a
+        // message.part.updated); v2 encodes it in the event name, so the
+        // label is a pure function of the type
+        assertEquals("thinking", ServerLabels.activityLabel("session.reasoning.started"));
+        assertEquals("thinking", ServerLabels.activityLabel("session.reasoning.delta"));
+        assertEquals("running tool", ServerLabels.activityLabel("session.tool.called"));
+        assertEquals("running tool", ServerLabels.activityLabel("session.tool.input.started"));
+        assertEquals("running tool", ServerLabels.activityLabel("session.tool.input.delta"));
+        assertEquals("running tool", ServerLabels.activityLabel("session.tool.progress"));
+        assertEquals("responding", ServerLabels.activityLabel("session.text.started"));
+        assertEquals("responding", ServerLabels.activityLabel("session.text.delta"));
+    }
+
+    @Test
+    public void activityLabelIgnoresNonStreamingAndRetiredV1Types() {
+        assertNull(ServerLabels.activityLabel("session.idle"));
+        assertNull(ServerLabels.activityLabel("session.status"));
+        assertNull(ServerLabels.activityLabel("session.execution.succeeded"));
+        assertNull(ServerLabels.activityLabel("message.part.updated")); // v1, gone
+        assertNull(ServerLabels.activityLabel("message.part.delta"));   // v1, gone
+        assertNull(ServerLabels.activityLabel(""));
+        assertNull(ServerLabels.activityLabel(null));
     }
 
     // ---------- category ----------
@@ -302,7 +331,7 @@ public class ServerLabelsTest {
         assertEquals(primary, ServerLabels.ownerOf(servers, session("zz", null, 0L), f -> f.sessions(), primary));
         assertEquals(primary, ServerLabels.ownerOf(servers, null, f -> f.sessions(), primary));
         assertEquals(primary, ServerLabels.ownerOf(servers,
-                new Session(null, null, null, null, null, null, null, null, null), f -> f.sessions(), primary));
+                named(null, null, null), f -> f.sessions(), primary));
     }
 
     @Test

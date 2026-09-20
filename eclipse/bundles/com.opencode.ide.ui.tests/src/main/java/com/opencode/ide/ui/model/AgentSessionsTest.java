@@ -27,12 +27,14 @@ public class AgentSessionsTest {
     // ---------- fixtures ----------
 
     private static Session session(String id, String agent, String parentID, long updated) {
-        return new Session(id, "slug-" + id, "Title " + id, agent, parentID,
-                new Session.Time(NOW, updated), null, null, null);
+        return new Session(id, null, "Title " + id, agent, parentID, null,
+                new Session.Time(NOW, updated, 0L), null, null, null, null);
     }
 
     private static Agent agent(String name) {
-        return new Agent(name, null, null, null, null, null, null, null, null, null, null, null, null);
+        // v2 Agent.Info: (id, name, description, mode, hidden, permissions,
+        // steps, color, model, system) — a real server repeats the id as name
+        return new Agent(name, name, null, null, null, null, null, null, null, null);
     }
 
     private static final Agent BUILD = agent("build");

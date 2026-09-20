@@ -60,8 +60,11 @@ public final class Sse {
 
     /**
      * Parse one SSE JSON frame into an {@link OpencodeEvent}. Returns {@code null}
-     * for malformed JSON (pure - does not log). {@code /global/event} frames
-     * wrap the event in a {@code payload} envelope; it is unwrapped here.
+     * for malformed JSON (pure - does not log).
+     *
+     * <p>v2 frames are {@code {id, created, type, location, data, durable}}: the
+     * event payload is {@code data} and {@code location.directory} scopes the
+     * event, because v2 serves one stream for every directory.</p>
      */
     public static OpencodeEvent parseEvent(String json) {
         if (json == null || json.isBlank()) {
@@ -69,17 +72,25 @@ public final class Sse {
         }
         try {
             JsonObject object = JsonParser.parseString(json).getAsJsonObject();
-            if (object.has("payload") && object.get("payload").isJsonObject()) {
-                object = object.getAsJsonObject("payload");
-            }
             String type = object.has("type") ? object.get("type").getAsString() : null;
-            JsonObject properties = (object.has("properties") && object.get("properties").isJsonObject())
-                    ? object.getAsJsonObject("properties")
+            JsonObject properties = (object.has("data") && object.get("data").isJsonObject())
+                    ? object.getAsJsonObject("data")
                     : new JsonObject();
-            return new OpencodeEvent(type, properties);
+            return new OpencodeEvent(type, properties, directoryOf(object));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** {@code location.directory} of a v2 frame, or {@code null} when absent. */
+    private static String directoryOf(JsonObject frame) {
+        if (!frame.has("location") || !frame.get("location").isJsonObject()) {
+            return null;
+        }
+        JsonObject location = frame.getAsJsonObject("location");
+        return (location.has("directory") && location.get("directory").isJsonPrimitive())
+                ? location.get("directory").getAsString()
+                : null;
     }
 
     /** Parse a raw SSE text blob into events (skipping malformed frames). */

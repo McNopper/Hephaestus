@@ -785,7 +785,7 @@ public final class TaskFleet {
      * INTER-STEP boundary of a healthy agentic run (F-005: five concurrent
      * workers were falsely completed ~1 min in and failed "worker produced
      * no changes" while still streaming). A session with no new messages for
-     * {@link #stallTimeout} is aborted ({@code POST /session/:id/abort}) and
+     * {@link #stallTimeout} is aborted ({@code POST /session/:id/interrupt}) and
      * fails cleanly instead of burning the whole budget on a hang.
      * Slow-but-progressing workers are never killed by a guessed wall clock.
      */

@@ -52,6 +52,18 @@ public interface OpencodeClient {
     /** {@code GET /session} - all sessions (running agent instances), including subagent children. */
     List<Session> getSessions() throws OpencodeException;
 
+    /**
+     * {@code GET /session?directory=…} - sessions scoped to one project/worktree
+     * directory. Matters in v2: session state is global per user (every server
+     * lists every session of every project), so a view that wants "this repo's
+     * sessions" must filter — the v1 server did that scoping for us.
+     *
+     * @param directory project/worktree path, or {@code null} for all sessions
+     */
+    default List<Session> getSessions(String directory) throws OpencodeException {
+        return getSessions();
+    }
+
     /** {@code GET /session/status} - per-session status ({@code idle}/{@code busy}/{@code retry}). */
     Map<String, SessionStatus> getSessionStatus() throws OpencodeException;
 
@@ -208,18 +220,8 @@ public interface OpencodeClient {
         throw new UnsupportedOperationException("summarizeSession");
     }
 
-    /** {@code POST /session/:id/share} - publish a read-only share link (opt-in). */
-    default Session shareSession(String sessionId) throws OpencodeException {
-        throw new UnsupportedOperationException("shareSession");
-    }
-
-    /** {@code DELETE /session/:id/share} - withdraw a share link. */
-    default Session unshareSession(String sessionId) throws OpencodeException {
-        throw new UnsupportedOperationException("unshareSession");
-    }
-
     /**
-     * {@code POST /session/:id/permissions/:permissionID} - answer a permission
+     * {@code POST /session/:id/permission/:requestID/reply} - answer a permission
      * request an unattended session raised.
      *
      * @param response     {@code "once"}, {@code "always"} or {@code "reject"}

@@ -29,6 +29,13 @@ import com.opencode.ide.client.model.ShellResult;
  */
 final class FakeClient implements OpencodeClient {
 
+    /**
+     * The {@code time.completed} stamp every served message carries (v2's
+     * 14th {@link ChatMessageInfo} component). Any non-zero value marks the
+     * message complete; a fixed one keeps fixtures deterministic.
+     */
+    private static final long COMPLETED_AT = 1_700_000_000_000L;
+
     final List<String> createdTitles = new java.util.concurrent.CopyOnWriteArrayList<>();
     final List<Path> sessionDirectories = new java.util.concurrent.CopyOnWriteArrayList<>();
     final List<ChatRequest> sentRequests = new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -73,7 +80,7 @@ final class FakeClient implements OpencodeClient {
         addEntry(sessionId, "assistant", reply);
     }
 
-    /** Sessions aborted via POST /session/:id/abort (the watchdog's stall kill). */
+    /** Sessions aborted via POST /session/:id/interrupt (the watchdog's stall kill). */
     final java.util.List<String> aborted = new java.util.ArrayList<>();
 
     @Override
@@ -83,9 +90,11 @@ final class FakeClient implements OpencodeClient {
     }
 
     private ChatEntry entry(String sessionId, String role, String text) {
+        // every entry the fake serves is a FINISHED message: v2's trailing
+        // time.completed stamp (14th component) is what isComplete() polls on
         ChatMessageInfo info = new ChatMessageInfo(
                 "msg_" + (++messageCounter), sessionId, role,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, COMPLETED_AT);
         List<ChatPart> parts = (text == null) ? List.of() : List.of(new ChatPart("text", text, null, null));
         return new ChatEntry(info, parts);
     }
@@ -102,7 +111,7 @@ final class FakeClient implements OpencodeClient {
         if (onSessionCreated != null) {
             onSessionCreated.run();
         }
-        return new Session(id, "slug", title, null, null, null, null, null, null);
+        return new Session(id, null, title, null, null, null, null, null, null, null, null);
     }
 
     @Override
@@ -146,7 +155,7 @@ final class FakeClient implements OpencodeClient {
     private ChatEntry replyEntry(String sessionId, String text) {
         ChatMessageInfo info = new ChatMessageInfo(
                 "msg_" + (++messageCounter), sessionId, "assistant",
-                null, replyAgent, null, null, replyCost, null, null, null, null, null);
+                null, replyAgent, null, null, replyCost, null, null, null, null, null, COMPLETED_AT);
         return new ChatEntry(info, List.of(new ChatPart("text", text, null, null)));
     }
 

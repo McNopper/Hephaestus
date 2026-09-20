@@ -23,7 +23,7 @@ for a second backend, extracted when one actually arrives).
 | `com.opencode.ide.chat` | **chat ui** | `core` + `client` + SWT `Browser` (no `ui` dependency) | Eclipse **host** for the chat-web component: `ChatPage` (browser facade) + `ChatSessionController` (SWT-free) + embedded `ChatWebServer` serving the component's assets. Composer carries the `/command` picker (`CommandComposer`); exported `ChatPermissionSink` seam routes chat-session permission asks into the shared queue. |
 | `components/chat-web` | **non-Java** | — (static assets + node checks) | The standalone chat renderer (markdown + KaTeX + highlight.js + mermaid) with a documented bridge contract — hostable in any environment that serves files and calls JS. |
 | `com.opencode.ide.git` | **agentic git** | — (git CLI) — Eclipse-free | `WorktreeManager`: branch + worktree per agent task (under `.git/opencode-fleet/`), serial merge-back with clean conflict abort. Fleet isolation layer. `StoreGitStatus`/`StoreSync` = distributed-fleet store discipline (status summary; commit → pull-rebase → push with recover — see [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md)). |
-| `com.opencode.ide.fleet` | **fleet engine** | `client` + `git` + `tasks` + gson — **Eclipse-free, build-enforced** | `FleetRunner`: the headless loop — `begin` (worktree + directory-scoped session + optional `/shell` `Bootstrap`, prompt POST on its own thread) → watchdog probe (busy/messages/complete; stall = idle-and-silent only, aborted; budget-timeout aborts) → guarded merge back (auto-commits worker changes, refuses empty results, tolerates peer store writes; repo-gated via `RepoGate` — serialized against every other engine's git mutations). `TaskFleet` adds the V-pipeline launch loop (pre-claim, scoped to the store subtree → stage-mapped agent → merge → actuals); failed runs RELEASE their claim (sprint-backlog + blocked-with-reason — never a zombie in-progress); the headless `FleetControl` auto-syncs the store after every launch. `FleetTuning` is the engine's knob table (stall timeout, poll interval, budgets). `PermissionQueue` + `FleetPermissionBridge` buffer pending `permission.asked` requests for unattended runs (the watchdog's stall clock pauses while asks are pending); `GlobalEventsAggregator` merges `/global/event` streams across connections. **Chat-first control** (H7): `FleetControl`/`FleetToolProvider`/`FleetStdioMain` expose the `fleet_*` tool pack over stdio via `eclipse/fleet-tools.ps1` — `fleet_dispatch`, `fleet_jobs`, `fleet_job_details` (live progress), `fleet_permissions`(+`_answer`), `fleet_sync_store`, `fleet_status_store`, `fleet_recover_store`, `fleet_reset` (consume residue: worktree+branch removal + ticket release). Chat is the primary interface; the Board buttons are conveniences. **V-006 daemon (opt-in)**: `FleetDaemon` (authed TCP core over `McpDispatcher`, pidfile singleton in `.git/opencode-fleet/daemon.json`, graceful drain) + `FleetDaemonProxy`/`DaemonProwl` stdio attach (`FLEET_DAEMON=off/auto/always`, default `off`) + the detached `fleet-daemon.ps1` launcher — the engine outlives any client session; disconnecting never kills runs. |
+| `com.opencode.ide.fleet` | **fleet engine** | `client` + `git` + `tasks` + gson — **Eclipse-free, build-enforced** | `FleetRunner`: the headless loop — `begin` (worktree + directory-scoped session + optional `/shell` `Bootstrap`, prompt POST on its own thread) → watchdog probe (busy/messages/complete; stall = idle-and-silent only, aborted; budget-timeout aborts) → guarded merge back (auto-commits worker changes, refuses empty results, tolerates peer store writes; repo-gated via `RepoGate` — serialized against every other engine's git mutations). `TaskFleet` adds the V-pipeline launch loop (pre-claim, scoped to the store subtree → stage-mapped agent → merge → actuals); failed runs RELEASE their claim (sprint-backlog + blocked-with-reason — never a zombie in-progress); the headless `FleetControl` auto-syncs the store after every launch. `FleetTuning` is the engine's knob table (stall timeout, poll interval, budgets). `PermissionQueue` + `FleetPermissionBridge` buffer pending `permission.asked` requests for unattended runs (the watchdog's stall clock pauses while asks are pending); `GlobalEventsAggregator` merges `/api/event` streams across connections. **Chat-first control** (H7): `FleetControl`/`FleetToolProvider`/`FleetStdioMain` expose the `fleet_*` tool pack over stdio via `eclipse/fleet-tools.ps1` — `fleet_dispatch`, `fleet_jobs`, `fleet_job_details` (live progress), `fleet_permissions`(+`_answer`), `fleet_sync_store`, `fleet_status_store`, `fleet_recover_store`, `fleet_reset` (consume residue: worktree+branch removal + ticket release). Chat is the primary interface; the Board buttons are conveniences. **V-006 daemon (opt-in)**: `FleetDaemon` (authed TCP core over `McpDispatcher`, pidfile singleton in `.git/opencode-fleet/daemon.json`, graceful drain) + `FleetDaemonProxy`/`DaemonProwl` stdio attach (`FLEET_DAEMON=off/auto/always`, default `off`) + the detached `fleet-daemon.ps1` launcher — the engine outlives any client session; disconnecting never kills runs. |
 | `com.opencode.ide.tools` | **agent tools** | `com.google.gson` only — **Eclipse-free, build-enforced** | **`ToolProvider` SPI** + JSON-RPC dispatch + the built-in C++ tool pack (`tools.cpp`: toolchains, build, lint, format). Future language packs = new providers depending on this bundle only. |
 | `com.opencode.ide.tasks` | **task board** | `tools` + gson — **Eclipse-free, build-enforced** | The **task store** (`.opencode/tasks/<project>/`, one Markdown file per ticket) + the **`task_*` tool pack** (create/claim/release/sprint/traceability/readiness/doctor/invalidations; replaces the retired Python pm MCP server) + `StageReadiness` (the pure dataflow-readiness function behind H6 auto-dispatch and `task_readiness`). Also ships `TasksStdioMain` — the same tools over stdio via `eclipse/tasks-tools.ps1` for TUI-only sessions. |
 | `com.opencode.ide.board` | **board ui** | `core` + `client` + `tasks` + `fleet` + `git` + `chat` + Eclipse UI | **PM Board view** (kanban over the task store: 5 columns, sprint selector + goal, blocked flags, artifact links with markdown/diagram rendering, *Launch task* → `TaskFleet` via `TaskFleetLauncher`, *Take over*, **Cost overview** dialog + `• $X spent` header suffix aggregating the `fleet actuals:` comments) + **Fleet view** (jobs = task → session → worktree → state, per-job **server diff** (`/session/:id/diff`) with local-git fallback, folder/takeover, **Permissions (n)** dialog — approve once/always/reject on pending `permission.asked` requests). SWT-free model (`BoardModel`, `TaskStoreWatcher`, `FleetJobsModel`, `CostOverview`, `DiffSource`/`SessionDiffText`, `FleetPermissions`) is unit-tested. |
@@ -123,12 +123,13 @@ Apply these to every change so the plugin stays consistent:
 - **dropins dev deploy uses the `plugins/` layout:** `<eclipse-install>\dropins\opencode-ide\plugins\*.jar`
   (a folder of loose JARs is rejected by p2 with "No repository found"). `deploy-dev.ps1` handles this.
 - **Eclipse must be closed** before `deploy-dev.ps1` (the bundle jar is locked while Eclipse runs).
-- **opencode v1.18.x DTO contract.** Agent uses `native` (not `builtIn`) and `permission` is an
-  array of `{permission, pattern, action}`; `Provider.models` is a map keyed by model id; the
-  providers response uses the reserved-word key `default`. Re-validate against a live server if
-  you upgrade opencode.
-- **Server readiness ≠ health.** The spawn launcher must wait for `/global/health` **and** a data
-  endpoint (`/agent`) before returning — `/global/health` goes green before the data endpoints are
+- **opencode v2 DTO contract.** `Agent.Info` carries `id`, `name`, `mode`, `hidden` and
+  `permissions` — there is no `native` **and** no `builtIn` field (v1.18.x had `native`);
+  `Provider.models` is a map keyed by model id. Every path is prefixed **`/api`**, list
+  endpoints wrap their rows in `{data:[…]}`, and the server requires HTTP Basic auth.
+  Re-validate the records against a live server on every opencode upgrade.
+- **Server readiness ≠ health.** The spawn launcher must wait for `/api/info` **and** a data
+  endpoint (`/api/agent`) before returning — `/api/info` answers before the data endpoints are
   populated. Views retry on failure as insurance.
 
 ## Build
@@ -207,7 +208,7 @@ site at `releng/com.opencode.ide.repository/target/repository/`.
    **Window → Preferences → OpenCode**, then hit
    the **Refresh** button on each view's toolbar.
 
-The Server view's Agents category shows `name / mode / native / description`.
+The Server view's Agents category shows `name / mode / description`.
 The Providers view shows providers as tree roots with their models as children
 (`name / id / status / capabilities [R=reasoning A=attachment T=toolcall] / context`).
 
@@ -216,12 +217,12 @@ The Providers view shows providers as tree roots with their models as children
 - **Done (deployed/tested):** Phases 0–6 — toolchain, `core`/`ui`/`cdt` bundles, feature + p2 repo,
   spawn + connect modes, readiness probe + retry, JVM shutdown hook (no orphaned servers),
   a unified **Server** view (`Server → Agents / Sessions`, sessions nested by `parentID`,
-  live via `/event` SSE with a thinking/running-tool indicator), a flat **Providers** view
+  live via `/api/event` SSE with a thinking/running-tool indicator), a flat **Providers** view
   (per-model rows, filter + sort, server in header), icons, connection preference page.
 - **Done (Phase 12 chat, live-verified):** a native **Chat** view (`com.opencode.ide.chat`) —
   markdown (code blocks, tables), **LaTeX math** ($…$, $$…$$ via KaTeX, extracted before
   markdown), **syntax highlighting** (highlight.js incl. c/cpp/cmake/makefile, offline assets,
-  IDE-theme-synced), streaming reply text via `/event` SSE, agent + model + **variant** pickers,
+  IDE-theme-synced), streaming reply text via `/api/event` SSE, agent + model + **variant** pickers,
   multi-window chat + session resume, external links opened in the system browser, and a
   capability **`system`** prompt so models format for the view unprompted (toggle:
   *Preferences → OpenCode → Advertise rendering*). opencode v1.18.x quirks handled:
@@ -303,7 +304,7 @@ The Providers view shows providers as tree roots with their models as children
   worktrees (Phases 13–14, first cuts landed); the **Fleet view + scheduler + user takeover**
   (Phase 15) make Eclipse the human's overview and control surface.
 - **Scale to hundreds of agents** → few servers × many sessions; plural connections; **virtualized**
-  viewers; core-side cache/throttle + a single `/event` SSE fan-out (Phases 7–8).
+  viewers; core-side cache/throttle + a single `/api/event` SSE fan-out (Phases 7–8).
 - **Maven sprint planning** → milestones/epics/sprints in a version-controlled `.opencode/tasks/`
   store, synced by `opencode-tasks:sync` and rendered by `opencode-tasks:plan`; agents read/write
   it via MCP tools; "launch from a task" feeds the fleet (Phase 9). Maven plans — CMake builds.
@@ -313,9 +314,10 @@ The Providers view shows providers as tree roots with their models as children
 
 ## Notes
 
-- The DTOs are modelled against the **installed** opencode v1.18.x. In this version the
-  agent object uses `native` (not `builtIn`) and `permission` is an array of
-  `{permission, pattern, action}` rules. The OpenAPI `dev`-branch types differ; the
-  records keep newer-only fields nullable for forward-compatibility.
+- The DTOs are modelled against the **installed** opencode v2 (2.0.10). In this version the
+  agent object has neither `native` nor `builtIn` (v1.18.x had `native`); every path is
+  prefixed `/api` and list endpoints answer with a `{data:[…]}` envelope. The records keep
+  newer-only fields nullable for forward-compatibility — re-validate against a live server
+  on every upgrade.
 - The server password is stored in plain instance preferences (local server only);
   switch to `org.eclipse.equinox.security` for remote servers.

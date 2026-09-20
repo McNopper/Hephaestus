@@ -25,8 +25,9 @@ import com.opencode.ide.client.model.VcsInfo;
 
 /**
  * Per-view chat session logic (SWT-free): creates and resumes sessions, sends
- * messages through the opencode client, turns {@code message.part.delta}
- * events for the current session into live bubble updates, aborts in-flight
+ * messages through the opencode client, turns {@code session.text.delta} and
+ * {@code session.reasoning.delta} events for the current session into live
+ * bubble updates, aborts in-flight
  * replies ({@link #abort()}), forks the session at any history message or
  * from a queued request ({@link #forkAt}/{@link #forkQueued}), undoes and
  * redoes exchanges through the server's revert/unrevert endpoints
@@ -199,7 +200,7 @@ public final class ChatSessionController {
      * run that keeps streaming is never "stuck", however long it takes -
      * the cap applies to SILENCE, not to total runtime (user report
      * 2026-09-17: healthy 30-minute Kimi generations were aborted because
-     * /session/status kept saying busy).
+     * {@code /session/active} kept saying busy).
      */
     private volatile long lastStreamActivityMillis;
     private OpencodeEventListener eventListener;
@@ -267,40 +268,42 @@ public final class ChatSessionController {
             if (sid == null) {
                 return;
             }
-            if ("message.part.delta".equals(event.type())) {
-                String partSession = event.string("sessionID");
-                String messageId = event.string("messageID");
-                String field = event.string("field");
-                String delta = event.string("delta");
-                if (!sid.equals(partSession) || messageId == null || delta == null || delta.isEmpty()) {
-                    return;
-                }
-                boolean textPart = "text".equals(field);
-                if (!textPart && !"reasoning".equals(field)) {
-                    return;
-                }
-                // A delta for an unknown mid while nothing is in flight is a
-                // late event after the send settled (or another client's
-                // message): rendering it would orphan a bubble whose cursor
-                // nobody ever stops. Continuations of known bubbles are fine.
-                boolean known = streamedMids.contains(messageId);
-                if (!sending && !known) {
-                    return;
-                }
-                if (!known) {
-                    streamedMids.add(messageId);
-                }
-                // stream progress = life for the late-reply watcher
-                lastStreamActivityMillis = System.currentTimeMillis();
-                host.runOnUi(() -> {
-                    renderer.startAssistant(messageId);
-                    if (textPart) {
-                        renderer.appendDelta(messageId, delta);
-                    } else {
-                        renderer.appendReasoningDelta(messageId, delta);
-                    }
-                });
+            // v2 split the single v1 "message.part.delta" (which carried a
+            // "field" discriminator) into one event type PER CHANNEL, so the
+            // channel is the event NAME now - no payload inspection needed.
+            boolean textDelta = "session.text.delta".equals(event.type());
+            if (!textDelta && !"session.reasoning.delta".equals(event.type())) {
+                return;
             }
+            // v2 payload: {sessionID, assistantMessageID, ordinal, delta} -
+            // flat, and the message id is assistantMessageID (v1: messageID).
+            String deltaSession = event.string("sessionID");
+            String messageId = event.string("assistantMessageID");
+            String delta = event.string("delta");
+            if (!sid.equals(deltaSession) || messageId == null || delta == null || delta.isEmpty()) {
+                return;
+            }
+            // A delta for an unknown mid while nothing is in flight is a
+            // late event after the send settled (or another client's
+            // message): rendering it would orphan a bubble whose cursor
+            // nobody ever stops. Continuations of known bubbles are fine.
+            boolean known = streamedMids.contains(messageId);
+            if (!sending && !known) {
+                return;
+            }
+            if (!known) {
+                streamedMids.add(messageId);
+            }
+            // stream progress = life for the late-reply watcher
+            lastStreamActivityMillis = System.currentTimeMillis();
+            host.runOnUi(() -> {
+                renderer.startAssistant(messageId);
+                if (textDelta) {
+                    renderer.appendDelta(messageId, delta);
+                } else {
+                    renderer.appendReasoningDelta(messageId, delta);
+                }
+            });
         };
         connection.addEventListener(eventListener);
         permissionAdapter = new ChatPermissionAdapter(() -> {
@@ -913,7 +916,7 @@ public final class ChatSessionController {
      * behavior (clear {@code sending}, show a failure) disabled the Stop
      * control and orphaned every later bubble - a stuck-busy session could
      * not be aborted from the UI at all, and every re-send timed out behind
-     * the stuck run. Probe {@code GET /session/status} instead: busy/retry
+     * the stuck run. Probe {@code GET /session/active} instead: busy/retry
      * hands the submission to the late-reply watcher (Stop stays armed,
      * deltas keep rendering, the reply settles from history once idle); an
      * idle session is settled from history right away.
@@ -931,9 +934,10 @@ public final class ChatSessionController {
             return false; // server unreachable - the plain failure notice says enough
         }
         if (!"busy".equals(type) && !"retry".equals(type)) {
-            // the map lists busy sessions only since opencode 1.18.23: an
-            // absent entry is idle - the reply finished around the budget
-            // boundary; settle it from the authoritative history
+            // the map lists busy sessions only (v1 since opencode 1.18.23,
+            // and v2's /session/active by definition): an absent entry is
+            // idle - the reply finished around the budget boundary; settle it
+            // from the authoritative history
             host.info(what.toLowerCase() + " POST timed out but session " + sid
                     + " is idle - settling from history");
             finalizeLateReply(sid);
@@ -962,7 +966,7 @@ public final class ChatSessionController {
      * {@code lastActivity + cap} - a run that keeps streaming is never
      * stuck, however long it takes. The cap measures SILENCE (no delta for
      * the full window), which tolerates quiet tool phases up to the cap.
-     * {@code /session/status} staying "busy" alone no longer kills a
+     * {@code /session/active} staying "busy" alone no longer kills a
      * healthy generation.</p>
      */
     private void startLateReplyWatcher(String sid) {

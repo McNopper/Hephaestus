@@ -13,8 +13,12 @@ import com.google.gson.Gson;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * Unit tests for {@link ActivityTracker}'s event-to-activity derivation
- * rules (session.status/idle/deleted, message.part.updated tool/reasoning).
+ * Unit tests for {@link ActivityTracker}'s event-to-activity derivation rules
+ * over the v2 event names: {@code session.status}/{@code session.idle}/
+ * {@code session.deleted}, {@code session.reasoning.started/.ended},
+ * {@code session.text.started} and the {@code session.tool.*} lifecycle —
+ * v1's single {@code message.part.updated} with a {@code part} discriminator
+ * is gone.
  */
 public class ActivityTrackerTest {
 
@@ -24,9 +28,11 @@ public class ActivityTrackerTest {
         return GSON.fromJson(json, OpencodeEvent.class);
     }
 
+    /** v2 shape: the status is an object, not a plain string. */
     private static String statusEvent(String sessionId, String status) {
         return """
-                {"type":"session.status","properties":{"sessionID":"%s","status":"%s"}}""".formatted(sessionId, status);
+                {"type":"session.status","properties":{"sessionID":"%s","status":{"type":"%s"}}}""".formatted(sessionId,
+                status);
     }
 
     private static String idleEvent(String sessionId) {
@@ -39,17 +45,30 @@ public class ActivityTrackerTest {
                 {"type":"session.deleted","properties":{"sessionID":"%s"}}""".formatted(sessionId);
     }
 
-    private static String partEvent(String sessionId, String partType) {
+    private static String reasoningStarted(String sessionId) {
         return """
-                {"type":"message.part.updated","properties":{"sessionID":"%s","part":{"type":"%s"}}}""".formatted(sessionId,
-                partType);
+                {"type":"session.reasoning.started","properties":{"sessionID":"%s","assistantMessageID":"msg_1","ordinal":0}}"""
+                .formatted(sessionId);
     }
 
-    private static String toolPartEvent(String sessionId, String tool, String status, String inputJson) {
-        String state = status == null ? "" : "\"state\":{\"status\":\"" + status + "\"},";
+    private static String textStarted(String sessionId) {
         return """
-                {"type":"message.part.updated","properties":{"sessionID":"%s","part":{"type":"tool","tool":"%s",%s"input":%s}}}"""
-                .formatted(sessionId, tool, state, inputJson);
+                {"type":"session.text.started","properties":{"sessionID":"%s","assistantMessageID":"msg_1","ordinal":0}}"""
+                .formatted(sessionId);
+    }
+
+    /** A tool invocation starting: name + input present (session.tool.called / tool.input.started). */
+    private static String toolStarted(String sessionId, String invocation, String tool, String inputJson) {
+        return """
+                {"type":"session.tool.called","properties":{"sessionID":"%s","assistantMessageID":"msg_1","id":"%s","name":"%s","input":%s}}"""
+                .formatted(sessionId, invocation, tool, inputJson);
+    }
+
+    /** A tool invocation ending: v2 repeats neither name nor input, only the invocation id. */
+    private static String toolEnded(String sessionId, String invocation, String type) {
+        return """
+                {"type":"%s","properties":{"sessionID":"%s","assistantMessageID":"msg_1","id":"%s"}}"""
+                .formatted(type, sessionId, invocation);
     }
 
     @Test
@@ -62,6 +81,13 @@ public class ActivityTrackerTest {
         assertTrue(snapshot.sessions().get("ses_1").running());
         assertTrue(snapshot.sessions().get("ses_2").running());
         assertFalse(snapshot.sessions().get("ses_1").thinking());
+    }
+
+    @Test
+    public void flatStringStatusIsStillTolerated() {
+        ActivityTracker tracker = new ActivityTracker();
+        tracker.apply(event("{\"type\":\"session.status\",\"properties\":{\"sessionID\":\"ses_1\",\"status\":\"busy\"}}"));
+        assertTrue(tracker.snapshot().sessions().get("ses_1").running());
     }
 
     @Test
@@ -94,7 +120,7 @@ public class ActivityTrackerTest {
     public void toolRunningWithFileAppearsInSnapshot() {
         ActivityTracker tracker = new ActivityTracker();
         tracker.apply(event(statusEvent("ses_1", "busy")));
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/src/A.java\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/src/A.java\"}")));
         ActivitySnapshot snapshot = tracker.snapshot();
         FileActivity file = snapshot.files().get("/src/A.java");
         assertNotNull(file);
@@ -112,18 +138,22 @@ public class ActivityTrackerTest {
     @Test
     public void toolCompletedRemovesFileAndShowsCompleted() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/src/A.java\"}")));
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "completed", "{\"filePath\":\"/src/A.java\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/src/A.java\"}")));
+        tracker.apply(event(toolEnded("ses_1", "toolu_1", "session.tool.success")));
         ActivitySnapshot snapshot = tracker.snapshot();
         assertNull(snapshot.files().get("/src/A.java"));
         assertEquals(1, snapshot.sessions().get("ses_1").activity().size());
-        assertEquals(ToolActivity.State.COMPLETED, snapshot.sessions().get("ses_1").activity().get(0).state());
+        ToolActivity done = snapshot.sessions().get("ses_1").activity().get(0);
+        assertEquals(ToolActivity.State.COMPLETED, done.state());
+        assertEquals("the completion inherits the tool name", "edit", done.tool());
+        assertEquals("the completion inherits the file", "/src/A.java", done.file());
     }
 
     @Test
     public void toolErrorWithoutFileRecordsErrorState() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "bash", "error", "{\"command\":\"ls\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "bash", "{\"command\":\"ls\"}")));
+        tracker.apply(event(toolEnded("ses_1", "toolu_1", "session.tool.failed")));
         ActivitySnapshot snapshot = tracker.snapshot();
         assertTrue(snapshot.files().isEmpty());
         SessionActivity session = snapshot.sessions().get("ses_1");
@@ -135,26 +165,17 @@ public class ActivityTrackerTest {
     }
 
     @Test
-    public void missingToolStateDefaultsToRunning() {
-        ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", null, "{\"filePath\":\"/src/B.java\"}")));
-        ActivitySnapshot snapshot = tracker.snapshot();
-        assertNotNull(snapshot.files().get("/src/B.java"));
-        assertEquals(ToolActivity.State.RUNNING, snapshot.sessions().get("ses_1").activity().get(0).state());
-    }
-
-    @Test
     public void filePathVariantKeysResolve() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"path\":\"/p\"}")));
-        tracker.apply(event(toolPartEvent("ses_1", "read", "running", "{\"file\":\"/f\"}")));
-        tracker.apply(event(toolPartEvent("ses_1", "glob", "running", "{\"absolutePath\":\"/ap\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"path\":\"/p\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_2", "read", "{\"file\":\"/f\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_3", "glob", "{\"absolutePath\":\"/ap\"}")));
         ActivitySnapshot snapshot = tracker.snapshot();
         assertEquals(3, snapshot.files().size());
         assertNotNull(snapshot.files().get("/p"));
         assertNotNull(snapshot.files().get("/f"));
         assertNotNull(snapshot.files().get("/ap"));
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/first\",\"path\":\"/second\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_4", "edit", "{\"filePath\":\"/first\",\"path\":\"/second\"}")));
         assertEquals("edit", tracker.snapshot().files().get("/first").tool());
         assertEquals(4, tracker.snapshot().files().size());
     }
@@ -162,17 +183,17 @@ public class ActivityTrackerTest {
     @Test
     public void reasoningThenTextTogglesThinking() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(partEvent("ses_1", "reasoning")));
+        tracker.apply(event(reasoningStarted("ses_1")));
         assertTrue(tracker.snapshot().sessions().get("ses_1").thinking());
-        tracker.apply(event(partEvent("ses_1", "text")));
+        tracker.apply(event(textStarted("ses_1")));
         assertFalse(tracker.snapshot().sessions().get("ses_1").thinking());
     }
 
     @Test
     public void sessionDeletedDropsSessionAndFiles() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/a\"}")));
-        tracker.apply(event(toolPartEvent("ses_2", "edit", "running", "{\"filePath\":\"/b\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolStarted("ses_2", "toolu_2", "edit", "{\"filePath\":\"/b\"}")));
         tracker.apply(event(deletedEvent("ses_1")));
         ActivitySnapshot snapshot = tracker.snapshot();
         assertNull(snapshot.sessions().get("ses_1"));
@@ -184,7 +205,7 @@ public class ActivityTrackerTest {
     @Test
     public void sessionEndedDropsSessionAndFiles() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/a\"}")));
         tracker.sessionEnded("ses_1");
         ActivitySnapshot snapshot = tracker.snapshot();
         assertTrue(snapshot.sessions().isEmpty());
@@ -208,7 +229,7 @@ public class ActivityTrackerTest {
         assertEquals(2, calls[0]);
         tracker.apply(event(statusEvent("ses_1", "idle")));
         tracker.apply(event(idleEvent("ses_1")));
-        tracker.apply(event("{\"type\":\"todo.updated\",\"properties\":{}}"));
+        tracker.apply(event("{\"type\":\"mcp.tools.changed\",\"properties\":{}}"));
         tracker.apply(null);
         assertEquals(2, calls[0]);
     }
@@ -218,20 +239,20 @@ public class ActivityTrackerTest {
         ActivityTracker tracker = new ActivityTracker();
         int[] calls = { 0 };
         tracker.addListener(() -> calls[0]++);
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/a\"}")));
         assertEquals(1, calls[0]);
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/a\"}")));
         assertEquals(1, calls[0]);
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "completed", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolEnded("ses_1", "toolu_1", "session.tool.success")));
         assertEquals(2, calls[0]);
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "completed", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolEnded("ses_1", "toolu_1", "session.tool.success")));
         assertEquals(2, calls[0]);
     }
 
     @Test
     public void snapshotIsImmutable() {
         ActivityTracker tracker = new ActivityTracker();
-        tracker.apply(event(toolPartEvent("ses_1", "edit", "running", "{\"filePath\":\"/a\"}")));
+        tracker.apply(event(toolStarted("ses_1", "toolu_1", "edit", "{\"filePath\":\"/a\"}")));
         ActivitySnapshot snapshot = tracker.snapshot();
         assertThrows(UnsupportedOperationException.class,
                 () -> snapshot.sessions().put("ses_2", snapshot.sessions().get("ses_1")));
@@ -249,9 +270,9 @@ public class ActivityTrackerTest {
         int[] calls = { 0 };
         tracker.addListener(() -> calls[0]++);
         tracker.apply(null);
-        tracker.apply(event("{\"type\":\"todo.updated\",\"properties\":{}}"));
+        tracker.apply(event("{\"type\":\"mcp.tools.changed\",\"properties\":{}}"));
         tracker.apply(event("{\"type\":\"session.status\",\"properties\":{}}"));
-        tracker.apply(event(partEvent("ses_9", "text")));
+        tracker.apply(event(textStarted("ses_9")));
         tracker.apply(event("{\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":\"ses_9\"}}"));
         assertTrue(tracker.snapshot().sessions().isEmpty());
         assertTrue(tracker.snapshot().files().isEmpty());

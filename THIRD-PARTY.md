@@ -247,9 +247,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 The following third-party components are **not** redistributed with Hephaestus,
 so their full license texts are not aggregated here:
 
-- **@opencode-ai/plugin** (Node, MIT) — the local opencode plugin. `.opencode/package.json`
-  and `node_modules/` are **git-ignored** (see `.opencode/.gitignore`); it is a per-clone
-  convenience, not part of the template.
 - **GoogleTest** (C++, BSD-3-Clause, v1.17.0) — fetched on demand by the `cpp/` template via
   CMake `FetchContent` when `ENABLE_TESTING=ON`. Consumers fetch it themselves; it is never
   checked into this repository.

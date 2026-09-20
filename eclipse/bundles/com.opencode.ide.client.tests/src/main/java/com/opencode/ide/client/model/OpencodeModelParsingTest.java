@@ -14,143 +14,141 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 /**
- * Locks the Gson - record mapping for the opencode OpenAPI types, using recorded
- * JSON samples for {@code /global/health}, {@code /agent} and
- * {@code /config/providers}. Exercises the tricky bits: snake_case permission
- * keys ({@code doom_loop}, {@code external_directory}), {@code models} as a map
- * keyed by model id, and the {@code default} reserved-word field.
+ * Locks the Gson - record mapping for the opencode v2 OpenAPI types, using
+ * recorded JSON samples for {@code /api/info}, {@code /api/agent} and
+ * {@code /api/model}. Exercises the tricky bits: the v2 permission rule shape
+ * ({@code action/resource/effect}), the model {@code cost} as an ARRAY of price
+ * tiers, and capabilities with string-array modalities.
  */
 public class OpencodeModelParsingTest {
 
     private static final Gson GSON = new Gson();
 
-    private static final String HEALTH_JSON = """
-            { "healthy": true, "version": "1.18.16" }
+    private static final String INFO_JSON = """
+            { "version": "2.0.10", "pid": 21108, "urls": ["http://127.0.0.1:49374"], "paths": { "tmp": "C:\\\\Temp" } }
             """;
 
+    /** Recorded shape of one {@code /api/agent} entry (v2 Agent.Info). */
     private static final String AGENTS_JSON = """
             [
               {
-                "name": "build",
+                "id": "build",
+                "name": "Build",
                 "description": "The default agent. Executes tools based on configured permissions.",
                 "mode": "primary",
-                "native": true,
-                "permission": [
-                  { "permission": "*", "pattern": "*", "action": "allow" },
-                  { "permission": "doom_loop", "pattern": "*", "action": "ask" },
-                  { "permission": "external_directory", "pattern": "*", "action": "ask" }
-                ],
-                "options": {}
+                "hidden": false,
+                "permissions": [
+                  { "action": "*", "resource": "*", "effect": "allow" },
+                  { "action": "external_directory", "resource": "*", "effect": "ask" },
+                  { "action": "read", "resource": "*.env", "effect": "ask" }
+                ]
               },
               {
-                "name": "explore",
+                "id": "explore",
+                "name": "Explore",
                 "description": "Fast read-only explorer.",
                 "mode": "subagent",
-                "native": true,
-                "permission": [ { "permission": "read", "pattern": "*", "action": "allow" } ],
-                "options": {}
+                "hidden": false,
+                "permissions": [ { "action": "read", "resource": "*", "effect": "allow" } ]
               }
             ]
             """;
 
-    private static final String PROVIDERS_JSON = """
+    /** Recorded shape of one {@code /api/model} entry (v2 Model.Info). */
+    private static final String MODEL_JSON = """
             {
-              "providers": [
-                {
-                  "id": "opencode",
-                  "name": "OpenCode",
-                  "source": "api",
-                  "env": [],
-                  "options": {},
-                  "models": {
-                    "claude-opus-5": {
-                      "id": "claude-opus-5",
-                      "providerID": "opencode",
-                      "api": { "id": "anthropic", "url": "https://api.anthropic.com", "npm": "@ai-sdk/anthropic" },
-                      "name": "Claude Opus 5",
-                      "capabilities": {
-                        "temperature": true, "reasoning": true, "attachment": true, "toolcall": true,
-                        "input":  { "text": true, "audio": false, "image": true, "video": false, "pdf": true },
-                        "output": { "text": true, "audio": false, "image": false, "video": false, "pdf": false }
-                      },
-                      "cost": { "input": 15.0, "output": 75.0, "cache": { "read": 1.5, "write": 18.75 } },
-                      "limit": { "context": 200000, "output": 32000 },
-                      "status": "active",
-                      "options": {},
-                      "headers": {}
-                    }
-                  }
-                }
+              "id": "claude-opus-5",
+              "modelID": "claude-opus-5",
+              "providerID": "opencode",
+              "name": "Claude Opus 5",
+              "family": "claude-opus",
+              "capabilities": {
+                "temperature": true, "reasoning": true, "attachment": true, "tools": true,
+                "input": ["text", "image", "pdf"],
+                "output": ["text"]
+              },
+              "variants": ["none", "high", "max"],
+              "cost": [
+                { "input": 15.0, "output": 75.0, "cache": { "read": 1.5, "write": 18.75 } },
+                { "tier": { "type": "context", "size": 200000 }, "input": 30.0, "output": 150.0,
+                  "cache": { "read": 3.0, "write": 37.5 } }
               ],
-              "default": { "opencode": "claude-opus-5" }
+              "limit": { "context": 200000, "output": 32000 },
+              "status": "active",
+              "enabled": true
             }
             """;
 
     @Test
-    public void healthMaps() {
-        HealthStatus health = GSON.fromJson(HEALTH_JSON, HealthStatus.class);
-        assertTrue(health.healthy());
-        assertEquals("1.18.16", health.version());
+    public void infoMapsToHealthStatus() {
+        // getHealth() parses /api/info by hand; this locks the raw shape it reads
+        com.google.gson.JsonObject info = com.google.gson.JsonParser.parseString(INFO_JSON).getAsJsonObject();
+        assertEquals("2.0.10", info.get("version").getAsString());
     }
 
     @Test
-    public void agentsMapIncludingSnakeCasePermissions() {
+    public void agentsMapV2Shape() {
         List<Agent> agents = GSON.fromJson(AGENTS_JSON,
                 TypeToken.getParameterized(List.class, Agent.class).getType());
 
         assertEquals(2, agents.size());
 
         Agent build = agents.get(0);
-        assertEquals("build", build.name());
+        assertEquals("build", build.id());
+        assertEquals("Build", build.name());
         assertEquals(Agent.MODE_PRIMARY, build.mode());
-        assertTrue("the 'native' field must map to nativeAgent", build.isNative());
+        assertFalse("v2 has no built-in marker; isNative is always false", build.isNative());
+        assertFalse(build.isHidden());
         assertTrue(build.isPrimary());
 
-        List<Agent.PermissionRule> rules = build.permission();
+        List<Agent.PermissionRule> rules = build.permissions();
         assertNotNull(rules);
         assertEquals(3, rules.size());
-        assertEquals("*", rules.get(0).permission());
-        assertEquals("allow", rules.get(0).action());
-        // snake_case permission category name must round-trip verbatim
-        assertEquals("doom_loop", rules.get(1).permission());
-        assertEquals("ask", rules.get(1).action());
-        assertEquals("external_directory", rules.get(2).permission());
+        assertEquals("*", rules.get(0).action());
+        assertEquals("*", rules.get(0).resource());
+        assertEquals("allow", rules.get(0).effect());
+        // snake_case category names must round-trip verbatim
+        assertEquals("external_directory", rules.get(1).action());
+        assertEquals("ask", rules.get(1).effect());
+        assertEquals("*.env", rules.get(2).resource());
 
-        // v1.18.x does not surface these on built-in agents -> remain null (forward-compat)
         assertNull("optional model should be null when absent", build.model());
-        assertNull("optional temperature should be null when absent", build.temperature());
 
         Agent explore = agents.get(1);
         assertEquals(Agent.MODE_SUBAGENT, explore.mode());
         assertFalse(explore.isPrimary());
-        assertTrue(explore.isNative());
     }
 
     @Test
-    public void providersMapWithModelsAsMapAndDefault() {
-        ProviderList list = GSON.fromJson(PROVIDERS_JSON, ProviderList.class);
+    public void modelMapsCostArrayAndStringModalities() {
+        Model model = GSON.fromJson(MODEL_JSON, Model.class);
 
-        assertNotNull(list.providers());
-        assertEquals(1, list.providers().size());
-
-        Provider provider = list.providers().get(0);
-        assertEquals("opencode", provider.id());
-        assertEquals(Provider.SOURCE_API, provider.source());
-        assertNotNull("models must deserialize as a map", provider.models());
-        assertEquals(1, provider.models().size());
-
-        Model model = provider.models().get("claude-opus-5");
-        assertNotNull("model keyed by id must be present", model);
         assertEquals("claude-opus-5", model.id());
         assertEquals("opencode", model.providerID());
         assertTrue(model.capabilities().reasoning());
         assertTrue(model.capabilities().attachment());
+        assertTrue(model.capabilities().toolcall());
+        assertTrue(model.capabilities().inputText());
+        assertTrue(model.capabilities().inputImage());
+        assertTrue(model.capabilities().outputText());
         assertEquals(Model.STATUS_ACTIVE, model.status());
         assertEquals(200000L, model.limit().context());
-        assertEquals(75.0, model.cost().output(), 0.0001);
-        assertEquals(18.75, model.cost().cache().write(), 0.0001);
 
-        assertNotNull("default map must deserialize", list.defaults());
-        assertEquals("claude-opus-5", list.defaults().get("opencode"));
+        // cost is an ARRAY of price tiers: the base row first, context tiers after
+        assertNotNull(model.cost());
+        assertEquals(2, model.cost().size());
+        assertEquals(75.0, model.cost().get(0).output(), 0.0001);
+        assertEquals(18.75, model.cost().get(0).cache().write(), 0.0001);
+        assertEquals(200000L, model.cost().get(1).tier().size());
+        assertEquals(30.0, model.cost().get(1).input(), 0.0001);
+
+        Model.Cost base = model.baseCost();
+        assertNotNull(base);
+        assertNull(base.tier());
+        assertEquals(15.0, base.input(), 0.0001);
+
+        assertEquals(List.of("none", "high", "max"), model.variantNames());
+        assertTrue(model.hasVariant("high"));
+        assertFalse(model.hasVariant("xhigh"));
     }
 }

@@ -172,14 +172,14 @@ public final class ServerLabels {
 
     /**
      * Label of a session nested under the agent that runs it: the bare title
-     * (title, else slug, else id) — the agent is already the parent row, so
-     * repeating its name would be noise.
+     * (title, else id) — the agent is already the parent row, so repeating its
+     * name would be noise. (v2 sessions no longer carry a {@code slug}.)
      */
     public static String nestedSessionName(Session s) {
         if (s.title() != null && !s.title().isEmpty()) {
             return s.title();
         }
-        return s.slug() == null ? s.id() : s.slug();
+        return s.id();
     }
 
     /**
@@ -294,16 +294,23 @@ public final class ServerLabels {
                 || session.activity().stream().anyMatch(t -> t.state() == ToolActivity.State.RUNNING);
     }
 
-    /** Maps a streamed part to a live activity label ("thinking" / "running tool" / "responding"). */
-    public static String partActivityLabel(OpencodeEvent event) {
-        String partType = event.at("part.type");
-        if (partType == null) {
+    /**
+     * Maps a v2 streaming event type to a live activity label ("thinking" /
+     * "running tool" / "responding").
+     *
+     * <p>v1 carried the part kind in the payload ({@code part.type} of a
+     * {@code message.part.updated}); v2 encodes it in the event name itself, so
+     * the label is a pure function of the type.</p>
+     */
+    public static String activityLabel(String eventType) {
+        if (eventType == null) {
             return null;
         }
-        return switch (partType) {
-            case "reasoning" -> "thinking";
-            case "tool" -> "running".equals(event.at("part.state.status")) ? "running tool" : null;
-            case "text" -> "responding";
+        return switch (eventType) {
+            case "session.reasoning.started", "session.reasoning.delta" -> "thinking";
+            case "session.tool.called", "session.tool.input.started",
+                    "session.tool.input.delta", "session.tool.progress" -> "running tool";
+            case "session.text.started", "session.text.delta" -> "responding";
             default -> null;
         };
     }

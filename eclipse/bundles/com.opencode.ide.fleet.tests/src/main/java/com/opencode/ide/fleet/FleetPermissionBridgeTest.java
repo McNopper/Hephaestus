@@ -21,15 +21,39 @@ import com.opencode.ide.client.model.OpencodeEvent;
  */
 public class FleetPermissionBridgeTest {
 
+    /**
+     * A v2 {@code permission.asked}:
+     * {@code {sessionID, action, resources, save, metadata, source}} — the
+     * identity lives in {@code source.id}.
+     *
+     * <p>TODO(v2): the top-level {@code id} is a compatibility alias, not
+     * something a 2.0.x server sends. Client-owned
+     * {@code PermissionEvents.parse} still resolves identity from the v1
+     * top-level {@code id}/{@code permission}/{@code patterns}; drop the three
+     * aliased members here once it reads {@code source.id}/{@code action}/
+     * {@code resources} (see {@link FleetPermissionBridge#onEvent}).</p>
+     */
     private static OpencodeEvent asked(String sessionId, String permissionId) {
         JsonObject properties = new JsonObject();
         properties.addProperty("sessionID", sessionId);
+        properties.addProperty("action", "bash");
+        properties.add("resources", com.google.gson.JsonParser.parseString("[\"git push\"]"));
+        properties.addProperty("save", false);
+        properties.add("metadata", com.google.gson.JsonParser.parseString(
+                "{\"command\":\"git push\"}"));
+        JsonObject source = new JsonObject();
+        source.addProperty("type", "tool");
+        source.addProperty("messageID", "msg_1");
+        source.addProperty("id", permissionId);
+        properties.add("source", source);
+        // compatibility aliases for the still-v1 client parser (see javadoc)
         properties.addProperty("id", permissionId);
         properties.addProperty("permission", "bash");
         properties.add("patterns", com.google.gson.JsonParser.parseString("[\"git push\"]"));
         return new OpencodeEvent("permission.asked", properties);
     }
 
+    /** A v2 {@code permission.replied}: {@code {sessionID, requestID, reply}}. */
     private static OpencodeEvent replied(String sessionId, String permissionId) {
         JsonObject properties = new JsonObject();
         properties.addProperty("sessionID", sessionId);
@@ -42,6 +66,16 @@ public class FleetPermissionBridgeTest {
         JsonObject properties = new JsonObject();
         properties.addProperty("sessionID", sessionId);
         return new OpencodeEvent(type, properties);
+    }
+
+    /** A v2 {@code session.status}: the status is an OBJECT now, not a string. */
+    private static OpencodeEvent statusEvent(String sessionId, String statusType) {
+        JsonObject properties = new JsonObject();
+        properties.addProperty("sessionID", sessionId);
+        JsonObject status = new JsonObject();
+        status.addProperty("type", statusType);
+        properties.add("status", status);
+        return new OpencodeEvent("session.status", properties);
     }
 
     /** Fake registration point (mirrors SseSessionEventsTest). */
@@ -144,8 +178,10 @@ public class FleetPermissionBridgeTest {
         bridge.onEvent(null);
         bridge.onEvent(new OpencodeEvent(null, new JsonObject()));
         bridge.onEvent(sessionEvent("session.idle", "ses_1"));
-        bridge.onEvent(sessionEvent("session.status", "ses_1"));
-        bridge.onEvent(new OpencodeEvent("todo.updated", new JsonObject()));
+        bridge.onEvent(statusEvent("ses_1", "busy"));
+        bridge.onEvent(sessionEvent("session.execution.succeeded", "ses_1"));
+        // v2 dropped todo.updated; usage updates are the new chatter to ignore
+        bridge.onEvent(new OpencodeEvent("session.usage.updated", new JsonObject()));
         bridge.onEvent(asked("ses_1", null)); // parse yields null (no id)
         bridge.onEvent(new OpencodeEvent("permission.asked", new JsonObject())); // empty payload
         bridge.sessionStarted(null);

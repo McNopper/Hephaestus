@@ -101,10 +101,12 @@ public class ServerSelectionTest {
     }
 
     private static Session session(String id) {
-        return new Session(id, null, null, null, null, null, null, null, null);
+        return new Session(id, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static Agent agent(String mode) {
-        return new Agent("worker", null, mode, null, null, null, null, null, null, null, null, null, null);
+        // v2 Agent.Info: (id, name, description, mode, hidden, permissions,
+        // steps, color, model, system)
+        return new Agent("worker", "worker", null, mode, null, null, null, null, null, null);
     }
 }

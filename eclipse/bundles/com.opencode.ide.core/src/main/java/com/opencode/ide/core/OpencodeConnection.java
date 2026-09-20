@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.opencode.ide.client.ClientLog;
@@ -15,6 +16,8 @@ import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeEventStream;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.OpencodeServerLauncher;
+import com.opencode.ide.client.OpencodeServiceDiscovery;
+import com.opencode.ide.client.ServerVersionPin;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.core.context.ProjectContext;
 import com.opencode.ide.core.internal.CoreActivator;
@@ -25,10 +28,27 @@ import com.opencode.ide.core.internal.CoreActivator;
  * <p>Two modes, selected in {@link OpencodePreferences}:</p>
  * <ul>
  *   <li><b>connect</b> - talks to an externally-started {@code opencode serve}.</li>
- *   <li><b>spawn</b> - lazily starts a child {@code opencode serve} (owned by this
- *       facade). The working directory is taken from the {@link ProjectContext}
- *       service when available (the CDT bundle supplies it).</li>
+ *   <li><b>spawn</b> - the local/primary connection. With
+ *       {@link OpencodePreferences#isAttachSharedService()} on (the v2-native
+ *       default) it first attaches to the user's shared opencode background
+ *       service (starting it with {@code opencode serve --service} when
+ *       absent) and only falls back to lazily spawning a private child
+ *       {@code opencode serve} (owned by this facade) when the service cannot
+ *       be discovered or started. The spawned server's working directory is
+ *       taken from the {@link ProjectContext} service when available (the CDT
+ *       bundle supplies it).</li>
  * </ul>
+ *
+ * <p><b>v2 isolation reality (shared-service attach):</b> session STATE is
+ * global per user (one DB — every server sees all sessions; the Server view
+ * scopes by directory, handled separately), while the event stream is
+ * per-server-process. Attaching to the shared service therefore means sessions
+ * created by ANY opencode client are visible here, and this connection's SSE
+ * stream carries everything the shared service processes — not just
+ * Eclipse-driven activity (a privately spawned server streams only what this
+ * Eclipse instance drives). Unlike a spawned server, an attached service is
+ * never stopped by {@link #refresh()}/{@link #dispose()}: it is a per-user
+ * background process owned by opencode itself.</p>
  *
  * <p>{@link #getClient()} may block (in spawn mode it waits for the server to
  * become healthy), so callers should not invoke it from the UI thread. The views
@@ -50,6 +70,8 @@ public final class OpencodeConnection {
     // on every call, so calling it twice hands server and client DIFFERENT
     // passwords and every request fails with HTTP 401.
     private String spawnPassword;
+    /** The working directory the spawn config last resolved to (null = unknown/inherited). */
+    private volatile java.nio.file.Path lastWorkingDirectory;
     private OpencodeEventStream eventStream;
     private final List<OpencodeEventListener> eventListeners = new CopyOnWriteArrayList<>();
     // Lazy: constructing OpencodePreferences touches InstanceScope, which needs the
@@ -152,6 +174,17 @@ public final class OpencodeConnection {
     }
 
     /**
+     * @return the working directory the last spawn config resolved to, or
+     *         {@code null} when unknown. v2 serves sessions for the whole user
+     *         from every server, so views scope their session lists to this
+     *         directory via {@code getSessions(directory)}.
+     */
+    public String getWorkingDirectory() {
+        java.nio.file.Path dir = lastWorkingDirectory;
+        return dir == null ? null : dir.toString();
+    }
+
+    /**
      * Register for live opencode server events ({@code /event} SSE). Events are
      * delivered on a background thread - dispatch to the UI thread where needed.
      */
@@ -186,7 +219,7 @@ public final class OpencodeConnection {
         if (preferences.isConnectMode()) {
             currentConfig = preferences.toConnectConfig();
         } else {
-            currentConfig = buildSpawnConfig();
+            currentConfig = buildLocalConfig(preferences);
         }
         client = OpencodeClients.http(currentConfig);
         startEventStream();
@@ -215,6 +248,93 @@ public final class OpencodeConnection {
                 CoreActivator.logError("opencode event listener failed", t);
             }
         }
+    }
+
+    /**
+     * The local/primary connection (mode {@code SPAWN}): v2-native
+     * shared-service attach first, spawn as the fallback. This is where the
+     * mode is chosen — the v2 isolation reality from the class javadoc applies:
+     * session STATE is shared per user, the event stream is per-process, and an
+     * attached service is never stopped by this facade.
+     */
+    private ConnectionConfig buildLocalConfig(OpencodePreferences preferences) throws OpencodeException {
+        return selectLocalConfig(preferences,
+                () -> tryAttachSharedService(newServiceDiscovery(preferences), SPAWN_TIMEOUT),
+                this::buildSpawnConfig);
+    }
+
+    /**
+     * The local-connection decision (public test seam — OSGi split-package
+     * rules hide package-private members from the sibling test bundle): when
+     * {@link OpencodePreferences#isAttachSharedService()} is on, the attach
+     * attempt runs first and wins when it produces a config; otherwise (off, or
+     * no healthy service) the spawn fallback runs — the user is never left
+     * without a connection.
+     */
+    public static ConnectionConfig selectLocalConfig(OpencodePreferences preferences,
+            ConfigAttempt attachAttempt, ConfigAttempt spawnFallback) throws OpencodeException {
+        if (preferences.isAttachSharedService()) {
+            ConnectionConfig attached;
+            try {
+                attached = attachAttempt.get();
+            } catch (RuntimeException | OpencodeException e) {
+                // belt and braces: tryAttachSharedService already catches
+                // everything, but an attach failure must never leave the user
+                // without a connection — the spawn fallback always exists.
+                ClientLog.warning("[opencode service] attach attempt failed: " + e.getMessage()
+                        + " - falling back to a private 'opencode serve'");
+                attached = null;
+            }
+            if (attached != null) {
+                return attached;
+            }
+        }
+        return spawnFallback.get();
+    }
+
+    /** One local-connection attempt that may surface a connection error. */
+    @FunctionalInterface
+    public interface ConfigAttempt {
+        ConnectionConfig get() throws OpencodeException;
+    }
+
+    /**
+     * One service-attach attempt: discover (or start) the shared background
+     * service and turn its endpoint into a {@link ConnectionConfig}. The
+     * captured {@code HealthStatus} flows to {@link ServerVersionPin#evaluate}
+     * exactly as the spawn path's does (H-002 — a warning, never a failed
+     * attach).
+     *
+     * @return the attached config, or {@code null} when the service is
+     *         unavailable — the caller then falls back to the spawn path (the
+     *         concrete reason was already logged by the discovery's
+     *         {@code ensure}).
+     */
+    public static ConnectionConfig tryAttachSharedService(OpencodeServiceDiscovery discovery, Duration timeout) {
+        Optional<OpencodeServiceDiscovery.DiscoveredService> service;
+        try {
+            service = discovery.ensure(timeout);
+        } catch (RuntimeException e) {
+            ClientLog.warning("[opencode service] discovery failed unexpectedly: " + e
+                    + " - falling back to a private 'opencode serve'");
+            return null;
+        }
+        if (service.isEmpty()) {
+            return null;
+        }
+        OpencodeServiceDiscovery.DiscoveredService found = service.get();
+        String warning = ServerVersionPin.evaluate(found.health()).warning();
+        if (warning != null) {
+            ClientLog.warning(warning);
+        }
+        ClientLog.info("[opencode service] attached to the shared background service at "
+                + found.baseUrl());
+        return found.toConnectionConfig();
+    }
+
+    /** Production discovery: the configured opencode binary drives the CLI fallbacks. */
+    private static OpencodeServiceDiscovery newServiceDiscovery(OpencodePreferences preferences) {
+        return OpencodeServiceDiscovery.create(preferences.getOpencodeBinary());
     }
 
     private ConnectionConfig buildSpawnConfig() throws OpencodeException {
@@ -253,6 +373,7 @@ public final class OpencodeConnection {
                 workingDirectory = repoRootOf(workingDirectory);
                 ClientLog.info("[opencode serve] working directory: " + workingDirectory);
             }
+            lastWorkingDirectory = workingDirectory;
 
             spawnPassword = resolveSpawnPassword(preferences);
             launcher = new OpencodeServerLauncher(

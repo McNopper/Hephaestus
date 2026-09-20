@@ -18,16 +18,17 @@ import com.opencode.ide.client.activity.PermissionRequest.Status;
  * {@link #offer(PermissionRequest)} (see {@link FleetPermissionBridge}), the
  * human answers via {@link #answer(String, Response, boolean)}, which drives
  * the injected {@link PermissionResponder}
- * ({@code POST /session/:id/permissions/:permissionID}). Failures surface as
+ * ({@code POST /session/:id/permission/:requestID/reply}). Failures surface as
  * a failed {@link AnswerResult} — answering never throws, and a failed answer
  * keeps the request pending so it can be retried.
  *
  * <p>Entries are deduplicated by permission id: a re-delivered
  * {@code permission.asked} updates the existing entry instead of duplicating
  * it, and a {@code permission.replied} (answered by anyone) drops it from
- * {@link #pending()}. {@link #pending()} returns unanswered requests oldest
- * first. Change notification via {@link Runnable} listeners, invoked on the
- * mutating thread (same contract as {@code ActivityTracker}).</p>
+ * {@link #pending()}. The id is the v2 {@code requestID} the reply endpoint
+ * takes. {@link #pending()} returns unanswered requests oldest first. Change
+ * notification via {@link Runnable} listeners, invoked on the mutating thread
+ * (same contract as {@code ActivityTracker}).</p>
  *
  * <p>Pure Java, no Eclipse/OSGi.</p>
  */
@@ -206,7 +207,7 @@ public final class PermissionQueue {
 
     /**
      * Answers a pending request through the responder
-     * ({@code POST /session/:id/permissions/:permissionID}). Never throws:
+     * ({@code POST /session/:id/permission/:requestID/reply}). Never throws:
      * transport/server failures return a failed result and keep the request
      * pending (retryable); on success the request is marked answered and
      * dropped from {@link #pending()}.

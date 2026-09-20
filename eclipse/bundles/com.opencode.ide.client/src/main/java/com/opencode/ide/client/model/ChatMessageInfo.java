@@ -2,18 +2,16 @@ package com.opencode.ide.client.model;
 
 /**
  * The {@code info} object of a chat message entry from
- * {@code GET /session/:id/message} (v1.18.x shape, captured from a live server).
+ * {@code GET /api/session/:id/message} (v2 shape).
  *
- * <p>The two roles carry the model differently - this was verified against real
- * payloads, do not "simplify" it:</p>
- * <ul>
- *   <li><b>user</b>: nested {@code "model": {"providerID": …, "modelID": …}}</li>
- *   <li><b>assistant</b>: <em>flat</em> {@code "providerID"} / {@code "modelID"}
- *       (plus {@code mode}, {@code cost}, {@code tokens}, {@code finish})</li>
- * </ul>
+ * <p>v2 flattened the message: {@code type} carries the role, the model is a
+ * nested {@code {"id","providerID","variant"}} object for every role, and the
+ * parts moved to {@code content}. {@link #providerId()} / {@link #modelId()}
+ * still resolve either shape so older captures keep parsing.</p>
  *
- * <p>Use {@link #providerId()} / {@link #modelId()} instead of the raw fields so
- * both shapes resolve.</p>
+ * <p>{@code completed} is the epoch-millis completion stamp of an assistant
+ * message ({@code time.completed}); it is 0 while the turn is still streaming,
+ * which is what {@link #isComplete()} polls on.</p>
  */
 public record ChatMessageInfo(
         String id,
@@ -28,7 +26,13 @@ public record ChatMessageInfo(
         String providerID,
         String modelID,
         String variant,
-        Agent.ModelRef model) {
+        Agent.ModelRef model,
+        long completed) {
+
+    /** @return true once the server stamped {@code time.completed} on this message. */
+    public boolean isComplete() {
+        return completed > 0;
+    }
 
     /** Provider id for either role shape ({@code null} when the server omits it). */
     public String providerId() {
@@ -43,7 +47,7 @@ public record ChatMessageInfo(
         if (modelID != null && !modelID.isBlank()) {
             return modelID;
         }
-        return (model != null) ? model.modelID() : null;
+        return (model != null) ? model.id() : null;
     }
 
     /** Reasoning-effort variant used for this message, or {@code null}. */

@@ -109,6 +109,6 @@ public class ChatSelectorStateTest {
     }
 
     private static Agent agent(String name, String mode) {
-        return new Agent(name, null, mode, null, null, null, null, null, null, null, null, null, null);
+        return new Agent(name, name, null, mode, null, null, null, null, null, null);
     }
 }

@@ -25,7 +25,8 @@ public class ModelRowsTest {
     // ---------- fixtures ----------
 
     private static Model model(String id, String name, String status, Capabilities caps, Limit limit) {
-        return new Model(id, null, null, name, null, caps, null, limit, status, null, null, null);
+        return new Model(id, null, null, null, name, null, caps, null, limit, status,
+                null, null, null, null);
     }
 
     private static Capabilities caps(boolean reasoning, boolean attachment, boolean toolcall) {

@@ -2,6 +2,7 @@ package com.opencode.ide.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -11,9 +12,11 @@ import com.google.gson.JsonParser;
 /**
  * Unit tests for {@link ChatRequests} request-body building (pure, no I/O).
  *
- * <p>Field shapes are those of {@code POST /session/:id/message} in the live
- * server's OpenAPI ({@code model{providerID,modelID}}, {@code variant},
- * {@code system}, {@code parts[]}).</p>
+ * <p>v2 split v1's single {@code POST /session/:id/message} body: the prompt
+ * text goes to {@code POST /session/:id/prompt}, the agent to
+ * {@code POST /session/:id/agent}, the model (with the variant folded in) to
+ * {@code POST /session/:id/model}, and the per-request system prompt to
+ * {@code POST /session/:id/synthetic}.</p>
  */
 public class ChatRequestsTest {
 
@@ -22,79 +25,80 @@ public class ChatRequestsTest {
     }
 
     @Test
-    public void bodyContainsAgentAndTextPart() {
-        String json = ChatRequests.messageBody(request("build", null, null, "hello **world**"));
-        var obj = JsonParser.parseString(json).getAsJsonObject();
+    public void promptBodyCarriesJustTheText() {
+        var obj = JsonParser.parseString(
+                ChatRequests.promptBody(request("build", "opencode", "glm-5.2", "hello **world**")))
+                .getAsJsonObject();
+        assertEquals("hello **world**", obj.get("text").getAsString());
+        assertFalse("agent/model/system are no longer prompt fields", obj.has("agent"));
+        assertFalse(obj.has("model"));
+        assertFalse(obj.has("parts"));
+    }
+
+    @Test
+    public void nullTextBecomesEmptyAndNewlinesSurvive() {
+        var obj = JsonParser.parseString(
+                ChatRequests.promptBody(request("build", null, null, "line1\nline2 \"quoted\" <b>")))
+                .getAsJsonObject();
+        assertEquals("line1\nline2 \"quoted\" <b>", obj.get("text").getAsString());
+        var nullObj = JsonParser.parseString(ChatRequests.promptBody(request("build", null, null, null)))
+                .getAsJsonObject();
+        assertEquals("", nullObj.get("text").getAsString());
+    }
+
+    @Test
+    public void agentBodyIsNullWithoutAnAgent() {
+        assertNull(ChatRequests.agentBody(request(null, null, null, "hi")));
+        assertNull(ChatRequests.agentBody(request("  ", null, null, "hi")));
+    }
+
+    @Test
+    public void agentBodyCarriesTheAgentName() {
+        var obj = JsonParser.parseString(ChatRequests.agentBody(request("build", null, null, "hi")))
+                .getAsJsonObject();
         assertEquals("build", obj.get("agent").getAsString());
-        assertFalse(obj.has("model")); // default model -> omitted
-        var parts = obj.getAsJsonArray("parts");
-        assertEquals(1, parts.size());
-        var part = parts.get(0).getAsJsonObject();
-        assertEquals("text", part.get("type").getAsString());
-        assertEquals("hello **world**", part.get("text").getAsString());
     }
 
     @Test
-    public void modelIsIncludedWhenProviderAndModelSet() {
-        String json = ChatRequests.messageBody(request("build", "opencode", "glm-5.2", "hi"));
-        var obj = JsonParser.parseString(json).getAsJsonObject();
+    public void modelBodyUsesTheV2ModelRefShape() {
+        var obj = JsonParser.parseString(ChatRequests.modelBody(request("build", "opencode", "glm-5.2", "hi")))
+                .getAsJsonObject();
         var model = obj.getAsJsonObject("model");
+        assertEquals("glm-5.2", model.get("id").getAsString());
         assertEquals("opencode", model.get("providerID").getAsString());
-        assertEquals("glm-5.2", model.get("modelID").getAsString());
+        assertFalse("no variant selected -> omitted", model.has("variant"));
     }
 
     @Test
-    public void halfSetModelIsOmitted() {
-        assertFalse(JsonParser.parseString(ChatRequests.messageBody(
-                request("build", "opencode", null, "hi"))).getAsJsonObject().has("model"));
-        assertFalse(JsonParser.parseString(ChatRequests.messageBody(
-                request("build", null, "glm-5.2", "hi"))).getAsJsonObject().has("model"));
+    public void variantFoldsIntoTheModelRef() {
+        var obj = JsonParser.parseString(ChatRequests.modelBody(
+                request("build", "opencode-go", "gpt-5.6-luna", "hi").withVariant("high")))
+                .getAsJsonObject();
+        assertEquals("high", obj.getAsJsonObject("model").get("variant").getAsString());
     }
 
     @Test
-    public void variantIsSentAsATopLevelFieldWhenSelected() {
-        String json = ChatRequests.messageBody(
-                request("build", "opencode-go", "gpt-5.6-luna", "hi").withVariant("high"));
-        var obj = JsonParser.parseString(json).getAsJsonObject();
-        assertEquals("high", obj.get("variant").getAsString());
-        // the variant must NOT be folded into the model object
-        assertFalse(obj.getAsJsonObject("model").has("variant"));
+    public void halfSetModelProducesNoBody() {
+        assertNull(ChatRequests.modelBody(request("build", "opencode", null, "hi")));
+        assertNull(ChatRequests.modelBody(request("build", null, "glm-5.2", "hi")));
+        assertNull(ChatRequests.modelBody(request("build", null, null, "hi").withVariant("high")));
     }
 
     @Test
-    public void variantIsOmittedWhenNullOrBlank() {
-        assertFalse(JsonParser.parseString(ChatRequests.messageBody(
-                request("build", "p", "m", "hi").withVariant(null))).getAsJsonObject().has("variant"));
-        assertFalse(JsonParser.parseString(ChatRequests.messageBody(
-                request("build", "p", "m", "hi").withVariant("  "))).getAsJsonObject().has("variant"));
-    }
-
-    @Test
-    public void systemPromptIsSentWhenSet() {
-        String json = ChatRequests.messageBody(
+    public void systemPromptBecomesASyntheticMessage() {
+        String json = ChatRequests.syntheticBody(
                 request("build", null, null, "hi").withSystem(ChatCapabilities.RENDERER_SYSTEM_PROMPT));
         var obj = JsonParser.parseString(json).getAsJsonObject();
-        String system = obj.get("system").getAsString();
+        String system = obj.get("text").getAsString();
         assertTrue(system.contains("KaTeX") || system.contains("$$"));
         assertTrue("must advertise language-tagged code fences", system.contains("```cpp"));
         assertTrue("must advertise mermaid", system.contains("mermaid"));
     }
 
     @Test
-    public void systemPromptIsOmittedWhenNull() {
-        assertFalse(JsonParser.parseString(ChatRequests.messageBody(
-                request("build", null, null, "hi"))).getAsJsonObject().has("system"));
-    }
-
-    @Test
-    public void nullTextBecomesEmptyAndNewlinesSurvive() {
-        String json = ChatRequests.messageBody(request("build", null, null, "line1\nline2 \"quoted\" <b>"));
-        var part = JsonParser.parseString(json).getAsJsonObject().getAsJsonArray("parts").get(0).getAsJsonObject();
-        assertEquals("line1\nline2 \"quoted\" <b>", part.get("text").getAsString());
-        String jsonNull = ChatRequests.messageBody(request("build", null, null, null));
-        var partNull = JsonParser.parseString(jsonNull).getAsJsonObject()
-                .getAsJsonArray("parts").get(0).getAsJsonObject();
-        assertEquals("", partNull.get("text").getAsString());
+    public void systemPromptIsNullWhenUnset() {
+        assertNull(ChatRequests.syntheticBody(request("build", null, null, "hi")));
+        assertNull(ChatRequests.syntheticBody(request("build", null, null, "hi").withSystem("  ")));
     }
 
     @Test

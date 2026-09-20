@@ -5,18 +5,29 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
- * One event from the opencode server's {@code /event} SSE stream. The payload
- * shape is {@code {"type": "...", "properties": {...}}}. Relevant types include
- * {@code session.created}, {@code session.updated}, {@code session.deleted},
- * {@code session.status}, {@code session.idle}, {@code message.part.updated},
- * {@code todo.updated}.
+ * One event from the opencode server's {@code /api/event} SSE stream. The
+ * frame shape is {@code {"id", "created", "type", "location", "data"}} and the
+ * event payload lives under {@code data}. Relevant types include
+ * {@code session.created}, {@code session.deleted}, {@code session.status},
+ * {@code session.idle}, {@code session.text.delta},
+ * {@code session.reasoning.delta}, {@code session.tool.called},
+ * {@code permission.asked} and {@code permission.replied}.
+ *
+ * <p>v2 serves a single stream for every directory, so {@link #directory} (from
+ * the frame's {@code location.directory}) is what scopes an event to a project
+ * or worktree — the v1 per-project {@code /event} endpoint is gone.</p>
  *
  * <p>JSON navigation helpers ({@link #string}, {@link #at}, {@link #as}) keep
  * Gson use inside core so UI consumers never depend on Gson directly.</p>
  */
-public record OpencodeEvent(String type, JsonObject properties) {
+public record OpencodeEvent(String type, JsonObject properties, String directory) {
 
     private static final Gson GSON = new Gson();
+
+    /** An event with no location (test fixtures and v1-shaped callers). */
+    public OpencodeEvent(String type, JsonObject properties) {
+        this(type, properties, null);
+    }
 
     /** @return the named top-level property as a string, or {@code null} if absent/not a string. */
     public String string(String key) {

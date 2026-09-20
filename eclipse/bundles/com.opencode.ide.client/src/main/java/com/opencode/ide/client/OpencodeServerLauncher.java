@@ -205,10 +205,10 @@ public final class OpencodeServerLauncher {
         // with a password set (always, in fleet spawn mode - possibly generated),
         // unauthenticated probes would 401 until the timeout and abort the start
         String auth = com.opencode.ide.client.internal.Auth.basicHeader("opencode", password);
-        HttpRequest healthReq = probe(base, "/global/health", auth, ClientTuning.HEALTH_PROBE_TIMEOUT);
-        // opencode reports /global/health = healthy before the data endpoints are
-        // populated, so also require a 200 from /agent before considering the server ready.
-        HttpRequest agentReq = probe(base, "/agent", auth, ClientTuning.AGENT_PROBE_TIMEOUT);
+        HttpRequest healthReq = probe(base, "/api/info", auth, ClientTuning.HEALTH_PROBE_TIMEOUT);
+        // /api/info answers before the data endpoints are populated, so also
+        // require a 200 from /api/agent before considering the server ready.
+        HttpRequest agentReq = probe(base, "/api/agent", auth, ClientTuning.AGENT_PROBE_TIMEOUT);
 
         long deadline = System.nanoTime() + timeout.toNanos();
         IOException last = null;
@@ -220,7 +220,7 @@ public final class OpencodeServerLauncher {
             }
             try {
                 HttpResponse<String> health = client.send(healthReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-                if (health.statusCode() == 200 && health.body().contains("\"healthy\":true")) {
+                if (health.statusCode() == 200 && health.body().contains("\"version\"")) {
                     HttpResponse<String> agent = client.send(agentReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
                     if (agent.statusCode() == 200) {
                         lastHealth = parseHealth(health.body()); // captured for getLastHealth() + the version pin

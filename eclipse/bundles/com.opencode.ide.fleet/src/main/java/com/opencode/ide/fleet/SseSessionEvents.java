@@ -12,8 +12,8 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * Idle detection driven by the opencode {@code /event} SSE stream instead of
- * polling. This class does NOT own a stream: an owner that already runs one
+ * Idle detection driven by the opencode {@code /api/event} SSE stream instead
+ * of polling. This class does NOT own a stream: an owner that already runs one
  * {@code OpencodeEventStream} (e.g. the Eclipse core layer) exposes a
  * {@link Subscriber} and registers this instance as one of its listeners.
  * Events arrive on the owner's SSE reader thread; {@link #awaitIdle} only
@@ -53,6 +53,24 @@ public final class SseSessionEvents {
     }
 
     private enum Signal { IDLE, DROPPED, TIMEOUT }
+
+    /**
+     * The event types that end a wait. {@code session.idle} and
+     * {@code session.deleted} are the historical two; v2 additionally ends a
+     * turn with {@code session.execution.succeeded} /
+     * {@code .failed} / {@code .interrupted} (all carrying {@code sessionID}),
+     * so a finished run is still detected when the {@code session.idle} that
+     * would have followed is missed - dropped in a relay gap, or swallowed by
+     * a reconnect. Treating them as terminal is deliberately optimistic: the
+     * fleet's next step re-reads the session state anyway, and a wait that
+     * ends one event early costs far less than one that never ends.
+     */
+    private static final Set<String> TERMINAL_TYPES = Set.of(
+            "session.idle",
+            "session.deleted",
+            "session.execution.succeeded",
+            "session.execution.failed",
+            "session.execution.interrupted");
 
     private final Subscriber subscriber;
     private final PollingSessionEvents fallback;
@@ -101,13 +119,15 @@ public final class SseSessionEvents {
     }
 
     /**
-     * Blocks until the session is (again) idle, as signalled by the stream's
-     * {@code session.idle} (or {@code session.deleted}) event.
+     * Blocks until the session is (again) idle, as signalled by one of the
+     * stream's terminal events ({@code session.idle},
+     * {@code session.deleted}, or a v2 {@code session.execution.*} outcome -
+     * see {@link #TERMINAL_TYPES}).
      *
      * @param sessionId the opencode session to watch
      * @param timeout   how long to wait
-     * @return {@code true} when the session went idle (or was deleted) within
-     *         the timeout, {@code false} on timeout
+     * @return {@code true} when the session went idle (was deleted, or ended
+     *         its run) within the timeout, {@code false} on timeout
      * @throws OpencodeException when interrupted or the transport fails
      */
     public boolean awaitIdle(String sessionId, Duration timeout) throws OpencodeException {
@@ -184,7 +204,8 @@ public final class SseSessionEvents {
 
         private boolean matches(OpencodeEvent event) {
             String type = event.type();
-            if (!"session.idle".equals(type) && !"session.deleted".equals(type)) {
+            // null-safe on purpose: a malformed frame must not kill the wait
+            if (type == null || !TERMINAL_TYPES.contains(type)) {
                 return false;
             }
             return sessionId.equals(event.string("sessionID"));

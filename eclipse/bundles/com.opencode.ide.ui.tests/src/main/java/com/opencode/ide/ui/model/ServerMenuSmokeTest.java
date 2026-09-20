@@ -54,9 +54,9 @@ public class ServerMenuSmokeTest {
             field.setAccessible(true);
             field.set(view, viewer);
             Session session = new Session("same", null, "Same session on two servers", null,
-                    null, null, null, null, null);
-            Agent agent = new Agent("build", null, "primary", null, null, null, null,
-                    null, null, null, null, null, null);
+                    null, null, null, null, null, null, null);
+            Agent agent = new Agent("build", "build", null, "primary", null, null, null,
+                    null, null, null);
             OpencodeClient client = (OpencodeClient) Proxy.newProxyInstance(OpencodeClient.class.getClassLoader(),
                     new Class<?>[] { OpencodeClient.class }, (proxy, method, args) -> null);
             Object primary = server(viewType, client, true, agent, session);

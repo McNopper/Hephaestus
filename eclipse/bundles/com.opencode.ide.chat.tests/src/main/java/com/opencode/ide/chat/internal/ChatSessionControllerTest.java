@@ -93,7 +93,7 @@ public class ChatSessionControllerTest {
     public void sendFinalRenderCarriesToolParts() {
         connection.client.reply = new ChatEntry(
                 new ChatMessageInfo("msg_t", "ses_1", "assistant", null, null, null, null,
-                        null, null, "prov", "mod", null, null),
+                        null, null, "prov", "mod", null, null, 1_700_000_000_000L),
                 List.of(new ChatPart("text", "done", null, null),
                         new ChatPart("tool", null, "read", new ChatPart.ToolState("completed")),
                         new ChatPart("tool", null, "cmake_build", new ChatPart.ToolState("error")),
@@ -211,7 +211,7 @@ public class ChatSessionControllerTest {
 
     private static OpencodeException promptTimeout() {
         return new OpencodeConnectionException(
-                "opencode POST /session/ses_1/message timed out after 300s",
+                "opencode POST /session/ses_1/prompt timed out after 300s",
                 new HttpTimeoutException("request timed out"));
     }
 
@@ -300,7 +300,7 @@ public class ChatSessionControllerTest {
         host.holdBackground = true;
         controller.sendCommand(commandSelection("/build now", "build", List.of("now")));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"par\"}"));
         host.queuedBackground.forEach(Runnable::run);
 
         assertTrue("final render must target the streamed mid, got: " + renderer.assistants,
@@ -542,7 +542,7 @@ public class ChatSessionControllerTest {
         host.holdBackground = true;
         controller.send(msg("again"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"par\"}"));
         controller.submit(null, msg("next"));
         assertTrue(controller.isSending());
 
@@ -617,7 +617,7 @@ public class ChatSessionControllerTest {
 
     @Test
     public void forkOfASessionWithoutIdIsReportedNotSwitched() {
-        connection.client.forkResult = new Session(null, null, null, null, null, null, null, null, null);
+        connection.client.forkResult = new Session(null, null, null, null, null, null, null, null, null, null, null);
         controller.resume("ses_42");
 
         controller.forkAt("msg_7");
@@ -967,7 +967,7 @@ public class ChatSessionControllerTest {
         assertEquals(2, connection.listeners.size()); // delta listener + permission adapter
 
         // before any session exists, deltas are ignored
-        connection.fire(deltaEvent("{\"sessionID\":\"ses_1\",\"messageID\":\"m\",\"delta\":\"x\"}"));
+        connection.fire(deltaEvent("{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"m\",\"delta\":\"x\"}"));
         assertTrue(renderer.deltas.isEmpty());
 
         controller.send(new ChatSessionController.OutgoingMessage(
@@ -978,25 +978,27 @@ public class ChatSessionControllerTest {
         controller.send(new ChatSessionController.OutgoingMessage(
                 null, "prov", "m1", null, null, "hi again"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"text\",\"delta\":\"chunk\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_1\",\"delta\":\"chunk\"}"));
         assertEquals(List.of("start:msg_1"), renderer.assistants.stream()
                 .filter(a -> a.startsWith("start:")).toList());
         assertEquals(List.of("msg_1:chunk"), renderer.deltas);
 
         // a reasoning delta streams through the thinking channel, not the body
-        connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"reasoning\",\"delta\":\"ponder\"}"));
+        connection.fire(reasoningEvent(
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_1\",\"delta\":\"ponder\"}"));
         assertEquals(1, renderer.deltas.size());
         assertEquals(List.of("msg_1:ponder"), renderer.reasonings);
 
-        // other session / empty delta / unknown field / missing id: all ignored
+        // other session / empty delta / foreign event type / missing id: all ignored
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_other\",\"messageID\":\"msg_1\",\"field\":\"text\",\"delta\":\"x\"}"));
+                "{\"sessionID\":\"ses_other\",\"assistantMessageID\":\"msg_1\",\"delta\":\"x\"}"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"text\",\"delta\":\"\"}"));
-        connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_1\",\"field\":\"tool\",\"delta\":\"x\"}"));
-        connection.fire(deltaEvent("{\"sessionID\":\"ses_1\",\"field\":\"text\",\"delta\":\"x\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_1\",\"delta\":\"\"}"));
+        // v2 has its own events per channel, so a tool event is simply not a
+        // delta type (v1 filtered on a "field":"tool" member instead)
+        connection.fire(typedEvent("session.tool.called",
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_1\",\"id\":\"call_1\"}"));
+        connection.fire(deltaEvent("{\"sessionID\":\"ses_1\",\"delta\":\"x\"}"));
         assertEquals(1, renderer.deltas.size());
         assertEquals(1, renderer.reasonings.size());
         host.queuedBackground.forEach(Runnable::run); // settle the held send
@@ -1013,10 +1015,10 @@ public class ChatSessionControllerTest {
         host.holdBackground = true;
         controller.send(new ChatSessionController.OutgoingMessage(
                 null, "prov", "m1", null, null, "hi again"));
-        connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_r\",\"field\":\"reasoning\",\"delta\":\"ponder\"}"));
-        connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_r\",\"field\":\"reasoning\",\"delta\":\"ing\"}"));
+        connection.fire(reasoningEvent(
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_r\",\"delta\":\"ponder\"}"));
+        connection.fire(reasoningEvent(
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_r\",\"delta\":\"ing\"}"));
 
         assertEquals(List.of("msg_r:ponder", "msg_r:ing"), renderer.reasonings);
         assertTrue("reasoning must not leak into the text body, got: " + renderer.deltas,
@@ -1025,8 +1027,8 @@ public class ChatSessionControllerTest {
         host.queuedBackground.forEach(Runnable::run); // settle the held send
 
         // once the send settled, a reasoning delta is a late orphan: no bubble
-        connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_late\",\"field\":\"reasoning\",\"delta\":\"x\"}"));
+        connection.fire(reasoningEvent(
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_late\",\"delta\":\"x\"}"));
         assertFalse("late reasoning delta must not create a bubble, got: " + renderer.assistants,
                 renderer.assistants.contains("start:msg_late"));
         assertTrue("late reasoning delta must not stream, got: " + renderer.reasonings,
@@ -1082,7 +1084,7 @@ public class ChatSessionControllerTest {
                 entry("u1", "user", "question"),
                 new ChatEntry(
                         new ChatMessageInfo("a1", "ses_1", "assistant", null, null, null, null,
-                                null, null, "prov", "mod", null, null),
+                                null, null, "prov", "mod", null, null, 1_700_000_000_000L),
                         List.of(new ChatPart("text", "answer", null, null),
                                 new ChatPart("tool", null, "read", new ChatPart.ToolState("completed")),
                                 new ChatPart("tool", null, "cmake_build", new ChatPart.ToolState("error")))));
@@ -1132,10 +1134,10 @@ public class ChatSessionControllerTest {
 
     @Test
     public void selectorDataDeliversAgentsProvidersAndResolvedDefault() {
-        Agent agent = new Agent("build", "d", "primary", Boolean.TRUE,
-                null, null, null, null, null, null, null, null, null);
-        Model model = new Model("m1", "prov", null, null, null, null, null, null,
-                null, null, null, null);
+        Agent agent = new Agent("build", "Build", "d", "primary", Boolean.FALSE,
+                null, null, null, null, null);
+        Model model = new Model("m1", "m1", "prov", null, null, null, null, null,
+                null, null, null, null, null, null);
         Provider provider = new Provider("prov", "Prov", null, null, null, null,
                 Map.of("m1", model));
         connection.client.agents = List.of(agent);
@@ -1200,7 +1202,7 @@ public class ChatSessionControllerTest {
         // reply carries a DIFFERENT id — the final render must hit the streamed
         // bubble or its blinking cursor never stops
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"par\"}"));
         connection.client.reply = entry("msg_reply", "assistant", "done");
         host.queuedBackground.forEach(Runnable::run);
 
@@ -1219,7 +1221,7 @@ public class ChatSessionControllerTest {
         controller.send(new ChatSessionController.OutgoingMessage(
                 "build", "prov", "m1", null, null, "again"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"par\"}"));
         connection.client.sendFailure = new OpencodeException("boom");
         host.queuedBackground.forEach(Runnable::run);
 
@@ -1237,7 +1239,7 @@ public class ChatSessionControllerTest {
         controller.send(new ChatSessionController.OutgoingMessage(
                 "build", "prov", "m1", null, null, "again"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"par\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"par\"}"));
 
         controller.abort();
 
@@ -1258,9 +1260,9 @@ public class ChatSessionControllerTest {
         // tool round: the assistant streams TWO messages (think -> tool -> answer);
         // both bubbles must lose their cursor, the reply lands in the LAST one
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_a\",\"field\":\"text\",\"delta\":\"thinking\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_a\",\"delta\":\"thinking\"}"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_b\",\"field\":\"text\",\"delta\":\"answer\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_b\",\"delta\":\"answer\"}"));
         connection.client.reply = entry("msg_reply", "assistant", "done");
         host.queuedBackground.forEach(Runnable::run);
 
@@ -1280,7 +1282,7 @@ public class ChatSessionControllerTest {
         controller.send(new ChatSessionController.OutgoingMessage(
                 "build", "prov", "m1", null, null, "again"));
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_stream\",\"field\":\"text\",\"delta\":\"partial table\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_stream\",\"delta\":\"partial table\"}"));
         // observed with tool runs: the POST reply carries no authoritative text;
         // wiping the bubble would lose the streamed answer, so it must be kept
         // (the page finalizes the raw stream as markdown on cursor stop)
@@ -1301,7 +1303,7 @@ public class ChatSessionControllerTest {
         // a late SSE event for an unknown mid must not spawn an orphan bubble
         // (nobody would ever stop its blinking cursor)
         connection.fire(deltaEvent(
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"msg_late\",\"field\":\"text\",\"delta\":\"x\"}"));
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"msg_late\",\"delta\":\"x\"}"));
 
         assertFalse("late delta must not create a bubble, got: " + renderer.assistants,
                 renderer.assistants.stream().anyMatch(a -> a.equals("start:msg_late")));
@@ -1309,14 +1311,31 @@ public class ChatSessionControllerTest {
                 renderer.deltas.stream().noneMatch(d -> d.startsWith("msg_late:")));
     }
 
+    /**
+     * A v2 streaming delta. The channel is the EVENT NAME
+     * ({@code session.text.delta} vs {@code session.reasoning.delta}), and
+     * the payload is flat: {@code {sessionID, assistantMessageID, ordinal,
+     * delta}} — v1 packed both into one {@code message.part.delta} with a
+     * {@code field} discriminator and a {@code messageID}.
+     */
     private static OpencodeEvent deltaEvent(String propertiesJson) {
+        return typedEvent("session.text.delta", propertiesJson);
+    }
+
+    /** A v2 reasoning delta (the thinking channel). */
+    private static OpencodeEvent reasoningEvent(String propertiesJson) {
+        return typedEvent("session.reasoning.delta", propertiesJson);
+    }
+
+    private static OpencodeEvent typedEvent(String type, String propertiesJson) {
         JsonObject properties = new Gson().fromJson(propertiesJson, JsonObject.class);
-        return new OpencodeEvent("message.part.delta", properties);
+        return new OpencodeEvent(type, properties);
     }
 
     private static ChatEntry entry(String id, String role, String text) {
+        // trailing stamp: v2's time.completed (14th ChatMessageInfo component)
         ChatMessageInfo info = new ChatMessageInfo(id, "ses_1", role, null, null, null,
-                null, null, null, "prov", "mod", null, null);
+                null, null, null, "prov", "mod", null, null, 1_700_000_000_000L);
         return new ChatEntry(info, List.of(new ChatPart("text", text, null, null)));
     }
 
@@ -1565,7 +1584,7 @@ public class ChatSessionControllerTest {
         public Session createSession(String title, Path directory) {
             createdSessions.add(title);
             sessionCounter++;
-            return new Session("ses_" + sessionCounter, null, title, null, null, null, null, null, null);
+            return new Session("ses_" + sessionCounter, null, title, null, null, null, null, null, null, null, null);
         }
 
         @Override
@@ -1608,7 +1627,7 @@ public class ChatSessionControllerTest {
                 return forkResult;
             }
             forkCounter++;
-            return new Session("ses_fork" + forkCounter, null, "Fork", null, null, null, null, null, null);
+            return new Session("ses_fork" + forkCounter, null, "Fork", null, null, null, null, null, null, null, null);
         }
 
         @Override

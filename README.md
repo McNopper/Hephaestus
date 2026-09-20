@@ -206,7 +206,7 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 
 ## Install & Use (opencode)
 
-1. [Install opencode](https://opencode.ai/docs/) (e.g. `npm install -g opencode-ai`).
+1. [Install opencode](https://opencode.ai/v2/docs/) (e.g. `npm install -g opencode-ai`).
 2. Connect providers via `/connect` (e.g. Z.AI, GitHub Copilot, OpenAI —
    whichever you use).
 3. Install the graphics MCP deps: `pip install -r mcp/graphics/requirements.txt`.
@@ -230,9 +230,11 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 > set — one surface, two transports; `graphics` is stdio. None implement `resources`,
 > `prompts`, cancellation, or progress. That is sufficient for opencode tool calls.
 
-> **Local plugin deps:** `.opencode/` carries a local `.opencode/package.json`
-> (`@opencode-ai/plugin`) that is **git-ignored** along with its `node_modules` — it is
-> a per-clone convenience, not part of the template. A fresh clone starts without it.
+> **Local plugin deps:** `.opencode/` carries a local `.opencode/package.json` that is
+> **git-ignored** along with its `node_modules` — it is a per-clone convenience, not part
+> of the template. A fresh clone starts without it. The old V1 `@opencode-ai/plugin`
+> dependency has been **removed** (this repo ships no plugin sources; opencode v2's plugin
+> package is `@opencode/plugin` and V1 plugins do not run in V2).
 
 ### Reuse as a template
 

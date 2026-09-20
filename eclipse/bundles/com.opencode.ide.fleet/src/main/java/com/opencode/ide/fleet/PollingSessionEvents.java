@@ -8,7 +8,7 @@ import com.opencode.ide.client.model.SessionStatus;
 
 /**
  * Idle detection over the REST surface: polls
- * {@code GET /session/status} until the session reports {@code idle} - the
+ * {@code GET /session/active} until the session reports {@code idle} - the
  * same loop {@link FleetRunner} uses internally. This is the
  * (stream-less) completion check and also serves {@link SseSessionEvents}
  * as its one-shot fallback check on stream drops ({@code awaitIdle} with a

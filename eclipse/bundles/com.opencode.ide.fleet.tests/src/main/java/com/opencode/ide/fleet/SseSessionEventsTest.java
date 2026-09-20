@@ -22,7 +22,8 @@ import com.opencode.ide.client.model.OpencodeEvent;
 /**
  * Unit tests for {@link SseSessionEvents} against a fake
  * {@link SseSessionEvents.Subscriber} (no HTTP, no real stream): matching
- * {@code session.idle}/{@code session.deleted} completes the wait, foreign
+ * {@code session.idle}/{@code session.deleted} and the v2
+ * {@code session.execution.*} outcomes complete the wait, foreign
  * sessions are ignored, timeouts return false, every wait unsubscribes
  * (completion and timeout), stream drops trigger the one-shot fallback poll,
  * and concurrent waits for different sessions coexist.
@@ -88,6 +89,42 @@ public class SseSessionEventsTest {
         SseSessionEvents events = new SseSessionEvents(subscriber);
 
         assertTrue(events.awaitIdle("ses_1", Duration.ofSeconds(5)));
+    }
+
+    @Test
+    public void acceptsTheV2ExecutionOutcomesAsTerminal() throws Exception {
+        // v2 ends a turn with session.execution.succeeded/failed/interrupted;
+        // the session.idle that used to follow may never be seen (relay gap,
+        // reconnect), so each outcome must end the wait on its own
+        for (String type : List.of("session.execution.succeeded", "session.execution.failed",
+                "session.execution.interrupted")) {
+            FakeSubscriber subscriber = new FakeSubscriber();
+            subscriber.autoEvent = event(type, "ses_1");
+            SseSessionEvents events = new SseSessionEvents(subscriber);
+
+            assertTrue(type + " must complete the wait",
+                    events.awaitIdle("ses_1", Duration.ofSeconds(5)));
+        }
+    }
+
+    @Test
+    public void executionOutcomeOfAnotherSessionIsIgnored() throws Exception {
+        FakeSubscriber subscriber = new FakeSubscriber();
+        subscriber.autoEvent = event("session.execution.succeeded", "ses_other");
+        SseSessionEvents events = new SseSessionEvents(subscriber);
+
+        assertFalse(events.awaitIdle("ses_1", Duration.ofMillis(150)));
+    }
+
+    @Test
+    public void nonTerminalV2EventsDoNotCompleteTheWait() throws Exception {
+        // the stream carries plenty of same-session traffic before the end:
+        // deltas, tool calls and status updates must not be read as "done"
+        FakeSubscriber subscriber = new FakeSubscriber();
+        subscriber.autoEvent = event("session.text.delta", "ses_1");
+        SseSessionEvents events = new SseSessionEvents(subscriber);
+
+        assertFalse(events.awaitIdle("ses_1", Duration.ofMillis(150)));
     }
 
     @Test

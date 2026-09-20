@@ -15,10 +15,10 @@ public final class ServerVersionPin {
 
     /**
      * The opencode version whose endpoint spec this client was cross-checked
-     * against (2026-09-13). On a mismatch, rerun the endpoint smoke against
-     * the new version's spec, then bump this pin.
+     * against (2026-09-20, v2 migration). On a mismatch, rerun the endpoint
+     * smoke against the new version's spec, then bump this pin.
      */
-    public static final String PINNED_VERSION = "1.18.30";
+    public static final String PINNED_VERSION = "2.0.10";
 
     private ServerVersionPin() {
     }

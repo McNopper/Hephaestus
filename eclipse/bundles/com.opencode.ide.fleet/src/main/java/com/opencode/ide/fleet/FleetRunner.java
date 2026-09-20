@@ -377,8 +377,9 @@ public class FleetRunner {
 
     /**
      * Completion check: the session reports {@code idle} and its last message
-     * is an assistant reply with non-empty text. As everywhere: since
-     * opencode 1.18.23 {@code /session/status} lists busy sessions only, so an
+     * is an assistant reply with non-empty text. As everywhere: the status
+     * map lists busy sessions only (v1 since opencode 1.18.23, and v2's
+     * {@code /session/active} by definition), so an
      * ABSENT session is idle (requiring an explicit idle entry never completed
      * - Milestone V); only a present non-idle entry means busy.
      */

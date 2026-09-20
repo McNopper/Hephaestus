@@ -14,14 +14,19 @@ import com.opencode.ide.client.internal.Auth;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * Subscribes to an opencode server SSE stream ({@code /event} for one project,
- * {@code /global/event} via {@link #global} for all projects), parses the
+ * Subscribes to an opencode server SSE stream ({@code /api/event}), parses the
  * {@code data:} frames into {@link OpencodeEvent}s, and pushes them to a sink.
  * Reconnects with exponential back-off on close/error. Runs on a daemon thread.
  *
- * <p>The wire format is SSE: lines starting with {@code data:} carry JSON;
- * events are separated by blank lines. Global frames wrap the event in a
- * {@code payload} envelope; {@link Sse#parseEvent(String)} unwraps it.</p>
+ * <p>v2 serves a single stream for every directory (the v1 split between a
+ * per-project {@code /event} and a global {@code /global/event} is gone), so
+ * {@link #global()} and {@link #forProject()} open the same endpoint; scoping
+ * to a project or worktree happens downstream via
+ * {@link OpencodeEvent#directory()}.</p>
+ *
+ * <p>The wire format is SSE: lines starting with {@code data:} carry one JSON
+ * frame each ({@code {id, created, type, location, data}});
+ * {@link Sse#parseEvent(String)} turns them into events.</p>
  *
  * <p>Lifecycle matters here: the response body of a long-lived SSE request keeps
  * a connection (and the client's selector thread) alive, so {@link #stop()}
@@ -31,8 +36,8 @@ import com.opencode.ide.client.model.OpencodeEvent;
  */
 public final class OpencodeEventStream {
 
-    private static final String PATH = "/event";
-    private static final String GLOBAL_PATH = "/global/event";
+    private static final String PATH = "/api/event";
+    private static final String GLOBAL_PATH = "/api/event";
 
     private final HttpClient http;
     private final String path;
@@ -76,8 +81,9 @@ public final class OpencodeEventStream {
     }
 
     /**
-     * Stream for {@code GET /global/event} (opencode v1.18.30): events across
-     * all projects, same lifecycle and callbacks as the per-project stream.
+     * Stream over events across all projects — in v2 simply the same
+     * {@code /api/event} endpoint, since the server no longer splits streams
+     * per project. Kept as a named factory so callers state their intent.
      */
     public static OpencodeEventStream global(ConnectionConfig config, Consumer<OpencodeEvent> sink,
             Consumer<Boolean> connectionListener) {

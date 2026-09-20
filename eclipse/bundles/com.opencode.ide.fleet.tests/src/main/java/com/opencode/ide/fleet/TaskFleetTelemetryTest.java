@@ -72,7 +72,7 @@ public class TaskFleetTelemetryTest {
         worktrees.onMergeBack = () -> {
             ChatMessageInfo info = new ChatMessageInfo(
                     "msg_final", "ses_1", "assistant", null, agent, null, null,
-                    cost, tokens, provider, model, null, null);
+                    cost, tokens, provider, model, null, null, 1_700_000_000_000L);
             client.messagesBySession.get("ses_1")
                     .add(new ChatEntry(info, List.of(new ChatPart("text", "done", null, null))));
         };

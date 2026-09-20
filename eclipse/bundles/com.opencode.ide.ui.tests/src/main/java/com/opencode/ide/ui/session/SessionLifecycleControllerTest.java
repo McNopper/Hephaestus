@@ -28,13 +28,16 @@ import com.opencode.ide.ui.session.SessionDetailsController.LifecycleResult;
 
 /**
  * Unit tests for the session lifecycle actions of
- * {@link SessionDetailsController} (fork / share / unshare / summarize) with a
- * fake {@link OpencodeClient}: no HTTP, no SWT. Like {@code load()}, the
- * actions never throw — failures come back as {@link LifecycleResult#error()}.
+ * {@link SessionDetailsController} (fork / summarize) with a fake
+ * {@link OpencodeClient}: no HTTP, no SWT. Like {@code load()}, the actions
+ * never throw — failures come back as {@link LifecycleResult#error()}.
+ *
+ * <p>Share/unshare is not covered because it no longer exists: opencode v2
+ * serves no session share endpoint.</p>
  */
 public class SessionLifecycleControllerTest {
 
-    private static final Session.Time TIME = new Session.Time(1L, 1L);
+    private static final Session.Time TIME = new Session.Time(1L, 1L, 0L);
 
     private final FakeClient client = new FakeClient();
 
@@ -42,12 +45,12 @@ public class SessionLifecycleControllerTest {
 
     private static ChatMessageInfo assistant(String providerId, String modelId) {
         return new ChatMessageInfo("a1", "ses_1", "assistant", TIME, "build", "primary", "stop",
-                null, null, providerId, modelId, "high", null);
+                null, null, providerId, modelId, "high", null, 0L);
     }
 
     private static ProviderList providers() {
-        Model model = new Model("glm-5.2", "zai", null, "GLM 5.2", null, null, null, null, null,
-                null, null, null);
+        Model model = new Model("glm-5.2", null, "zai", null, "GLM 5.2", null, null, null, null,
+                null, null, null, null, null);
         Provider provider = new Provider("zai", "ZAI", "api", List.of(), null, Map.of(),
                 Map.of("glm-5.2", model));
         return new ProviderList(List.of(provider), null);
@@ -80,58 +83,6 @@ public class SessionLifecycleControllerTest {
 
         assertFalse(result.success());
         assertEquals("fork boom", result.error());
-    }
-
-    // ---------- share / unshare ----------
-
-    @Test
-    public void shareExtractsTheUrlFromTheReturnedSession() {
-        client.shareResult = new Session("ses_1", null, null, null, null, null, null, null,
-                new Session.Share("https://opencode.ai/s/abc123"));
-
-        LifecycleResult result = new SessionDetailsController("ses_1", () -> client).share();
-
-        assertTrue(result.success());
-        assertEquals("https://opencode.ai/s/abc123", result.detail());
-    }
-
-    @Test
-    public void shareWithoutUrlIsAFailure() {
-        client.shareResult = new Session("ses_1", null, null, null, null, null, null, null, null);
-
-        LifecycleResult result = new SessionDetailsController("ses_1", () -> client).share();
-
-        assertFalse(result.success());
-        assertEquals("server returned no share URL", result.error());
-    }
-
-    @Test
-    public void shareFailureIsReportedNotThrown() {
-        client.throwOn = "share";
-
-        LifecycleResult result = new SessionDetailsController("ses_1", () -> client).share();
-
-        assertFalse(result.success());
-        assertEquals("share boom", result.error());
-    }
-
-    @Test
-    public void unshareSucceedsQuietly() {
-        LifecycleResult result = new SessionDetailsController("ses_1", () -> client).unshare();
-
-        assertTrue(result.success());
-        assertNull(result.detail());
-        assertNull(result.error());
-    }
-
-    @Test
-    public void unshareFailureIsReportedNotThrown() {
-        client.throwOn = "unshare";
-
-        LifecycleResult result = new SessionDetailsController("ses_1", () -> client).unshare();
-
-        assertFalse(result.success());
-        assertEquals("unshare boom", result.error());
     }
 
     // ---------- summarize ----------
@@ -227,25 +178,14 @@ public class SessionLifecycleControllerTest {
         assertNull("nothing resolvable", SessionDetailsController.pickSummarizeModel(null, null, null));
     }
 
-    @Test
-    public void shareUrlExtractorIsNullTolerant() {
-        assertNull(SessionDetailsController.shareUrl(null));
-        assertNull(SessionDetailsController.shareUrl(
-                new Session("ses_1", null, null, null, null, null, null, null, null)));
-        assertEquals("https://opencode.ai/s/abc123", SessionDetailsController.shareUrl(
-                new Session("ses_1", null, null, null, null, null, null, null,
-                        new Session.Share("https://opencode.ai/s/abc123"))));
-    }
-
     // ---------- fake client (lifecycle surface works; the rest throws) ----------
 
     private static final class FakeClient implements OpencodeClient {
         List<ChatEntry> messages = List.of();
-        Session shareResult;
         ConfigInfo config;
         ProviderList providerList;
         boolean summarizeReturns = true;
-        /** When set to "fork"/"share"/"unshare"/"summarize", that call throws. */
+        /** When set to "fork"/"summarize", that call throws. */
         String throwOn;
         boolean throwOnConfigOrProviders;
 
@@ -259,23 +199,8 @@ public class SessionLifecycleControllerTest {
             if ("fork".equals(throwOn)) {
                 throw new OpencodeException("fork boom");
             }
-            return new Session("ses_fork", null, "Fork of ses_1", null, null, null, null, null, null);
-        }
-
-        @Override
-        public Session shareSession(String sessionId) throws OpencodeException {
-            if ("share".equals(throwOn)) {
-                throw new OpencodeException("share boom");
-            }
-            return shareResult;
-        }
-
-        @Override
-        public Session unshareSession(String sessionId) throws OpencodeException {
-            if ("unshare".equals(throwOn)) {
-                throw new OpencodeException("unshare boom");
-            }
-            return new Session(sessionId, null, null, null, null, null, null, null, null);
+            return new Session("ses_fork", null, "Fork of ses_1", null, null, null, null, null,
+                    null, null, null);
         }
 
         @Override

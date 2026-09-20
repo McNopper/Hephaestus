@@ -49,7 +49,14 @@ public final class ActivityTracker {
             case "session.status" -> changed = applyStatus(event);
             case "session.idle" -> changed = applyIdle(event);
             case "session.deleted" -> changed = applyDeleted(event);
-            case "message.part.updated" -> changed = applyPart(event);
+            // v2 split v1's message.part.updated (one event with a part.type
+            // discriminator) into one event per channel:
+            case "session.reasoning.started" -> changed = applyThinking(event, true);
+            case "session.reasoning.ended", "session.text.started" -> changed = applyThinking(event, false);
+            case "session.tool.called", "session.tool.input.started" ->
+                changed = applyTool(event, ToolActivity.State.RUNNING);
+            case "session.tool.success" -> changed = applyTool(event, ToolActivity.State.COMPLETED);
+            case "session.tool.failed" -> changed = applyTool(event, ToolActivity.State.ERROR);
             default -> {
             }
         }
@@ -65,7 +72,9 @@ public final class ActivityTracker {
         if (sessionId == null) {
             return false;
         }
-        String status = event.string("status");
+        // v2 nests the status as {"status": {"type": "busy"|"idle"|"retry"}}; the
+        // flat-string fallback tolerates older captures
+        String status = firstNonNull(event.string("status"), event.at("status.type"));
         boolean running = "busy".equals(status) || "retry".equals(status);
         MutableSession session = sessions.get(sessionId);
         if (session == null) {
@@ -106,16 +115,11 @@ public final class ActivityTracker {
         return true;
     }
 
-    private boolean applyPart(OpencodeEvent event) {
+    private boolean applyThinking(OpencodeEvent event, boolean thinking) {
         String sessionId = event.string("sessionID");
-        String partType = event.at("part.type");
-        if (sessionId == null || partType == null) {
+        if (sessionId == null) {
             return false;
         }
-        if ("tool".equals(partType)) {
-            return applyToolPart(event, sessionId);
-        }
-        boolean thinking = "reasoning".equals(partType);
         MutableSession session = sessions.get(sessionId);
         if (session == null) {
             if (!thinking) {
@@ -130,24 +134,40 @@ public final class ActivityTracker {
         return false;
     }
 
-    private boolean applyToolPart(OpencodeEvent event, String sessionId) {
-        String tool = event.at("part.tool");
-        String state = event.at("part.state.status");
-        if (tool == null && state == null) {
+    private boolean applyTool(OpencodeEvent event, ToolActivity.State state) {
+        String sessionId = event.string("sessionID");
+        if (sessionId == null) {
             return false;
         }
-        String file = firstNonNull(event.at("part.input.filePath"), event.at("part.input.path"),
-                event.at("part.input.file"), event.at("part.input.absolutePath"));
-        ToolActivity.State parsed = parseState(state);
-        ToolActivity activity = new ToolActivity(tool, file, parsed);
+        // v2 fields (flat, not nested under "part"): the per-invocation id on
+        // every tool event, the tool name on tool.input.started / tool.called
+        String invocation = event.string("id");
+        String tool = event.string("name");
+        String file = firstNonNull(event.at("input.filePath"), event.at("input.path"),
+                event.at("input.file"), event.at("input.absolutePath"));
+        if (invocation == null && tool == null && file == null) {
+            return false;
+        }
+        String key = invocation != null ? invocation : (tool + "|" + file);
         MutableSession session = sessions.computeIfAbsent(sessionId, id -> new MutableSession());
+        // v2 completion events (tool.success / tool.failed) repeat neither the
+        // name nor the input - inherit them from the tracked invocation, or
+        // completed tools would never release their file
+        ToolActivity previous = session.tools.get(key);
+        if (tool == null && previous != null) {
+            tool = previous.tool();
+        }
+        if (file == null && previous != null) {
+            file = previous.file();
+        }
+        ToolActivity activity = new ToolActivity(tool, file, state);
         boolean changed = false;
-        ToolActivity previous = session.tools.put(tool + "|" + file, activity);
-        if (previous == null || !previous.equals(activity)) {
+        ToolActivity replaced = session.tools.put(key, activity);
+        if (replaced == null || !replaced.equals(activity)) {
             changed = true;
         }
         if (file != null) {
-            if (parsed == ToolActivity.State.RUNNING) {
+            if (state == ToolActivity.State.RUNNING) {
                 FileActivity entry = new FileActivity(sessionId, tool, file);
                 FileActivity previousEntry = files.put(file, entry);
                 if (previousEntry == null || !previousEntry.equals(entry)) {
@@ -162,17 +182,6 @@ public final class ActivityTracker {
             changed = true;
         }
         return changed;
-    }
-
-    private static ToolActivity.State parseState(String state) {
-        if (state == null) {
-            return ToolActivity.State.RUNNING;
-        }
-        return switch (state) {
-            case "completed" -> ToolActivity.State.COMPLETED;
-            case "error" -> ToolActivity.State.ERROR;
-            default -> ToolActivity.State.RUNNING;
-        };
     }
 
     private static String firstNonNull(String... values) {

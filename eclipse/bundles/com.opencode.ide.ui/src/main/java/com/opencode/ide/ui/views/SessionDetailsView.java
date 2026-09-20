@@ -88,15 +88,15 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  * Only the newest load may render, so an older in-flight result can never
  * overwrite a newer one.</p>
  *
- * <p>Session lifecycle actions (Fork, Share/Unshare, Summarize) run the
- * controller's SWT-free actions in background jobs via
- * {@link ViewLoadSupport} — the controller returns a
- * {@link LifecycleResult} instead of throwing, so a mutating POST is never
- * blindly retried. Success lands as a status line message (Share also copies
- * the URL to the clipboard), failures as the view's usual error pattern.
+ * <p>Session lifecycle actions (Fork, Summarize) run the controller's
+ * SWT-free actions in background jobs via {@link ViewLoadSupport} — the
+ * controller returns a {@link LifecycleResult} instead of throwing, so a
+ * mutating POST is never blindly retried. Success lands as a status line
+ * message, failures as the view's usual error pattern.
  * Forking works at the LATEST message (toolbar) and at any SELECTED history
  * message (context menu, TUI parity) — both switch to the fork by opening it
- * in the chat, resumed with its history; the original session is untouched.</p>
+ * in the chat, resumed with its history; the original session is untouched.
+ * (Share/Unshare is gone: opencode v2 has no session share endpoint.)</p>
  *
  * <p>The context menu also opens one message or the whole transcript in a
  * read-only workbench text editor (Batch C): tier-0 view-only, formatted by
@@ -154,12 +154,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private boolean eventRefreshScheduled;
     /** Monotonic load counter: only the newest started load may render its result. */
     private int loadSequence;
-    /** Local share state: seeds from each snapshot, toggles on Share/Unshare. */
-    private boolean shared;
     /** The last rendered snapshot (drives the editor actions' enablement/content). */
     private SessionDetails currentSnapshot;
     private Action forkAction;
-    private Action shareAction;
     private Action summarizeAction;
     /** The Auto Refresh toolbar toggle (field so the live-watch hint can check it). */
     private Action autoRefreshAction;
@@ -297,29 +294,6 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         };
         forkAction.setToolTipText("Fork this session at its latest message and open the fork in the chat");
         forkAction.setImageDescriptor(icon("fork"));
-        shareAction = new Action("Share") {
-            @Override
-            public void run() {
-                if (shared) {
-                    runLifecycleAction("Unsharing session", controller::unshare, result -> {
-                        shared = false;
-                        updateShareAction();
-                        showStatus("Share link withdrawn");
-                        refresh(); // re-sync header + toggle from the server state
-                    });
-                } else {
-                    runLifecycleAction("Sharing session", controller::share, result -> {
-                        copyToClipboard(result.detail());
-                        shared = true;
-                        updateShareAction();
-                        showStatus("Share link copied: " + result.detail());
-                        refresh();
-                    });
-                }
-            }
-        };
-        shareAction.setToolTipText("Publish a read-only share link and copy it to the clipboard");
-        shareAction.setImageDescriptor(icon("share"));
         summarizeAction = new Action("Summarize") {
             @Override
             public void run() {
@@ -333,16 +307,12 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         toolBar.add(refreshAction);
         toolBar.add(autoRefreshAction);
         toolBar.add(forkAction);
-        toolBar.add(shareAction);
         toolBar.add(summarizeAction);
     }
 
     private void setLifecycleActionsEnabled(boolean enabled) {
         if (forkAction != null) {
             forkAction.setEnabled(enabled);
-        }
-        if (shareAction != null) {
-            shareAction.setEnabled(enabled);
         }
         if (summarizeAction != null) {
             summarizeAction.setEnabled(enabled);
@@ -397,15 +367,6 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         if (statusLine != null) {
             statusLine.setMessage(message);
         }
-    }
-
-    private void updateShareAction() {
-        if (shareAction == null) {
-            return;
-        }
-        shareAction.setText(shared ? "Unshare" : "Share");
-        shareAction.setToolTipText(shared ? "Withdraw the read-only share link"
-                : "Publish a read-only share link and copy it to the clipboard");
     }
 
     /** UI-thread clipboard copy (best-effort; empty/null text is ignored). */
@@ -668,11 +629,6 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         }
         viewer.setInput(snapshot.rows()); // a List, never a bare element (dev rule)
         setContentDescription(snapshot.rows().size() + " messages");
-        boolean snapshotShared = snapshot.shareUrl() != null; // error snapshots don't reach here
-        if (snapshotShared != shared) {
-            shared = snapshotShared;
-            updateShareAction();
-        }
     }
 
     private void showError(Throwable e) {

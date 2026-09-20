@@ -35,23 +35,24 @@ tool layer is a `ToolProvider` SPI so Python/other language packs can plug in la
   can exceed ~200 (sessions, messages). Current `ArrayContentProvider` viewers are fine only while
   counts stay small.
 - **All server access funnels through `com.opencode.ide.core`'s `OpencodeClient`**, with a
-  request **cache + throttle** and a single **SSE fan-out** (`/event`) in core. The UI must never
+  request **cache + throttle** and a single **SSE fan-out** (`/api/event`) in core. The UI must never
   issue one request per row per refresh.
-- **Reuse opencode's own endpoints** (`/session`, `/session/status`, `/session/:id/todo`,
-  `/session/:id/message`, `/event`, `/tui`, `/pty`). Do not reimplement state the server already owns.
+- **Reuse opencode's own endpoints** (`/api/session`, `/api/session/active`, `/api/session/:id/message`,
+  `/api/session/:id/prompt`, `/api/event`, `/tui`, `/pty`). Do not reimplement state the server already owns.
 - **Prefer new bundles for new concerns** (tasks, orchestration) over bloating `ui`. Keep the
   `core → ui → cdt` rule; add siblings (`tasks`, `tasks.maven`, …).
-- **The opencode v1.18.x DTO contract is empirical.** Re-validate records against a live server on
-  upgrades (`native` not `builtIn`; `permission[]`; `models` map; reserved-word `default`).
+- **The opencode v2 DTO contract is empirical.** Re-validate records against a live server on
+  upgrades (no `native`/`builtIn` on `Agent.Info`; `models` map; `/api` path prefix;
+  `{data:[…]}` list envelopes; Basic auth; dynamic port).
 
 ## Where we are now (deployed / tested)
 
 - **Foundation (Phases 0–5):** Tycho 5 reactor + Maven Wrapper; bundles `core`/`ui`/`chat`/`cdt` +
   feature + p2 repo; target = Eclipse 4.40 / Java 21 / CDT 12.5.
 - **Core:** `HttpOpencodeClient` (Gson, basic-auth, HTTP/1.1), `OpencodeConnection` with **spawn +
-  connect**, readiness probe (`/global/health` **and** `/agent`), retry, **JVM shutdown hook** (no
+  connect**, readiness probe (`/api/info` **and** `/api/agent`), retry, **JVM shutdown hook** (no
   orphaned servers), `ProjectContext` seam, `OpencodePreferences` (default = spawn), and the
-  **`/event` SSE fan-out** (`OpencodeEventStream` + `Sse`) that drives live updates.
+  **`/api/event` SSE fan-out** (`OpencodeEventStream` + `Sse`) that drives live updates.
 - **UI:** unified **Server** view (per-server explorer, subagents nested by `parentID`, live via SSE
   with a per-session activity indicator), flat **Providers** view (one row per model, filter + sort,
   provider badge icons), OpenCode perspective, connection preference page.
@@ -352,14 +353,15 @@ Eclipse-import ban `-DskipEclipseBan=true`). Deployed: 9 jars to
 
 ### Phase 8 — Sessions detail & live activity
 - **Live per-session activity indicator** ("thinking…", "running tool: X", "idle") on the Sessions
-  rows — driven by `/session/status` (`busy`/`idle`/`retry`) and `/event` SSE
-  (`message.part.updated` deltas: reasoning = thinking, `tool` parts = running a tool). Near-term:
-  short-poll `/session/status` to flip a "thinking" badge; full version streams the current activity.
+  rows — driven by `/api/session/active` (`session.status` carries `{type: busy|idle|retry}`) and
+  `/api/event` SSE (`session.reasoning.delta` = thinking, `session.tool.called` = running a tool).
+  Near-term: short-poll `/api/session/active` to flip a "thinking" badge; full version streams the
+  current activity.
 - **Double-click a session → a dedicated session window/editor** (a new workbench part): messages
-  (`/session/:id/message`), parts, tool calls, token/cost, todos — the live transcript of that run.
-- Replace polling with **`/event` SSE** (`session.status`, `session.created/updated`,
-  `message.part.updated`, `todo.updated`) — one stream per server, fanned out by core.
-- Session actions: abort (`/session/:id/abort`), share, fork, revert.
+  (`/api/session/:id/message`), parts, tool calls, token/cost, todos — the live transcript of that run.
+- Replace polling with **`/api/event` SSE** (`session.status`, `session.created`, `session.renamed`,
+  `session.text.delta`, `session.usage.updated`) — one stream per server, fanned out by core.
+- Session actions: interrupt (`/api/session/:id/interrupt`), fork, revert.
 - **Per-provider official icons** in the Providers view (Anthropic/OpenAI/Google/…) to distinguish models.
 
 ### Phase 9 — Tasks & Maven sprint planning (sync + agent bridge) ★ strategic
@@ -422,9 +424,10 @@ Eclipse-import ban `-DskipEclipseBan=true`). Deployed: 9 jars to
 - Editor ↔ opencode: selection/file refs, `@file` insertion, opencode diagnostics → CEditor markers.
 
 ### Phase 12 — Chat layer (native markdown chat + optional TUI) · working ✅
-- ✅ **Native chat view** (`com.opencode.ide.chat`): send via `POST /session/:id/message` (5-min
-  timeout), stream reply text over `/event` SSE (`message.part.delta`), render markdown +
-  **KaTeX math** + **mermaid** + **highlight.js** from **bundled offline assets** (no CDN), dark/light
+- ✅ **Native chat view** (`com.opencode.ide.chat`): send via `POST /api/session/:id/prompt` (async —
+  the POST returns the queued user message, not the reply), stream reply text over `/api/event` SSE
+  (`session.text.delta`), render markdown + **KaTeX math** + **mermaid** + **highlight.js** from
+  **bundled offline assets** (no CDN), dark/light
   theme sync, agent + model + **variant** pickers, per-view session, XSS-hardened.
 - ✅ Assets are served by an embedded **localhost HTTP server** (`ChatWebServer`): `FileLocator.toFileURL`
   on a jar'd bundle extracts *single files*, so a `file://` page 404s all its relative assets.

@@ -3,6 +3,7 @@ package com.opencode.ide.client;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -34,6 +36,14 @@ import com.opencode.ide.client.model.VcsInfo;
  * permissions, commands, project/vcs, file/find, tui, config patch): real
  * {@code HttpOpencodeClient} over real HTTP against a local stub server,
  * verifying paths, methods, bodies and parsing. No Eclipse, no opencode.
+ *
+ * <p>Migrated to <b>opencode v2</b>: every path is {@code /api}-prefixed, list
+ * endpoints answer a {@code {"data":[...]}} envelope, and several endpoints
+ * moved - {@code /revert} became {@code /revert/stage}, {@code /unrevert}
+ * became {@code DELETE /revert}, {@code /summarize} became {@code /compact},
+ * {@code /permissions/:id} became {@code /permission/:id/reply}, and
+ * {@code PATCH /config} moved under {@code /experimental}. Session sharing and
+ * the {@code /tui} control endpoint are gone entirely.</p>
  */
 public class HttpOpencodeClientH5ComponentTest {
 
@@ -66,40 +76,56 @@ public class HttpOpencodeClientH5ComponentTest {
                 new ConnectionConfig(URI.create("http://127.0.0.1:" + port), null, null));
     }
 
+    @Before
+    public void resetRecording() {
+        lastMethod.set(null);
+        lastPath.set(null);
+        lastQuery.set(null);
+        lastBody.set(null);
+    }
+
     private static byte[] respond(String path) {
         String json = switch (path) {
-            case "/session/ses_1/diff" -> """
-                    [{"path":"src/a.cpp","before":"HEAD","after":"opencode/ses_1",
-                      "content":"--- a/src/a.cpp\\n+++ b/src/a.cpp\\n@@ -1 +1 @@\\n-x\\n+y"}]
+            case "/api/session/ses_1/diff" -> """
+                    {"data":[{"path":"src/a.cpp","before":"HEAD","after":"opencode/ses_1",
+                      "content":"--- a/src/a.cpp\\n+++ b/src/a.cpp\\n@@ -1 +1 @@\\n-x\\n+y"}]}
                     """;
-            case "/session/ses_1/fork" -> "{\"id\":\"ses_fork\",\"time\":{\"created\":9,\"updated\":9}}";
-            case "/session/ses_1/revert", "/session/ses_1/unrevert", "/session/ses_1/summarize",
-                 "/session/ses_1/permissions/perm_7" -> "true";
-            case "/session/ses_1/share" -> "{\"id\":\"ses_1\",\"share\":{\"url\":\"https://x/sh/s1\"}}";
-            case "/command" -> """
-                    [{"name":"review","description":"request a code review"},
-                     {"name":"ship"}]
+            case "/api/session/ses_1/fork" -> """
+                    {"id":"ses_fork","projectID":"prj_1","time":{"created":9,"updated":9,"idle":0}}
                     """;
-            case "/session/ses_1/command" -> """
-                    {"info":{"id":"msg_c1","sessionID":"ses_1","role":"assistant","time":{"created":3}},
-                     "parts":[{"type":"text","text":"command ran"}]}
+            // /revert/stage answers the boolean; /revert (DELETE) and /compact are status-only
+            case "/api/session/ses_1/revert/stage", "/api/session/ses_1/revert",
+                 "/api/session/ses_1/compact",
+                 "/api/session/ses_1/permission/perm_7/reply" -> "true";
+            case "/api/command" -> """
+                    {"data":[{"name":"review","description":"request a code review"},
+                             {"name":"ship"}]}
                     """;
-            case "/project" -> """
-                    [{"worktree":"C:/repo","vcs":{"branch":"main","repository":"git@github.com:o/r.git"}}]
+            // a v2 message is flat: `type` is the role and the parts live in `content`
+            case "/api/session/ses_1/command" -> """
+                    {"id":"msg_c1","sessionID":"ses_1","type":"assistant",
+                     "time":{"created":3,"completed":4},
+                     "content":[{"type":"text","text":"command ran"}]}
                     """;
-            case "/vcs" -> "{\"branch\":\"main\",\"repository\":\"git@github.com:o/r.git\"}";
-            case "/file" -> """
-                    [{"name":"src","path":"src","type":"directory"},
-                     {"name":"CMakeLists.txt","path":"CMakeLists.txt","type":"file"}]
+            // /project is NOT a data envelope on the wire - a bare array of
+            // v2 Projects ({id, canonical, vcs: <type>, time, sandboxes})
+            case "/api/project" -> """
+                    [{"id":"prj_1","canonical":"C:/repo","vcs":"git","time":{"created":1,"updated":1},"sandboxes":[]}]
                     """;
-            case "/find" -> """
-                    [{"path":"src/a.cpp","lines":"int add(int a, int b)","line_number":3}]
+            // v2 Vcs.Info: {location, data:{provider, branch:{current, default}}}
+            case "/api/vcs" -> """
+                    {"location":{"directory":"C:/repo"},"data":{"provider":"git","branch":{"current":"main","default":"main"}}}
                     """;
-            case "/find/file" -> "[\"src/a.cpp\",\"src/b.cpp\"]";
-            case "/find/symbol" -> """
-                    [{"name":"add","kind":"function","path":"src/a.cpp","line":3}]
+            case "/api/fs/list" -> """
+                    {"location":{"directory":"C:/repo"},"data":[{"path":"src/","type":"directory"},
+                              {"path":"CMakeLists.txt","type":"file"}]}
                     """;
-            case "/config" -> "{\"model\":\"prov/m2\",\"small_model\":null}";
+            // v2 /fs/find answers FileSystem.Entry objects, not bare strings
+            case "/api/fs/find" -> """
+                    {"location":{"directory":"C:/repo"},"data":[{"path":"src/a.cpp","type":"file"},
+                              {"path":"src/b.cpp","type":"file"}]}
+                    """;
+            case "/api/experimental/config" -> "{\"model\":\"prov/m2\",\"small_model\":null}";
             default -> "{}";
         };
         return json.getBytes(StandardCharsets.UTF_8);
@@ -117,7 +143,7 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals("src/a.cpp", diffs.get(0).path());
         assertTrue(diffs.get(0).content().contains("+y"));
         assertEquals("GET", lastMethod.get());
-        assertEquals("/session/ses_1/diff", lastPath.get());
+        assertEquals("/api/session/ses_1/diff", lastPath.get());
     }
 
     @Test
@@ -125,33 +151,78 @@ public class HttpOpencodeClientH5ComponentTest {
         Session fork = client.forkSession("ses_1", "msg_2");
         assertEquals("ses_fork", fork.id());
         assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_1/fork", lastPath.get());
         assertTrue(lastBody.get().contains("\"messageID\":\"msg_2\""));
     }
 
+    /** v2 staged reverts: {@code POST /revert/stage} (v1 posted to {@code /revert}). */
     @Test
-    public void revertUnrevertSummarizeReturnBoolean() throws Exception {
+    public void revertPostsToTheStageEndpoint() throws Exception {
         assertTrue(client.revertMessage("ses_1", "msg_2", null));
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_1/revert/stage", lastPath.get());
         assertTrue(lastBody.get().contains("\"messageID\":\"msg_2\""));
+    }
+
+    /** v2 clears a revert by DELETEing it (v1 had {@code POST /unrevert}). */
+    @Test
+    public void unrevertDeletesTheRevert() throws Exception {
         assertTrue(client.unrevertSession("ses_1"));
-        assertTrue(client.summarizeSession("ses_1", "prov", "m1"));
-        assertTrue(lastBody.get().contains("\"providerID\":\"prov\""));
-    }
-
-    @Test
-    public void shareReturnsSessionWithSharePayload() throws Exception {
-        Session shared = client.shareSession("ses_1");
-        assertEquals("ses_1", shared.id());
-        Session unshared = client.unshareSession("ses_1");
         assertEquals("DELETE", lastMethod.get());
-        assertNotNull(unshared);
+        assertEquals("/api/session/ses_1/revert", lastPath.get());
+    }
+
+    /**
+     * v2 renamed {@code /summarize} to {@code /compact} and takes the model as a
+     * {@code Model.Ref} object ({@code {"id","providerID"}}) instead of two flat
+     * fields.
+     */
+    @Test
+    public void summarizePostsCompactWithAModelRef() throws Exception {
+        assertTrue(client.summarizeSession("ses_1", "prov", "m1"));
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_1/compact", lastPath.get());
+        assertTrue("the model ref carries the provider: " + lastBody.get(),
+                lastBody.get().contains("\"providerID\":\"prov\""));
+        assertTrue("v2 Model.Ref names the model 'id': " + lastBody.get(),
+                lastBody.get().contains("\"id\":\"m1\""));
     }
 
     @Test
-    public void permissionResponsePostsBody() throws Exception {
+    public void summarizeWithoutAModelSendsNoModelRef() throws Exception {
+        assertTrue(client.summarizeSession("ses_1", null, null));
+        assertEquals("{}", lastBody.get());
+    }
+
+    /**
+     * v2 answers permission requests at
+     * {@code POST /session/:id/permission/:requestID/reply} with a single
+     * {@code decision} - v1 posted {@code {response, remember}} to
+     * {@code /permissions/:id}.
+     */
+    @Test
+    public void permissionReplyPostsADecision() throws Exception {
         assertTrue(client.respondToPermission("ses_1", "perm_7", "once", false));
-        assertEquals("/session/ses_1/permissions/perm_7", lastPath.get());
-        assertTrue(lastBody.get().contains("\"response\":\"once\""));
-        assertTrue(lastBody.get().contains("\"remember\":false"));
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_1/permission/perm_7/reply", lastPath.get());
+        assertEquals("{\"decision\":\"once\"}", lastBody.get());
+    }
+
+    /** {@code remember} becomes {@code always}; anything starting with "r" rejects. */
+    @Test
+    public void permissionDecisionMapsRememberAndReject() throws Exception {
+        client.respondToPermission("ses_1", "perm_7", "once", true);
+        assertEquals("{\"decision\":\"always\"}", lastBody.get());
+
+        client.respondToPermission("ses_1", "perm_7", "reject", false);
+        assertEquals("{\"decision\":\"reject\"}", lastBody.get());
+
+        client.respondToPermission("ses_1", "perm_7", "reject", true);
+        assertEquals("a rejection wins over remember", "{\"decision\":\"reject\"}", lastBody.get());
+
+        client.respondToPermission("ses_1", "perm_7", "always", false);
+        assertEquals("only 'r…' rejects; everything else is once/always",
+                "{\"decision\":\"once\"}", lastBody.get());
     }
 
     @Test
@@ -162,7 +233,9 @@ public class HttpOpencodeClientH5ComponentTest {
 
         ChatEntry reply = client.runCommand("ses_1", "review", List.of("src/a.cpp"));
         assertEquals("command ran", reply.text());
+        assertEquals("assistant", reply.info().role());
         assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_1/command", lastPath.get());
         assertTrue(lastBody.get().contains("\"command\":\"review\""));
         assertTrue(lastBody.get().contains("src/a.cpp"));
     }
@@ -172,11 +245,13 @@ public class HttpOpencodeClientH5ComponentTest {
         List<ProjectSummary> projects = client.getProjects();
         assertEquals(1, projects.size());
         assertEquals("C:/repo", projects.get(0).worktree());
-        assertEquals("main", projects.get(0).branch());
+        assertNull("v2 projects carry no per-project branch", projects.get(0).branch());
+        assertEquals("/api/project", lastPath.get());
 
         VcsInfo vcs = client.getVcsInfo();
         assertEquals("main", vcs.branch());
-        assertEquals("git@github.com:o/r.git", vcs.repository());
+        assertNull("v2 Vcs.Info no longer reports the remote URL", vcs.repository());
+        assertEquals("/api/vcs", lastPath.get());
     }
 
     @Test
@@ -185,18 +260,14 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals(2, nodes.size());
         assertTrue(nodes.get(0).isDirectory());
         assertFalse(nodes.get(1).isDirectory());
+        assertEquals("the name derives from the path in v2", "src", nodes.get(0).name());
 
-        List<SearchMatch> matches = client.findText("add");
-        assertEquals(1, matches.size());
-        assertEquals(3, matches.get(0).line());
+        // v2 has NO text/symbol search: /fs/find only matches file/dir names
+        assertTrue(client.findText("add").isEmpty());
+        assertTrue(client.findSymbols("add").isEmpty());
 
         List<String> files = client.findFiles("a.cpp");
         assertEquals(List.of("src/a.cpp", "src/b.cpp"), files);
-
-        List<SymbolResult> symbols = client.findSymbols("add");
-        assertEquals(1, symbols.size());
-        assertEquals("function", symbols.get(0).kind());
-        assertEquals(3, symbols.get(0).lineNumber());
     }
 
     /**
@@ -207,7 +278,7 @@ public class HttpOpencodeClientH5ComponentTest {
     @Test
     public void listFilesAlwaysSendsThePathQueryKey() throws Exception {
         client.listFiles(null);
-        assertEquals("/file", lastPath.get());
+        assertEquals("/api/fs/list", lastPath.get());
         assertEquals("path=.", lastQuery.get());
 
         client.listFiles("");
@@ -227,22 +298,25 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals("path=cpp%5Csrc%5C", lastQuery.get());
     }
 
+    /** v2 moved the mutable config surface under {@code /experimental}. */
     @Test
-    public void configPatchSendsChangesAndParses() throws Exception {
+    public void configPatchSendsChangesToTheExperimentalEndpoint() throws Exception {
         ConfigInfo config = client.patchConfig(Map.of("model", "prov/m2"));
         assertEquals("PATCH", lastMethod.get());
-        assertEquals("/config", lastPath.get());
+        assertEquals("/api/experimental/config", lastPath.get());
         assertTrue(lastBody.get().contains("\"model\":\"prov/m2\""));
         assertNotNull(config);
     }
 
+    /**
+     * v2 deleted {@code POST /tui/:action}: steering an attached TUI is an
+     * event-publishing concern now. The client reports "nothing driven" and,
+     * crucially, issues NO request - a stray POST would 404 every time.
+     */
     @Test
-    public void tuiActionPostsAndReturnsTrue() throws Exception {
-        assertTrue(client.tuiAction("append-prompt", Map.of("text", "hello")));
-        assertEquals("/tui/append-prompt", lastPath.get());
-        assertTrue(lastBody.get().contains("hello"));
-
-        assertTrue(client.tuiAction("open-models", null)); // no-arg action: no body
-        assertEquals("", lastBody.get());
+    public void tuiActionReportsNotDrivenWithoutTouchingTheServer() throws Exception {
+        assertFalse(client.tuiAction("append-prompt", Map.of("text", "hello")));
+        assertFalse(client.tuiAction("open-models", null));
+        assertNull("no HTTP request may be issued for a TUI action", lastPath.get());
     }
 }

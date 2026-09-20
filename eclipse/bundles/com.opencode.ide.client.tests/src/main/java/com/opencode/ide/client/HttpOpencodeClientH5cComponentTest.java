@@ -12,6 +12,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -25,37 +27,55 @@ import com.opencode.ide.client.model.ShellResult;
 
 /**
  * Component test for the H5 leftovers of the client surface (session shell,
- * OAuth authorize answer): real {@code HttpOpencodeClient} over real HTTP
- * against a local stub server, verifying paths, methods, bodies and parsing.
- * Stub bodies follow the shapes of the opencode v1.18.30 server source
- * ({@code routes/instance/httpapi/groups/session.ts} shell endpoint over
- * {@code SessionPrompt.ShellInput}/{@code SessionV1.WithParts}, and
- * {@code groups/provider.ts} oauth authorize). No Eclipse, no opencode.
+ * OAuth): real {@code HttpOpencodeClient} over real HTTP against a local stub
+ * server, verifying paths, methods, bodies and parsing. Stub bodies follow the
+ * v2 shapes verified against a live opencode 2.0.10 server: the shell command
+ * is posted without a result body and its lifecycle is polled off
+ * {@code GET /api/session/:id/message} as a {@code Session.Message.Shell};
+ * v1's OAuth authorize endpoint is gone (moved to the integration flow).
+ * No Eclipse, no opencode.
  */
 public class HttpOpencodeClientH5cComponentTest {
 
     private static com.sun.net.httpserver.HttpServer server;
     private static OpencodeClient client;
 
-    private static final AtomicReference<String> lastMethod = new AtomicReference<>();
-    private static final AtomicReference<String> lastPath = new AtomicReference<>();
-    private static final AtomicReference<String> lastBody = new AtomicReference<>();
-    /** Settable body/status the stub serves instead of the built-in happy path. */
-    private static final AtomicReference<String> bodyOverride = new AtomicReference<>();
-    private static final AtomicInteger statusOverride = new AtomicInteger(200);
+    private static final Map<String, String> bodiesByPath = new ConcurrentHashMap<>();
+    /** Settable body/status the stub serves on GET /api/session/ses_1/message. */
+    private static final AtomicReference<String> messageBody = new AtomicReference<>();
+    private static final AtomicInteger messageStatus = new AtomicInteger(200);
 
     @BeforeClass
     public static void startStub() throws IOException {
         server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
-            lastMethod.set(exchange.getRequestMethod());
-            lastPath.set(path);
-            lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] bytes = (bodyOverride.get() != null ? bodyOverride.get() : respond(path))
-                    .getBytes(StandardCharsets.UTF_8);
+            bodiesByPath.put(path, new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            String body;
+            int status = 200;
+            if ("/api/session/ses_1/message".equals(path)) {
+                body = messageBody.get();
+                status = messageStatus.get();
+            } else if ("/api/integration".equals(path)) {
+                body = """
+                        {"location":{},"data":[
+                          {"id":"anthropic","name":"Anthropic",
+                           "methods":[{"type":"key"},{"id":"browser","type":"oauth","label":"Login with Anthropic"}],
+                           "connections":[]}
+                        ]}
+                        """;
+            } else if ("/api/integration/anthropic/connect/oauth".equals(path)) {
+                body = """
+                        {"location":{},"data":{"attemptID":"att_1",
+                          "url":"https://auth.anthropic.com/oauth","instructions":"open the url",
+                          "mode":"auto","time":{"created":1,"expires":2}}}
+                        """;
+            } else {
+                body = "{}";
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(statusOverride.get(), bytes.length);
+            exchange.sendResponseHeaders(status, bytes.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(bytes);
             }
@@ -68,27 +88,15 @@ public class HttpOpencodeClientH5cComponentTest {
 
     @Before
     public void resetStub() {
-        bodyOverride.set(null);
-        statusOverride.set(200);
-    }
-
-    private static String respond(String path) {
-        return switch (path) {
-            // {info, parts} (SessionV1.WithParts): the assistant message plus the
-            // shell tool part carrying command/status/output in its state
-            case "/session/ses_1/shell" -> """
-                    {"info":{"id":"msg_sh1","sessionID":"ses_1","role":"assistant","agent":"build",
-                      "time":{"created":3}},
-                     "parts":[{"type":"text","text":"The following tool was executed by the user"},
-                      {"type":"tool","tool":"shell",
-                       "state":{"status":"completed","input":{"command":"git status --short"},
-                        "metadata":{"output":"M src/a.cpp"},"output":"M src/a.cpp"}}]}
-                    """;
-            // {url, method, instructions} when a flow started
-            case "/provider/anthropic/oauth/authorize" ->
-                "{\"url\":\"https://auth.anthropic.com/oauth\",\"method\":\"auto\",\"instructions\":\"open the url\"}";
-            default -> "{}";
-        };
+        bodiesByPath.clear();
+        messageStatus.set(200);
+        messageBody.set("""
+                {"data":[
+                  {"id":"msg_sh1","time":{"created":3},"type":"shell","shellID":"sh_1",
+                   "command":"git status --short","status":"exited","exit":0,
+                   "output":{"output":"M src/a.cpp","cursor":9,"size":9,"truncated":false}}
+                ]}
+                """);
     }
 
     @AfterClass
@@ -96,79 +104,73 @@ public class HttpOpencodeClientH5cComponentTest {
         server.stop(0);
     }
 
+    // ---------- session shell (v2: async, polled off the message list) ----------
+
     @Test
-    public void shellPostsAgentAndCommandAndParsesResult() throws Exception {
+    public void shellSetsAgentPostsCommandAndParsesTheShellMessage() throws Exception {
         ShellResult result = client.runShell("ses_1", "build", "git status --short");
+
         assertEquals("msg_sh1", result.messageId());
-        assertEquals("build", result.agent());
         assertEquals("git status --short", result.command());
-        assertEquals("completed", result.status());
+        assertEquals("exited", result.status());
         assertEquals("M src/a.cpp", result.output());
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/session/ses_1/shell", lastPath.get());
-        assertTrue(lastBody.get().contains("\"agent\":\"build\""));
-        assertTrue(lastBody.get().contains("\"command\":\"git status --short\""));
+
+        assertEquals("{\"agent\":\"build\"}", bodiesByPath.get("/api/session/ses_1/agent"));
+        assertTrue("the v2 shell body carries only the command, got: "
+                + bodiesByPath.get("/api/session/ses_1/shell"),
+                bodiesByPath.get("/api/session/ses_1/shell").contains("\"command\":\"git status --short\""));
+    }
+
+    @Test
+    public void shellSkipsTheAgentPostWhenNoAgentIsGiven() throws Exception {
+        client.runShell("ses_1", null, "true");
+        assertNull(bodiesByPath.get("/api/session/ses_1/agent"));
     }
 
     @Test
     public void shellToleratesMissingFields() throws Exception {
-        bodyOverride.set("{\"info\":{},\"parts\":[{\"type\":\"tool\",\"state\":{}}]}");
-        ShellResult result = client.runShell("ses_1", "build", "true");
+        messageBody.set("{\"data\":[{\"id\":\"msg_1\",\"type\":\"shell\",\"status\":\"timeout\"}]}");
+        ShellResult result = client.runShell("ses_1", null, "true");
         assertNotNull(result);
-        assertNull(result.messageId());
-        assertNull(result.agent());
+        assertEquals("msg_1", result.messageId());
+        assertEquals("timeout", result.status());
         assertNull(result.command());
-        assertNull(result.status());
         assertNull(result.output());
     }
 
     @Test
-    public void shellThrowsOn404() {
-        statusOverride.set(404);
+    public void shellFailsFastWhenTheMessageEndpointIsDead() {
+        messageStatus.set(404);
         OpencodeException e = assertThrows(OpencodeException.class,
-                () -> client.runShell("ses_1", "build", "true"));
+                () -> client.runShell("ses_1", null, "true"));
         assertTrue(e.getMessage().contains("HTTP 404"));
     }
 
-    @Test
-    public void shellThrowsOnMalformedBody() {
-        bodyOverride.set("<<not-json>>");
-        assertThrows(OpencodeException.class, () -> client.runShell("ses_1", "build", "true"));
-    }
+    // ---------- OAuth (v2 integration flow) ----------
 
     @Test
-    public void beginOauthParsesUrlMethodAndInstructions() throws Exception {
+    public void beginOauthFindsTheOauthMethodAndStartsAnAttempt() throws Exception {
         OauthStart started = client.beginProviderOauth("anthropic");
         assertEquals("https://auth.anthropic.com/oauth", started.url());
         assertEquals("auto", started.method());
         assertEquals("open the url", started.instructions());
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/provider/anthropic/oauth/authorize", lastPath.get());
-        assertEquals("{\"method\":0}", lastBody.get());
+        assertEquals("{\"methodID\":\"browser\"}", bodiesByPath.get("/api/integration/anthropic/connect/oauth"));
     }
 
     @Test
-    public void beginOauthNullUrlOn404EmptyAndMalformed() throws Exception {
-        statusOverride.set(404);
-        assertNull(client.beginProviderOauth("anthropic").url());
-
-        statusOverride.set(200);
-        bodyOverride.set(""); // 200 with no body - method 0 was not an OAuth flow
-        assertNull(client.beginProviderOauth("anthropic").url());
-
-        bodyOverride.set("<<garbage>>");
-        assertNull(client.beginProviderOauth("anthropic").url());
+    public void beginOauthReportsNothingStartedForAProviderWithoutOauth() throws Exception {
+        // the stub's integration list only knows anthropic: any other provider
+        // resolves to no OAuth method -> the "nothing started" callers handle
+        OauthStart started = client.beginProviderOauth("no-such-provider");
+        assertNull(started.url());
+        assertNull(started.method());
+        assertNull(started.instructions());
+        assertNull("no connect attempt may be posted", bodiesByPath.get("/api/integration/no-such-provider/connect/oauth"));
     }
 
     @Test
-    public void startProviderOauthDelegatesToBegin() throws Exception {
+    public void startProviderOauthDelegatesToTheIntegrationFlow() throws Exception {
         assertTrue(client.startProviderOauth("anthropic"));
-
-        statusOverride.set(400);
-        assertFalse(client.startProviderOauth("anthropic"));
-
-        statusOverride.set(200);
-        bodyOverride.set("{}"); // 200 without an authorization url
-        assertFalse(client.startProviderOauth("anthropic"));
+        assertFalse(client.startProviderOauth("no-such-provider"));
     }
 }

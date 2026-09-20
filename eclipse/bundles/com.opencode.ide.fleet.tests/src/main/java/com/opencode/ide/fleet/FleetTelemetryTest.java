@@ -24,16 +24,17 @@ public class FleetTelemetryTest {
 
     private static ChatEntry assistant(Double cost, Session.Tokens tokens, String agent,
             String provider, String model) {
+        // trailing 0L: v2's time.completed stamp (14th component)
         ChatMessageInfo info = new ChatMessageInfo(
                 "msg_1", "ses_1", "assistant", null, agent, null, null,
-                cost, tokens, provider, model, null, null);
+                cost, tokens, provider, model, null, null, 1_700_000_000_000L);
         return new ChatEntry(info, List.of(new ChatPart("text", "done", null, null)));
     }
 
     private static ChatEntry user(String text) {
         ChatMessageInfo info = new ChatMessageInfo(
                 "msg_0", "ses_1", "user", null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, 1_700_000_000_000L);
         return new ChatEntry(info, List.of(new ChatPart("text", text, null, null)));
     }
 

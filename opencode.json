@@ -1,22 +1,24 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "zai-coding-plan/glm-5.3",
+  "model": "kimi-code-plan-global/k3-256k",
   "instructions": ["AGENTS.md"],
   "mcp": {
-    "tasks": {
-      "type": "local",
-      "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"],
-      "enabled": true
-    },
-    "fleet": {
-      "type": "local",
-      "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
-      "enabled": true
-    },
-    "graphics": {
-      "type": "local",
-      "command": ["python", "mcp/graphics/server.py"],
-      "enabled": true
+    "servers": {
+      "tasks": {
+        "type": "local",
+        "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"],
+        "enabled": true
+      },
+      "fleet": {
+        "type": "local",
+        "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
+        "enabled": true
+      },
+      "graphics": {
+        "type": "local",
+        "command": ["python", "mcp/graphics/server.py"],
+        "enabled": true
+      }
     }
   }
 }

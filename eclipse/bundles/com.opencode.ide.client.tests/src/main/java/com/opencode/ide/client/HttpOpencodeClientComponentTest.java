@@ -1,6 +1,7 @@
 package com.opencode.ide.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -11,16 +12,26 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.opencode.ide.client.model.ChatEntry;
+import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.McpServerInfo;
+import com.opencode.ide.client.model.Model;
+import com.opencode.ide.client.model.Provider;
+import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.client.model.SkillInfo;
 
@@ -28,8 +39,54 @@ import com.opencode.ide.client.model.SkillInfo;
  * Component test: exercises the real {@code HttpOpencodeClient} over real HTTP
  * against a local stub server (JDK-embedded), verifying request paths/methods/
  * bodies and response parsing for the chat surface. No Eclipse, no opencode.
+ *
+ * <p>Everything here speaks <b>opencode v2</b>: every request path is prefixed
+ * {@code /api}, list endpoints answer a {@code {"data":[...]}} envelope, and the
+ * chat send is the asynchronous {@code POST /prompt} + poll dance rather than
+ * v1's single blocking {@code POST /message}. The stub therefore registers its
+ * contexts under {@code /api/...} - a v1-shaped stub would 404 every call.</p>
  */
 public class HttpOpencodeClientComponentTest {
+
+    /** One recorded stub hit, so the multi-request send path can be asserted in order. */
+    private record Recorded(String method, String path, String body) {
+
+        boolean is(String expectedMethod, String expectedPath) {
+            return expectedMethod.equals(method) && expectedPath.equals(path);
+        }
+    }
+
+    /** v2 {@code GET /api/info}: no health flag - reaching it at all is the health signal. */
+    private static final String INFO_BODY = """
+            {"version":"2.0.10","pid":4711,"urls":["http://127.0.0.1:4096"],
+             "paths":{"config":"C:\\\\Users\\\\dev\\\\.config\\\\opencode"}}
+            """;
+
+    /** v2 message list: {@code {"data":[...]}}, NEWEST FIRST, with a completed assistant turn. */
+    private static final String COMPLETED_TURN = """
+            {"data":[
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant",
+               "time":{"created":2,"completed":9},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+               "content":[{"type":"text","text":"The answer is $4$."}],
+               "cost":0.0065,
+               "tokens":{"input":10,"output":3,"reasoning":0,"cache":{"read":0,"write":0}},
+               "finish":"stop"},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
+               "text":"What is 2+2?"}
+            ]}
+            """;
+
+    /** The same turn mid-stream: the assistant message exists but has no {@code time.completed}. */
+    private static final String STREAMING_TURN = """
+            {"data":[
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant","time":{"created":2},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+               "content":[{"type":"text","text":"The answer"}]},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
+               "text":"What is 2+2?"}
+            ]}
+            """;
 
     private static com.sun.net.httpserver.HttpServer server;
     private static OpencodeClient client;
@@ -39,142 +96,146 @@ public class HttpOpencodeClientComponentTest {
     private static final AtomicReference<String> lastQuery = new AtomicReference<>();
     private static final AtomicReference<String> lastBody = new AtomicReference<>();
     private static final AtomicReference<String> lastAuth = new AtomicReference<>();
-    /** Settable body served by the stub for {@code GET /session/:id/todo}. */
+    /** Every stub hit since the last reset, in order. */
+    private static final List<Recorded> requests = Collections.synchronizedList(new ArrayList<>());
+    /** Settable body served by the stub for {@code GET /api/session/:id/todo}. */
     private static final AtomicReference<String> todoBody = new AtomicReference<>("[]");
-
-    @Test
-    public void deleteSessionUsesDeleteAndPropagatesFailure() throws Exception {
-        client.deleteSession("ses_delete");
-        assertEquals("DELETE", lastMethod.get());
-        assertEquals("/session/ses_delete", lastPath.get());
-        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.deleteSession("ses_error"));
-    }
-
-    @Test
-    public void abortDoesNotTreatAuthorizationFailureAsSuccess() {
-        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.abortSession("ses_denied"));
-    }
+    /** Settable body served by the stub for {@code GET /api/info}. */
+    private static final AtomicReference<String> infoBody = new AtomicReference<>(INFO_BODY);
+    /**
+     * Bodies served by successive {@code GET /api/session/:id/message} calls -
+     * the last entry repeats forever. This is what lets a test drive the v2
+     * reply poll through "still streaming" into "completed".
+     */
+    private static final List<String> messageBodies = Collections.synchronizedList(new ArrayList<>());
+    private static final AtomicInteger messageGets = new AtomicInteger();
 
     @BeforeClass
     public static void startStub() throws IOException {
         server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 
-        server.createContext("/session", exchange -> {
-            lastMethod.set(exchange.getRequestMethod());
-            lastPath.set(exchange.getRequestURI().getPath());
+        server.createContext("/api/session", exchange -> {
+            String path = recordExchange(exchange);
             lastQuery.set(exchange.getRequestURI().getRawQuery());
             lastAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
-            lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 
-            String path = exchange.getRequestURI().getPath();
             if (path.contains("error")) {
-                byte[] errBytes = "{\"error\":\"boom\"}".getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(500, errBytes.length);
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(errBytes);
-                }
+                respond(exchange, 500, "{\"error\":\"boom\"}");
                 return;
             }
-            if (path.endsWith("/abort")) {
-                // "…idle" ids answer 404 (already idle); everything else 200
+            if (path.endsWith("/interrupt")) {
+                // "…idle" ids answer 404 (already idle); "denied" 403; everything else 200
                 int status = path.contains("denied") ? 403 : path.contains("idle") ? 404 : 200;
-                byte[] bytes = (status == 404
-                        ? "{\"error\":\"session is not active\"}" : "{}").getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
-                exchange.sendResponseHeaders(status, bytes.length);
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(bytes);
-                }
+                respond(exchange, status,
+                        status == 404 ? "{\"error\":\"session is not active\"}" : "{}");
                 return;
             }
             String response;
-            if ("POST".equals(exchange.getRequestMethod()) && "/session".equals(path)) {
-                response = "{\"id\":\"ses_new\",\"title\":\"Eclipse Chat\",\"time\":{\"created\":1,\"updated\":1}}";
+            if ("POST".equals(exchange.getRequestMethod()) && "/api/session".equals(path)) {
+                // v2 session: model as an object, time with three stamps, location
+                response = """
+                        {"id":"ses_new","projectID":"prj_1","title":"Eclipse Chat","agent":"build",
+                         "model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+                         "time":{"created":1,"updated":1,"idle":0},
+                         "location":{"directory":"C:\\\\repo"}}
+                        """;
+            } else if (path.endsWith("/active")) {
+                // v2 lists RUNNING sessions only; an absent session is idle
+                response = "{\"data\":{\"ses_busy\":{\"type\":\"running\"}}}";
             } else if (path.endsWith("/todo")) {
                 response = todoBody.get();
             } else if (path.endsWith("/message")) {
-                if ("POST".equals(exchange.getRequestMethod())) {
-                    // real assistant shape: FLAT providerID/modelID (no nested "model")
-                    response = """
-                            {"info":{"id":"msg_a1","sessionID":"ses_new","role":"assistant",
-                              "time":{"created":2},"agent":"build","mode":"build","finish":"stop",
-                              "providerID":"opencode","modelID":"glm-5.2"},
-                             "parts":[{"type":"text","text":"The answer is $4$."}]}
-                            """;
-                } else {
-                    response = """
-                            [
-                             {"info":{"id":"msg_u1","sessionID":"ses_new","role":"user","time":{"created":1}},
-                              "parts":[{"type":"text","text":"hi"}]},
-                             {"info":{"id":"msg_a1","sessionID":"ses_new","role":"assistant","time":{"created":2}},
-                              "parts":[{"type":"text","text":"hello **markdown**"}]}
-                            ]
-                            """;
-                }
+                response = nextMessagesBody();
             } else {
-                response = "[]";
+                // /prompt, /agent, /model, /synthetic: v2 acks, the reply is polled
+                response = "{}";
             }
-            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
+            respond(exchange, 200, response);
         });
 
-        server.createContext("/mcp", exchange -> {
-            lastMethod.set(exchange.getRequestMethod());
-            lastPath.set(exchange.getRequestURI().getPath());
-            lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            // live v1.18 GET /mcp shape: a MAP keyed by server name
-            byte[] bytes = ("GET".equals(exchange.getRequestMethod())
-                    ? "{\"tasks\":{\"status\":\"connected\"},\"graphics\":{\"status\":\"error\"}}"
-                    : "{}").getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
+        // v2 GET /api/mcp: {"location":…, "data":[{"name","status"}]} (v1 was a bare map)
+        server.createContext("/api/mcp", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, """
+                    {"location":{"directory":"C:\\\\repo"},
+                     "data":[{"name":"tasks","status":"connected"},
+                             {"name":"graphics","status":"error"}]}
+                    """);
         });
 
-        server.createContext("/skill", exchange -> {
-            byte[] bytes = "[{\"name\":\"cpp-tools\",\"description\":\"C++ execution utility\",\"location\":\"<built-in>\",\"content\":\"…\"}]"
-                    .getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
+        // v2 registration moved to PUT /api/experimental/mcp/:server
+        server.createContext("/api/experimental/mcp", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{}");
         });
 
-        server.createContext("/config", exchange -> {
-            byte[] bytes = "{\"model\":\"zai-coding-plan/glm-4.6\",\"small_model\":\"zai-coding-plan/glm-4.5-air\"}"
-                    .getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
+        server.createContext("/api/skill", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, """
+                    {"data":[{"name":"cpp-tools","description":"C++ execution utility",
+                              "location":"<built-in>","content":"…"}]}
+                    """);
         });
 
-        server.createContext("/global/health", exchange -> {
-            byte[] bytes = "<<not-json-garbage>>".getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
+        // v2 GET /api/config: an ARRAY of config sources, each {type, path, info}
+        server.createContext("/api/config", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, """
+                    [{"type":"document","path":"C:\\\\repo\\\\opencode.json",
+                      "info":{"model":{"providerID":"zai-coding-plan","model":"glm-4.6"}}}]
+                    """);
         });
 
-        server.createContext("/agent", exchange -> {
+        server.createContext("/api/info", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, infoBody.get());
+        });
+
+        // v2 GET /api/model: models are flat with a providerID (v1 nested them per provider)
+        server.createContext("/api/model", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, """
+                    {"data":[
+                      {"id":"jev-1.13","modelID":"jev-1.13","providerID":"opencode","name":"Jev 1.13",
+                       "capabilities":{"tools":false,"input":["text"],"output":["text"]},
+                       "variants":[],"time":{"released":1789000000000},
+                       "cost":[{"input":0.042,"output":0,"cache":{"read":0,"write":0}}],
+                       "status":"active","enabled":true,"limit":{"context":64000,"output":0}},
+                      {"id":"llama3","modelID":"llama3","providerID":"ollama","name":"Llama 3",
+                       "capabilities":{"tools":true,"input":["text"],"output":["text"]},
+                       "variants":[],"cost":[],"status":"active","enabled":true,
+                       "limit":{"context":8192,"output":4096}}
+                    ]}
+                    """);
+        });
+
+        server.createContext("/api/provider", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, """
+                    {"data":[{"id":"opencode","name":"OpenCode"},{"id":"ollama","name":"Ollama"}]}
+                    """);
+        });
+
+        // deliberately answers 200 with NO body - the empty-body error path
+        server.createContext("/api/agent", exchange -> {
+            recordExchange(exchange);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, -1);
+            exchange.close();
         });
 
         server.start();
         int port = server.getAddress().getPort();
         client = new com.opencode.ide.client.internal.HttpOpencodeClient(
                 new ConnectionConfig(URI.create("http://127.0.0.1:" + port), "opencode", "secret"));
+    }
+
+    @Before
+    public void resetStub() {
+        requests.clear();
+        todoBody.set("[]");
+        infoBody.set(INFO_BODY);
+        serveMessages(COMPLETED_TURN);
     }
 
     @AfterClass
@@ -184,15 +245,129 @@ public class HttpOpencodeClientComponentTest {
         }
     }
 
+    // ---------- stub plumbing ----------
+
+    /** Records the exchange (method/path/body) and returns its path. */
+    private static String recordExchange(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        lastMethod.set(exchange.getRequestMethod());
+        lastPath.set(path);
+        lastBody.set(body);
+        requests.add(new Recorded(exchange.getRequestMethod(), path, body));
+        return path;
+    }
+
+    private static void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String json)
+            throws IOException {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    /** Queues the bodies successive message GETs answer with; the last one repeats. */
+    private static void serveMessages(String... bodies) {
+        synchronized (messageBodies) {
+            messageBodies.clear();
+            Collections.addAll(messageBodies, bodies);
+        }
+        messageGets.set(0);
+    }
+
+    private static String nextMessagesBody() {
+        int index = messageGets.getAndIncrement();
+        synchronized (messageBodies) {
+            if (messageBodies.isEmpty()) {
+                return "{\"data\":[]}";
+            }
+            return messageBodies.get(Math.min(index, messageBodies.size() - 1));
+        }
+    }
+
+    private static List<Recorded> recorded() {
+        synchronized (requests) {
+            return List.copyOf(requests);
+        }
+    }
+
+    private static Recorded first(String method, String path) {
+        for (Recorded request : recorded()) {
+            if (request.is(method, path)) {
+                return request;
+            }
+        }
+        return null;
+    }
+
+    private static int count(String method, String path) {
+        int n = 0;
+        for (Recorded request : recorded()) {
+            if (request.is(method, path)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // ---------- health ----------
+
+    @Test
+    public void healthIsProbedOnApiInfoAndCarriesTheVersion() throws Exception {
+        HealthStatus health = client.getHealth();
+
+        assertEquals("GET", lastMethod.get());
+        assertEquals("v2 replaced /global/health with /api/info", "/api/info", lastPath.get());
+        assertTrue("reaching /api/info at all IS the health signal", health.healthy());
+        assertEquals("2.0.10", health.version());
+    }
+
+    @Test
+    public void garbage200BodyRaisesOpencodeExceptionWithEndpointStatusAndSnippet() {
+        infoBody.set("<<not-json-garbage>>");
+        try {
+            client.getHealth();
+            fail("expected OpencodeException for a 200 with a non-JSON body");
+        } catch (OpencodeException expected) {
+            assertTrue("message should name the endpoint: " + expected.getMessage(),
+                    expected.getMessage().contains("/api/info"));
+            assertTrue("message should name the HTTP status: " + expected.getMessage(),
+                    expected.getMessage().contains("200"));
+            assertTrue("message should carry a body snippet: " + expected.getMessage(),
+                    expected.getMessage().contains("not-json-garbage"));
+        }
+    }
+
+    @Test
+    public void empty200BodyRaisesOpencodeException() {
+        try {
+            client.getAgents();
+            fail("expected OpencodeException for a 200 with an empty body");
+        } catch (OpencodeException expected) {
+            assertTrue("message should name the endpoint: " + expected.getMessage(),
+                    expected.getMessage().contains("/agent"));
+            assertTrue(expected.getMessage().contains("200"));
+        }
+    }
+
+    // ---------- sessions ----------
+
     @Test
     public void createSessionPostsTitleAndParsesResponse() throws Exception {
         Session session = client.createSession("Eclipse Chat");
         assertEquals("POST", lastMethod.get());
-        assertEquals("/session", lastPath.get());
+        assertEquals("/api/session", lastPath.get());
         assertTrue("body should contain the title", lastBody.get().contains("\"Eclipse Chat\""));
         assertNotNull(session);
         assertEquals("ses_new", session.id());
         assertEquals("Eclipse Chat", session.title());
+        // v2 shape: the model triple is an object, the directory lives in location
+        assertEquals("glm-5.2", session.modelId());
+        assertEquals("opencode", session.providerId());
+        assertEquals("C:\\repo", session.directory());
+        assertFalse("a fresh session has no idle stamp", session.isIdle());
     }
 
     @Test
@@ -204,54 +379,110 @@ public class HttpOpencodeClientComponentTest {
     }
 
     @Test
-    public void createSessionWithDirectoryScopesQuery() throws Exception {
+    public void createSessionWithDirectoryScopesViaLocationBody() throws Exception {
         Session session = client.createSession(null, java.nio.file.Path.of("C:/work/.git/opencode-fleet/t1"));
         assertEquals("POST", lastMethod.get());
-        assertEquals("/session", lastPath.get());
-        assertNotNull("directory query parameter expected", lastQuery.get());
-        assertTrue("query should carry the encoded directory, got: " + lastQuery.get(),
-                lastQuery.get().startsWith("directory="));
-        assertTrue("path separators must survive encoding: " + lastQuery.get(),
-                lastQuery.get().contains("%2F") || lastQuery.get().contains("%5C"));
+        assertEquals("/api/session", lastPath.get());
+        // v2 takes the directory as a location object in the BODY, not a query
+        String body = lastBody.get();
+        assertTrue("body should carry the location object, got: " + body, body.contains("\"location\""));
+        assertTrue("body should carry the scoped path, got: " + body,
+                body.contains("opencode-fleet") && body.contains("t1"));
         assertNotNull(session);
     }
 
     @Test
-    public void registerMcpPostsRemoteConfig() throws Exception {
-        client.registerMcp("eclipse-build", McpServerConfig.enabled("http://127.0.0.1:12345/mcp"));
+    public void deleteSessionUsesDeleteAndPropagatesFailure() throws Exception {
+        client.deleteSession("ses_delete");
+        assertEquals("DELETE", lastMethod.get());
+        assertEquals("/api/session/ses_delete", lastPath.get());
+        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.deleteSession("ses_error"));
+    }
+
+    /**
+     * v2 replaced {@code GET /session/status} (a full idle/busy map) with
+     * {@code GET /session/active}, which lists ONLY the running sessions under a
+     * {@code data} object - absence is what now means "idle".
+     */
+    @Test
+    public void sessionStatusReadsTheActiveSessionMap() throws Exception {
+        Map<String, SessionStatus> statuses = client.getSessionStatus();
+
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/session/active", lastPath.get());
+        assertEquals(1, statuses.size());
+        assertEquals("busy", statuses.get("ses_busy").type());
+        assertNull("an unlisted session is idle by absence", statuses.get("ses_new"));
+    }
+
+    // ---------- abort / interrupt ----------
+
+    @Test
+    public void abortSessionPostsToTheInterruptEndpoint() throws Exception {
+        client.abortSession("ses_new");
+
         assertEquals("POST", lastMethod.get());
-        assertEquals("/mcp", lastPath.get());
-        String body = lastBody.get();
-        assertTrue(body.contains("\"name\":\"eclipse-build\""));
-        assertTrue(body.contains("\"type\":\"remote\""));
-        assertTrue(body.contains("\"url\":\"http://127.0.0.1:12345/mcp\""));
-        assertTrue("oauth must be explicitly off", body.contains("\"oauth\":false"));
+        assertEquals("v2 renamed /abort to /interrupt", "/api/session/ses_new/interrupt", lastPath.get());
     }
 
     @Test
-    public void getMessagesParsesHistory() throws Exception {
+    public void abortSessionTolerates4xxAlreadyIdle() throws Exception {
+        // the stub answers 404 "session is not active" for ids containing "idle";
+        // abort racing a finished session must not surface that as an error
+        client.abortSession("ses_idle");
+
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_idle/interrupt", lastPath.get());
+    }
+
+    @Test
+    public void abortDoesNotTreatAuthorizationFailureAsSuccess() {
+        org.junit.Assert.assertThrows(OpencodeException.class, () -> client.abortSession("ses_denied"));
+    }
+
+    @Test
+    public void abortSessionMaps5xxToOpencodeException() {
+        try {
+            client.abortSession("error");
+            fail("expected OpencodeException");
+        } catch (OpencodeException expected) {
+            assertTrue("message should name the endpoint: " + expected.getMessage(),
+                    expected.getMessage().contains("/api/session/error/interrupt"));
+            assertTrue("message should name the HTTP status: " + expected.getMessage(),
+                    expected.getMessage().contains("500"));
+        }
+    }
+
+    // ---------- messages ----------
+
+    @Test
+    public void getMessagesUnwrapsTheDataEnvelopeNewestFirst() throws Exception {
         List<ChatEntry> entries = client.getMessages("ses_new");
+
         assertEquals("GET", lastMethod.get());
-        assertEquals("/session/ses_new/message", lastPath.get());
-        assertEquals(2, entries.size());
-        assertTrue(entries.get(0).isUser());
-        assertEquals("hi", entries.get(0).text());
-        assertEquals("hello **markdown**", entries.get(1).text());
+        assertEquals("/api/session/ses_new/message", lastPath.get());
+        assertEquals("the {\"data\":[…]} envelope must be unwrapped", 2, entries.size());
+        // v2 returns the list NEWEST FIRST - the assistant reply leads
+        assertEquals("assistant", entries.get(0).info().role());
+        assertEquals("The answer is $4$.", entries.get(0).text());
+        assertTrue(entries.get(1).isUser());
+        assertEquals("a v2 user message carries a flat text, not parts",
+                "What is 2+2?", entries.get(1).text());
     }
 
     @Test
     public void getSessionTodosParsesEntries() throws Exception {
         todoBody.set("""
-                [
+                {"data":[
                  {"id":"todo_1","content":"Write the plan","status":"in_progress","priority":"high"},
                  {"id":"todo_2","content":"Run the build","status":"completed","priority":"low"}
-                ]
+                ]}
                 """);
 
         List<SessionTodo> todos = client.getSessionTodos("ses_new");
 
         assertEquals("GET", lastMethod.get());
-        assertEquals("/session/ses_new/todo", lastPath.get());
+        assertEquals("/api/session/ses_new/todo", lastPath.get());
         assertEquals(2, todos.size());
         assertEquals("todo_1", todos.get(0).id());
         assertEquals("Write the plan", todos.get(0).content());
@@ -262,15 +493,149 @@ public class HttpOpencodeClientComponentTest {
 
     @Test
     public void getSessionTodosHandlesAnEmptyList() throws Exception {
-        todoBody.set("[]");
+        todoBody.set("{\"data\":[]}");
 
         assertTrue(client.getSessionTodos("ses_new").isEmpty());
     }
 
     @Test
-    public void getMcpServersParsesTheLiveMapShape() throws Exception {
-        // regression: live v1.18 returns {"<name>": {"status": "…"}} — NOT an array;
-        // array parsing threw "malformed response body" and killed the Server view
+    public void getSessionTodosToleratesEntriesWithMissingFieldsAndNulls() throws Exception {
+        todoBody.set("""
+                {"data":[
+                 {},
+                 {"content":"Only content","status":"done"},
+                 null
+                ]}
+                """);
+
+        List<SessionTodo> todos = client.getSessionTodos("ses_new");
+
+        assertEquals(3, todos.size());
+        assertNull("missing fields map to null components", todos.get(0).id());
+        assertNull(todos.get(0).content());
+        assertNull(todos.get(0).status());
+        assertNull(todos.get(0).priority());
+        assertEquals("Only content", todos.get(1).content());
+        assertEquals("done", todos.get(1).status());
+        assertNull("null array entries parse to null elements (callers skip)", todos.get(2));
+    }
+
+    // ---------- the asynchronous v2 send path ----------
+
+    /**
+     * v2 split v1's single blocking {@code POST /message}: agent, model and the
+     * per-request system prompt become session state set beforehand, then
+     * {@code POST /prompt} only QUEUES the turn. The client restores the
+     * synchronous contract by polling the message list.
+     */
+    @Test
+    public void sendMessageSetsAgentModelAndSystemThenPostsThePrompt() throws Exception {
+        ChatEntry reply = client.sendMessage(new ChatRequest("ses_new", "build", "opencode", "glm-5.2",
+                "high", "SYSTEM-PROMPT", "What is 2+2?"));
+
+        Recorded agent = first("POST", "/api/session/ses_new/agent");
+        assertNotNull("the agent must be set as session state first", agent);
+        assertTrue(agent.body().contains("\"agent\":\"build\""));
+
+        Recorded model = first("POST", "/api/session/ses_new/model");
+        assertNotNull("the model must be set as session state", model);
+        assertTrue("v2 Model.Ref names the model 'id'", model.body().contains("\"id\":\"glm-5.2\""));
+        assertTrue(model.body().contains("\"providerID\":\"opencode\""));
+        assertTrue("variant folds into the model ref", model.body().contains("\"variant\":\"high\""));
+
+        Recorded synthetic = first("POST", "/api/session/ses_new/synthetic");
+        assertNotNull("the per-request system prompt becomes a synthetic message", synthetic);
+        assertTrue(synthetic.body().contains("SYSTEM-PROMPT"));
+
+        Recorded prompt = first("POST", "/api/session/ses_new/prompt");
+        assertNotNull(prompt);
+        assertTrue(prompt.body().contains("What is 2+2?"));
+
+        assertNotNull(reply);
+        assertEquals("assistant", reply.info().role());
+        assertEquals("The answer is $4$.", reply.text());
+        assertEquals("opencode/glm-5.2 (high)", reply.info().modelLabel());
+        assertEquals("stop", reply.info().finish());
+        assertTrue("the returned turn must be the completed one", reply.info().isComplete());
+    }
+
+    /** Only the prompt is posted when the request carries no agent/model/system. */
+    @Test
+    public void sendMessageOmitsTheStateCallsWhenNothingIsRequested() throws Exception {
+        client.sendMessage(ChatRequest.of("ses_new", "hi"));
+
+        assertNull(first("POST", "/api/session/ses_new/agent"));
+        assertNull(first("POST", "/api/session/ses_new/model"));
+        assertNull(first("POST", "/api/session/ses_new/synthetic"));
+        assertNotNull(first("POST", "/api/session/ses_new/prompt"));
+    }
+
+    /**
+     * The reply poll is the whole point of the v2 send: the first message list
+     * still shows the turn streaming (no {@code time.completed}), so the client
+     * must fetch again and only return once the assistant message is stamped.
+     */
+    @Test
+    public void sendMessagePollsTheMessageListUntilTheReplyIsComplete() throws Exception {
+        serveMessages(STREAMING_TURN, COMPLETED_TURN);
+
+        ChatEntry reply = client.sendMessage(ChatRequest.of("ses_new", "What is 2+2?"));
+
+        assertTrue("the poll must have fetched the list more than once",
+                count("GET", "/api/session/ses_new/message") >= 2);
+        assertTrue("only a time.completed stamp ends the turn", reply.info().isComplete());
+        assertEquals("The answer is $4$.", reply.text());
+    }
+
+    /**
+     * A turn can also end on the terminal {@code idle} message even when the
+     * assistant message never gets a completion stamp - otherwise the client
+     * would poll until the budget expired.
+     */
+    @Test
+    public void sendMessageAlsoStopsOnTheTerminalIdleMessage() throws Exception {
+        serveMessages(STREAMING_TURN, """
+                {"data":[
+                  {"id":"msg_idle","sessionID":"ses_new","type":"idle","outcome":"succeeded",
+                   "time":{"created":10}},
+                  {"id":"msg_a1","sessionID":"ses_new","type":"assistant","time":{"created":2},
+                   "content":[{"type":"text","text":"The answer"}]},
+                  {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
+                   "text":"What is 2+2?"}
+                ]}
+                """);
+
+        ChatEntry reply = client.sendMessage(ChatRequest.of("ses_new", "What is 2+2?"));
+
+        assertNotNull(reply);
+        assertEquals("assistant", reply.info().role());
+        assertEquals("The answer", reply.text());
+    }
+
+    // ---------- MCP / skills / config ----------
+
+    @Test
+    public void registerMcpPutsTheServerNameInThePath() throws Exception {
+        client.registerMcp("eclipse-build", McpServerConfig.enabled("http://127.0.0.1:12345/mcp"));
+
+        assertEquals("v2 registers with PUT, not POST", "PUT", lastMethod.get());
+        assertEquals("v2 names the server in the path", "/api/experimental/mcp/eclipse-build",
+                lastPath.get());
+        String body = lastBody.get();
+        assertTrue(body.contains("\"name\":\"eclipse-build\""));
+        assertTrue(body.contains("\"type\":\"remote\""));
+        assertTrue(body.contains("\"url\":\"http://127.0.0.1:12345/mcp\""));
+        assertTrue("oauth must be explicitly off", body.contains("\"oauth\":false"));
+    }
+
+    /**
+     * Regression, re-pointed at v2: {@code GET /mcp} used to be a bare
+     * {@code {"<name>":{"status":…}}} map, which array parsing choked on and
+     * killed the Server view. v2 answers {@code {"location":…,"data":[…]}} - the
+     * client must read the entries out of the envelope, not the envelope itself.
+     */
+    @Test
+    public void getMcpServersParsesTheDataEnvelope() throws Exception {
         List<McpServerInfo> servers = client.getMcpServers();
 
         assertEquals(2, servers.size());
@@ -289,86 +654,72 @@ public class HttpOpencodeClientComponentTest {
         assertTrue(skills.get(0).description().startsWith("C++ execution"));
     }
 
+    /**
+     * v2 serves {@code GET /config} as an ARRAY of config sources; the default
+     * model is a {@code {providerID, model}} object inside one source's
+     * {@code info}, not v1's flat {@code "provider/model"} string.
+     */
     @Test
-    public void getSessionTodosToleratesEntriesWithMissingFieldsAndNulls() throws Exception {
-        todoBody.set("""
-                [
-                 {},
-                 {"content":"Only content","status":"done"},
-                 null
-                ]
-                """);
-
-        List<SessionTodo> todos = client.getSessionTodos("ses_new");
-
-        assertEquals(3, todos.size());
-        assertNull("missing fields map to null components", todos.get(0).id());
-        assertNull(todos.get(0).content());
-        assertNull(todos.get(0).status());
-        assertNull(todos.get(0).priority());
-        assertEquals("Only content", todos.get(1).content());
-        assertEquals("done", todos.get(1).status());
-        assertNull("null array entries parse to null elements (callers skip)", todos.get(2));
-    }
-
-    @Test
-    public void sendMessagePostsBuiltBodyAndParsesReply() throws Exception {
-        ChatEntry reply = client.sendMessage(new ChatRequest("ses_new", "build", "opencode", "glm-5.2", "high", "SYSTEM-PROMPT", "What is 2+2?"));
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/session/ses_new/message", lastPath.get());
-        String body = lastBody.get();
-        assertTrue(body.contains("\"agent\":\"build\""));
-        assertTrue(body.contains("\"providerID\":\"opencode\""));
-        assertTrue(body.contains("\"modelID\":\"glm-5.2\""));
-        assertTrue("variant must be sent", body.contains("\"variant\":\"high\""));
-        assertTrue("system prompt must be sent", body.contains("SYSTEM-PROMPT"));
-        assertTrue(body.contains("What is 2+2?"));
-        assertNotNull(reply);
-        assertEquals("assistant", reply.info().role());
-        assertEquals("The answer is $4$.", reply.text());
-        assertEquals("opencode/glm-5.2", reply.info().modelLabel());
-    }
-
-    @Test
-    public void abortSessionPostsToTheAbortEndpoint() throws Exception {
-        client.abortSession("ses_new");
-
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/session/ses_new/abort", lastPath.get());
-    }
-
-    @Test
-    public void abortSessionTolerates4xxAlreadyIdle() throws Exception {
-        // the stub answers 404 "session is not active" for ids containing "idle";
-        // abort racing a finished session must not surface that as an error
-        client.abortSession("ses_idle");
-
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/session/ses_idle/abort", lastPath.get());
-    }
-
-    @Test
-    public void abortSessionMaps5xxToOpencodeException() {
-        try {
-            client.abortSession("error");
-            fail("expected OpencodeException");
-        } catch (OpencodeException expected) {
-            assertTrue("message should name the endpoint: " + expected.getMessage(),
-                    expected.getMessage().contains("/session/error/abort"));
-            assertTrue("message should name the HTTP status: " + expected.getMessage(),
-                    expected.getMessage().contains("500"));
-        }
-    }
-
-    @Test
-    public void getConfigParsesDefaultModel() throws Exception {
-        // stubbed below via the /config context
+    public void getConfigParsesDefaultModelFromTheSourceArray() throws Exception {
         com.opencode.ide.client.model.ConfigInfo config = client.getConfig();
         assertEquals("zai-coding-plan/glm-4.6", config.model());
         String[] parts = config.defaultModelParts();
         assertEquals("zai-coding-plan", parts[0]);
         assertEquals("glm-4.6", parts[1]);
     }
+
+    /**
+     * v2 deleted {@code GET /config/providers}. The client rebuilds the same
+     * {@link ProviderList} from {@code GET /api/model} (flat models carrying a
+     * {@code providerID}) plus {@code GET /api/provider}, so the Providers view
+     * keeps its provider-to-models structure.
+     */
+    @Test
+    public void providersAreRebuiltFromTheModelAndProviderEndpoints() throws Exception {
+        ProviderList list = client.getProviders();
+
+        assertNotNull(first("GET", "/api/model"));
+        assertNotNull(first("GET", "/api/provider"));
+        assertEquals(2, list.providers().size());
+
+        Provider opencode = list.providers().get(0);
+        assertEquals("opencode", opencode.id());
+        assertEquals("OpenCode", opencode.name());
+        assertEquals("models must be grouped by providerID", 1, opencode.models().size());
+
+        Model jev = opencode.models().get("jev-1.13");
+        assertNotNull("the model map is keyed by model id", jev);
+        assertEquals("Jev 1.13", jev.name());
+        assertEquals(64000L, jev.limit().context());
+        assertEquals("v2 cost is a LIST of price tiers", 0.042, jev.baseCost().input(), 0.0001);
+
+        Provider ollama = list.providers().get(1);
+        assertEquals("ollama", ollama.id());
+        assertEquals(1, ollama.models().size());
+        assertNotNull(ollama.models().get("llama3"));
+    }
+
+    // ---------- endpoints v2 removed ----------
+
+    /**
+     * v2 has no {@code POST /tui/:action} control endpoint any more. Driving an
+     * attached TUI would mean publishing {@code tui.*} events, which this client
+     * does not do - so the call reports "nothing driven" WITHOUT any HTTP.
+     */
+    @Test
+    public void tuiActionIsANoOpWithoutAnyHttpCall() throws Exception {
+        assertFalse(client.tuiAction("append-prompt", Map.of("text", "hello")));
+        assertTrue("v2 must not issue a /tui request at all", recorded().isEmpty());
+    }
+
+    /** v2 removed {@code POST /log}; logging stays client-side and issues no request. */
+    @Test
+    public void logWritesClientSideWithoutAnyHttpCall() throws Exception {
+        client.log("opencode-eclipse", "INFO", "hello", null);
+        assertTrue("v2 must not issue a /log request at all", recorded().isEmpty());
+    }
+
+    // ---------- transport errors ----------
 
     @Test
     public void non2xxRaisesOpencodeException() throws Exception {
@@ -380,33 +731,6 @@ public class HttpOpencodeClientComponentTest {
             fail("expected OpencodeException");
         } catch (OpencodeException expected) {
             assertTrue(expected.getMessage().contains("500"));
-        }
-    }
-
-    @Test
-    public void garbage200BodyRaisesOpencodeExceptionWithEndpointStatusAndSnippet() {
-        try {
-            client.getHealth();
-            fail("expected OpencodeException for a 200 with a non-JSON body");
-        } catch (OpencodeException expected) {
-            assertTrue("message should name the endpoint: " + expected.getMessage(),
-                    expected.getMessage().contains("/global/health"));
-            assertTrue("message should name the HTTP status: " + expected.getMessage(),
-                    expected.getMessage().contains("200"));
-            assertTrue("message should carry a body snippet: " + expected.getMessage(),
-                    expected.getMessage().contains("not-json-garbage"));
-        }
-    }
-
-    @Test
-    public void empty200BodyRaisesOpencodeException() {
-        try {
-            client.getAgents();
-            fail("expected OpencodeException for a 200 with an empty body");
-        } catch (OpencodeException expected) {
-            assertTrue("message should name the endpoint: " + expected.getMessage(),
-                    expected.getMessage().contains("/agent"));
-            assertTrue(expected.getMessage().contains("200"));
         }
     }
 }

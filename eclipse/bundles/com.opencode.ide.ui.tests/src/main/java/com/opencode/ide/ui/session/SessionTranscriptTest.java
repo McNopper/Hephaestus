@@ -71,7 +71,7 @@ public class SessionTranscriptTest {
 
     @Test
     public void transcriptOfSmallSnapshotIsExact() {
-        SessionDetails snapshot = new SessionDetails("ses_1", "T", null, null, null, null,
+        SessionDetails snapshot = new SessionDetails("ses_1", "T", null, null, null,
                 List.of(new MessageRow("u1", "user", null, "", "12:00", "hi", null, List.of())), null);
 
         assertEquals("T  \u2022  ses_1\n\n---- [1] user  \u2022  12:00 ----\n\nhi",
@@ -80,7 +80,7 @@ public class SessionTranscriptTest {
 
     @Test
     public void transcriptCarriesHeaderAggregatesAndNumberedBlocks() {
-        SessionDetails snapshot = new SessionDetails("ses_1", "Session One", null, "zai/glm-5.3 (high)",
+        SessionDetails snapshot = new SessionDetails("ses_1", "Session One", "zai/glm-5.3 (high)",
                 1.75, new TokenTotals(101L, 51L, null, 5L, 2L),
                 List.of(
                         new MessageRow("u1", "user", null, "", "12:00", "go", null, List.of()),
@@ -99,7 +99,7 @@ public class SessionTranscriptTest {
 
     @Test
     public void untitledSessionHeaderFallsBack() {
-        SessionDetails snapshot = new SessionDetails("ses_1", null, null, null, null, null,
+        SessionDetails snapshot = new SessionDetails("ses_1", null, null, null, null,
                 List.of(new MessageRow("a1", "assistant", null, "", "", "hi", null, List.of())), null);
 
         assertTrue(SessionTranscript.transcript(snapshot).startsWith("(untitled)  \u2022  ses_1"));
@@ -108,9 +108,9 @@ public class SessionTranscriptTest {
     @Test
     public void emptyOrFailedSnapshotsRenderTheirNote() {
         assertEquals("boom", SessionTranscript.transcript(
-                new SessionDetails("ses_1", null, null, null, null, null, List.of(), "boom")));
+                new SessionDetails("ses_1", null, null, null, null, List.of(), "boom")));
         assertEquals(SessionDetailsController.EMPTY_NOTE, SessionTranscript.transcript(
-                new SessionDetails("ses_1", null, null, null, null, null, List.of(), null)));
+                new SessionDetails("ses_1", null, null, null, null, List.of(), null)));
         assertEquals(SessionDetailsController.EMPTY_NOTE, SessionTranscript.transcript(null));
     }
 }

@@ -15,8 +15,8 @@ public class ModelFilterTest {
 
     private static ModelRow row(String providerName, String providerId, String modelId,
             String modelName, String status) {
-        Model model = new Model(modelId, null, null, modelName, null, null, null, null, status,
-                null, null, null);
+        Model model = new Model(modelId, null, null, null, modelName, null, null, null, null,
+                status, null, null, null, null);
         return new ModelRow(providerName, providerId, model, false);
     }
 

@@ -63,11 +63,16 @@ public final class SessionDetailsController {
             List<Session> sessions = client.getSessions();
             return build(sessions, messages);
         } catch (Exception e) {
-            return new SessionDetails(sessionId, null, null, null, null, null, List.of(), message(e));
+            return new SessionDetails(sessionId, null, null, null, null, List.of(), message(e));
         }
     }
 
-    // ---------- session lifecycle actions (fork / share / unshare / summarize) ----------
+    // ---------- session lifecycle actions (fork / summarize) ----------
+    //
+    // v2 dropped session sharing entirely: there is no /session/:id/share path
+    // on a 2.0.x server (the surviving "share" is a config setting), so the
+    // controller no longer offers share()/unshare() — a lifecycle action that
+    // can only ever 404 is worse than none.
 
     /**
      * {@code POST /session/:id/fork} — fork this session at {@code messageId}
@@ -87,37 +92,8 @@ public final class SessionDetailsController {
     }
 
     /**
-     * {@code POST /session/:id/share} — publish a read-only share link.
-     *
-     * @return the share URL, or the failure reason; never throws.
-     */
-    public LifecycleResult share() {
-        try {
-            String url = shareUrl(clientSupplier.get().shareSession(sessionId));
-            return (url == null || url.isBlank())
-                    ? LifecycleResult.failure("server returned no share URL")
-                    : LifecycleResult.ok(url);
-        } catch (Exception e) {
-            return LifecycleResult.failure(message(e));
-        }
-    }
-
-    /**
-     * {@code DELETE /session/:id/share} — withdraw the share link.
-     *
-     * @return success or the failure reason; never throws.
-     */
-    public LifecycleResult unshare() {
-        try {
-            clientSupplier.get().unshareSession(sessionId);
-            return LifecycleResult.ok(null);
-        } catch (Exception e) {
-            return LifecycleResult.failure(message(e));
-        }
-    }
-
-    /**
-     * {@code POST /session/:id/summarize} — compact the session. The model is
+     * Compacts the session via the client's {@code summarizeSession} (v2 maps
+     * it to {@code /compact} internally). The model is
      * the one the session's last assistant message used; only when none was
      * tracked does it fetch config + providers to resolve the connection
      * default ({@link DefaultModels#resolve}).
@@ -142,11 +118,6 @@ public final class SessionDetailsController {
         }
     }
 
-    /** Null-tolerant share-URL extractor (absent share → {@code null}). */
-    public static String shareUrl(Session session) {
-        return (session == null || session.share() == null) ? null : session.share().url();
-    }
-
     /**
      * Prefers the session's tracked model ({@code [provider, model]}, complete
      * = both parts non-blank); falls back to the validated connection default.
@@ -164,7 +135,6 @@ public final class SessionDetailsController {
     private SessionDetails build(List<Session> sessions, List<ChatEntry> messages) {
         Session self = findSession(sessions);
         String title = (self == null) ? null : self.title();
-        String shareUrl = shareUrl(self);
         List<MessageRow> rows = new ArrayList<>();
         String lastAssistantModelLabel = null;
         Double totalCost = null;
@@ -191,7 +161,7 @@ public final class SessionDetailsController {
             }
         }
         String note = rows.isEmpty() ? EMPTY_NOTE : null;
-        return new SessionDetails(sessionId, title, shareUrl, lastAssistantModelLabel, totalCost,
+        return new SessionDetails(sessionId, title, lastAssistantModelLabel, totalCost,
                 totals, List.copyOf(rows), note);
     }
 
@@ -248,11 +218,10 @@ public final class SessionDetailsController {
     // ---------- snapshot records (immutable; the view renders, never mutates) ----------
 
     /**
-     * Outcome of a session lifecycle action ({@link #fork}, {@link #share},
-     * {@link #unshare}, {@link #summarize}): {@code detail} carries the new
-     * session id (fork), the share URL (share) or the {@code provider/model}
-     * used (summarize); failures carry a human-readable {@code error} instead
-     * of an exception.
+     * Outcome of a session lifecycle action ({@link #fork},
+     * {@link #summarize}): {@code detail} carries the new session id (fork) or
+     * the {@code provider/model} used (summarize); failures carry a
+     * human-readable {@code error} instead of an exception.
      */
     public record LifecycleResult(boolean success, String detail, String error) {
 
@@ -268,9 +237,8 @@ public final class SessionDetailsController {
     /**
      * Immutable snapshot: header aggregates plus the ordered message rows, or
      * an {@code errorNote} when loading failed / the history is empty.
-     * {@code shareUrl} mirrors the session's share state (null = unshared).
      */
-    public record SessionDetails(String sessionId, String title, String shareUrl, String modelLabel,
+    public record SessionDetails(String sessionId, String title, String modelLabel,
             Double totalCost, TokenTotals tokens, List<MessageRow> rows, String errorNote) {
 
         public SessionDetails {

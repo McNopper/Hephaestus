@@ -68,10 +68,7 @@ public class ChatPermissionsTest {
         ChatPermissions.setSink(sink);
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\","
-                        + "\"patterns\":[\"git push\"],\"metadata\":{\"command\":\"git push\"},"
-                        + "\"always\":[]}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "bash")));
 
         assertEquals(1, sink.asked.size());
         PermissionRequest request = sink.asked.get(0);
@@ -104,9 +101,11 @@ public class ChatPermissionsTest {
         ChatPermissions.setSink(sink);
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("message.part.delta",
-                "{\"sessionID\":\"ses_1\",\"messageID\":\"m\",\"field\":\"text\",\"delta\":\"x\"}"));
+        adapter.onEvent(event("session.text.delta",
+                "{\"sessionID\":\"ses_1\",\"assistantMessageID\":\"m\",\"ordinal\":1,\"delta\":\"x\"}"));
         adapter.onEvent(event("session.idle", "{\"sessionID\":\"ses_1\"}"));
+        adapter.onEvent(event("session.status",
+                "{\"sessionID\":\"ses_1\",\"status\":{\"type\":\"busy\"}}"));
         adapter.onEvent(new OpencodeEvent(null, null));
         adapter.onEvent(null);
 
@@ -266,6 +265,26 @@ public class ChatPermissionsTest {
         JsonObject properties = propertiesJson == null ? null
                 : new Gson().fromJson(propertiesJson, JsonObject.class);
         return new OpencodeEvent(type, properties);
+    }
+
+    /**
+     * A v2 {@code permission.asked} payload:
+     * {@code {sessionID, action, resources, save, metadata, source}} — its
+     * identity is {@code source.id}.
+     *
+     * <p>TODO(v2): the trailing {@code id}/{@code permission}/{@code patterns}
+     * members are compatibility aliases for client-owned
+     * {@code PermissionEvents.parse}, which still resolves the v1 field names.
+     * Drop them once that parser reads {@code source.id}/{@code action}/
+     * {@code resources}.</p>
+     */
+    private static String askedPayload(String permissionId, String action) {
+        return "{\"sessionID\":\"ses_1\",\"action\":\"" + action + "\","
+                + "\"resources\":[\"git push\"],\"save\":false,"
+                + "\"metadata\":{\"command\":\"git push\"},"
+                + "\"source\":{\"type\":\"tool\",\"messageID\":\"msg_1\",\"id\":\"" + permissionId + "\"},"
+                + "\"id\":\"" + permissionId + "\",\"permission\":\"" + action + "\","
+                + "\"patterns\":[\"git push\"]}";
     }
 
     private static final class RecordingSink implements ChatPermissionSink {
@@ -443,7 +462,7 @@ public class ChatPermissionsTest {
 
         @Override
         public Session createSession(String title, Path directory) {
-            return new Session("ses_1", null, title, null, null, null, null, null, null);
+            return new Session("ses_1", null, title, null, null, null, null, null, null, null, null);
         }
 
         @Override

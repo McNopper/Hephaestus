@@ -48,6 +48,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
     private Label hostnameLabel;
     private Text hostnameText;
     private Label spawnHint;
+    private Button attachServiceButton;
     private Label workdirLabel;
     private Text workdirText;
     private Text defaultModelText;
@@ -133,6 +134,13 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         spawnHint.setText("Spawn settings apply in Spawn mode only. Leave the binary "
                 + "empty to auto-detect 'opencode' on the PATH.");
         spawnHint.setLayoutData(span(2));
+
+        attachServiceButton = new Button(connectGroup, SWT.CHECK);
+        attachServiceButton.setText("Attach to the shared opencode service (v2)");
+        attachServiceButton.setToolTipText("Join the per-user background service every v2 client "
+                + "(TUI, CLI) shares, instead of always spawning a private 'opencode serve'. "
+                + "Falls back to spawn when the service cannot be discovered or started.");
+        attachServiceButton.setLayoutData(span(2));
 
         modeCombo.addListener(SWT.Selection, e -> updateSpawnEnablement());
 
@@ -284,6 +292,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         workdirLabel.setEnabled(spawn);
         workdirText.setEnabled(spawn);
         spawnHint.setEnabled(spawn);
+        attachServiceButton.setEnabled(spawn);
     }
 
     /** File dialog for the opencode binary path (empty field = auto-detect). */
@@ -314,6 +323,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         passwordText.setText(prefs.getPassword());
         binaryText.setText(prefs.getOpencodeBinary());
         hostnameText.setText(prefs.getSpawnHostname());
+        attachServiceButton.setSelection(prefs.isAttachSharedService());
         workdirText.setText(prefs.getWorkingDirectory());
         defaultModelText.setText(prefs.getDefaultModel());
         defaultVariantText.setText(prefs.getDefaultVariant());
@@ -336,8 +346,9 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         passwordText.setText("");
         binaryText.setText("");
         hostnameText.setText("127.0.0.1");
+        attachServiceButton.setSelection(true);
         workdirText.setText("C:\\Development\\GitHub\\Hephaestus");
-        defaultModelText.setText("zai-coding-plan/glm-5.3");
+        defaultModelText.setText("kimi-code-plan-global/k3-256k");
         defaultVariantText.setText("max");
         tasksRootText.setText("C:\\Development\\GitHub\\Hephaestus\\.opencode\\tasks");
         tasksProjectText.setText("hephaestus");
@@ -355,6 +366,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         prefs.setOpencodeBinary(binaryText.getText().trim());
         String hostname = hostnameText.getText().trim();
         prefs.setSpawnHostname(hostname.isEmpty() ? "127.0.0.1" : hostname);
+        prefs.setAttachSharedService(attachServiceButton.getSelection());
         prefs.setWorkingDirectory(workdirText.getText().trim());
         prefs.setDefaultModel(defaultModelText.getText().trim());
         prefs.setDefaultVariant(defaultVariantText.getText().trim());

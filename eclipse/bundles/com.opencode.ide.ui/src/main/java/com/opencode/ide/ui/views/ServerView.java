@@ -98,6 +98,7 @@ public class ServerView extends ViewPart implements Refreshable {
     private Runnable trackerListener;
     private Runnable connectionsListener;
     private boolean refreshPending;
+    private boolean reloadPending;
 
     /**
      * One busy-status poller per live connection client (see
@@ -496,7 +497,7 @@ public class ServerView extends ViewPart implements Refreshable {
                 McpServerRows.dialogText(owner.label, owner.mcpServers));
     }
 
-    /** Read-only agent definition dialog: mode, description, model, enabled tools. */
+    /** Read-only agent definition dialog: mode, description, model. */
     private void showAgentDetails(Agent agent) {
         StringBuilder sb = new StringBuilder();
         sb.append(agent.name() == null || agent.name().isBlank() ? "(unnamed)" : agent.name());
@@ -513,34 +514,24 @@ public class ServerView extends ViewPart implements Refreshable {
         } else {
             sb.append("\n\nmodel: (server default)");
         }
-        String tools = agentToolsLabel(agent.tools());
-        sb.append("\n\ntools: ").append(tools == null ? "(all / server default)" : tools);
+        // TODO(v2): no tools line — v2's Agent.Info moved the per-tool toggles
+        // into `request`, which the client deliberately does not model. What v2
+        // does expose here is `permissions`; rendering those is a UI decision,
+        // not a mechanical port, so the line is dropped rather than guessed.
         org.eclipse.jface.dialogs.MessageDialog.openInformation(getSite().getShell(),
                 "Agent " + (agent.name() == null ? "" : agent.name()), sb.toString());
     }
 
-    /** provider/modelID (+ variant) or null when the agent uses the server default. */
+    /** provider/model id (+ variant) or null when the agent uses the server default. */
     private static String agentModelLabel(Agent.ModelRef model) {
         if (model == null) {
             return null;
         }
-        String id = model.modelID() == null || model.modelID().isBlank() ? "?" : model.modelID();
+        // v2 renamed Agent.ModelRef#modelID to #id
+        String id = model.id() == null || model.id().isBlank() ? "?" : model.id();
         String label = model.providerID() == null || model.providerID().isBlank()
                 ? id : model.providerID() + "/" + id;
         return model.variant() == null || model.variant().isBlank() ? label : label + " (" + model.variant() + ")";
-    }
-
-    /** The enabled tools (comma-separated, sorted), or null when unset/empty (= server default). */
-    private static String agentToolsLabel(Map<String, Boolean> tools) {
-        if (tools == null || tools.isEmpty()) {
-            return null;
-        }
-        List<String> enabled = tools.entrySet().stream()
-                .filter(e -> Boolean.TRUE.equals(e.getValue()))
-                .map(Map.Entry::getKey)
-                .sorted()
-                .toList();
-        return enabled.isEmpty() ? null : String.join(", ", enabled);
     }
 
     /** Copies text to the clipboard (UI thread — the context menu). */
@@ -703,7 +694,10 @@ public class ServerView extends ViewPart implements Refreshable {
         connection.getClient(); // ensure spawned/connected
         HealthStatus health = connection.getClient().getHealth();
         List<Agent> agents = connection.getClient().getAgents();
-        List<Session> sessions = connection.getClient().getSessions();
+        // v2 session state is global per user: scope the primary view to the
+        // connection's working directory, or every project on the machine
+        // would show up here
+        List<Session> sessions = connection.getClient().getSessions(connection.getWorkingDirectory());
         Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
         List<McpServerInfo> mcpServers = safeMcp(connection.getClient());
         List<SkillInfo> skills = safeSkills(connection.getClient());
@@ -984,20 +978,19 @@ public class ServerView extends ViewPart implements Refreshable {
             return;
         }
         switch (event.type()) {
-            case "session.created", "session.updated" -> {
-                Session s = extractSession(event);
-                if (s != null) {
-                    upsertSession(node, s);
-                    scheduleRefresh();
-                }
+            case "session.created", "session.renamed", "session.moved" -> {
+                // v2 lifecycle events carry only ids/titles, not the full Session
+                // object v1 nested under "info" - reload the node instead of
+                // reconstructing a half-populated session.
+                scheduleReload();
             }
             case "session.deleted" -> {
-                Session s = extractSession(event);
-                if (s != null && s.id() != null) {
-                    node.sessions.removeIf(x -> s.id().equals(x.id()));
-                    node.statuses.remove(s.id());
-                    node.activity.remove(s.id());
-                    sessionActivity.clear(s.id());
+                String sid = sessionIdOf(event);
+                if (sid != null) {
+                    node.sessions.removeIf(x -> sid.equals(x.id()));
+                    node.statuses.remove(sid);
+                    node.activity.remove(sid);
+                    sessionActivity.clear(sid);
                     scheduleRefresh();
                 }
             }
@@ -1024,36 +1017,36 @@ public class ServerView extends ViewPart implements Refreshable {
                     scheduleRefresh();
                 }
             }
-            case "message.updated" -> {
-                // defense in depth: a completed assistant message means the turn is over,
-                // even if a session.status/session.idle event was missed
+            case "session.execution.succeeded", "session.execution.failed",
+                    "session.execution.interrupted" -> {
+                // defense in depth: the turn is over, even if session.idle was missed
+                // (v1 read the same signal off a completed "message.updated")
                 String sid = event.string("sessionID");
-                if (sid != null
-                        && "assistant".equals(event.at("info.role"))
-                        && event.at("info.time.completed") != null) {
+                if (sid != null) {
                     node.statuses.put(sid, new SessionStatus("idle"));
                     node.activity.remove(sid);
                     sessionActivity.clear(sid);
                     scheduleRefresh();
                 }
             }
-            case "message.part.updated" -> {
-                String sid = partSessionId(event);
-                String label = ServerLabels.partActivityLabel(event);
+            case "session.text.started", "session.reasoning.started", "session.tool.called",
+                    "session.tool.input.started", "session.tool.progress" -> {
+                String sid = event.string("sessionID");
+                String label = ServerLabels.activityLabel(event.type());
                 if (sid != null && label != null) {
                     node.activity.put(sid, label);
                     scheduleRefresh();
                 }
             }
-            case "message.part.delta" -> {
+            case "session.text.delta", "session.reasoning.delta" -> {
                 // live "what is it doing": fold the streamed delta into the
                 // session's snippet (throttled ~2/s per session inside
                 // SessionActivity); a published change schedules the
                 // already-coalesced refresh, everything else stays silent.
                 // Subagents stream their own sessionID and are covered by
                 // the same path.
-                if (sessionActivity.onDelta(event.string("sessionID"),
-                        event.string("field"), event.string("delta"))) {
+                String field = "session.reasoning.delta".equals(event.type()) ? "reasoning" : "text";
+                if (sessionActivity.onDelta(event.string("sessionID"), field, event.string("delta"))) {
                     scheduleRefresh();
                 }
             }
@@ -1063,33 +1056,37 @@ public class ServerView extends ViewPart implements Refreshable {
         }
     }
 
-    private Session extractSession(OpencodeEvent event) {
-        return event.as("info", Session.class);
+    /** The session id of a v2 session event ({@code sessionID}, or {@code id} on older frames). */
+    private static String sessionIdOf(OpencodeEvent event) {
+        String sid = event.string("sessionID");
+        return sid != null ? sid : event.string("id");
     }
 
-    /** Reads the status type from {@code session.status}, tolerating string or object form. */
+    /** Reads the status type from {@code session.status}: v2 nests it as {@code status.type}. */
     private static String extractStatusType(OpencodeEvent event) {
         String flat = event.string("status");
         return flat != null ? flat : event.at("status.type");
     }
 
-    private static String partSessionId(OpencodeEvent event) {
-        return event.at("part.sessionID");
-    }
-
     // activity label mapping lives in ServerLabels (pure, tested)
 
-    private static void upsertSession(ServerNode node, Session session) {
-        if (session == null || session.id() == null) {
+    /**
+     * Coalesce session-lifecycle events into one full reload (~2s). v2's
+     * {@code session.created} carries ids only, so the node has to be refetched
+     * rather than patched in place.
+     */
+    private void scheduleReload() {
+        if (viewer == null || viewer.getControl().isDisposed() || reloadPending) {
             return;
         }
-        for (int i = 0; i < node.sessions.size(); i++) {
-            if (session.id().equals(node.sessions.get(i).id())) {
-                node.sessions.set(i, session);
+        reloadPending = true;
+        Display.getDefault().timerExec(2000, () -> {
+            reloadPending = false;
+            if (viewer == null || viewer.getControl().isDisposed()) {
                 return;
             }
-        }
-        node.sessions.add(session);
+            refresh();
+        });
     }
 
     /** Coalesce rapid events into one viewer refresh (~3/sec). */

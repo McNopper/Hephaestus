@@ -30,34 +30,65 @@ the measured baseline per role/task-type so future estimates stop guessing.
 Standalone, on-demand. Invoke after a fleet batch, at sprint close, or whenever the human
 asks "what did this cost so far?". Never runs automatically.
 
-## The live surface (opencode v1.18.x, verified against the harness client DTOs)
+## The live surface (opencode v2, verified against a live 2.0.10 server + its `/openapi.json`)
 
-`GET http://127.0.0.1:<port>/session` returns per session:
+Three v2 facts shape every query: **every path is prefixed `/api`**, the server **requires
+HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
+
+- **Base URL** — `opencode api get /api/info` → `{ version, pid, urls: ["http://127.0.0.1:<port>"], paths }`;
+  take `urls[0]`. The old hard-coded `4096` default is gone.
+- **Auth** — username `opencode`, password from `~/.config/opencode/service.json`
+  (`{"password": "…"}`). `opencode api get <path>` resolves the port **and** authenticates
+  for you; prefer it over raw HTTP.
+- When the Eclipse harness runs, the Server view / connection preferences hold the
+  resolved URL.
+
+`GET /api/session` returns a **list envelope**, not a bare array:
 
 ```
-{ id, slug, title, agent, parentID,
-  time: { created, updated },        // epoch millis → duration = updated - created
-  cost,                              // server-computed USD (sum over messages)
-  tokens: { input, output, reasoning, cache: { read, write } } }
+{ data: [ { id, projectID, title, agent, parentID,
+            model: { id, providerID, variant },
+            time: { created, updated, idle, viewed, archived },   // epoch millis → duration = updated - created
+            cost,                              // server-computed USD (sum over messages)
+            tokens: { input, output, reasoning, cache: { read, write } },
+            outcome, location: { directory }, subpath, metadata, permissions, revert } ],
+  cursor: … }
 ```
 
-- Filter to one worktree/fleet job with `GET /session?directory=<path>`.
+- **Unwrap `.data` first.** Every list endpoint wraps its rows this way (`/api/session`,
+  `/api/agent`, `/api/model`, `/api/provider`, `/api/skill`, `/api/command`, `/api/mcp`).
+- Filter to one worktree/fleet job **client-side** on `location.directory`.
 - `parentID` nests subagent sessions under their parent — **aggregate children into the
   parent** before attributing cost to a ticket.
 - `cache.read/write` tokens are billed at different rates than plain input; do not
   recompute cost from tokens — trust the server's `cost` field.
-- The port: spawn mode default `4096`; when the Eclipse harness runs, the Server view /
-  connection preferences hold it.
 
 ## Workflow
 
-1. **Collect** — query every configured server. PowerShell:
+1. **Collect** — query every configured server. Simplest path (`opencode api get` does the
+   port discovery **and** the Basic auth for you). PowerShell:
    ```powershell
-   $sessions = (Invoke-RestMethod "http://127.0.0.1:4096/session")
+   $sessions = (opencode api get /api/session | ConvertFrom-Json).data   # unwrap the envelope
    # flatten: children roll up into parents
    $roots = $sessions | Where-Object { -not $_.parentID }
    ```
-   bash: `curl -s http://127.0.0.1:4096/session | jq '[.[] | select(.parentID == null)]'`
+   bash: `opencode api get /api/session | jq '[.data[] | select(.parentID == null)]'`
+
+   Explicit alternative (raw HTTP — you resolve the base URL and send Basic auth yourself).
+   PowerShell:
+   ```powershell
+   $base = (opencode api get /api/info | ConvertFrom-Json).urls[0]
+   $pw   = (Get-Content "$HOME/.config/opencode/service.json" -Raw | ConvertFrom-Json).password
+   $hdr  = @{ Authorization = "Basic " + [Convert]::ToBase64String(
+                [Text.Encoding]::UTF8.GetBytes("opencode:$pw")) }
+   $sessions = (Invoke-RestMethod "$base/api/session" -Headers $hdr).data
+   ```
+   bash:
+   ```bash
+   BASE=$(opencode api get /api/info | jq -r '.urls[0]')
+   PW=$(jq -r '.password' ~/.config/opencode/service.json)
+   curl -s -u "opencode:$PW" "$BASE/api/session" | jq '[.data[] | select(.parentID == null)]'
+   ```
 2. **Map session → ticket** — by convention the session `title` starts with the ticket id
    (`[T-014] implement store locking`). Sessions without a ticket prefix are fleet overhead;
    keep them in the aggregates, attribute them to `(unassigned)`.

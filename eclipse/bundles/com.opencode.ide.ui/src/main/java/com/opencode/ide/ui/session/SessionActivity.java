@@ -8,8 +8,9 @@ import java.util.function.LongSupplier;
 
 /**
  * Live "what is this session doing" state for the Server view: the latest
- * streamed text snippet per session, fed from {@code message.part.delta}
- * SSE events ({@code field} {@code text} or {@code reasoning}, carrying a
+ * streamed text snippet per session, fed from the v2 {@code session.text.delta}
+ * and {@code session.reasoning.delta} SSE events (the caller maps the event
+ * type to the {@code field} {@code text} or {@code reasoning} and passes the
  * {@code delta} fragment — the same stream the chat view renders). While a
  * session is busy, the view shows the snippet in the session row's Details
  * column so the row does not just say "busy" but what the agent is writing

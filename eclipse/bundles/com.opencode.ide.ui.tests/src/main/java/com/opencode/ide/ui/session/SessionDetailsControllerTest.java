@@ -34,7 +34,8 @@ import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
  */
 public class SessionDetailsControllerTest {
 
-    private static final Session.Time TIME = new Session.Time(1_755_000_000_000L, 1_755_000_000_000L);
+    private static final Session.Time TIME =
+            new Session.Time(1_755_000_000_000L, 1_755_000_000_000L, 0L);
     private static final String TIME_LABEL = "2025-08-12T12:00:00Z";
 
     private final FakeClient client = new FakeClient();
@@ -43,16 +44,18 @@ public class SessionDetailsControllerTest {
 
     private static ChatMessageInfo user(String id) {
         return new ChatMessageInfo(id, "ses_1", "user", TIME, null, null, null,
-                null, null, null, null, null, new Agent.ModelRef("claude-sonnet-4", "anthropic", null));
+                null, null, null, null, null, new Agent.ModelRef("claude-sonnet-4", "anthropic", null),
+                0L);
     }
 
     private static ChatMessageInfo assistant(String id, String providerId, Double cost, Session.Tokens tokens) {
         return new ChatMessageInfo(id, "ses_1", "assistant", TIME, "build", "primary", "stop",
-                cost, tokens, providerId, "glm-5.3", "high", null);
+                cost, tokens, providerId, "glm-5.3", "high", null, 0L);
     }
 
     private static Session session() {
-        return new Session("ses_1", "slug-one", "Session One", "build", null, TIME, 9.0, null, null);
+        return new Session("ses_1", null, "Session One", "build", null, null, TIME, 9.0, null,
+                null, null);
     }
 
     // ---------- mapping ----------
@@ -177,26 +180,8 @@ public class SessionDetailsControllerTest {
         assertNull(snapshot.errorNote());
     }
 
-    @Test
-    public void sharedSessionSeedsShareUrlIntoSnapshot() {
-        client.sessions = List.of(new Session("ses_1", "slug-one", "Session One", "build", null,
-                TIME, 9.0, null, new Session.Share("https://opencode.ai/s/abc123")));
-        client.messages = List.of(new ChatEntry(user("u1"), List.of(new ChatPart("text", "hi", null, null))));
-
-        SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
-
-        assertEquals("https://opencode.ai/s/abc123", snapshot.shareUrl());
-    }
-
-    @Test
-    public void unsharedSessionSnapshotHasNoShareUrl() {
-        client.sessions = List.of(session());
-        client.messages = List.of(new ChatEntry(user("u1"), List.of(new ChatPart("text", "hi", null, null))));
-
-        SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
-
-        assertNull(snapshot.shareUrl());
-    }
+    // v2 has no session share endpoint, so the snapshot no longer carries a
+    // shareUrl — the tests that asserted it are gone with the feature.
 
     // ---------- empty / failure ----------
 
@@ -284,7 +269,8 @@ public class SessionDetailsControllerTest {
 
     @Test
     public void forkOfASessionWithoutIdYieldsThePlaceholderDetail() {
-        client.forkResult = new Session(null, null, null, null, null, null, null, null, null);
+        client.forkResult = new Session(null, null, null, null, null, null, null, null, null,
+                null, null);
 
         SessionDetailsController.LifecycleResult result =
                 new SessionDetailsController("ses_1", () -> client).fork("msg_5");
@@ -316,7 +302,8 @@ public class SessionDetailsControllerTest {
             if (forkResult != null) {
                 return forkResult;
             }
-            return new Session("ses_fork", null, "Fork of Session One", null, null, null, null, null, null);
+            return new Session("ses_fork", null, "Fork of Session One", null, null, null, null,
+                    null, null, null, null);
         }
 
         @Override

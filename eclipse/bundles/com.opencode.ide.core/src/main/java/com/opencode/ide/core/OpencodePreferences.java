@@ -27,6 +27,7 @@ public final class OpencodePreferences {
     public static final String NODE_ID = "com.opencode.ide.core";
 
     public static final String KEY_MODE = "mode";
+    public static final String KEY_ATTACH_SHARED_SERVICE = "attachSharedService";
     public static final String KEY_SHOW_REASONING = "showReasoning";
     public static final String KEY_SERVER_URL = "serverUrl";
     public static final String KEY_USERNAME = "username";
@@ -122,6 +123,22 @@ public final class OpencodePreferences {
 
     public void setMode(String mode) {
         prefs.put(KEY_MODE, mode);
+    }
+
+    /**
+     * Whether the local/primary connection (mode {@code SPAWN}) first attaches
+     * to the user's shared opencode background service (the v2-native way every
+     * opencode client connects), only falling back to spawning a private
+     * {@code opencode serve} when the service cannot be discovered or started.
+     * Default ON; turning it off restores the always-spawn behavior. Has no
+     * effect in {@code CONNECT} mode (a user-configured remote URL).
+     */
+    public boolean isAttachSharedService() {
+        return prefs.getBoolean(KEY_ATTACH_SHARED_SERVICE, true);
+    }
+
+    public void setAttachSharedService(boolean attach) {
+        prefs.putBoolean(KEY_ATTACH_SHARED_SERVICE, attach);
     }
 
     /**

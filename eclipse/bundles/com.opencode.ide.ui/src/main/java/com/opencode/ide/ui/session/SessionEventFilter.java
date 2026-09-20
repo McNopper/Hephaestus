@@ -31,30 +31,34 @@ public final class SessionEventFilter {
             return false;
         }
         return switch (event.type()) {
-            // session.idle: turn finished -> final state; session.updated: title/metadata
-            // changed; message.updated: a message appeared/changed; message.part.updated:
-            // streaming part progress (arrives in bursts, callers must coalesce).
-            case "session.idle", "session.updated", "message.updated", "message.part.updated" ->
+            // v2 split v1's two coarse events into named ones. Turn-is-over
+            // signals (v1 session.idle / message.updated): session.idle plus the
+            // three session.execution.* outcomes. Message content settled (v1
+            // message.updated): session.text.ended. Streaming progress (v1
+            // message.part.updated): the text/reasoning deltas and the tool
+            // lifecycle - these arrive in bursts, so callers must coalesce.
+            // Title/metadata (v1 session.updated, gone): session.renamed.
+            case "session.idle",
+                    "session.execution.succeeded", "session.execution.failed",
+                    "session.execution.interrupted",
+                    "session.renamed",
+                    "session.text.ended",
+                    "session.text.delta", "session.reasoning.delta",
+                    "session.tool.called", "session.tool.input.started",
+                    "session.tool.progress", "session.tool.success", "session.tool.failed" ->
                 sessionId.equals(sessionIdOf(event));
             default -> false;
         };
     }
 
     /**
-     * @return the session id an event belongs to, tolerating the shapes seen in
-     *         the wild: a top-level {@code sessionID} (session.idle,
-     *         message.updated, sometimes message.part.updated), a nested
-     *         {@code part.sessionID} (message.part.updated), or {@code info.id}
-     *         (session.updated); {@code null} when none is a matching string.
+     * @return the session id an event belongs to. Every v2 session-scoped
+     *         event carries it as a flat top-level {@code sessionID} — v1's
+     *         nested {@code part.sessionID} / {@code info.id} fallbacks are
+     *         gone with the events that used them. {@code null} when absent or
+     *         not a string.
      */
     private static String sessionIdOf(OpencodeEvent event) {
-        String id = event.string("sessionID");
-        if (id == null) {
-            id = event.at("part.sessionID");
-        }
-        if (id == null) {
-            id = event.at("info.id");
-        }
-        return id;
+        return event.string("sessionID");
     }
 }

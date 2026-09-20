@@ -7,8 +7,8 @@ import com.opencode.ide.core.OpencodeConnection;
 
 /**
  * The server surface {@link ChatSessionController} needs: the HTTP client plus
- * live-event ({@code /event} SSE) listener registration. The view supplies an
- * adapter over the {@link OpencodeConnection} singleton; tests supply fakes.
+ * live-event ({@code /api/event} SSE) listener registration. The view supplies
+ * an adapter over the {@link OpencodeConnection} singleton; tests supply fakes.
  */
 public interface ChatServerConnection {
 

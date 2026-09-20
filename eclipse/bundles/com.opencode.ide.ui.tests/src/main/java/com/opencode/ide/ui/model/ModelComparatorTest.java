@@ -31,8 +31,8 @@ public class ModelComparatorTest {
 
     private static ModelRow row(String providerName, String modelId, String modelName,
             String status, long context, boolean defaultModel) {
-        Model model = new Model(modelId, null, null, modelName, null, null, null,
-                new Limit(context, 0L), status, null, null, null);
+        Model model = new Model(modelId, null, null, null, modelName, null, null, null,
+                new Limit(context, 0L), status, null, null, null, null);
         return new ModelRow(providerName, providerName.toLowerCase(), model, defaultModel);
     }
 

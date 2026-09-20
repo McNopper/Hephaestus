@@ -108,10 +108,10 @@ Agent backends (axis 4):  opencode HttpOpencodeClient (today) · M4 below
 
 ## Live activity derivation (`client.activity` — ported from the retired opencode-viewer)
 
-`ActivityTracker` consumes the same `/event` SSE stream the Server view subscribes to and derives:
-per-session `running` (from `session.status` busy/retry vs `session.idle`/deleted), `thinking`
-(`message.part.updated` with `part.type=="reasoning"` on, any other non-tool part off), tool
-invocations (`part.type=="tool"`: name from `part.tool`, state from `part.state.status`
+`ActivityTracker` consumes the same `/api/event` SSE stream the Server view subscribes to and derives:
+per-session `running` (from `session.status`, whose `data.status` is an object `{type: busy|idle|retry}`
+in v2, vs `session.idle`/deleted), `thinking` (`session.reasoning.delta` on, any other non-tool part
+off), tool invocations (`part.type=="tool"`: name from `part.tool`, state from `part.state.status`
 running/completed/error, null ⇒ running), and the **active-files map** — a file (first non-blank
 of `part.input.filePath|path|file|absolutePath`) is listed while its tool is RUNNING and removed
 on COMPLETED/ERROR. Snapshots are immutable; listeners fire only on real changes. The ui Server

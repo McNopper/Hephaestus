@@ -50,9 +50,10 @@ import com.opencode.ide.core.OpencodePreferences;
  *
  * <p>Multiple instances are supported ({@code allowMultiple=true}); the Eclipse
  * secondary id carries the session to resume ({@code ses_…}) or is unique for a
- * fresh window. Reply text streams in via {@code message.part.delta} events and
- * is finalized with the authoritative render from the completed
- * {@code POST /session/:id/message} reply.</p>
+ * fresh window. Reply text streams in via {@code session.text.delta} (and
+ * {@code session.reasoning.delta}) events and is finalized with the
+ * authoritative render from the completed
+ * {@code POST /session/:id/prompt} reply.</p>
  *
  * <p>TUI-parity streaming controls: an inline Stop button appears in the input
  * row while a reply is in flight (same path as the toolbar Abort and the

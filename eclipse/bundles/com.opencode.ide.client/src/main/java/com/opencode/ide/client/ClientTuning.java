@@ -24,11 +24,16 @@ public final class ClientTuning {
     public static final Duration PROMPT_TIMEOUT = duration(
             "CLIENT_PROMPT_TIMEOUT_MS", Duration.ofMinutes(5));
 
+    /** Reply poll interval: v2's POST /prompt is async, so the reply is polled
+     *  off GET /session/:id/message. Env: CLIENT_REPLY_POLL_MS. */
+    public static final Duration REPLY_POLL_INTERVAL = duration(
+            "CLIENT_REPLY_POLL_MS", Duration.ofMillis(750));
+
     /** Readiness-probe connect timeout. Env: CLIENT_PROBE_CONNECT_MS. */
     public static final Duration PROBE_CONNECT_TIMEOUT = duration(
             "CLIENT_PROBE_CONNECT_MS", Duration.ofSeconds(5));
 
-    /** /global/health readiness probe timeout. Env: CLIENT_HEALTH_PROBE_MS. */
+    /** /api/info readiness probe timeout. Env: CLIENT_HEALTH_PROBE_MS. */
     public static final Duration HEALTH_PROBE_TIMEOUT = duration(
             "CLIENT_HEALTH_PROBE_MS", Duration.ofSeconds(3));
 
