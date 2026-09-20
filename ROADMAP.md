@@ -18,6 +18,24 @@ this harness is deliberate weight for complex projects, chosen on purpose.
 
 ## Current state (2026-09-20)
 
+**Evening wrap — stable status quo for machine shutdown.** Everything is committed
+(code, store, docs); the waves loop is stopped and the daemon is gracefully down
+(pidfile removed); no fleet/serve processes run; every stalled worker's WIP is
+checkpointed on its `opencode/<id>` branch (earlier-run WIP on `wip/*` branches).
+Day's yield: **B-006 landed** (dispatch reclaims stale merged residue; 27/27 reactor
+green) and proved itself live within the hour. Two wave runs exposed the next
+reliability layer, all ticketed: worktree MCP resolution (fixed `1e14cd2`), the
+post-fix stall at task-tools discovery (**B-009, the gate for the next wave**),
+false-stall completion detection + budget-killed busy sessions (**B-008**), the
+AC-path gate parsing `e.g.` as a path (**B-010**, found by the U-026 worker),
+graceful shutdown (**U-038**). Rescued and advanced: B-007's requirements doc
+(`475d164`, reviewed PASS, now at `system`). Observability is fully specified for
+implementation: U-040 (Fleet tree), U-041 (subagents+console), U-042 (background),
+U-043 (blocked-as-state) + `docs/fleet-observability-eclipse-reuse.md`.
+**Board truth at wrap: 8 NEEDS-HUMAN blocked (stall class, B-009 gate), B-007 at
+system stage ready, wave parked.** Next session: diagnose B-009 from the stalled
+transcripts, then restart the wave (`fleet-daemon.ps1` + `fleet_waves_start`).
+
 **The opencode v1 → v2 migration is landed and reactor-green** (27/27 modules,
 1480 tests, commit `df28c93`). The harness now speaks the v2 API end-to-end —
 `/api` paths with Basic auth, `{data:[…]}` envelopes, the async
