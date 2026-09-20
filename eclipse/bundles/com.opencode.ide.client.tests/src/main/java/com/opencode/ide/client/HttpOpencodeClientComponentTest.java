@@ -662,6 +662,30 @@ public class HttpOpencodeClientComponentTest {
     }
 
     /**
+     * REGRESSION (the chat spun forever on a failing model): a turn that FAILS
+     * ends with an {@code idle} marker (outcome=failed) and NO assistant
+     * message. The wait must surface the outcome, not poll until the budget.
+     */
+    @Test
+    public void failedTurnSurfacesTheOutcomeInsteadOfSpinning() {
+        promptAck.set("""
+                {"data":{"id":"msg_u2","sessionID":"ses_new","type":"user","time":{"created":10}}}
+                """);
+        serveMessages("""
+                {"data":[
+                  {"id":"msg_idle2","sessionID":"ses_new","type":"idle","time":{"created":11},
+                   "outcome":"failed"},
+                  {"id":"msg_u2","sessionID":"ses_new","type":"user","time":{"created":10},"text":"again"}
+                ]}
+                """);
+
+        OpencodeException e = org.junit.Assert.assertThrows(OpencodeException.class,
+                () -> client.sendMessage(ChatRequest.of("ses_new", "again")));
+        assertTrue("the outcome must be named: " + e.getMessage(),
+                e.getMessage().contains("failed") && e.getMessage().contains("without a reply"));
+    }
+
+    /**
      * A turn can also end on the terminal {@code idle} message even when the
      * assistant message never gets a completion stamp - otherwise the client
      * would poll until the budget expired.

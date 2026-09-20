@@ -413,8 +413,18 @@ public final class HttpOpencodeClient implements OpencodeClient {
             if (newest != null && newest.info().isComplete()) {
                 return newest;
             }
-            if (newest != null && hasIdleAfter(messages, promptedAt)) {
-                return newest; // the turn ended (outcome marker) - take what it produced
+            ChatEntry idle = idleAfter(messages, promptedAt);
+            if (idle != null) {
+                if (newest != null) {
+                    return newest; // the turn ended (outcome marker) - take what it produced
+                }
+                // a turn that ends WITHOUT any assistant message (e.g. a provider
+                // error exhausted its retries) must surface, not spin to the budget
+                String outcome = idle.info().finish();
+                throw new OpencodeException("opencode " + sessionId + ": the turn ended"
+                        + (outcome != null && !"succeeded".equals(outcome)
+                                ? " with outcome '" + outcome + "'" : "")
+                        + " without a reply");
             }
             try {
                 Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
@@ -439,15 +449,15 @@ public final class HttpOpencodeClient implements OpencodeClient {
         return null;
     }
 
-    /** True when THIS turn produced an {@code idle} outcome marker. */
-    private static boolean hasIdleAfter(List<ChatEntry> messages, long promptedAt) {
+    /** THIS turn's {@code idle} outcome marker, or {@code null} while the turn is still open. */
+    private static ChatEntry idleAfter(List<ChatEntry> messages, long promptedAt) {
         for (ChatEntry entry : messages) {
             if (entry != null && entry.info() != null && "idle".equals(entry.info().role())
                     && createdAt(entry) >= promptedAt) {
-                return true;
+                return entry;
             }
         }
-        return false;
+        return null;
     }
 
     private static long createdAt(ChatEntry entry) {
@@ -716,12 +726,17 @@ public final class HttpOpencodeClient implements OpencodeClient {
         }
     }
 
-    /** Appends v2's `location` scoping parameter (null/blank directory = unscoped). */
+    /**
+     * Appends v2's `location` scoping parameter (null/blank directory =
+     * unscoped). The query value is a nested object in bracket syntax —
+     * {@code location[directory]=…} — a plain {@code location=<path>} string is
+     * rejected with HTTP 400 ("Expected object | undefined").
+     */
     private static String withLocation(String target, String directory) {
         if (directory == null || directory.isBlank()) {
             return target;
         }
-        return target + (target.contains("?") ? "&" : "?") + "location="
+        return target + (target.contains("?") ? "&" : "?") + "location%5Bdirectory%5D="
                 + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
