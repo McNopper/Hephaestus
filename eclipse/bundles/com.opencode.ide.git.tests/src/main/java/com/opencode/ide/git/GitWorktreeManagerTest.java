@@ -113,15 +113,99 @@ public class GitWorktreeManagerTest {
                 repo.resolve(".git").resolve("opencode-fleet").resolve("stray").toString());
     }
 
+    /**
+     * B-006: an unchanged (vs HEAD) branch + clean worktree from a previous
+     * run is settle residue, not work - the re-dispatch RECLAIMS it and
+     * starts from a clean slate instead of failing with "already exists".
+     */
     @Test
-    public void doubleCreateFailsWithClearMessage() {
-        manager.create(repo, "t1");
+    public void doubleCreateWithUnchangedBranchReclaims() throws Exception {
+        Worktree first = manager.create(repo, "t1");
+        Worktree second = manager.create(repo, "t1");
+        assertEquals(first.path(), second.path());
+        assertTrue(Files.isDirectory(second.path()));
+        assertTrue(gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
+        assertEquals("the reclaimed worktree starts at HEAD", "",
+                git("-C", second.path().toString(), "status", "--porcelain").trim());
+    }
+
+    /**
+     * B-006 repro (live 2026-09-19): the previous stage's run MERGED but its
+     * settle-time reap was lost (a locked file, a crash) - branch + clean
+     * worktree survive. The next stage's dispatch of the same ticket must
+     * reclaim the residue, never block on it.
+     */
+    @Test
+    public void mergedBranchResidueIsReclaimedOnTheNextDispatch() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        Files.writeString(wt.path().resolve("file.txt"), "line1\nline2\nline3\n", StandardCharsets.UTF_8);
+        commitIn(wt.path(), "stage 1 work");
+        MergeResult result = manager.mergeBack(repo, "t1");
+        assertTrue(result.output(), result.merged());
+        // the swallowed reap: branch + registered worktree deliberately survive
+        Worktree next = manager.create(repo, "t1");
+        assertTrue("the reclaimed worktree carries the merged stage-1 work",
+                Files.readString(next.path().resolve("file.txt")).contains("line3"));
+        Files.writeString(next.path().resolve("stage2.txt"), "stage 2\n", StandardCharsets.UTF_8);
+        commitIn(next.path(), "stage 2 work");
+        assertTrue("stage 2 merges on the reclaimed branch",
+                manager.mergeBack(repo, "t1").merged());
+    }
+
+    /**
+     * B-006: residue carrying commits main lacks is REAL work - the reclaim
+     * refuses with an actionable message and destroys nothing.
+     */
+    @Test
+    public void doubleCreateWithUnmergedCommitsRefuses() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        Files.writeString(wt.path().resolve("wip.txt"), "unmerged work\n", StandardCharsets.UTF_8);
+        commitIn(wt.path(), "unmerged commit");
         try {
             manager.create(repo, "t1");
             fail("expected WorktreeException");
         } catch (WorktreeException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("already exists"));
+            assertTrue(e.getMessage(), e.getMessage().contains("refusing to auto-reclaim"));
         }
+        assertTrue("the unmerged branch survives", gitOk("rev-parse", "--verify", "--quiet",
+                "refs/heads/opencode/t1"));
+        assertTrue("the work survives", Files.exists(wt.path().resolve("wip.txt")));
+    }
+
+    /**
+     * B-006: a registered worktree holding uncommitted edits may be a live
+     * (or crashed mid-work) run - refuse the reclaim, keep everything.
+     */
+    @Test
+    public void doubleCreateWithDirtyWorktreeRefuses() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        Files.writeString(wt.path().resolve("pending.txt"), "uncommitted\n", StandardCharsets.UTF_8);
+        try {
+            manager.create(repo, "t1");
+            fail("expected WorktreeException");
+        } catch (WorktreeException e) {
+            assertTrue(e.getMessage(), e.getMessage().contains("uncommitted edits"));
+        }
+        assertTrue("the pending edits survive", Files.exists(wt.path().resolve("pending.txt")));
+    }
+
+    /**
+     * B-006/B-004: the forced-removal failure form - registration gone,
+     * branch gone, but the directory tree survived - must not block the next
+     * dispatch: no live worker can be attached to an unregistered path.
+     */
+    @Test
+    public void createConsumesUnregisteredPathResidue() throws Exception {
+        Worktree wt = manager.create(repo, "t1");
+        manager.remove(repo, "t1", true);
+        assertFalse(gitOk("rev-parse", "--verify", "--quiet", "refs/heads/opencode/t1"));
+        Files.createDirectories(wt.path());
+        Files.writeString(wt.path().resolve("residue.txt"), "leftover\n", StandardCharsets.UTF_8);
+        Worktree fresh = manager.create(repo, "t1");
+        assertTrue(Files.isDirectory(fresh.path()));
+        assertFalse("the residue file is gone with the tree",
+                Files.exists(fresh.path().resolve("residue.txt")));
     }
 
     @Test

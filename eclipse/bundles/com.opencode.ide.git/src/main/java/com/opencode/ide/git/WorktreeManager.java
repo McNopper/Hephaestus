@@ -18,7 +18,11 @@ public interface WorktreeManager {
     /**
      * Creates branch {@code opencode/<taskId>} and a worktree for it at
      * {@code repoRoot/.git/opencode-fleet/<taskId>} (hidden from
-     * {@code git status}) starting at the current HEAD.
+     * {@code git status}) starting at the current HEAD. B-006: stale settle
+     * residue (a branch already merged into HEAD or unchanged vs it, with a
+     * clean or missing worktree) is reclaimed automatically; residue that
+     * still carries unmerged commits or uncommitted edits is refused with an
+     * actionable error.
      */
     Worktree create(Path repoRoot, String taskId);
 

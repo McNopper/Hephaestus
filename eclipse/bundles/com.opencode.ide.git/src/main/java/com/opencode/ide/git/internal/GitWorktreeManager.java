@@ -71,13 +71,55 @@ public final class GitWorktreeManager implements WorktreeManager {
         Path repo = repo(repoRoot);
         Path worktreePath = fleetRoot(repo).resolve(taskId);
         if (branchExists(repo, branch)) {
-            throw new WorktreeException("Branch " + branch + " already exists for task '" + taskId + "'");
+            reclaimStaleResidue(repoRoot, repo, taskId, branch);
         }
         if (Files.exists(worktreePath)) {
-            throw new WorktreeException("Worktree path already exists for task '" + taskId + "': " + worktreePath);
+            // B-004 residue form: the ADMIN registration died with a failed
+            // forced removal while the TREE survived - no live worker can be
+            // attached to an unregistered worktree, so this is safe to
+            // consume (a registered worktree was handled by the reclaim).
+            deleteTree(worktreePath);
+            run(repo, DEFAULT_TIMEOUT, "worktree", "prune");
+            if (Files.exists(worktreePath)) {
+                throw new WorktreeException("Worktree path exists for task '" + taskId
+                        + "' and could not be cleared - a live process holds files inside it: "
+                        + worktreePath);
+            }
         }
         git(repo, "worktree", "add", "-b", branch, worktreePath.toString(), "HEAD");
         return new Worktree(taskId, worktreePath, branch);
+    }
+
+    /**
+     * B-006: settle residue of a previous run - a branch whose tip is
+     * already merged into HEAD or unchanged vs it, with a clean or missing
+     * worktree - is engine bookkeeping, not work. Reclaim it so the
+     * re-dispatch (send-back rework, the next V stage) starts from a clean
+     * slate instead of dying with "branch already exists" (the live
+     * 2026-09-19 stall: four tickets blocked at stage boundaries). A branch
+     * carrying commits HEAD lacks, or a registered worktree holding
+     * uncommitted edits, is REAL work and refuses the reclaim with an
+     * actionable message; the dispatch guard (F-003) owns the live-worker
+     * race this check cannot see.
+     */
+    private void reclaimStaleResidue(Path repoRoot, Path repo, String taskId, String branch) {
+        GitOutput ahead = run(repo, DEFAULT_TIMEOUT, "rev-list", "--count", "HEAD.." + branch);
+        boolean nothingUnmerged = ahead.exitCode() == 0 && "0".equals(ahead.stdout().trim());
+        if (!nothingUnmerged) {
+            throw new WorktreeException("Branch " + branch + " already exists for task '" + taskId
+                    + "' and carries commits main lacks - refusing to auto-reclaim real work"
+                    + " (inspect it, or fleet_reset the ticket)");
+        }
+        Optional<Worktree> registered = find(repo, taskId);
+        if (registered.isPresent()) {
+            GitOutput dirty = run(registered.get().path(), DEFAULT_TIMEOUT, "status", "--porcelain");
+            if (!dirty.stdout().isBlank()) {
+                throw new WorktreeException("Branch " + branch + " already exists for task '" + taskId
+                        + "' and its worktree holds uncommitted edits - refusing to auto-reclaim"
+                        + " (inspect it, or fleet_reset the ticket)");
+            }
+        }
+        removeGuarded(repoRoot, taskId, true);
     }
 
     @Override
