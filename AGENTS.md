@@ -103,7 +103,9 @@ without blocking each other**: the atomic `task_claim` is the only serialization
 and it serializes tickets, not people. The store is served as `task_*` MCP tools — by
 the Eclipse harness's `eclipse-build` endpoint when Eclipse runs, and by the `tasks`
 stdio launcher (`eclipse/tasks-tools.ps1`, configured in `opencode.json`) for TUI-only
-sessions; opencode prefixes them with the server name (`tasks_task_*` /
+sessions (both launchers resolve the built jars from the **main checkout** when invoked
+inside a fleet worktree — worktrees carry no `target/` build output; their absence there
+silently cost every worker its `task_*` tools on 2026-09-20); opencode prefixes them with the server name (`tasks_task_*` /
 `eclipse-build_task_*`) — the tool/wire names stay `task_*`. States:
 
 ```
@@ -197,7 +199,10 @@ Concretely, a chat agent can already:
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
 - **dispatch the fleet** via the `fleet` server: `fleet_fleet_dispatch` (async launch for
   one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
-  ticket; the watchdog aborts hung sessions and never budget-kills busy ones),
+  ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
+  residue itself (B-006) — "branch already exists" now means real unmerged work, never
+  engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is not yet
+  progress-aware and can kill a busy session at the cap; B-008 tracks the fix),
   `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
   progress probe: busy/messages/complete — "are we moving?"),
   `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer

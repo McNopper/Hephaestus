@@ -56,6 +56,12 @@ bare (`task_create`, `fleet_dispatch`). When Eclipse *is* running, its
 You don't type these names — ask in chat ("create a ticket …") and the model calls
 the tool — but the steps below name them so you know what happened.
 
+Both launchers also work from inside a fleet worktree: when the jars are missing
+locally (worktrees carry no `target/` build output) they resolve them from the
+**main checkout** via git's common-dir — worker sessions keep their `task_*`
+tools. (2026-09-20: their absence there was the root cause of a wave of stalled
+runs.)
+
 ## First run, end to end
 
 ### Optional automatic dispatch
@@ -144,6 +150,10 @@ Those comments are the measured cost baseline; they accumulate on tickets.
    it the ticket as a self-claim prompt in the worktree.
 4. Awaits completion, merges the branch back (serialized), records bookkeeping,
    then best-effort syncs the store's git repo.
+5. Settle reaps the merged worktree + branch (F-002), so the ticket's next stage
+   starts from a clean slate; a dispatch that still finds residue whose tip is
+   already merged reclaims it automatically (B-006) — "branch already exists"
+   is now only raised for real unmerged work (inspect it, or `fleet_reset`).
 
 ## When the worker asks for permission
 
@@ -180,8 +190,9 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 
 | Symptom | Meaning | Recovery |
 |---|---|---|
-| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout (the session is aborted); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
-| worktree still in `.git/opencode-fleet/` | kept deliberately for post-mortem (also on success, until cleaned) | inspect it, then delete |
+| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout (the session is aborted — a *busy* session is still killed at the cap; progress-aware budget is B-008); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| worktree still in `.git/opencode-fleet/` | kept for post-mortem after failures (successful settles reap worktree+branch automatically) | inspect it, then delete |
+| dispatch refused: "refusing to auto-reclaim" | the stale branch carries real unmerged commits or uncommitted edits — never raised for mere bookkeeping (B-006) | inspect the worktree/branch, then `fleet_reset` or merge by hand |
 | dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |
 | dispatch refused: "is blocked" | a blocker flag is set | read it via `tasks_task_get`, clear it first |
 

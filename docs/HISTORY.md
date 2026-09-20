@@ -122,3 +122,33 @@ quarantine gap, x-friends coupling, mutable knob statics, read-side
 materialization). Full reactor green throughout; documentation aligned
 (README with/without-Eclipse matrix, JDK 21 everywhere, daemon quickstart).
 Remaining: in-Eclipse verification pass only.
+
+## Session 2026-09-20 - the wave runs, and the loop shows its teeth
+
+Board focused on autonomy (wave-2026-09-20: reliability bugs B-004..B-007,
+V-semantics U-029/030/031, features U-021/023/026/034 + new U-036/U-037).
+B-006 landed in chat: dispatch reclaims stale merged branch residue in
+GitWorktreeManager.createGuarded (5 real-git pins; 27/27 reactor green) -
+the four-ticket stage-boundary stall class is gone, and it proved itself
+live within the hour (B-004's stale merged branch reclaimed at dispatch).
+The first full wave after the v2 migration then exposed the next layer:
+TEN workers stalled identically (PT5M idle-silent). Root cause: opencode
+resolves local MCP commands relative to the SESSION directory, worker
+sessions live in worktrees, worktrees carry no target/ jars - every worker
+silently lost its task_* tools and spiraled into hand-replicating store
+semantics until the watchdog fired. Fixed in both MCP launchers
+(worktree-aware resolution via git common-dir; verified by an MCP
+handshake from inside a worktree). Second live gap: v2 completion
+detection missed a FINISHED session - B-007's requirements worker
+completed and reported, then got stall-aborted, and the settle never
+merged its uncommitted deliverable (rescued by hand as 475d164; pinned on
+B-008, which also tracks the PT30M budget killing busy U-024). U-024's and
+U-030's WIP rescued on wip/* branches; the other stalls likewise. New
+tickets: U-036 (daemon default flip), U-037 (live auto-dispatch
+acceptance), U-038 (graceful full-stack shutdown - JDK-upgrade trigger;
+includes the engine-addressing bug: a waves_stop via chat MCP hit the
+chat's LOCAL engine, not the daemon), U-039 (chat session+model
+persistence across restarts), U-040 (Fleet view as a tree), U-041 (v2
+subagents+console tasks parity), U-042 (v2 background tasks), B-008
+(watchdog semantics). Daemon lifecycle is scripted now (drive/status/stop
+over the TCP protocol; docs updated: AGENTS.md, fleet-quickstart).
