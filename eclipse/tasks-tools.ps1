@@ -22,6 +22,26 @@ $ErrorActionPreference = "Stop"
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Fleet workers run this script from a WORKTREE checkout (opencode resolves
+# the MCP command relative to the session directory), and worktrees have no
+# target/ jars - they are gitignored build output. Fall back to the MAIN
+# checkout's eclipse/ dir (via git's common-dir) when local jars are absent.
+function Resolve-EclipseRoot([string]$scriptDir) {
+    $probe = Join-Path $scriptDir "bundles/com.opencode.ide.tools/target/com.opencode.ide.tools-*.jar"
+    if (Get-ChildItem $probe -ErrorAction SilentlyContinue) { return $scriptDir }
+    try {
+        $common = git -C $scriptDir rev-parse --path-format=absolute --git-common-dir 2>$null
+        if ($common) {
+            $candidate = Join-Path (Split-Path -Parent $common.Trim()) "eclipse"
+            if (Get-ChildItem (Join-Path $candidate "bundles/com.opencode.ide.tools/target/com.opencode.ide.tools-*.jar") -ErrorAction SilentlyContinue) {
+                return $candidate
+            }
+        }
+    } catch { }
+    return $scriptDir
+}
+$here = Resolve-EclipseRoot $here
+
 # 1) java
 $java = (Get-Command java -ErrorAction SilentlyContinue)?.Source
 if (-not $java -and $env:JAVA_HOME) {
