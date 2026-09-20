@@ -281,6 +281,24 @@ public class RepoView extends ViewPart implements Refreshable {
         return OpencodeConnection.getInstance().getClient();
     }
 
+    /**
+     * The directory fs listings should be scoped to: v2's /fs/* endpoints
+     * resolve against the SERVER's cwd (the user's home on the shared
+     * service), so the Repo view must pass the primary connection's working
+     * directory. Remote connections: unknown, hence {@code null} (unscoped).
+     */
+    private static String scopeDir(OpencodeClient client) {
+        try {
+            OpencodeConnection primary = OpencodeConnection.getInstance();
+            if (client == primary.getClient()) {
+                return primary.getWorkingDirectory();
+            }
+        } catch (OpencodeException e) {
+            // unresolved connection -> unscoped
+        }
+        return null;
+    }
+
     // ---------- tree loading ----------
 
     @Override
@@ -290,7 +308,7 @@ public class RepoView extends ViewPart implements Refreshable {
         ViewLoadSupport.load("Loading workspace tree", () -> {
             OpencodeClient client = primaryClient(ConnectionsManager.getDefault());
             client.getHealth(); // ensures the primary server is spawned/connected
-            return client.listFiles(RepoTree.ROOT);
+            return client.listFiles(RepoTree.ROOT, scopeDir(client));
         }, nodes -> {
             repo = target;
             pendingLoads.clear();
@@ -318,7 +336,8 @@ public class RepoView extends ViewPart implements Refreshable {
         pendingLoads.add(path);
         RepoTree target = repo;
         ViewLoadSupport.load("Loading " + (path.isEmpty() ? "workspace root" : path), () -> {
-            return primaryClient(ConnectionsManager.getDefault()).listFiles(path);
+            OpencodeClient client = primaryClient(ConnectionsManager.getDefault());
+            return client.listFiles(path, scopeDir(client));
         }, nodes -> {
             pendingLoads.remove(path);
             target.put(path, nodes);

@@ -52,8 +52,15 @@ public record Model(
             names.addAll(variants.getAsJsonObject().keySet());
         } else if (variants.isJsonArray()) {
             for (var item : variants.getAsJsonArray()) {
-                if (item.isJsonObject() && item.getAsJsonObject().has("name")) {
-                    names.add(item.getAsJsonObject().get("name").getAsString());
+                if (item.isJsonObject()) {
+                    // v2 variant objects are keyed "id" ({id, settings}); older
+                    // captures used "name"
+                    var object = item.getAsJsonObject();
+                    if (object.has("id")) {
+                        names.add(object.get("id").getAsString());
+                    } else if (object.has("name")) {
+                        names.add(object.get("name").getAsString());
+                    }
                 } else if (item.isJsonPrimitive()) {
                     names.add(item.getAsString());
                 }

@@ -268,6 +268,14 @@ public interface OpencodeClient {
     }
 
     /**
+     * {@code GET /vcs?location=…} - VCS state scoped to one project directory.
+     * Matters on the shared v2 service, whose own cwd is the user's home.
+     */
+    default VcsInfo getVcsInfo(String directory) throws OpencodeException {
+        return getVcsInfo();
+    }
+
+    /**
      * {@code GET /file?path=…} - one level of the workspace file tree
      * (empty path or {@code "."} = the project root).
      */
@@ -275,9 +283,19 @@ public interface OpencodeClient {
         return List.of();
     }
 
+    /** {@code GET /fs/list?path=…&location=…} - the listing scoped to one project directory. */
+    default List<FileNode> listFiles(String path, String directory) throws OpencodeException {
+        return listFiles(path);
+    }
+
     /** {@code GET /find?pattern=…} - text search across workspace files. */
     default List<SearchMatch> findText(String pattern) throws OpencodeException {
         return List.of();
+    }
+
+    /** {@code GET /fs/find?query=…&location=…} - file-name search scoped to one project directory. */
+    default List<String> findFiles(String query, String directory) throws OpencodeException {
+        return findFiles(query);
     }
 
     /** {@code GET /find/file?query=…} - fuzzy file-name search (paths). */
@@ -333,6 +351,11 @@ public interface OpencodeClient {
      */
     default String getFileContent(String path) throws OpencodeException {
         return null;
+    }
+
+    /** {@code GET /fs/read/<path>?location=…} - the file's content scoped to one project directory. */
+    default String getFileContent(String path, String directory) throws OpencodeException {
+        return getFileContent(path);
     }
 
     /**

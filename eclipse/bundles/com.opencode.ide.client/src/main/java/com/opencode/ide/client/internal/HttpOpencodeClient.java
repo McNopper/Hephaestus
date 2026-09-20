@@ -257,7 +257,8 @@ public final class HttpOpencodeClient implements OpencodeClient {
             location.addProperty("directory", directory.toString());
             body.add("location", location);
         }
-        return parseBody("POST", "/session", request("POST", "/session", body.toString()), Session.class);
+        return parseBody("POST", "/session", request("POST", "/session", body.toString()), Session.class,
+                true);
     }
 
     @Override
@@ -473,7 +474,7 @@ public final class HttpOpencodeClient implements OpencodeClient {
             body.addProperty("messageID", messageId);
         }
         return parseBody("POST", "/session/" + sessionId + "/fork",
-                request("POST", "/session/" + sessionId + "/fork", body.toString()), Session.class);
+                request("POST", "/session/" + sessionId + "/fork", body.toString()), Session.class, true);
     }
 
     @Override
@@ -663,9 +664,24 @@ public final class HttpOpencodeClient implements OpencodeClient {
         }
     }
 
+    /** Appends v2's `location` scoping parameter (null/blank directory = unscoped). */
+    private static String withLocation(String target, String directory) {
+        if (directory == null || directory.isBlank()) {
+            return target;
+        }
+        return target + (target.contains("?") ? "&" : "?") + "location="
+                + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     @Override
     public VcsInfo getVcsInfo() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/vcs", null, ClientTuning.REQUEST_TIMEOUT);
+        return getVcsInfo(null);
+    }
+
+    @Override
+    public VcsInfo getVcsInfo(String directory) throws OpencodeException {
+        HttpResponse<String> response = send("GET", withLocation("/vcs", directory), null,
+                ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return new VcsInfo(null, null);
         }
@@ -690,11 +706,16 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<FileNode> listFiles(String path) throws OpencodeException {
+        return listFiles(path, null);
+    }
+
+    @Override
+    public List<FileNode> listFiles(String path, String directory) throws OpencodeException {
         // v2 moved the file listing to /fs/list; the `path` query key is still
         // required - "." is the workspace root, both / and \ are accepted.
         String effective = (path == null || path.isBlank()) ? "." : path;
-        String target = "/fs/list?path="
-                + URLEncoder.encode(effective, StandardCharsets.UTF_8).replace("+", "%20");
+        String target = withLocation("/fs/list?path="
+                + URLEncoder.encode(effective, StandardCharsets.UTF_8).replace("+", "%20"), directory);
         return getListOrEmptyOn404(target, FileNode.class);
     }
 
@@ -709,9 +730,15 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<String> findFiles(String query) throws OpencodeException {
+        return findFiles(query, null);
+    }
+
+    @Override
+    public List<String> findFiles(String query, String directory) throws OpencodeException {
         // v2: GET /fs/find?query=...&type=file -> {location, data: [{path, type}]}
-        String target = "/fs/find?query=" + URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20")
-                + "&type=file";
+        String target = withLocation("/fs/find?query="
+                + URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20")
+                + "&type=file", directory);
         HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
@@ -782,11 +809,16 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public String getFileContent(String path) throws OpencodeException {
+        return getFileContent(path, null);
+    }
+
+    @Override
+    public String getFileContent(String path, String directory) throws OpencodeException {
         // v2: GET /fs/read/<path> answers the RAW file bytes (v1 wrapped the
         // content in a JSON envelope). Keep '/' intact, encode the rest.
         String encoded = URLEncoder.encode(path, StandardCharsets.UTF_8)
                 .replace("+", "%20").replace("%2F", "/");
-        String target = "/fs/read/" + encoded;
+        String target = withLocation("/fs/read/" + encoded, directory);
         HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return null;
@@ -958,8 +990,12 @@ public final class HttpOpencodeClient implements OpencodeClient {
         try {
             JsonElement element = JsonParser.parseString(body);
             String inner = body;
+            // v2 envelopes carry the payload under "data" - an ARRAY on list
+            // endpoints ({data:[...], cursor}), a single OBJECT on resource
+            // endpoints ({data:{...}}). Both unwrap here.
             if (element.isJsonObject() && element.getAsJsonObject().has("data")
-                    && element.getAsJsonObject().get("data").isJsonArray()) {
+                    && (element.getAsJsonObject().get("data").isJsonArray()
+                            || element.getAsJsonObject().get("data").isJsonObject())) {
                 inner = element.getAsJsonObject().get("data").toString();
             }
             T value = GSON.fromJson(inner, type);

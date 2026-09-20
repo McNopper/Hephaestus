@@ -18,6 +18,15 @@ public interface ChatServerConnection {
      */
     OpencodeClient getClient() throws OpencodeException;
 
+    /**
+     * The working directory v2's fs/vcs endpoints should be scoped to (they
+     * resolve against the SERVER's cwd — the user's home on the shared
+     * service). {@code null} = unscoped; test fakes default to that.
+     */
+    default String workingDirectory() {
+        return null;
+    }
+
     /** Registers for live opencode server events (delivered on a background thread). */
     void addEventListener(OpencodeEventListener listener);
 

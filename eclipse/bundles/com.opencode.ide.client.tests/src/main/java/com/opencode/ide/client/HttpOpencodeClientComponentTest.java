@@ -132,12 +132,13 @@ public class HttpOpencodeClientComponentTest {
             }
             String response;
             if ("POST".equals(exchange.getRequestMethod()) && "/api/session".equals(path)) {
-                // v2 session: model as an object, time with three stamps, location
+                // v2 session.create answers the resource ENVELOPE {data:{...}} -
+                // the unwrap the client must do (a bare object once hid the id)
                 response = """
-                        {"id":"ses_new","projectID":"prj_1","title":"Eclipse Chat","agent":"build",
-                         "model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
-                         "time":{"created":1,"updated":1,"idle":0},
-                         "location":{"directory":"C:\\\\repo"}}
+                        {"data":{"id":"ses_new","projectID":"prj_1","title":"Eclipse Chat","agent":"build",
+                          "model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+                          "time":{"created":1,"updated":1,"idle":0},
+                          "location":{"directory":"C:\\\\repo"}}}
                         """;
             } else if (path.endsWith("/active")) {
                 // v2 lists RUNNING sessions only; an absent session is idle

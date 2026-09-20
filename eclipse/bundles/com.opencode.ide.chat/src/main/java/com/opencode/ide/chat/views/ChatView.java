@@ -214,6 +214,11 @@ public class ChatView extends ViewPart {
         }
 
         @Override
+        public String workingDirectory() {
+            return OpencodeConnection.getInstance().getWorkingDirectory();
+        }
+
+        @Override
         public void addEventListener(OpencodeEventListener listener) {
             OpencodeConnection.getInstance().addEventListener(listener);
         }

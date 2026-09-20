@@ -67,7 +67,7 @@ public class OpencodeModelParsingTest {
                 "input": ["text", "image", "pdf"],
                 "output": ["text"]
               },
-              "variants": ["none", "high", "max"],
+              "variants": [{"id":"none"},{"id":"high"},{"id":"max"}],
               "cost": [
                 { "input": 15.0, "output": 75.0, "cache": { "read": 1.5, "write": 18.75 } },
                 { "tier": { "type": "context", "size": 200000 }, "input": 30.0, "output": 150.0,

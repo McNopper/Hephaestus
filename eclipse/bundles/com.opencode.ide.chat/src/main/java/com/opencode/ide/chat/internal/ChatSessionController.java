@@ -1218,7 +1218,7 @@ public final class ChatSessionController {
      */
     private boolean isGitRepository() {
         try {
-            VcsInfo vcs = connection.getClient().getVcsInfo();
+            VcsInfo vcs = connection.getClient().getVcsInfo(connection.workingDirectory());
             return vcs != null && (vcs.branch() != null || vcs.repository() != null);
         } catch (OpencodeException e) {
             host.error("vcs probe failed while undoing", e);
