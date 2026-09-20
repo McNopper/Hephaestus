@@ -705,7 +705,7 @@ public class ServerView extends ViewPart implements Refreshable {
         Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
         List<McpServerInfo> mcpServers = safeMcp(connection.getClient(), scopeDir);
         List<SkillInfo> skills = safeSkills(connection.getClient(), scopeDir);
-        WorkingSet workingSet = WorkingSet.load(connection.getClient());   // lenient: never throws
+        WorkingSet workingSet = WorkingSet.load(connection.getClient(), scopeDir);   // lenient: never throws
         String mode = connection.getMode();
         String url = connection.getConnectConfig().baseUrl().toString();
         Long pid = connection.getSpawnedProcessId();

@@ -13,7 +13,8 @@ public class McpRequestsTest {
     @Test
     public void minimalRemoteConfigHasTypeUrlAndOauthOff() {
         String body = McpRequests.registerBody("eclipse-build", McpServerConfig.enabled("http://127.0.0.1:1/mcp"));
-        assertTrue(body.contains("\"name\":\"eclipse-build\""));
+        assertFalse("v2 carries the name in the PUT path, not the body", body.contains("\"name\""));
+        assertTrue(body.contains("\"config\":{"));
         assertTrue(body.contains("\"type\":\"remote\""));
         assertTrue(body.contains("\"url\":\"http://127.0.0.1:1/mcp\""));
         assertTrue(body.contains("\"enabled\":true"));

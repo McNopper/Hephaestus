@@ -64,10 +64,12 @@ public final class ProjectVcs {
             return UNKNOWN;
         }
         ProjectSummary project = findProject(projectsOf(client), cwd);
-        VcsInfo vcs = vcsOf(client);
-        List<FileStatus> status = fileStatusOf(client);
         String worktree = project == null ? null : blankToNull(project.worktree());
         String projectPath = worktree != null ? worktree : blankToNull(cwd);
+        // scope the VCS calls to the resolved project: v2 answers /vcs/* per
+        // location (unscoped on the shared service = the user's home repo)
+        VcsInfo vcs = vcsOf(client, projectPath);
+        List<FileStatus> status = fileStatusOf(client, projectPath);
         String name = nameOf(projectPath);
         if (name == null) {
             return UNKNOWN;
@@ -150,17 +152,17 @@ public final class ProjectVcs {
         }
     }
 
-    private static VcsInfo vcsOf(OpencodeClient client) {
+    private static VcsInfo vcsOf(OpencodeClient client, String directory) {
         try {
-            return client.getVcsInfo();
+            return client.getVcsInfo(directory);
         } catch (Exception e) {
             return null;
         }
     }
 
-    private static List<FileStatus> fileStatusOf(OpencodeClient client) {
+    private static List<FileStatus> fileStatusOf(OpencodeClient client, String directory) {
         try {
-            return client.getFileStatus();
+            return client.getFileStatus(directory);
         } catch (Exception e) {
             return null;
         }

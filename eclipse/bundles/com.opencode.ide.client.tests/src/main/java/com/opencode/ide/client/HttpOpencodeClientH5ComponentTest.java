@@ -152,16 +152,19 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals("ses_fork", fork.id());
         assertEquals("POST", lastMethod.get());
         assertEquals("/api/session/ses_1/fork", lastPath.get());
-        assertTrue(lastBody.get().contains("\"messageID\":\"msg_2\""));
+        // v2 names the fork point "before" (additionalProperties=false rejects v1's "messageID")
+        assertTrue(lastBody.get().contains("\"before\":\"msg_2\""));
+        assertFalse(lastBody.get().contains("messageID"));
     }
 
     /** v2 staged reverts: {@code POST /revert/stage} (v1 posted to {@code /revert}). */
     @Test
     public void revertPostsToTheStageEndpoint() throws Exception {
-        assertTrue(client.revertMessage("ses_1", "msg_2", null));
+        assertTrue(client.revertMessage("ses_1", "msg_2"));
         assertEquals("POST", lastMethod.get());
         assertEquals("/api/session/ses_1/revert/stage", lastPath.get());
         assertTrue(lastBody.get().contains("\"messageID\":\"msg_2\""));
+        assertFalse("v2 has no per-part revert", lastBody.get().contains("partID"));
     }
 
     /** v2 clears a revert by DELETEing it (v1 had {@code POST /unrevert}). */
@@ -236,8 +239,20 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals("assistant", reply.info().role());
         assertEquals("POST", lastMethod.get());
         assertEquals("/api/session/ses_1/command", lastPath.get());
-        assertTrue(lastBody.get().contains("\"command\":\"review\""));
-        assertTrue(lastBody.get().contains("src/a.cpp"));
+        // v2's command body is {name, text} (v1's {command, arguments[]} is rejected)
+        assertTrue(lastBody.get().contains("\"name\":\"review\""));
+        assertTrue(lastBody.get().contains("\"text\":\"src/a.cpp\""));
+        assertFalse(lastBody.get().contains("\"command\""));
+        assertFalse(lastBody.get().contains("arguments"));
+    }
+
+    /** REGRESSION: the command list resolves per location in v2 (repo .opencode/command/). */
+    @Test
+    public void commandsListScopesWithLocationBracketSyntax() throws Exception {
+        client.getCommands("C:\\Development\\GitHub\\Hephaestus");
+        String q = lastQuery.get();
+        assertTrue("command scope must use bracket syntax, got: " + q,
+                q != null && q.startsWith("location%5Bdirectory%5D="));
     }
 
     @Test

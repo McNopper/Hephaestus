@@ -39,6 +39,19 @@ public final class ChatRequests {
         return body.toString();
     }
 
+    /**
+     * {@code POST /session/:id/command} body. v2 wants {@code {name, text}} -
+     * the command name plus its arguments as ONE string (v1 sent
+     * {@code {command, arguments[]}}; the keys were renamed and
+     * {@code additionalProperties=false} rejects the old shape).
+     */
+    public static String commandBody(String command, java.util.List<String> arguments) {
+        JsonObject body = new JsonObject();
+        body.addProperty("name", command == null ? "" : command);
+        body.addProperty("text", arguments == null ? "" : String.join(" ", arguments));
+        return body.toString();
+    }
+
     /** {@code POST /session/:id/model} body, or {@code null} without an explicit model. */
     public static String modelBody(ChatRequest request) {
         if (!request.hasModel()) {

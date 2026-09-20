@@ -203,6 +203,14 @@ public final class ChatSessionController {
      * {@code /session/active} kept saying busy).
      */
     private volatile long lastStreamActivityMillis;
+    /**
+     * Wall-clock when the current send began (0 = none). Anchors the late
+     * settle: a tail assistant entry provably OLDER than the send is stale
+     * history from a previous turn, never this turn's reply.
+     */
+    private volatile long sendStartedAtMillis;
+    /** Skew allowance for the send-time anchor (same-machine clocks, generous). */
+    private static final Duration STALE_REPLY_SKEW = Duration.ofMinutes(1);
     private OpencodeEventListener eventListener;
     private ChatPermissionAdapter permissionAdapter;
     /**
@@ -446,7 +454,7 @@ public final class ChatSessionController {
                 // shared service resolves these lists for the user's home dir
                 String scopeDir = connection.workingDirectory();
                 List<Agent> agents = connection.getClient().getAgents(scopeDir);
-                ProviderList providers = connection.getClient().getProviders();
+                ProviderList providers = connection.getClient().getProviders(scopeDir);
                 String[] fallback = DefaultModels.resolve(connection.getClient().getConfig(scopeDir), providers);
                 host.runOnUi(() -> listener.loaded(agents, providers, fallback));
             } catch (OpencodeException e) {
@@ -464,6 +472,7 @@ public final class ChatSessionController {
         }
         sending = true;
         streamedMids.clear();
+        sendStartedAtMillis = System.currentTimeMillis();
         try {
             host.sendingChanged(true);
             host.info("send: begin (" + message.text().length() + " chars)");
@@ -488,9 +497,10 @@ public final class ChatSessionController {
             if (providerId == null || modelId == null) {
                 String[] fallback = defaultModelParts;
                 if (fallback == null) {
+                    String scopeDir = connection.workingDirectory();
                     fallback = DefaultModels.resolve(
-                            connection.getClient().getConfig(),
-                            connection.getClient().getProviders());
+                            connection.getClient().getConfig(scopeDir),
+                            connection.getClient().getProviders(scopeDir));
                 }
                 if (fallback == null) {
                     host.runOnUi(() -> renderer.notice("⚠ No model available on the server."));
@@ -536,6 +546,7 @@ public final class ChatSessionController {
         List<String> arguments = selection.arguments() == null ? List.of() : selection.arguments();
         sending = true;
         streamedMids.clear();
+        sendStartedAtMillis = System.currentTimeMillis();
         try {
             host.sendingChanged(true);
             host.info("send command: begin (" + command + ")");
@@ -792,7 +803,12 @@ public final class ChatSessionController {
     private String ensureSession() throws OpencodeException {
         String sid = sessionId;
         if (sid == null) {
-            Session session = connection.getClient().createSession("Eclipse Chat");
+            // scope the session to the project: v2 takes the location in the
+            // POST body; without it the shared service lands the session in
+            // the user's home dir (wrong agents/config/permissions)
+            String dir = connection.workingDirectory();
+            Session session = connection.getClient().createSession("Eclipse Chat",
+                    dir == null || dir.isBlank() ? null : java.nio.file.Path.of(dir));
             sid = session.id();
             sessionId = sid;
             String finalSid = sid;
@@ -1033,7 +1049,16 @@ public final class ChatSessionController {
             List<ChatEntry> entries = connection.getClient().getMessages(sid);
             historyHasUserMessage = lastUserMessageId(entries) != null;
             ChatEntry last = entries.isEmpty() ? null : entries.get(entries.size() - 1);
-            if (last == null || last.isUser()) {
+            // anchor to THIS turn: a failed turn can leave the tail at an idle
+            // marker - or, when the projection drops the queued user message
+            // (observed live on provider/agent failures), at a PREVIOUS turn's
+            // assistant. Never settle a provably stale assistant entry; an
+            // unknown timestamp (created=0) is kept - we cannot prove it stale.
+            boolean staleAssistant = last != null && !last.isUser() && last.info() != null
+                    && "assistant".equals(last.info().role())
+                    && last.info().time() != null && last.info().time().created() > 0
+                    && last.info().time().created() < sendStartedAtMillis - STALE_REPLY_SKEW.toMillis();
+            if (last == null || last.isUser() || staleAssistant) {
                 host.runOnUi(() -> renderer.notice(
                         "⚠ The reply did not complete - no assistant answer was recorded."
                                 + " Re-send your message."));
@@ -1123,7 +1148,7 @@ public final class ChatSessionController {
                 });
                 return;
             }
-            boolean reverted = connection.getClient().revertMessage(sid, lastUser, null);
+            boolean reverted = connection.getClient().revertMessage(sid, lastUser);
             host.info("undo: revert(" + sid + ", " + lastUser + ") -> " + reverted);
             if (!reverted) {
                 historyHasUserMessage = false; // the server refused: nothing left to revert

@@ -12,13 +12,12 @@ public final class McpRequests {
     }
 
     /**
-     * @param name   the MCP server name agents will see
+     * @param name   the MCP server name agents will see (carried in the PUT
+     *        path - v2's body is only the {@code config} object)
      * @param config the remote server endpoint (see {@link McpServerConfig})
      * @return the JSON request body
      */
     public static String registerBody(String name, McpServerConfig config) {
-        JsonObject body = new JsonObject();
-        body.addProperty("name", name);
         JsonObject remote = new JsonObject();
         remote.addProperty("type", "remote");
         remote.addProperty("url", config.url());
@@ -32,6 +31,7 @@ public final class McpRequests {
         }
         // our endpoint has no OAuth; opt out so the client never starts a flow on 401/404
         remote.addProperty("oauth", false);
+        JsonObject body = new JsonObject();
         body.add("config", remote);
         return body.toString();
     }

@@ -148,6 +148,15 @@ public class HttpOpencodeClientH5bComponentTest {
         assertNull("the endpoint takes no path query", lastQuery.get());
     }
 
+    /** REGRESSION: vcs/status resolves per location in v2 (unscoped = the user's home repo). */
+    @Test
+    public void fileStatusScopesWithLocationBracketSyntax() throws Exception {
+        client.getFileStatus("C:\\Development\\GitHub\\Hephaestus");
+        String q = lastQuery.get();
+        assertTrue("vcs/status scope must use bracket syntax, got: " + q,
+                q != null && q.startsWith("location%5Bdirectory%5D="));
+    }
+
     @Test
     public void fileStatusEmptyOn404() throws Exception {
         statusOverride.set(404);

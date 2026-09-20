@@ -38,17 +38,26 @@ public final class WorkingSet {
     }
 
     /**
-     * The client's changed files (see {@code GET /file/status}), sorted by
+     * The client's changed files (see {@code GET /vcs/status}), sorted by
      * status then path; {@code null} list elements are dropped. Any failure
      * degrades to {@link #EMPTY}.
      */
     public static WorkingSet load(OpencodeClient client) {
+        return load(client, null);
+    }
+
+    /**
+     * Scoped variant: v2 resolves {@code /vcs/status} per location - pass the
+     * connection's working directory, or the shared service answers for the
+     * user's home directory.
+     */
+    public static WorkingSet load(OpencodeClient client, String directory) {
         if (client == null) {
             return EMPTY;
         }
         List<FileStatus> status;
         try {
-            status = client.getFileStatus();
+            status = client.getFileStatus(directory);
         } catch (Exception e) {
             return EMPTY;
         }

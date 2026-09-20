@@ -141,6 +141,9 @@ public class HttpOpencodeClientComponentTest {
     private static final AtomicReference<String> lastAuth = new AtomicReference<>();
     /** Every stub hit since the last reset, in order. */
     private static final List<Recorded> requests = Collections.synchronizedList(new ArrayList<>());
+    /** The raw query string of the latest hit per path (for location-scoping assertions). */
+    private static final java.util.Map<String, String> queriesByPath =
+            new java.util.concurrent.ConcurrentHashMap<>();
     /** Settable body served by the stub for {@code GET /api/session/:id/todo}. */
     private static final AtomicReference<String> todoBody = new AtomicReference<>("[]");
     /** Settable body served by the stub for {@code GET /api/info}. */
@@ -285,6 +288,7 @@ public class HttpOpencodeClientComponentTest {
     @Before
     public void resetStub() {
         requests.clear();
+        queriesByPath.clear();
         todoBody.set("[]");
         infoBody.set(INFO_BODY);
         promptAck.set(PROMPT_ACK);
@@ -307,6 +311,14 @@ public class HttpOpencodeClientComponentTest {
         lastMethod.set(exchange.getRequestMethod());
         lastPath.set(path);
         lastBody.set(body);
+        // ConcurrentHashMap rejects nulls: a request WITHOUT a query string
+        // must clear the path's entry, not put(null)
+        String query = exchange.getRequestURI().getRawQuery();
+        if (query == null) {
+            queriesByPath.remove(path);
+        } else {
+            queriesByPath.put(path, query);
+        }
         requests.add(new Recorded(exchange.getRequestMethod(), path, body));
         return path;
     }
@@ -721,7 +733,8 @@ public class HttpOpencodeClientComponentTest {
         assertEquals("v2 names the server in the path", "/api/experimental/mcp/eclipse-build",
                 lastPath.get());
         String body = lastBody.get();
-        assertTrue(body.contains("\"name\":\"eclipse-build\""));
+        assertFalse("v2 carries the name in the PUT path, not the body", body.contains("\"name\""));
+        assertTrue(body.contains("\"config\":{"));
         assertTrue(body.contains("\"type\":\"remote\""));
         assertTrue(body.contains("\"url\":\"http://127.0.0.1:12345/mcp\""));
         assertTrue("oauth must be explicitly off", body.contains("\"oauth\":false"));
@@ -778,6 +791,23 @@ public class HttpOpencodeClientComponentTest {
         lastQuery.set(null);
         client.getMcpServers(); // unscoped stays unscoped (remote/dedicated servers)
         assertNull("unscoped calls must not emit a location param", lastQuery.get());
+
+        // the same scoping on every other location-resolving auxiliary GET
+        String dir = "C:\\Development\\GitHub\\Hephaestus";
+        try {
+            client.getAgents(dir);
+        } catch (OpencodeException expected) {
+            // this stub deliberately serves an empty body on /api/agent (the
+            // empty-body error-path test) - the QUERY is the assertion target
+        }
+        assertTrue("agent scope", queriesByPath.get("/api/agent").startsWith("location%5Bdirectory%5D="));
+        client.getConfig(dir);
+        assertTrue("config scope", queriesByPath.get("/api/config").startsWith("location%5Bdirectory%5D="));
+        client.getProviders(dir);
+        assertTrue("model catalog scope",
+                queriesByPath.get("/api/model").startsWith("location%5Bdirectory%5D="));
+        assertTrue("provider catalog scope",
+                queriesByPath.get("/api/provider").startsWith("location%5Bdirectory%5D="));
     }
 
     /**

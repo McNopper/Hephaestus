@@ -89,6 +89,31 @@ public class ChatSessionControllerTest {
         assertTrue(host.infos.contains("send job: running"));
     }
 
+    /**
+     * REGRESSION (live 2026-09-20): a chat session created WITHOUT the
+     * connection's working directory lands in the shared service's home scope
+     * - wrong agents, wrong config, wrong permissions. The session must be
+     * created against the connection's working directory.
+     */
+    @Test
+    public void sessionIsCreatedScopedToTheConnectionsWorkingDirectory() {
+        connection.workingDirectory = "C:/work/repo";
+        controller.send(new ChatSessionController.OutgoingMessage(
+                "build", "prov", "m1", "high", "sys", "hello"));
+
+        assertEquals(List.of(Path.of("C:/work/repo")), connection.client.createdSessionDirs);
+    }
+
+    /** No working directory (e.g. a dedicated remote) stays unscoped. */
+    @Test
+    public void sessionCreationWithoutWorkingDirectoryStaysUnscoped() {
+        controller.send(new ChatSessionController.OutgoingMessage(
+                "build", "prov", "m1", "high", "sys", "hello"));
+
+        assertEquals(1, connection.client.createdSessionDirs.size());
+        assertNull(connection.client.createdSessionDirs.get(0));
+    }
+
     @Test
     public void sendFinalRenderCarriesToolParts() {
         connection.client.reply = new ChatEntry(
@@ -206,6 +231,47 @@ public class ChatSessionControllerTest {
         assertTrue("incomplete notice expected, got: " + renderer.notices,
                 renderer.notices.stream().anyMatch(n -> n.contains("did not complete")));
         assertTrue(renderer.assistants.isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    /**
+     * REGRESSION (same stale-history class as the empty-bubble bug): a failed
+     * turn can leave a PREVIOUS turn's assistant at the history tail (the
+     * projection can drop the queued user message - observed live on the
+     * AgentNotFoundError turns). The late settle must never render stale
+     * history as this turn's reply.
+     */
+    @Test
+    public void sendTimeoutNeverSettlesAProvablyStaleAssistant() {
+        connection.client.sendFailure = promptTimeout();
+        long old = System.currentTimeMillis() - 3_600_000;
+        ChatMessageInfo staleInfo = new ChatMessageInfo("msg_old", "ses_1", "assistant",
+                new Session.Time(old, old, 0), null, null, null, null, null, "prov", "mod", null, null, old);
+        connection.client.history = List.of(
+                new ChatEntry(staleInfo, List.of(new ChatPart("text", "stale reply", null, null))));
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("incomplete notice expected, got: " + renderer.notices,
+                renderer.notices.stream().anyMatch(n -> n.contains("did not complete")));
+        assertTrue("stale history must not settle: " + renderer.assistants, renderer.assistants.isEmpty());
+        assertFalse(controller.isSending());
+    }
+
+    /** The projection may legitimately drop the user echo - a FRESH tail assistant still settles. */
+    @Test
+    public void sendTimeoutSettlesAFreshAssistantEvenWithoutTheUserEcho() {
+        connection.client.sendFailure = promptTimeout();
+        long now = System.currentTimeMillis();
+        ChatMessageInfo freshInfo = new ChatMessageInfo("msg_new", "ses_1", "assistant",
+                new Session.Time(now, now, 0), null, null, null, null, null, "prov", "mod", null, null, now);
+        connection.client.history = List.of(
+                new ChatEntry(freshInfo, List.of(new ChatPart("text", "fresh reply", null, null))));
+        controller.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("fresh reply must settle, got: " + renderer.assistants,
+                renderer.assistants.contains("final:msg_new:fresh reply||prov/mod|"));
         assertFalse(controller.isSending());
     }
 
@@ -731,7 +797,7 @@ public class ChatSessionControllerTest {
         controller.undoLastTurn();
 
         assertEquals("revert at the newest user message (its replies go with it)",
-                List.of(new FakeClient.RevertCall("ses_42", "u2", null)),
+                List.of(new FakeClient.RevertCall("ses_42", "u2")),
                 connection.client.revertCalls);
         assertTrue(host.jobs.contains("Reverting last exchange ses_42"));
         assertEquals("history re-rendered without the reverted tail", 2,
@@ -759,8 +825,8 @@ public class ChatSessionControllerTest {
         controller.undoLastTurn();
 
         assertEquals("each undo reverts the then-newest user message",
-                List.of(new FakeClient.RevertCall("ses_42", "u2", null),
-                        new FakeClient.RevertCall("ses_42", "u1", null)),
+                List.of(new FakeClient.RevertCall("ses_42", "u2"),
+                        new FakeClient.RevertCall("ses_42", "u1")),
                 connection.client.revertCalls);
     }
 
@@ -1470,10 +1536,16 @@ public class ChatSessionControllerTest {
     private static final class FakeConnection implements ChatServerConnection {
         final FakeClient client = new FakeClient();
         final List<OpencodeEventListener> listeners = new ArrayList<>();
+        String workingDirectory;
 
         @Override
         public OpencodeClient getClient() {
             return client;
+        }
+
+        @Override
+        public String workingDirectory() {
+            return workingDirectory;
         }
 
         @Override
@@ -1500,11 +1572,12 @@ public class ChatSessionControllerTest {
         record ForkCall(String sessionId, String messageId) {
         }
 
-        record RevertCall(String sessionId, String messageId, String partId) {
+        record RevertCall(String sessionId, String messageId) {
         }
 
         final List<ChatRequest> requests = new ArrayList<>();
         final List<String> createdSessions = new ArrayList<>();
+        final List<Path> createdSessionDirs = new ArrayList<>();
         final List<String> abortCalls = new ArrayList<>();
         final List<CommandCall> commandCalls = new ArrayList<>();
         final List<ForkCall> forkCalls = new ArrayList<>();
@@ -1583,6 +1656,7 @@ public class ChatSessionControllerTest {
         @Override
         public Session createSession(String title, Path directory) {
             createdSessions.add(title);
+            createdSessionDirs.add(directory);
             sessionCounter++;
             return new Session("ses_" + sessionCounter, null, title, null, null, null, null, null, null, null, null);
         }
@@ -1641,9 +1715,9 @@ public class ChatSessionControllerTest {
         }
 
         @Override
-        public boolean revertMessage(String sessionId, String messageId, String partId)
+        public boolean revertMessage(String sessionId, String messageId)
                 throws OpencodeException {
-            revertCalls.add(new RevertCall(sessionId, messageId, partId));
+            revertCalls.add(new RevertCall(sessionId, messageId));
             if (revertFailure != null) {
                 throw revertFailure;
             }

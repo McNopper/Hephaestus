@@ -74,6 +74,20 @@ public final class SessionDetailsController {
     // controller no longer offers share()/unshare() — a lifecycle action that
     // can only ever 404 is worse than none.
 
+    /** This session's working directory, or {@code null} (= unscoped) when unknown. */
+    private String sessionDirectory(OpencodeClient client) {
+        try {
+            for (Session s : client.getSessions()) {
+                if (s != null && sessionId.equals(s.id())) {
+                    return s.directory();
+                }
+            }
+        } catch (Exception e) {
+            // an unreadable session list degrades to unscoped (global catalog)
+        }
+        return null;
+    }
+
     /**
      * {@code POST /session/:id/fork} — fork this session at {@code messageId}
      * ({@code null} = at the latest message).
@@ -105,7 +119,11 @@ public final class SessionDetailsController {
             OpencodeClient client = clientSupplier.get();
             String[] model = pickSummarizeModel(lastAssistantModel, null, null); // no IO
             if (model == null) {
-                model = DefaultModels.resolve(client.getConfig(), client.getProviders());
+                // scope to THIS session's location: v2 resolves the config and
+                // provider catalogs per directory (unscoped on the shared
+                // service = the user's home, possibly a different catalog)
+                String dir = sessionDirectory(client);
+                model = DefaultModels.resolve(client.getConfig(dir), client.getProviders(dir));
             }
             if (model == null) {
                 return LifecycleResult.failure("no provider/model available");

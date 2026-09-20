@@ -25,6 +25,22 @@ public class ChatSelectorStateTest {
             """, ProviderList.class);
 
     @Test
+    public void agentsAreListedAndSelectedByIdNotDisplayName() {
+        // REGRESSION (live 2026-09-20): the selector listed display NAMES and
+        // posted them to /session/:id/agent - v2 rejects "Build" with
+        // AgentNotFoundError; the wire value is the id ("build")
+        ChatSelectorState state = new ChatSelectorState();
+        state.load(agents, providers, null, null);
+        assertTrue(state.agents().contains("build"));
+        assertFalse("display names are not wire values", state.agents().contains("Build"));
+        assertEquals("the default fallback matches on the id", "build", state.agent());
+        state.selectAgent("Build");
+        assertEquals("a display name selects nothing", "build", state.agent());
+        state.selectAgent("plan");
+        assertEquals("plan", state.agent());
+    }
+
+    @Test
     public void commandSelectionWinsWhetherItArrivesBeforeOrAfterCatalog() {
         for (boolean before : List.of(true, false)) {
             ChatSelectorState state = new ChatSelectorState();

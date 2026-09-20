@@ -134,10 +134,17 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public ProviderList getProviders() throws OpencodeException {
+        return getProviders(null);
+    }
+
+    @Override
+    public ProviderList getProviders(String directory) throws OpencodeException {
         // v2: /config/providers is gone. Rebuild from /api/provider (provider
-        // entries) + /api/model (model entries grouped by providerID).
-        List<Model> allModels = getList("/model", Model.class);
-        HttpResponse<String> providerResponse = send("GET", "/provider", null, ClientTuning.REQUEST_TIMEOUT);
+        // entries) + /api/model (model entries grouped by providerID). Both
+        // resolve per location - the catalog can differ per project config.
+        List<Model> allModels = getList(withLocation("/model", directory), Model.class);
+        HttpResponse<String> providerResponse = send("GET", withLocation("/provider", directory), null,
+                ClientTuning.REQUEST_TIMEOUT);
         List<Provider> providers = new ArrayList<>();
         try {
             JsonElement element = JsonParser.parseString(providerResponse.body());
@@ -533,20 +540,19 @@ public final class HttpOpencodeClient implements OpencodeClient {
     public Session forkSession(String sessionId, String messageId) throws OpencodeException {
         JsonObject body = new JsonObject();
         if (messageId != null && !messageId.isBlank()) {
-            body.addProperty("messageID", messageId);
+            // v2 names the fork point "before" (a msg_ id); v1's "messageID"
+            // key is rejected (additionalProperties=false)
+            body.addProperty("before", messageId);
         }
         return parseBody("POST", "/session/" + sessionId + "/fork",
                 request("POST", "/session/" + sessionId + "/fork", body.toString()), Session.class, true);
     }
 
     @Override
-    public boolean revertMessage(String sessionId, String messageId, String partId) throws OpencodeException {
+    public boolean revertMessage(String sessionId, String messageId) throws OpencodeException {
         JsonObject body = new JsonObject();
         if (messageId != null) {
             body.addProperty("messageID", messageId);
-        }
-        if (partId != null) {
-            body.addProperty("partID", partId);
         }
         return parseBody("POST", "/session/" + sessionId + "/revert/stage",
                 request("POST", "/session/" + sessionId + "/revert/stage", body.toString()), Boolean.class);
@@ -597,18 +603,21 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<CommandInfo> getCommands() throws OpencodeException {
-        return getListOrEmptyOn404("/command", CommandInfo.class);
+        return getCommands(null);
+    }
+
+    @Override
+    public List<CommandInfo> getCommands(String directory) throws OpencodeException {
+        return getListOrEmptyOn404(withLocation("/command", directory), CommandInfo.class);
     }
 
     @Override
     public ChatEntry runCommand(String sessionId, String command, List<String> arguments) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        body.addProperty("command", command);
-        if (arguments != null && !arguments.isEmpty()) {
-            body.add("arguments", GSON.toJsonTree(arguments));
-        }
+        // v2's command body is {name, text} (v1 sent {command, arguments[]});
+        // additionalProperties=false rejects the v1 keys with HTTP 400
         String path = "/session/" + sessionId + "/command";
-        return parseBody("POST", path, request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT),
+        return parseBody("POST", path,
+                request("POST", path, ChatRequests.commandBody(command, arguments), ClientTuning.PROMPT_TIMEOUT),
                 ChatEntry.class);
     }
 
@@ -893,7 +902,12 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<FileStatus> getFileStatus() throws OpencodeException {
-        return getListOrEmptyOn404("/vcs/status", FileStatus.class);
+        return getFileStatus(null);
+    }
+
+    @Override
+    public List<FileStatus> getFileStatus(String directory) throws OpencodeException {
+        return getListOrEmptyOn404(withLocation("/vcs/status", directory), FileStatus.class);
     }
 
     @Override

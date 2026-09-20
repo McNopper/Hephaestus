@@ -58,6 +58,11 @@ public interface OpencodeClient {
     /** {@code GET /config/providers} - providers, their models, and the defaults. */
     ProviderList getProviders() throws OpencodeException;
 
+    /** Scoped variant (see {@link #getAgents(String)}): the catalog can differ per project config. */
+    default ProviderList getProviders(String directory) throws OpencodeException {
+        return getProviders();
+    }
+
     /** {@code GET /config} - server config (default model etc.). */
     ConfigInfo getConfig() throws OpencodeException;
 
@@ -226,10 +231,11 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session/:id/revert} - revert the conversation to before a
-     * message (optionally a single part).
+     * {@code POST /session/:id/revert/stage} - revert the conversation to
+     * before a message. v2 reverts whole messages ({@code messageID} plus an
+     * optional {@code files} flag); v1's per-part {@code partID} is gone.
      */
-    default boolean revertMessage(String sessionId, String messageId, String partId) throws OpencodeException {
+    default boolean revertMessage(String sessionId, String messageId) throws OpencodeException {
         throw new UnsupportedOperationException("revertMessage");
     }
 
@@ -262,6 +268,11 @@ public interface OpencodeClient {
     /** {@code GET /command} - the project's custom slash commands ({@code .opencode/command/}). */
     default List<CommandInfo> getCommands() throws OpencodeException {
         return List.of();
+    }
+
+    /** Scoped variant (see {@link #getAgents(String)}): commands live in the project's config. */
+    default List<CommandInfo> getCommands(String directory) throws OpencodeException {
+        return getCommands();
     }
 
     /**
@@ -368,6 +379,11 @@ public interface OpencodeClient {
      */
     default List<FileStatus> getFileStatus() throws OpencodeException {
         return List.of();
+    }
+
+    /** Scoped variant (see {@link #getAgents(String)}): v2 resolves {@code /vcs/status} per location. */
+    default List<FileStatus> getFileStatus(String directory) throws OpencodeException {
+        return getFileStatus();
     }
 
     /**

@@ -53,7 +53,9 @@ public final class CommandComposer {
     /** Loads the project's commands ({@code GET /command}); failures degrade to no commands. */
     public void loadCommands() {
         try {
-            commands = sanitize(connection.getClient().getCommands());
+            // scoped: commands live in the project's .opencode/command/, and
+            // v2 resolves the list per location (unscoped = the server's home)
+            commands = sanitize(connection.getClient().getCommands(connection.workingDirectory()));
         } catch (Throwable t) {
             commands = List.of();
         }
