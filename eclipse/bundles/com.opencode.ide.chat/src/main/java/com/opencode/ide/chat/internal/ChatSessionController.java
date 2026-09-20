@@ -442,9 +442,12 @@ public final class ChatSessionController {
     public void loadSelectorData(SelectorDataListener listener) {
         host.runInBackground("Loading opencode agents and models", () -> {
             try {
-                List<Agent> agents = connection.getClient().getAgents();
+                // scope to the connection's working directory: unscoped, the
+                // shared service resolves these lists for the user's home dir
+                String scopeDir = connection.workingDirectory();
+                List<Agent> agents = connection.getClient().getAgents(scopeDir);
                 ProviderList providers = connection.getClient().getProviders();
-                String[] fallback = DefaultModels.resolve(connection.getClient().getConfig(), providers);
+                String[] fallback = DefaultModels.resolve(connection.getClient().getConfig(scopeDir), providers);
                 host.runOnUi(() -> listener.loaded(agents, providers, fallback));
             } catch (OpencodeException e) {
                 host.runOnUi(() -> listener.failed(e));

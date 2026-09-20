@@ -693,14 +693,18 @@ public class ServerView extends ViewPart implements Refreshable {
         OpencodeConnection connection = OpencodeConnection.getInstance();
         connection.getClient(); // ensure spawned/connected
         HealthStatus health = connection.getClient().getHealth();
-        List<Agent> agents = connection.getClient().getAgents();
+        // v2 auxiliary lists resolve per location: scope them all to the
+        // connection's working directory, or the shared service answers for
+        // the user's home (wrong project's agents/skills/MCP servers)
+        String scopeDir = connection.getWorkingDirectory();
+        List<Agent> agents = connection.getClient().getAgents(scopeDir);
         // v2 session state is global per user: scope the primary view to the
         // connection's working directory, or every project on the machine
         // would show up here
-        List<Session> sessions = connection.getClient().getSessions(connection.getWorkingDirectory());
+        List<Session> sessions = connection.getClient().getSessions(scopeDir);
         Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
-        List<McpServerInfo> mcpServers = safeMcp(connection.getClient());
-        List<SkillInfo> skills = safeSkills(connection.getClient());
+        List<McpServerInfo> mcpServers = safeMcp(connection.getClient(), scopeDir);
+        List<SkillInfo> skills = safeSkills(connection.getClient(), scopeDir);
         WorkingSet workingSet = WorkingSet.load(connection.getClient());   // lenient: never throws
         String mode = connection.getMode();
         String url = connection.getConnectConfig().baseUrl().toString();
@@ -731,8 +735,8 @@ public class ServerView extends ViewPart implements Refreshable {
             List<Agent> agents = manager.agents(connection); // cached (30s TTL / disconnect)
             List<Session> sessions = client.getSessions();
             Map<String, SessionStatus> statuses = client.getSessionStatus();
-            List<McpServerInfo> mcpServers = safeMcp(client);
-            List<SkillInfo> skills = safeSkills(client);
+            List<McpServerInfo> mcpServers = safeMcp(client, null);
+            List<SkillInfo> skills = safeSkills(client, null);
             WorkingSet workingSet = WorkingSet.load(client);   // lenient: never throws
             return new ServerNode(false, label, null, url,
                     health != null && health.healthy(),
@@ -757,18 +761,18 @@ public class ServerView extends ViewPart implements Refreshable {
      * section (the client already tolerates 404/shape issues; this catches
      * transport errors too).
      */
-    private static List<McpServerInfo> safeMcp(OpencodeClient client) {
+    private static List<McpServerInfo> safeMcp(OpencodeClient client, String directory) {
         try {
-            List<McpServerInfo> servers = client.getMcpServers();
+            List<McpServerInfo> servers = client.getMcpServers(directory);
             return servers == null ? List.of() : servers;
         } catch (Exception e) {
             return List.of();
         }
     }
 
-    private static List<SkillInfo> safeSkills(OpencodeClient client) {
+    private static List<SkillInfo> safeSkills(OpencodeClient client, String directory) {
         try {
-            List<SkillInfo> skills = client.getSkills();
+            List<SkillInfo> skills = client.getSkills(directory);
             return skills == null ? List.of() : skills;
         } catch (Exception e) {
             return List.of();

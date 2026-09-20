@@ -43,11 +43,28 @@ public interface OpencodeClient {
     /** {@code GET /agent} - all available agent definitions. */
     List<Agent> getAgents() throws OpencodeException;
 
+    /**
+     * {@code GET /agent?location[directory]=…} - agent definitions scoped to a
+     * project directory. v2 resolves these auxiliary lists per location: an
+     * unscoped call on the shared background service answers for the user's
+     * home directory, i.e. the wrong project's agents/skills/MCP servers.
+     *
+     * @param directory project/worktree path, or {@code null} for the server default
+     */
+    default List<Agent> getAgents(String directory) throws OpencodeException {
+        return getAgents();
+    }
+
     /** {@code GET /config/providers} - providers, their models, and the defaults. */
     ProviderList getProviders() throws OpencodeException;
 
     /** {@code GET /config} - server config (default model etc.). */
     ConfigInfo getConfig() throws OpencodeException;
+
+    /** {@code GET /config?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default ConfigInfo getConfig(String directory) throws OpencodeException {
+        return getConfig();
+    }
 
     /** {@code GET /session} - all sessions (running agent instances), including subagent children. */
     List<Session> getSessions() throws OpencodeException;
@@ -104,6 +121,11 @@ public interface OpencodeClient {
         return List.of();
     }
 
+    /** {@code GET /mcp?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default List<McpServerInfo> getMcpServers(String directory) throws OpencodeException {
+        return getMcpServers();
+    }
+
     /**
      * {@code GET /skill} - the skills loaded from the working directory's
      * {@code .opencode/skills/}. Default returns empty so test fakes and
@@ -111,6 +133,11 @@ public interface OpencodeClient {
      */
     default List<SkillInfo> getSkills() throws OpencodeException {
         return List.of();
+    }
+
+    /** {@code GET /skill?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default List<SkillInfo> getSkills(String directory) throws OpencodeException {
+        return getSkills();
     }
 
     /** {@code GET /session/:id/message} - the message history of a session. */

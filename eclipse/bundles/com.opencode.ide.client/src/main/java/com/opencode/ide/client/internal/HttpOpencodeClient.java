@@ -124,7 +124,12 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<Agent> getAgents() throws OpencodeException {
-        return getList("/agent", Agent.class);
+        return getAgents(null);
+    }
+
+    @Override
+    public List<Agent> getAgents(String directory) throws OpencodeException {
+        return getList(withLocation("/agent", directory), Agent.class);
     }
 
     @Override
@@ -202,9 +207,15 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public ConfigInfo getConfig() throws OpencodeException {
+        return getConfig(null);
+    }
+
+    @Override
+    public ConfigInfo getConfig(String directory) throws OpencodeException {
         // v2 returns an ARRAY of config sources: [{type:"document", path, info:{...}}].
         // Find the one with a model (usually the project-level document).
-        HttpResponse<String> response = send("GET", "/config", null, ClientTuning.REQUEST_TIMEOUT);
+        HttpResponse<String> response = send("GET", withLocation("/config", directory), null,
+                ClientTuning.REQUEST_TIMEOUT);
         String body = response.body();
         if (body == null || body.isBlank()) {
             return new ConfigInfo(null, null);
@@ -270,7 +281,13 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<McpServerInfo> getMcpServers() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/mcp", null, ClientTuning.REQUEST_TIMEOUT);
+        return getMcpServers(null);
+    }
+
+    @Override
+    public List<McpServerInfo> getMcpServers(String directory) throws OpencodeException {
+        HttpResponse<String> response = send("GET", withLocation("/mcp", directory), null,
+                ClientTuning.REQUEST_TIMEOUT);
         if (response.statusCode() == 404) {
             return List.of();
         }
@@ -305,7 +322,12 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<SkillInfo> getSkills() throws OpencodeException {
-        return getListOrEmptyOn404("/skill", SkillInfo.class);
+        return getSkills(null);
+    }
+
+    @Override
+    public List<SkillInfo> getSkills(String directory) throws OpencodeException {
+        return getListOrEmptyOn404(withLocation("/skill", directory), SkillInfo.class);
     }
 
     /**

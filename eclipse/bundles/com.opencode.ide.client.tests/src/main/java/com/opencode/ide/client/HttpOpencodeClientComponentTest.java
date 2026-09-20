@@ -206,6 +206,7 @@ public class HttpOpencodeClientComponentTest {
         // v2 GET /api/mcp: {"location":…, "data":[{"name","status"}]} (v1 was a bare map)
         server.createContext("/api/mcp", exchange -> {
             recordExchange(exchange);
+            lastQuery.set(exchange.getRequestURI().getRawQuery());
             respond(exchange, 200, """
                     {"location":{"directory":"C:\\\\repo"},
                      "data":[{"name":"tasks","status":"connected"},
@@ -221,6 +222,7 @@ public class HttpOpencodeClientComponentTest {
 
         server.createContext("/api/skill", exchange -> {
             recordExchange(exchange);
+            lastQuery.set(exchange.getRequestURI().getRawQuery());
             respond(exchange, 200, """
                     {"data":[{"name":"cpp-tools","description":"C++ execution utility",
                               "location":"<built-in>","content":"…"}]}
@@ -749,6 +751,33 @@ public class HttpOpencodeClientComponentTest {
         assertEquals(1, skills.size());
         assertEquals("cpp-tools", skills.get(0).name());
         assertTrue(skills.get(0).description().startsWith("C++ execution"));
+    }
+
+    /**
+     * REGRESSION (Eclipse showed 0 MCP servers): the auxiliary lists resolve
+     * per LOCATION in v2 - an unscoped call on the shared background service
+     * answers for the user's home directory. The scoped variant must emit the
+     * nested object in bracket syntax ({@code location[directory]=…}); a plain
+     * {@code location=<path>} string is rejected with HTTP 400.
+     */
+    @Test
+    public void scopedAuxiliaryListsEmitLocationBracketSyntax() throws Exception {
+        lastQuery.set(null);
+        client.getMcpServers("C:\\Development\\GitHub\\Hephaestus");
+        String mcpQuery = lastQuery.get();
+        assertTrue("mcp scope must use bracket syntax, got: " + mcpQuery,
+                mcpQuery != null && mcpQuery.startsWith("location%5Bdirectory%5D=")
+                        && mcpQuery.contains("Hephaestus"));
+
+        lastQuery.set(null);
+        client.getSkills("C:\\Development\\GitHub\\Hephaestus");
+        String skillQuery = lastQuery.get();
+        assertTrue("skill scope must use bracket syntax, got: " + skillQuery,
+                skillQuery != null && skillQuery.startsWith("location%5Bdirectory%5D="));
+
+        lastQuery.set(null);
+        client.getMcpServers(); // unscoped stays unscoped (remote/dedicated servers)
+        assertNull("unscoped calls must not emit a location param", lastQuery.get());
     }
 
     /**
