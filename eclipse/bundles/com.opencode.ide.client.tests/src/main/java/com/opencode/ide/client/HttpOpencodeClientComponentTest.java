@@ -88,6 +88,49 @@ public class HttpOpencodeClientComponentTest {
             ]}
             """;
 
+    /** v2's {@code POST /prompt} ack: the QUEUED user message (this turn's anchor). */
+    private static final String PROMPT_ACK = """
+            {"data":{"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1}}}
+            """;
+
+    /**
+     * A RESUMED session's first poll: the new turn's assistant message is still
+     * empty, while the history carries a COMPLETED assistant and an {@code idle}
+     * marker from a previous turn. Answering from those is the bug this guards.
+     */
+    private static final String RESUMED_STREAMING = """
+            {"data":[
+              {"id":"msg_a2","sessionID":"ses_new","type":"assistant","time":{"created":11},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode"},"content":[]},
+              {"id":"msg_u2","sessionID":"ses_new","type":"user","time":{"created":10},"text":"again"},
+              {"id":"msg_idle1","sessionID":"ses_new","type":"idle","time":{"created":5},
+               "outcome":"succeeded"},
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant",
+               "time":{"created":2,"completed":3},"agent":"build",
+               "model":{"id":"glm-5.2","providerID":"opencode"},
+               "content":[{"type":"text","text":"stale answer"}],"finish":"stop"},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},"text":"first"}
+            ]}
+            """;
+
+    /** The resumed session's new turn, now completed. */
+    private static final String RESUMED_COMPLETED = """
+            {"data":[
+              {"id":"msg_a2","sessionID":"ses_new","type":"assistant",
+               "time":{"created":11,"completed":12},"agent":"build",
+               "model":{"id":"glm-5.2","providerID":"opencode"},
+               "content":[{"type":"text","text":"fresh answer"}],"finish":"stop"},
+              {"id":"msg_u2","sessionID":"ses_new","type":"user","time":{"created":10},"text":"again"},
+              {"id":"msg_idle1","sessionID":"ses_new","type":"idle","time":{"created":5},
+               "outcome":"succeeded"},
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant",
+               "time":{"created":2,"completed":3},"agent":"build",
+               "model":{"id":"glm-5.2","providerID":"opencode"},
+               "content":[{"type":"text","text":"stale answer"}],"finish":"stop"},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},"text":"first"}
+            ]}
+            """;
+
     private static com.sun.net.httpserver.HttpServer server;
     private static OpencodeClient client;
 
@@ -102,6 +145,8 @@ public class HttpOpencodeClientComponentTest {
     private static final AtomicReference<String> todoBody = new AtomicReference<>("[]");
     /** Settable body served by the stub for {@code GET /api/info}. */
     private static final AtomicReference<String> infoBody = new AtomicReference<>(INFO_BODY);
+    /** Settable body served by the stub for {@code POST /api/session/:id/prompt}. */
+    private static final AtomicReference<String> promptAck = new AtomicReference<>(PROMPT_ACK);
     /**
      * Bodies served by successive {@code GET /api/session/:id/message} calls -
      * the last entry repeats forever. This is what lets a test drive the v2
@@ -147,6 +192,10 @@ public class HttpOpencodeClientComponentTest {
                 response = todoBody.get();
             } else if (path.endsWith("/message")) {
                 response = nextMessagesBody();
+            } else if (path.endsWith("/prompt")) {
+                // v2 acks the QUEUED user message - the client anchors its
+                // reply poll to this timestamp
+                response = promptAck.get();
             } else {
                 // /prompt, /agent, /model, /synthetic: v2 acks, the reply is polled
                 response = "{}";
@@ -236,6 +285,7 @@ public class HttpOpencodeClientComponentTest {
         requests.clear();
         todoBody.set("[]");
         infoBody.set(INFO_BODY);
+        promptAck.set(PROMPT_ACK);
         serveMessages(COMPLETED_TURN);
     }
 
@@ -589,13 +639,35 @@ public class HttpOpencodeClientComponentTest {
     }
 
     /**
+     * REGRESSION (the Eclipse chat returned an empty bubble ~200ms after every
+     * send): a RESUMED session carries previous turns - a completed assistant
+     * message AND an {@code idle} marker. Scanning the whole history for those
+     * ends the wait on the first poll and hands back the new, still-empty
+     * assistant message. The wait must be anchored to THIS turn's prompt.
+     */
+    @Test
+    public void resumedSessionIgnoresPreviousTurnsWhenWaitingForTheReply() throws Exception {
+        promptAck.set("""
+                {"data":{"id":"msg_u2","sessionID":"ses_new","type":"user","time":{"created":10}}}
+                """);
+        serveMessages(RESUMED_STREAMING, RESUMED_COMPLETED);
+
+        ChatEntry reply = client.sendMessage(ChatRequest.of("ses_new", "again"));
+
+        assertEquals("the NEW turn's reply, not the stale one", "msg_a2", reply.info().id());
+        assertEquals("fresh answer", reply.text());
+        assertTrue(reply.info().isComplete());
+        assertTrue("the old idle marker must not end the wait",
+                count("GET", "/api/session/ses_new/message") >= 2);
+    }
+
+    /**
      * A turn can also end on the terminal {@code idle} message even when the
      * assistant message never gets a completion stamp - otherwise the client
      * would poll until the budget expired.
      */
     @Test
-    public void sendMessageAlsoStopsOnTheTerminalIdleMessage() throws Exception {
-        serveMessages(STREAMING_TURN, """
+    public void sendMessageAlsoStopsOnTheTerminalIdleMessage() throws Exception {        serveMessages(STREAMING_TURN, """
                 {"data":[
                   {"id":"msg_idle","sessionID":"ses_new","type":"idle","outcome":"succeeded",
                    "time":{"created":10}},

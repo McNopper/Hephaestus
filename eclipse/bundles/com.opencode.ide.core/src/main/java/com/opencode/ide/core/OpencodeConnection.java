@@ -258,9 +258,48 @@ public final class OpencodeConnection {
      * attached service is never stopped by this facade.
      */
     private ConnectionConfig buildLocalConfig(OpencodePreferences preferences) throws OpencodeException {
+        // the working directory scopes the Server view's session list and the
+        // fs/vcs probes - it must be resolved for BOTH outcomes, or an attached
+        // connection would show every session on the machine and browse $HOME
+        lastWorkingDirectory = resolveWorkingDirectory(preferences);
         return selectLocalConfig(preferences,
                 () -> tryAttachSharedService(newServiceDiscovery(preferences), SPAWN_TIMEOUT),
                 this::buildSpawnConfig);
+    }
+
+    /** The spawn working directory: project context, then the configured repo root, then the workspace. */
+    private Path resolveWorkingDirectory(OpencodePreferences preferences) {
+        Path workingDirectory = null;
+        ProjectContext context = CoreActivator.getProjectContext();
+        if (context != null) {
+            workingDirectory = context.getWorkingDirectory().orElse(null);
+        }
+        if (workingDirectory == null) {
+            // fallback 1: the configured repo root (default Hephaestus) so the
+            // server loads that repo's .opencode/ agents, skills and MCP config
+            String configured = preferences.getWorkingDirectory();
+            if (configured != null && !configured.isBlank()) {
+                Path candidate = Path.of(configured);
+                if (Files.isDirectory(candidate)) {
+                    workingDirectory = candidate;
+                }
+            }
+        }
+        if (workingDirectory == null) {
+            // fallback 2 (O-001): adopt an open workspace project that lives
+            // in an opencode repo - opening the repo's projects in Eclipse then
+            // behaves like opening the repo itself. Without this, a null
+            // directory makes the child inherit Eclipse's own working
+            // directory (the install folder), which carries no repo config.
+            workingDirectory = workspaceRepoRoot();
+        }
+        if (workingDirectory != null) {
+            // O-001 parity rule: a nested project folder resolves to its repo
+            // root so the server sees .opencode/ agents+skills and the
+            // opencode.json MCP servers
+            workingDirectory = repoRootOf(workingDirectory);
+        }
+        return workingDirectory;
     }
 
     /**

@@ -357,14 +357,33 @@ public final class HttpOpencodeClient implements OpencodeClient {
         postIfPresent("/session/" + sessionId + "/synthetic", ChatRequests.syntheticBody(chatRequest));
 
         String path = "/session/" + sessionId + "/prompt";
-        request("POST", path, ChatRequests.promptBody(chatRequest), ClientTuning.REQUEST_TIMEOUT);
+        HttpResponse<String> prompt = request("POST", path, ChatRequests.promptBody(chatRequest),
+                ClientTuning.REQUEST_TIMEOUT);
+        // anchor the wait to THIS turn: a resumed session is full of previous
+        // turns' assistant messages and idle markers, and answering from those
+        // would return an old (or still-empty) reply instantly
+        long promptedAt = promptCreatedTime(prompt.body());
 
         // an agent may stream for many minutes, so unattended callers pass their
         // whole run budget; the fixed default is only for interactive use
         Duration budget = promptTimeout == null || promptTimeout.isNegative() || promptTimeout.isZero()
                 ? ClientTuning.PROMPT_TIMEOUT
                 : promptTimeout;
-        return awaitReply(sessionId, budget);
+        return awaitReply(sessionId, budget, promptedAt);
+    }
+
+    /** The queued user message's server timestamp ({@code data.time.created}); now as fallback. */
+    private static long promptCreatedTime(String body) {
+        try {
+            JsonObject data = asObject(JsonParser.parseString(body).getAsJsonObject(), "data");
+            JsonObject time = data == null ? null : asObject(data, "time");
+            if (time != null && time.has("created") && time.get("created").isJsonPrimitive()) {
+                return time.get("created").getAsLong();
+            }
+        } catch (JsonParseException | IllegalStateException e) {
+            // fall through to the local clock
+        }
+        return System.currentTimeMillis();
     }
 
     /** POSTs a prepared body when the request produced one; a {@code null} body is a no-op. */
@@ -375,19 +394,27 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     /**
-     * Polls {@code GET /session/:id/message} until the newest assistant message
-     * is complete, the turn ends with an {@code idle} marker, or the budget runs
-     * out. v2 has no blocking send, so this restores the synchronous contract
-     * the chat view and the fleet are built on.
+     * Polls {@code GET /session/:id/message} until THIS turn's assistant reply
+     * is complete, the turn ends with an {@code idle} marker, or the budget
+     * runs out. v2 has no blocking send, so this restores the synchronous
+     * contract the chat view and the fleet are built on.
+     *
+     * <p>Everything is anchored to {@code promptedAt} (the queued user
+     * message's server timestamp): a resumed session carries previous turns'
+     * assistant messages and idle markers, and answering from those would
+     * return a stale — or still-empty — reply immediately.</p>
      */
-    private ChatEntry awaitReply(String sessionId, Duration budget) throws OpencodeException {
+    private ChatEntry awaitReply(String sessionId, Duration budget, long promptedAt) throws OpencodeException {
         long deadline = System.nanoTime() + budget.toNanos();
         ChatEntry newest = null;
         while (System.nanoTime() < deadline) {
             List<ChatEntry> messages = getMessages(sessionId);
-            newest = newestAssistant(messages);
-            if (endedTurn(messages, newest)) {
+            newest = newestAssistantAfter(messages, promptedAt);
+            if (newest != null && newest.info().isComplete()) {
                 return newest;
+            }
+            if (newest != null && hasIdleAfter(messages, promptedAt)) {
+                return newest; // the turn ended (outcome marker) - take what it produced
             }
             try {
                 Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
@@ -401,27 +428,30 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 + " or check whether the session is stuck busy)");
     }
 
-    /** True once the turn is over: a completed assistant message or an {@code idle} marker. */
-    private static boolean endedTurn(List<ChatEntry> messages, ChatEntry newestAssistant) {
-        if (newestAssistant != null && newestAssistant.info() != null && newestAssistant.info().isComplete()) {
-            return true;
+    /** The newest assistant message of THIS turn (created at/after the prompt), or {@code null}. */
+    private static ChatEntry newestAssistantAfter(List<ChatEntry> messages, long promptedAt) {
+        for (ChatEntry entry : messages) { // v2 lists newest first
+            if (entry != null && entry.info() != null && "assistant".equals(entry.info().role())
+                    && createdAt(entry) >= promptedAt) {
+                return entry;
+            }
         }
+        return null;
+    }
+
+    /** True when THIS turn produced an {@code idle} outcome marker. */
+    private static boolean hasIdleAfter(List<ChatEntry> messages, long promptedAt) {
         for (ChatEntry entry : messages) {
-            if (entry != null && entry.info() != null && "idle".equals(entry.info().role())) {
+            if (entry != null && entry.info() != null && "idle".equals(entry.info().role())
+                    && createdAt(entry) >= promptedAt) {
                 return true;
             }
         }
         return false;
     }
 
-    /** The most recent assistant message; v2 returns the list newest-first. */
-    private static ChatEntry newestAssistant(List<ChatEntry> messages) {
-        for (ChatEntry entry : messages) {
-            if (entry != null && entry.info() != null && "assistant".equals(entry.info().role())) {
-                return entry;
-            }
-        }
-        return null;
+    private static long createdAt(ChatEntry entry) {
+        return (entry.info() == null || entry.info().time() == null) ? 0L : entry.info().time().created();
     }
 
     @Override
@@ -562,8 +592,23 @@ public final class HttpOpencodeClient implements OpencodeClient {
         JsonObject body = new JsonObject();
         body.addProperty("command", command);
         String path = "/session/" + sessionId + "/shell";
+        // server-clock anchor: this run's shell message is strictly newer than
+        // anything already there - a session with previous shell commands would
+        // otherwise answer instantly from the last completed one
+        long anchor = newestShellCreated(sessionId);
         request("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return awaitShell(sessionId);
+        return awaitShell(sessionId, anchor);
+    }
+
+    /** {@code time.created} of the newest existing shell message; 0 when none. */
+    private long newestShellCreated(String sessionId) throws OpencodeException {
+        long newest = 0;
+        for (ChatEntry entry : getMessages(sessionId)) {
+            if (entry != null && entry.info() != null && "shell".equals(entry.info().role())) {
+                newest = Math.max(newest, createdAt(entry));
+            }
+        }
+        return newest;
     }
 
     /**
@@ -572,11 +617,11 @@ public final class HttpOpencodeClient implements OpencodeClient {
      * v2's POST /shell returns no shell result body - the command's lifecycle
      * is reported as messages, same async split as the prompt path.
      */
-    private ShellResult awaitShell(String sessionId) throws OpencodeException {
+    private ShellResult awaitShell(String sessionId, long anchorMs) throws OpencodeException {
         long deadline = System.nanoTime() + ClientTuning.PROMPT_TIMEOUT.toNanos();
         ShellResult latest = null;
         while (System.nanoTime() < deadline) {
-            latest = newestShellMessage(sessionId);
+            latest = newestShellMessage(sessionId, anchorMs);
             if (latest != null && !"running".equals(latest.status())) {
                 return latest;
             }
@@ -595,8 +640,8 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 + ClientTuning.PROMPT_TIMEOUT.toSeconds() + "s");
     }
 
-    /** The newest {@code type:"shell"} message as a {@link ShellResult}, or {@code null}. */
-    private ShellResult newestShellMessage(String sessionId) throws OpencodeException {
+    /** The newest {@code type:"shell"} message STRICTLY newer than the anchor, or {@code null}. */
+    private ShellResult newestShellMessage(String sessionId, long anchorMs) throws OpencodeException {
         String path = "/session/" + sessionId + "/message";
         HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
         String body = response.body();
@@ -621,6 +666,13 @@ public final class HttpOpencodeClient implements OpencodeClient {
                     continue;
                 }
                 JsonObject message = item.getAsJsonObject();
+                JsonObject time = asObject(message, "time");
+                long created = (time != null && time.has("created") && time.get("created").isJsonPrimitive())
+                        ? time.get("created").getAsLong()
+                        : 0L;
+                if (created > 0 && created <= anchorMs) {
+                    return null; // only previous runs' shells so far
+                }
                 JsonObject output = asObject(message, "output");
                 return new ShellResult(stringOf(message, "id"), null, stringOf(message, "command"),
                         stringOf(message, "status"), output == null ? null : stringOf(output, "output"));

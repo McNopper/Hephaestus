@@ -44,6 +44,11 @@ public class HttpOpencodeClientH5cComponentTest {
     /** Settable body/status the stub serves on GET /api/session/ses_1/message. */
     private static final AtomicReference<String> messageBody = new AtomicReference<>();
     private static final AtomicInteger messageStatus = new AtomicInteger(200);
+    /**
+     * /message GETs per test: the FIRST answers empty (the client's anchor
+     * fetch), later ones answer {@link #messageBody} (the shell's lifecycle).
+     */
+    private static final AtomicInteger messageGets = new AtomicInteger();
 
     @BeforeClass
     public static void startStub() throws IOException {
@@ -54,7 +59,9 @@ public class HttpOpencodeClientH5cComponentTest {
             String body;
             int status = 200;
             if ("/api/session/ses_1/message".equals(path)) {
-                body = messageBody.get();
+                // the anchor fetch (first GET) sees no shells yet; the poll then
+                // watches this run's shell message
+                body = messageGets.getAndIncrement() == 0 ? "{\"data\":[]}" : messageBody.get();
                 status = messageStatus.get();
             } else if ("/api/integration".equals(path)) {
                 body = """
@@ -90,6 +97,7 @@ public class HttpOpencodeClientH5cComponentTest {
     public void resetStub() {
         bodiesByPath.clear();
         messageStatus.set(200);
+        messageGets.set(0);
         messageBody.set("""
                 {"data":[
                   {"id":"msg_sh1","time":{"created":3},"type":"shell","shellID":"sh_1",
