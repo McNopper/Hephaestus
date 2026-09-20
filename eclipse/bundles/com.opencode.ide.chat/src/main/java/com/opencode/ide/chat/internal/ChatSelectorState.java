@@ -20,9 +20,11 @@ public final class ChatSelectorState {
     private String model = "";
 
     public void load(List<Agent> availableAgents, ProviderList providers, String[] preferred, String[] fallback) {
+        // v2: the wire value is the agent ID ("build"); `name` is a display
+        // label ("Build") the server REJECTS with AgentNotFoundError when posted
         agents = availableAgents == null ? List.of() : availableAgents.stream()
-                .filter(a -> a != null && a.isPrimary() && a.name() != null && !a.name().isBlank())
-                .map(Agent::name).distinct().toList();
+                .filter(a -> a != null && a.isPrimary() && a.id() != null && !a.id().isBlank())
+                .map(Agent::id).distinct().toList();
         agent = requestedAgent != null && agents.contains(requestedAgent) ? requestedAgent
                 : agents.contains("build") ? "build" : agents.stream().findFirst().orElse(null);
         models.clear();

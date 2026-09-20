@@ -372,7 +372,7 @@ public class ServerView extends ViewPart implements Refreshable {
             public void run() {
                 Agent agent = selectedAgent();
                 if (selectedTarget().newAgentSession()) {
-                    openChatParameter("agentId", agent.name());
+                    openChatParameter("agentId", agent.id()); // v2 wants the id, not the display name
                 }
             }
         };

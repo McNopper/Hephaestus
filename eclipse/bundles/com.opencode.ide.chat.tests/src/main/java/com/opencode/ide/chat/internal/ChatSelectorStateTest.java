@@ -108,7 +108,11 @@ public class ChatSelectorStateTest {
         state.selectModel("p/custom/model");
     }
 
-    private static Agent agent(String name, String mode) {
-        return new Agent(name, name, null, mode, null, null, null, null, null, null);
+    private static Agent agent(String id, String mode) {
+        // v2 shape: the display NAME differs from the wire ID ("Build" vs
+        // "build"); a selector that lists names posts an agent the server
+        // rejects with AgentNotFoundError (live, 2026-09-20)
+        String displayName = id.substring(0, 1).toUpperCase() + id.substring(1);
+        return new Agent(id, displayName, null, mode, null, null, null, null, null, null);
     }
 }
