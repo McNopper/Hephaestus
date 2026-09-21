@@ -71,6 +71,8 @@ option(ENABLE_CLANG_FORMAT "Enable clang-format targets" ON)
 option(ENABLE_CPPCHECK "Enable cppcheck static analysis target" ON)
 option(ENABLE_CPPCHECK_IN_BUILD "Run cppcheck alongside the compiler" OFF)
 
+option(ENABLE_CLANG_SCAN_DEPS "Enable the clang-scan-deps dependency graph target" ON)
+
 option(ENABLE_TESTING "Enable GoogleTest-based tests" ON)
 option(ENABLE_DOXYGEN "Enable Doxygen documentation target" ON)
 
@@ -146,6 +148,14 @@ endif()
 
 if(PROJECT_ANALYSIS_AVAILABLE)
     include(cppcheck)
+endif()
+
+# ============================================================
+# clang-scan-deps (single source of truth in cmake/clang-scan-deps.cmake)
+# ============================================================
+
+if(PROJECT_ANALYSIS_AVAILABLE)
+    include(clang-scan-deps)
 endif()
 
 # ============================================================
@@ -366,6 +376,10 @@ endif()
 
 if(TARGET tidy)
     add_dependencies(verify-full tidy)
+endif()
+
+if(TARGET scan-deps)
+    add_dependencies(verify-full scan-deps)
 endif()
 
 if(TARGET docs)

@@ -27,7 +27,8 @@ cpp/
 ├── cppcheck.supp           # cppcheck suppressions
 ├── Doxyfile.in             # AI-oriented Doxygen config (XML + tagfile)
 ├── cmake/
-│   └── cppcheck.cmake      # single source of truth for cppcheck targets
+│   ├── cppcheck.cmake      # single source of truth for cppcheck targets
+│   └── clang-scan-deps.cmake # single source of truth for the scan-deps target
 ├── include/
 │   └── example.hpp
 ├── src/
@@ -89,7 +90,7 @@ reports. There is no separate MCP server — C++ is an agent now.
 
 **External tools must be on PATH:** [CMake](https://cmake.org/download/) (≥ 3.26),
 [Ninja](https://ninja-build.org/), [cppcheck](https://github.com/danmar/cppcheck), and
-the LLVM/Clang tools (`clang-format`, `clang-tidy`).
+the LLVM/Clang tools (`clang-format`, `clang-tidy`, `clang-scan-deps`).
 
 ## What makes it "AI-first"
 
@@ -99,6 +100,9 @@ the LLVM/Clang tools (`clang-format`, `clang-tidy`).
 - **clang-tidy fix export** (`build/reports/clang-tidy/fixes.yaml`) — findings
   *and* suggested edits an agent can apply.
 - **cppcheck XML** (`build/reports/cppcheck/cppcheck.xml`).
+- **clang-scan-deps dependency graph** (`build/reports/scan-deps/deps.json`) —
+  the exact include set of every translation unit (and module provides/requires
+  once C++23 modules arrive), scanned with each TU's real compile flags.
 - **analysis status contract** (`build/reports/analysis-status.txt`) with
   `analysis=enabled|skipped` and toolchain reason.
 - Stable, predictable report paths under `${binaryDir}/reports/`.

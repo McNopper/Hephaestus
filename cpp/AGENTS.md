@@ -51,6 +51,7 @@ Run everything from this directory (the one containing `CMakeLists.txt`).
 | cppcheck (default profile)   | `cmake --build build --target cppcheck` |
 | cppcheck (exhaustive)        | `cmake --build build --target cppcheck-strict` |
 | cppcheck XML report          | `cmake --build build --target cppcheck-xml` |
+| Dependency graph (JSON)      | `cmake --build build --target scan-deps` |
 | Generate docs (HTML+XML)     | `cmake --build build --target docs` |
 
 `verify` is intentionally fast (build + tests). It always prints whether static
@@ -81,6 +82,7 @@ All under `${binaryDir}` for the selected configure preset (default
 | Compile database      | `${binaryDir}/compile_commands.json`        | clang-tidy, cppcheck, editors |
 | clang-tidy fixes      | `${binaryDir}/reports/clang-tidy/fixes.yaml` | parse/apply suggested edits |
 | cppcheck XML          | `${binaryDir}/reports/cppcheck/cppcheck.xml` | parse findings |
+| Dependency graph      | `${binaryDir}/reports/scan-deps/deps.json`   | per-TU include set (`translation-units[].commands[0].file-deps`); `modules[]` fills when modules arrive |
 | Doxygen XML           | `${binaryDir}/docs/xml/`                     | symbol/structure indexing |
 | Doxygen tagfile       | `${binaryDir}/docs/MyProject.tag`            | compact symbol cross-reference |
 | Doxygen warnings      | `${binaryDir}/docs/doxygen_warnings.log`     | undocumented/broken-link signal |
@@ -113,6 +115,7 @@ All under `${binaryDir}` for the selected configure preset (default
 ## Feature toggles (CMake options)
 
 `ENABLE_CLANG_TIDY`, `ENABLE_CLANG_TIDY_IN_BUILD`, `ENABLE_CLANG_FORMAT`,
-`ENABLE_CPPCHECK`, `ENABLE_CPPCHECK_IN_BUILD`, `ENABLE_TESTING`,
-`ENABLE_DOXYGEN` — all default `ON` except `ENABLE_CPPCHECK_IN_BUILD`.
+`ENABLE_CPPCHECK`, `ENABLE_CPPCHECK_IN_BUILD`, `ENABLE_CLANG_SCAN_DEPS`,
+`ENABLE_TESTING`, `ENABLE_DOXYGEN` — all default `ON` except
+`ENABLE_CPPCHECK_IN_BUILD`.
 Pass e.g. `-DENABLE_DOXYGEN=OFF` at configure time.

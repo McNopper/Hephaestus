@@ -173,8 +173,8 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
 ## C++ and graphics are tools, not a separate lifecycle
 
 - **C++**: the `cpp-tools` **agent** runs CMake configure/build, clang-format, cppcheck,
-  clang-tidy via bash and reads their reports (methodology in the `cpp-tools` skill). The
-  old `cpp/mcp` server is gone.
+  clang-tidy, clang-scan-deps via bash and reads their reports (methodology in the
+  `cpp-tools` skill). The old `cpp/mcp` server is gone.
 - **Graphics**: window capture, RenderDoc capture, and render comparison are **MCP tools**
   in `mcp.graphics` (`graphics_screenshot`, `graphics_renderdoc_capture`,
   `graphics_renderdoc_frame`, `graphics_compare_renders`). The `graphics-expert` agent
