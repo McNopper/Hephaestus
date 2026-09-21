@@ -295,7 +295,8 @@ public class ProvidersView extends ViewPart implements Refreshable {
             OpencodeClient client = primaryClient(manager);
             String healthTag = healthTag(client.getHealth()); // also ensures spawned/connected
             ProviderList list = manager.providers(manager.primaryConnection());
-            Map<String, ProviderAuthState> auths = ProviderAuthState.load(client);   // lenient: never throws
+            Map<String, ProviderAuthState> auths = ProviderAuthState.load(client,
+                    OpencodeConnection.getInstance().getWorkingDirectory()); // lenient: never throws
             String server = OpencodeConnection.getInstance().getConnectConfig().baseUrl().toString();
             return new ProvidersLoad(ModelRows.toRows(list), server, healthTag, auths);
         }, result -> showRows(result.rows(), result.server(), result.healthTag(), result.auths()),

@@ -52,30 +52,19 @@ public class TaskFleetPermissionsTest {
         bridge = new FleetPermissionBridge(queue);
     }
 
-    /**
-     * A v2 {@code permission.asked}:
-     * {@code {sessionID, action, resources, save, metadata, source}}, whose
-     * identity lives in {@code source.id}.
-     *
-     * <p>TODO(v2): the top-level {@code id}/{@code permission}/{@code patterns}
-     * members are compatibility aliases for the still-v1 client-owned
-     * {@code PermissionEvents.parse} — see
-     * {@link FleetPermissionBridge#onEvent}.</p>
-     */
+    /** A v2 ask with distinct permission-request and source-tool identities. */
     private static OpencodeEvent askedEvent(String sessionId, String permissionId) {
         JsonObject properties = new JsonObject();
+        properties.addProperty("id", permissionId);
         properties.addProperty("sessionID", sessionId);
-        properties.addProperty("action", "bash");
+        properties.addProperty("action", "shell");
         properties.add("resources", com.google.gson.JsonParser.parseString("[\"git push\"]"));
-        properties.addProperty("save", false);
+        properties.add("save", com.google.gson.JsonParser.parseString("[]"));
         JsonObject source = new JsonObject();
         source.addProperty("type", "tool");
         source.addProperty("messageID", "msg_1");
-        source.addProperty("id", permissionId);
+        source.addProperty("id", "call_1");
         properties.add("source", source);
-        properties.addProperty("id", permissionId);
-        properties.addProperty("permission", "bash");
-        properties.add("patterns", com.google.gson.JsonParser.parseString("[\"git push\"]"));
         return new OpencodeEvent("permission.asked", properties);
     }
 

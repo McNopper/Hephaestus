@@ -47,15 +47,13 @@ import com.opencode.ide.ui.model.SearchResults.Row;
 
 /**
  * Workspace explorer over the opencode server's file endpoints: a lazy file
- * tree ({@code GET /file?path=…}, one page per expanded directory, loaded in
- * background jobs) plus search ({@code /find/file}, {@code /find/symbol},
- * {@code /find}).
+ * tree ({@code GET /api/fs/list}, one page per expanded directory, loaded in
+ * background jobs) plus fuzzy file search ({@code GET /api/fs/find}).
  *
- * <p>Search modes are selected by query prefix: plain text = fuzzy file
- * search, {@code @name} = symbol search, {@code /text} = text search; Enter
- * runs the search and its rows replace the tree until the "Show Tree" action
- * (or an empty query) restores it. Double-clicking a file or result row
- * copies its path to the clipboard and echoes it in the status line.</p>
+ * <p>Enter runs the search and its rows replace the tree until the "Show
+ * Tree" action (or an empty query) restores it. Double-clicking a file or
+ * result row copies its path to the clipboard and echoes it in the status
+ * line.</p>
  *
  * <p>The tree is {@code SWT.VIRTUAL} like the Server view: items are only
  * materialized on expansion, children are served from the cached
@@ -98,8 +96,8 @@ public class RepoView extends ViewPart implements Refreshable {
 
     @Override
     public void createPartControl(Composite parent) {
-        setTitleToolTip("Workspace file tree and search. Search: plain = fuzzy file search, "
-                + "@prefix = symbols, /prefix = text; Enter runs it, \"Show Tree\" restores the tree. "
+        setTitleToolTip("Workspace file tree and fuzzy file search. "
+                + "Enter runs the search; \"Show Tree\" restores the tree. "
                 + "Double-click copies a path.");
 
         Composite outer = new Composite(parent, SWT.NONE);
@@ -111,7 +109,7 @@ public class RepoView extends ViewPart implements Refreshable {
         outer.setLayoutData(new GridData(GridData.FILL_BOTH));
 
         searchBox = new Text(outer, SWT.SEARCH | SWT.ICON_CANCEL | SWT.BORDER);
-        searchBox.setMessage("Search — files (plain), @symbols, /text; Enter to run");
+        searchBox.setMessage("Search files — Enter to run");
         searchBox.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         searchBox.addSelectionListener(new SelectionAdapter() {
             @Override
@@ -361,24 +359,20 @@ public class RepoView extends ViewPart implements Refreshable {
 
     // ---------- search ----------
 
-    /** Runs the search for the current box content; an empty query restores the tree. */
+    /** Runs the file search for the current box content; an empty query restores the tree. */
     private void runSearch(String raw) {
-        SearchResults.Query query = SearchResults.parse(raw);
-        if (query.isEmpty()) {
+        String query = SearchResults.parse(raw);
+        if (query.isBlank()) {
             if (searchActive) {
                 showTree();
             }
             return;
         }
         int ticket = ++searchTicket;
-        setContentDescription("Searching " + query.mode().name().toLowerCase() + " '" + query.text() + "'...");
-        ViewLoadSupport.load("Searching workspace " + query.mode().name().toLowerCase(), () -> {
+        setContentDescription("Searching files '" + query + "'...");
+        ViewLoadSupport.load("Searching workspace files", () -> {
             OpencodeClient client = primaryClient(ConnectionsManager.getDefault());
-            return switch (query.mode()) {
-                case FILE -> SearchResults.fromFiles(client.findFiles(query.text()));
-                case SYMBOL -> SearchResults.fromSymbols(client.findSymbols(query.text()));
-                case TEXT -> SearchResults.fromText(client.findText(query.text()));
-            };
+            return SearchResults.fromFiles(client.findFiles(query, scopeDir(client)));
         }, rows -> {
             if (ticket != searchTicket || viewer.getControl().isDisposed()) {
                 return; // a newer search superseded this one
@@ -386,7 +380,7 @@ public class RepoView extends ViewPart implements Refreshable {
             searchActive = true;
             viewer.setInput(rows);
             setContentDescription(rows.size() + (rows.size() >= SearchResults.DEFAULT_CAP ? "+" : "")
-                    + " " + query.mode().name().toLowerCase() + " results for '" + query.text() + "'");
+                    + " file results for '" + query + "'");
         }, this::showError);
     }
 
@@ -475,12 +469,8 @@ public class RepoView extends ViewPart implements Refreshable {
         if (element instanceof FileNode node) {
             return UiActivator.image(node.isDirectory() ? UiActivator.ICON_CATEGORY : UiActivator.ICON_FILE);
         }
-        if (element instanceof Row row) {
-            return switch (row.kind()) {
-                case "text" -> UiActivator.image(UiActivator.ICON_CATEGORY);
-                case "file" -> UiActivator.image(UiActivator.ICON_FILE);
-                default -> UiActivator.image(UiActivator.ICON_SKILL); // symbol kinds
-            };
+        if (element instanceof Row) {
+            return UiActivator.image(UiActivator.ICON_FILE);
         }
         return null;
     }

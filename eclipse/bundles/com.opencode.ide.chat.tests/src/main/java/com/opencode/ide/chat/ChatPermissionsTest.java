@@ -68,13 +68,13 @@ public class ChatPermissionsTest {
         ChatPermissions.setSink(sink);
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("permission.asked", askedPayload("per_1", "bash")));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
 
         assertEquals(1, sink.asked.size());
         PermissionRequest request = sink.asked.get(0);
         assertEquals("ses_1", request.sessionId());
         assertEquals("per_1", request.permissionId());
-        assertEquals("bash", request.permission());
+        assertEquals("shell", request.permission());
         assertEquals(List.of("git push"), request.patterns());
         assertEquals("git push", request.title());
         assertEquals(PermissionRequest.Status.PENDING, request.status());
@@ -129,8 +129,7 @@ public class ChatPermissionsTest {
         // no sink registered: current behavior (ignore) must hold unchanged
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
         adapter.onEvent(event("permission.replied",
                 "{\"sessionID\":\"ses_1\",\"requestID\":\"per_1\",\"reply\":\"reject\"}"));
     }
@@ -141,12 +140,12 @@ public class ChatPermissionsTest {
         sink.throwOnAsked = true;
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
         // the SSE event loop must survive a broken sink: the next event still delivers
         adapter.onEvent(event("permission.replied",
                 "{\"sessionID\":\"ses_1\",\"requestID\":\"per_1\",\"reply\":\"once\"}"));
 
+        assertEquals("the throwing callback was exercised", 1, sink.askedCalls);
         assertEquals(1, sink.replied.size());
     }
 
@@ -154,13 +153,11 @@ public class ChatPermissionsTest {
     public void clearSinkStopsDelivery() {
         ChatPermissions.setSink(sink);
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
         assertEquals(1, sink.asked.size());
 
         ChatPermissions.clearSink();
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_2\",\"sessionID\":\"ses_1\",\"permission\":\"edit\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_2", "edit")));
 
         assertEquals(1, sink.asked.size());
     }
@@ -184,8 +181,7 @@ public class ChatPermissionsTest {
         ChatPermissions.setSink(sink);
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> null);
 
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
         assertTrue(sink.asked.isEmpty());
 
         adapter.onEvent(event("permission.replied",
@@ -213,8 +209,7 @@ public class ChatPermissionsTest {
         });
         ChatPermissionAdapter adapter = new ChatPermissionAdapter(() -> connection.client);
 
-        adapter.onEvent(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        adapter.onEvent(event("permission.asked", askedPayload("per_1", "shell")));
 
         assertEquals(List.of("ses_1:per_1:once:false"), connection.client.permissionAnswers);
     }
@@ -226,8 +221,7 @@ public class ChatPermissionsTest {
         controller.subscribe();
         ChatPermissions.setSink(sink);
 
-        connection.fire(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        connection.fire(event("permission.asked", askedPayload("per_1", "shell")));
         connection.fire(event("permission.replied",
                 "{\"sessionID\":\"ses_1\",\"requestID\":\"per_1\",\"reply\":\"once\"}"));
 
@@ -250,8 +244,7 @@ public class ChatPermissionsTest {
         secondView.subscribe();
         ChatPermissions.setSink(sink);
 
-        connection.fire(event("permission.asked",
-                "{\"id\":\"per_1\",\"sessionID\":\"ses_1\",\"permission\":\"bash\"}"));
+        connection.fire(event("permission.asked", askedPayload("per_1", "shell")));
 
         assertEquals(2, sink.asked.size());
 
@@ -269,22 +262,14 @@ public class ChatPermissionsTest {
 
     /**
      * A v2 {@code permission.asked} payload:
-     * {@code {sessionID, action, resources, save, metadata, source}} — its
-     * identity is {@code source.id}.
-     *
-     * <p>TODO(v2): the trailing {@code id}/{@code permission}/{@code patterns}
-     * members are compatibility aliases for client-owned
-     * {@code PermissionEvents.parse}, which still resolves the v1 field names.
-     * Drop them once that parser reads {@code source.id}/{@code action}/
-     * {@code resources}.</p>
+     * {@code {id, sessionID, action, resources, save, metadata, source}}.
+     * The request id differs from the source tool invocation id.
      */
     private static String askedPayload(String permissionId, String action) {
-        return "{\"sessionID\":\"ses_1\",\"action\":\"" + action + "\","
-                + "\"resources\":[\"git push\"],\"save\":false,"
+        return "{\"id\":\"" + permissionId + "\",\"sessionID\":\"ses_1\",\"action\":\"" + action + "\","
+                + "\"resources\":[\"git push\"],\"save\":[],"
                 + "\"metadata\":{\"command\":\"git push\"},"
-                + "\"source\":{\"type\":\"tool\",\"messageID\":\"msg_1\",\"id\":\"" + permissionId + "\"},"
-                + "\"id\":\"" + permissionId + "\",\"permission\":\"" + action + "\","
-                + "\"patterns\":[\"git push\"]}";
+                + "\"source\":{\"type\":\"tool\",\"messageID\":\"msg_1\",\"id\":\"call_1\"}}";
     }
 
     private static final class RecordingSink implements ChatPermissionSink {
@@ -292,9 +277,11 @@ public class ChatPermissionsTest {
         final List<OpencodeClient> clients = new ArrayList<>();
         final List<String[]> replied = new ArrayList<>();
         boolean throwOnAsked;
+        int askedCalls;
 
         @Override
         public void asked(PermissionRequest request, OpencodeClient client) {
+            askedCalls++;
             if (throwOnAsked) {
                 throw new IllegalStateException("boom");
             }

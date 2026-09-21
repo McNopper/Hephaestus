@@ -51,13 +51,10 @@ import com.opencode.ide.client.model.ProjectSummary;
 import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderAuth;
 import com.opencode.ide.client.model.ProviderList;
-import com.opencode.ide.client.model.SearchMatch;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.SkillInfo;
-import com.opencode.ide.client.model.SymbolResult;
 import com.opencode.ide.client.model.VcsInfo;
 
 /**
@@ -360,13 +357,6 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
         return getList("/session/" + sessionId + "/message", ChatEntry.class);
-    }
-
-    @Override
-    public List<SessionTodo> getSessionTodos(String sessionId) throws OpencodeException {
-        // v2 has no per-session todo endpoint (the v1 /todo route and the
-        // todo.updated event are both gone) - tolerate 404 as an empty list
-        return getListOrEmptyOn404("/session/" + sessionId + "/todo", SessionTodo.class);
     }
 
     @Override
@@ -818,15 +808,6 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     @Override
-    public List<SearchMatch> findText(String pattern) throws OpencodeException {
-        // TODO(v2): /find* became /fs/find (query/type/limit params) - the type
-        // enum is unverified, so this stays on the 404-tolerant path until the
-        // exact v2 find contract is confirmed against a live server.
-        String target = "/find?pattern=" + URLEncoder.encode(pattern, StandardCharsets.UTF_8).replace("+", "%20");
-        return getListOrEmptyOn404(target, SearchMatch.class);
-    }
-
-    @Override
     public List<String> findFiles(String query) throws OpencodeException {
         return findFiles(query, null);
     }
@@ -868,15 +849,6 @@ public final class HttpOpencodeClient implements OpencodeClient {
                     + truncate(body, ClientTuning.SNIPPET_MIN));
             return List.of();
         }
-    }
-
-    @Override
-    public List<SymbolResult> findSymbols(String query) throws OpencodeException {
-        // TODO(v2): no v2 equivalent - /fs/find only matches file/directory
-        // names (type: file|directory), there is no symbol search. Stays on the
-        // 404-tolerant path (empty section) until opencode re-adds one.
-        String target = "/find/symbol?query=" + URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
-        return getListOrEmptyOn404(target, SymbolResult.class);
     }
 
     @Override
@@ -932,8 +904,37 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<ProviderAuth> getProviderAuths() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/provider/auth", null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
+        return getProviderAuths(null);
+    }
+
+    @Override
+    public List<ProviderAuth> getProviderAuths(String directory) throws OpencodeException {
+        List<ProviderAuth> out = new ArrayList<>();
+        for (JsonObject integration : integrationCatalog(directory)) {
+            String provider = stringOf(integration, "id");
+            JsonElement methods = integration.get("methods");
+            if (provider == null || provider.isBlank() || methods == null || !methods.isJsonArray()) {
+                continue;
+            }
+            for (JsonElement method : methods.getAsJsonArray()) {
+                if (!method.isJsonObject()) {
+                    continue;
+                }
+                JsonObject object = method.getAsJsonObject();
+                String type = stringOf(object, "type");
+                if (type != null && !type.isBlank()) {
+                    out.add(new ProviderAuth(provider, type, stringOf(object, "label")));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The v2 integration catalog shared by auth discovery and OAuth method selection. */
+    private List<JsonObject> integrationCatalog(String directory) throws OpencodeException {
+        HttpResponse<String> response = send("GET", withLocation("/integration", directory), null,
+                ClientTuning.REQUEST_TIMEOUT);
+        if (response.statusCode() >= 400) {
             return List.of();
         }
         String body = response.body();
@@ -941,29 +942,24 @@ public final class HttpOpencodeClient implements OpencodeClient {
             return List.of();
         }
         try {
-            // live v1.18 shape: {"<providerID>": [{"type":"oauth","label":"…"}, …], …} — a MAP of method lists
             JsonElement element = JsonParser.parseString(body);
             if (!element.isJsonObject()) {
-                ClientLog.warning("opencode GET /provider/auth: unexpected shape (not a JSON object); "
-                        + "treating as empty");
                 return List.of();
             }
-            List<ProviderAuth> out = new ArrayList<>();
-            for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
-                if (!entry.getValue().isJsonArray()) {
-                    continue;
-                }
-                for (JsonElement method : entry.getValue().getAsJsonArray()) {
-                    if (!method.isJsonObject()) {
-                        continue;
-                    }
-                    JsonObject object = method.getAsJsonObject();
-                    out.add(new ProviderAuth(entry.getKey(), stringOf(object, "type"), stringOf(object, "label")));
+            JsonElement data = element.getAsJsonObject().get("data");
+            if (data == null || !data.isJsonArray()) {
+                return List.of();
+            }
+            List<JsonObject> out = new ArrayList<>();
+            for (JsonElement item : data.getAsJsonArray()) {
+                if (item.isJsonObject()) {
+                    out.add(item.getAsJsonObject());
                 }
             }
             return out;
         } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /provider/auth: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
+            ClientLog.warning("opencode GET /integration: malformed body; treating as empty: "
+                    + truncate(body, ClientTuning.SNIPPET_MIN));
             return List.of();
         }
     }
@@ -1010,38 +1006,23 @@ public final class HttpOpencodeClient implements OpencodeClient {
      * provider has none / the integration list is unreadable.
      */
     private String firstOauthMethodId(String providerId) throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/integration", null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400 || response.body() == null) {
-            return null;
-        }
-        try {
-            JsonElement element = JsonParser.parseString(response.body());
-            JsonElement data = element.isJsonObject() && element.getAsJsonObject().has("data")
-                    ? element.getAsJsonObject().get("data")
-                    : element;
-            if (!data.isJsonArray()) {
+        for (JsonObject integration : integrationCatalog(null)) {
+            if (!java.util.Objects.equals(providerId, stringOf(integration, "id"))) {
+                continue;
+            }
+            JsonElement methods = integration.get("methods");
+            if (methods == null || !methods.isJsonArray()) {
                 return null;
             }
-            for (JsonElement item : data.getAsJsonArray()) {
-                if (!item.isJsonObject() || !providerId.equals(stringOf(item.getAsJsonObject(), "id"))) {
-                    continue;
+            for (JsonElement method : methods.getAsJsonArray()) {
+                if (method.isJsonObject()
+                        && "oauth".equals(stringOf(method.getAsJsonObject(), "type"))) {
+                    return stringOf(method.getAsJsonObject(), "id");
                 }
-                JsonElement methods = item.getAsJsonObject().get("methods");
-                if (methods == null || !methods.isJsonArray()) {
-                    return null;
-                }
-                for (JsonElement method : methods.getAsJsonArray()) {
-                    if (method.isJsonObject()
-                            && "oauth".equals(stringOf(method.getAsJsonObject(), "type"))) {
-                        return stringOf(method.getAsJsonObject(), "id");
-                    }
-                }
-                return null;
             }
             return null;
-        } catch (JsonParseException | IllegalStateException e) {
-            return null;
         }
+        return null;
     }
 
     @Override

@@ -17,16 +17,14 @@ import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatMessageInfo;
 import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.Session;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 
 /**
  * Post-merge telemetry of {@link TaskFleet} (constructor with a telemetry
  * client supplier), against the in-memory fakes and a real {@link TaskStore}:
- * the exact cost-actuals comment on MERGED tickets, session-todo merge with
- * done-mapping and no duplicates, and telemetry failures never failing the
- * launch. Reuses the {@link TaskFleetTest} fixtures.
+ * the exact cost-actuals comment on MERGED tickets and telemetry failures
+ * never failing the launch. Reuses the {@link TaskFleetTest} fixtures.
  */
 public class TaskFleetTelemetryTest {
 
@@ -104,39 +102,6 @@ public class TaskFleetTelemetryTest {
     }
 
     @Test
-    public void newSessionTodosLandOnTheTicketWithDoneMapping() {
-        String id = sprintTicket("developer");
-        sessionCompletes();
-        client.sessionTodos.add(new SessionTodo("t1", "Write component tests", "completed", "high"));
-        client.sessionTodos.add(new SessionTodo("t2", "Update the docs", "in_progress", "low"));
-
-        FleetJob job = fleetWithTelemetry().launch(PROJECT, id, REPO, TIMEOUT);
-
-        assertEquals(FleetJob.State.MERGED, job.state());
-        Task after = store.get(PROJECT, id);
-        assertEquals(2, after.todos.size());
-        assertEquals("Write component tests", after.todos.get(0).text());
-        assertTrue("completed maps to done", after.todos.get(0).done());
-        assertEquals("Update the docs", after.todos.get(1).text());
-        assertFalse("in_progress stays unchecked", after.todos.get(1).done());
-    }
-
-    @Test
-    public void alreadyKnownTodoTextIsNotDuplicated() {
-        String id = sprintTicket("developer");
-        sessionCompletes();
-        store.addTodo(PROJECT, id, "Write component tests", true, "human");
-        client.sessionTodos.add(new SessionTodo("t1", "Write component tests", "pending", "high"));
-
-        FleetJob job = fleetWithTelemetry().launch(PROJECT, id, REPO, TIMEOUT);
-
-        assertEquals(FleetJob.State.MERGED, job.state());
-        Task after = store.get(PROJECT, id);
-        assertEquals("text reuse is the identity - no second copy", 1, after.todos.size());
-        assertTrue("the ticket's own state wins (no re-add, no toggle)", after.todos.get(0).done());
-    }
-
-    @Test
     public void absentCostAndTokensAreOmittedFromTheComment() {
         String id = sprintTicket("developer");
         sessionCompletes();
@@ -154,9 +119,8 @@ public class TaskFleetTelemetryTest {
     public void telemetryClientFailureNeverFailsTheLaunch() {
         String id = sprintTicket("developer");
         sessionCompletes();
-        // getMessages breaks right before telemetry; the todo item is independent
+        // getMessages breaks right before telemetry; the launch must not care
         worktrees.onMergeBack = () -> client.failGetMessages = true;
-        client.sessionTodos.add(new SessionTodo("t1", "Still merged", "completed", null));
 
         FleetJob job = fleetWithTelemetry().launch(PROJECT, id, REPO, TIMEOUT);
 
@@ -164,8 +128,6 @@ public class TaskFleetTelemetryTest {
         Task after = store.get(PROJECT, id);
         assertFalse("telemetry failure must not block the ticket", after.blocked);
         assertEquals("in-review", after.status);
-        assertTrue("the independent todo item still merged",
-                after.todos.stream().anyMatch(t -> "Still merged".equals(t.text()) && t.done()));
         assertEquals("no actuals comment could be built", null, actualsComment(after));
     }
 
@@ -175,7 +137,6 @@ public class TaskFleetTelemetryTest {
         sessionCompletes();
         finalAssistantCarries(0.0123, new Session.Tokens(6736, 3, 22, null),
                 "executor", "zai-coding-plan", "glm-5.2");
-        client.sessionTodos.add(new SessionTodo("t1", "Write component tests", "completed", null));
         TaskFleet fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store);
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
@@ -184,7 +145,5 @@ public class TaskFleetTelemetryTest {
         Task after = store.get(PROJECT, id);
         assertEquals("in-review", after.status);
         assertEquals("no cost actuals recorded", null, actualsComment(after));
-        assertTrue("no session todos merged either",
-                after.todos.stream().noneMatch(t -> "Write component tests".equals(t.text())));
     }
 }

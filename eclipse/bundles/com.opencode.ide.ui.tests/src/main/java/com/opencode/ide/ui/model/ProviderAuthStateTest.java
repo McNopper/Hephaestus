@@ -27,7 +27,7 @@ import com.opencode.ide.client.model.SessionStatus;
 /**
  * Unit tests for the SWT-free {@link ProviderAuthState} model behind the
  * Providers view's auth wiring: per-provider method aggregation from
- * {@code GET /provider/auth} (labels with type fallback), the lenient
+ * {@code GET /api/integration} (labels with type fallback), the lenient
  * degradation to an empty map, and the authenticated flag/methods of a
  * state. No SWT, no JFace, no Display.
  */
@@ -43,6 +43,13 @@ public class ProviderAuthStateTest {
     private static final class FakeClient implements OpencodeClient {
         List<ProviderAuth> auths = List.of();
         boolean throwOnAuths;
+        String authDirectory;
+
+        @Override
+        public List<ProviderAuth> getProviderAuths(String directory) throws OpencodeException {
+            authDirectory = directory;
+            return getProviderAuths();
+        }
 
         @Override
         public List<ProviderAuth> getProviderAuths() throws OpencodeException {
@@ -117,7 +124,7 @@ public class ProviderAuthStateTest {
         FakeClient client = new FakeClient();
         client.auths = List.of(
                 auth("zai", "oauth", "Z.AI"),
-                auth("zai", "api", "API key"),
+                auth("zai", "key", "API key"),
                 auth("github", "oauth", "GitHub"));
 
         Map<String, ProviderAuthState> states = ProviderAuthState.load(client);
@@ -135,6 +142,17 @@ public class ProviderAuthStateTest {
         client.auths = List.of(auth("zai", "oauth", null));
 
         assertEquals(List.of("oauth"), ProviderAuthState.load(client).get("zai").methods());
+    }
+
+    @Test
+    public void loadUsesTheViewsProjectScope() {
+        FakeClient client = new FakeClient();
+        client.auths = List.of(auth("zai", "key", null));
+
+        Map<String, ProviderAuthState> states = ProviderAuthState.load(client, "C:/repo");
+
+        assertEquals("C:/repo", client.authDirectory);
+        assertEquals(List.of("key"), states.get("zai").methods());
     }
 
     @Test
@@ -183,6 +201,6 @@ public class ProviderAuthStateTest {
     @Test
     public void methodsAreUnmodifiable() {
         assertThrows(UnsupportedOperationException.class,
-                () -> ProviderAuthState.of(List.of("oauth")).methods().add("api"));
+                () -> ProviderAuthState.of(List.of("oauth")).methods().add("key"));
     }
 }

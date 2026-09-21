@@ -12,7 +12,6 @@ import java.util.logging.Logger;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.ChatEntry;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
@@ -35,8 +34,8 @@ import com.opencode.ide.tasks.VStages;
  * at {@link FleetTuning#STALL_TIMEOUT}); a budget timeout aborts the session.</p>
  *
  * <p>On a MERGED job, best-effort telemetry (see {@link FleetTelemetry})
- * records the run's cost/token actuals as a ticket comment and merges new
- * session todos into the ticket. Telemetry needs an {@link OpencodeClient}
+ * records the run's cost/token actuals as a ticket comment. Telemetry needs
+ * an {@link OpencodeClient}
  * (optional - the {@link FleetRunner} hides its own); without one it is
  * skipped, and it can never fail or block the launch.</p>
  *
@@ -148,9 +147,8 @@ public final class TaskFleet {
 
     /**
      * @param telemetryClient supplies the client for post-merge telemetry
-     *                        (cost actuals + session todos); {@code null} or
-     *                        a {@code null} supply skips telemetry - see
-     *                        {@link FleetTelemetry}
+     *                        (cost actuals); {@code null} or a {@code null}
+     *                        supply skips telemetry - see {@link FleetTelemetry}
      */
     public TaskFleet(FleetRunner runner, TaskStore store, RoleAgents roleAgents,
             Supplier<OpencodeClient> telemetryClient) {
@@ -159,9 +157,8 @@ public final class TaskFleet {
 
     /**
      * @param telemetryClient supplies the client for post-merge telemetry
-     *                        (cost actuals + session todos); {@code null} or
-     *                        a {@code null} supply skips telemetry - see
-     *                        {@link FleetTelemetry}
+     *                        (cost actuals); {@code null} or a {@code null}
+     *                        supply skips telemetry - see {@link FleetTelemetry}
      * @param permissions     collects the job sessions' permission requests
      *                        (pair with the runner's session-created
      *                        callback, {@code bridge::sessionStarted});
@@ -891,10 +888,10 @@ public final class TaskFleet {
 
     /**
      * Best-effort telemetry on a MERGED job: the run's cost/token actuals as
-     * a ticket comment plus new session todos merged into the ticket. Each
-     * item is individually caught and logged - telemetry can never fail the
-     * launch or block the ticket. Skipped entirely when no telemetry client
-     * is wired (the {@link FleetRunner} hides its own client).
+     * a ticket comment. Each item is individually caught and logged -
+     * telemetry can never fail the launch or block the ticket. Skipped
+     * entirely when no telemetry client is wired (the {@link FleetRunner}
+     * hides its own client).
      */
     private void recordTelemetry(String project, String taskId, FleetJob job) {
         if (telemetryClient == null || job.sessionId() == null) {
@@ -914,7 +911,6 @@ public final class TaskFleet {
             return;
         }
         recordActualsComment(client, project, taskId, job.sessionId());
-        mergeSessionTodos(client, project, taskId, job.sessionId());
     }
 
     private void recordActualsComment(OpencodeClient client, String project, String taskId,
@@ -927,25 +923,6 @@ public final class TaskFleet {
         } catch (OpencodeException | RuntimeException e) {
             LOG.log(Level.WARNING,
                     "fleet telemetry: cost actuals unavailable for ticket " + taskId + "; ignored", e);
-        }
-    }
-
-    private void mergeSessionTodos(OpencodeClient client, String project, String taskId,
-            String sessionId) {
-        try {
-            List<SessionTodo> sessionTodos = client.getSessionTodos(sessionId);
-            Task ticket = store.get(project, taskId);
-            for (Task.Todo todo : FleetTelemetry.todosToMerge(sessionTodos, ticket.todos)) {
-                try {
-                    store.addTodo(project, taskId, todo.text(), todo.done(), ASSIGNEE);
-                } catch (RuntimeException e) {
-                    LOG.log(Level.WARNING, "fleet telemetry: skipping todo '" + todo.text()
-                            + "' for ticket " + taskId, e);
-                }
-            }
-        } catch (OpencodeException | RuntimeException e) {
-            LOG.log(Level.WARNING,
-                    "fleet telemetry: session todos unavailable for ticket " + taskId + "; ignored", e);
         }
     }
 

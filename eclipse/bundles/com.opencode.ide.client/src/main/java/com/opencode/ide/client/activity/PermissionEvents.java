@@ -8,33 +8,27 @@ import com.google.gson.JsonObject;
 import com.opencode.ide.client.model.OpencodeEvent;
 
 /**
- * Parses permission-related {@code /event} SSE events into
- * {@link PermissionRequest}s. Shape-tolerant: unknown types yield
- * {@code null}, missing or non-string fields are read leniently, and parsing
- * never throws — a malformed event simply produces {@code null}.
+ * Parses permission-related {@code /api/event} SSE events into
+ * {@link PermissionRequest}s. Unknown types and missing, blank or non-string
+ * identifiers yield {@code null}. Missing display fields are tolerated.
  *
- * <p><b>Event contract (v2, verified against a live opencode 2.0.10 server):</b></p>
+ * <p><b>Event contract (verified against a live opencode 2.0.11 server):</b></p>
  * <ul>
  *   <li>{@code permission.asked} — data
- *   {@code { sessionID, action, resources: string[], save?, metadata,
- *   source: { type, messageID, id } }}: a new request is pending. The
- *   permission id used in the answer endpoint lives at {@code source.id}
- *   (v1 had a top-level {@code id}); {@code action} is the category (e.g.
- *   {@code "bash"}, v1 called it {@code permission}); {@code resources} are
- *   the patterns (v1 called them {@code patterns}). {@code metadata} is an
- *   open record whose string values carry display hints like the command.</li>
+ *   {@code { id, sessionID, action, resources: string[], save?: string[],
+ *   metadata?, source? }}: a new request is pending. The top-level {@code id}
+ *   identifies the permission request used in the reply endpoint. Optional
+ *   {@code source: { type, messageID, id }} identifies the originating tool
+ *   invocation; its id is a different identity. {@code action} is the category
+ *   (e.g. {@code "shell"}); {@code resources} are the patterns. Metadata
+ *   string values carry display hints like the command.</li>
  *   <li>{@code permission.replied} — data
  *   {@code { sessionID, requestID, reply: once|always|reject }}: the request
- *   was answered (possibly by another client — e.g. an attached TUI).
- *   Unchanged from v1.</li>
+ *   was answered (possibly by another client — e.g. an attached TUI).</li>
  * </ul>
  *
- * <p>Older/other builds reportedly emit a {@code permission.updated}-style
- * event instead; since that shape could not be verified against the server
- * this harness targets, it is intentionally not parsed here. Adding it later
- * only means extending {@link #parse} — the queue
- * ({@code com.opencode.ide.fleet.PermissionQueue}) is keyed by permission id
- * and tolerant of any field gaps.</p>
+ * <p>The fleet queue is keyed by permission request id. Both asks and replies
+ * must resolve to that same identity, including requests without tool metadata.</p>
  */
 public final class PermissionEvents {
 
@@ -70,32 +64,33 @@ public final class PermissionEvents {
     }
 
     private static PermissionRequest parseAsked(OpencodeEvent event) {
-        String sessionId = first(event.string("sessionID"), event.string("sessionId"));
-        // v2 keeps the permission id at source.id; v1 had a top-level id
-        String permissionId = first(event.at("source.id"), event.string("id"),
-                event.string("permissionID"), event.string("permissionId"));
+        String sessionId = nonBlankString(event, "sessionID");
+        String permissionId = nonBlankString(event, "id");
         if (sessionId == null || permissionId == null) {
             return null;
         }
-        // v2 renamed the fields: action (was permission), resources (was patterns)
-        String category = first(event.string("action"), event.string("permission"));
-        List<String> patterns = strings(event, "resources");
-        if (patterns.isEmpty()) {
-            patterns = strings(event, "patterns");
-        }
-        return new PermissionRequest(sessionId, permissionId, category, patterns,
-                metadataTitle(event), PermissionRequest.Status.PENDING);
+        return new PermissionRequest(sessionId, permissionId, nonBlankString(event, "action"),
+                strings(event, "resources"), metadataTitle(event), PermissionRequest.Status.PENDING);
     }
 
     private static PermissionRequest parseReplied(OpencodeEvent event) {
-        String sessionId = first(event.string("sessionID"), event.string("sessionId"));
-        String permissionId = first(event.string("requestID"), event.string("permissionID"),
-                event.string("id"));
+        String sessionId = nonBlankString(event, "sessionID");
+        String permissionId = nonBlankString(event, "requestID");
         if (sessionId == null || permissionId == null) {
             return null;
         }
         return new PermissionRequest(sessionId, permissionId, null, List.of(), null,
                 PermissionRequest.Status.ANSWERED);
+    }
+
+    private static String nonBlankString(OpencodeEvent event, String key) {
+        JsonObject properties = event.properties();
+        JsonElement value = properties == null ? null : properties.get(key);
+        if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+            return null;
+        }
+        String text = value.getAsString();
+        return text.isBlank() ? null : text;
     }
 
     /** The named property as a string list; non-string entries are skipped. */
@@ -135,15 +130,6 @@ public final class PermissionEvents {
                 if (!text.isBlank()) {
                     return text;
                 }
-            }
-        }
-        return null;
-    }
-
-    private static String first(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
             }
         }
         return null;

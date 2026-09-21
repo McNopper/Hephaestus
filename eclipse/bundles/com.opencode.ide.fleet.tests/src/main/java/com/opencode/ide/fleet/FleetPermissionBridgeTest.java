@@ -21,35 +21,21 @@ import com.opencode.ide.client.model.OpencodeEvent;
  */
 public class FleetPermissionBridgeTest {
 
-    /**
-     * A v2 {@code permission.asked}:
-     * {@code {sessionID, action, resources, save, metadata, source}} — the
-     * identity lives in {@code source.id}.
-     *
-     * <p>TODO(v2): the top-level {@code id} is a compatibility alias, not
-     * something a 2.0.x server sends. Client-owned
-     * {@code PermissionEvents.parse} still resolves identity from the v1
-     * top-level {@code id}/{@code permission}/{@code patterns}; drop the three
-     * aliased members here once it reads {@code source.id}/{@code action}/
-     * {@code resources} (see {@link FleetPermissionBridge#onEvent}).</p>
-     */
+    /** A v2 ask with distinct permission-request and source-tool identities. */
     private static OpencodeEvent asked(String sessionId, String permissionId) {
         JsonObject properties = new JsonObject();
+        properties.addProperty("id", permissionId);
         properties.addProperty("sessionID", sessionId);
-        properties.addProperty("action", "bash");
+        properties.addProperty("action", "shell");
         properties.add("resources", com.google.gson.JsonParser.parseString("[\"git push\"]"));
-        properties.addProperty("save", false);
+        properties.add("save", com.google.gson.JsonParser.parseString("[]"));
         properties.add("metadata", com.google.gson.JsonParser.parseString(
                 "{\"command\":\"git push\"}"));
         JsonObject source = new JsonObject();
         source.addProperty("type", "tool");
         source.addProperty("messageID", "msg_1");
-        source.addProperty("id", permissionId);
+        source.addProperty("id", "call_1");
         properties.add("source", source);
-        // compatibility aliases for the still-v1 client parser (see javadoc)
-        properties.addProperty("id", permissionId);
-        properties.addProperty("permission", "bash");
-        properties.add("patterns", com.google.gson.JsonParser.parseString("[\"git push\"]"));
         return new OpencodeEvent("permission.asked", properties);
     }
 
@@ -127,6 +113,19 @@ public class FleetPermissionBridgeTest {
         bridge.onEvent(replied("ses_1", "per_1"));
 
         assertTrue(queue.pending().isEmpty());
+    }
+
+    @Test
+    public void requestsFromTheSameToolAreDistinctAndRepliesMatchRequestIds() {
+        PermissionQueue queue = new PermissionQueue(null);
+        FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
+        bridge.sessionStarted("ses_1");
+        bridge.onEvent(asked("ses_1", "per_1"));
+        bridge.onEvent(asked("ses_1", "per_2"));
+
+        assertEquals(List.of("per_1", "per_2"), ids(queue));
+        bridge.onEvent(replied("ses_1", "per_1"));
+        assertEquals(List.of("per_2"), ids(queue));
     }
 
     @Test

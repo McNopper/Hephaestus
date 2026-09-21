@@ -345,12 +345,6 @@ public class SessionDetailsControllerTest {
         }
 
         @Override
-        public List<com.opencode.ide.client.model.SessionTodo> getSessionTodos(String sessionId)
-                throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public Session createSession(String title, Path directory) throws OpencodeException {
             throw new UnsupportedOperationException();
         }

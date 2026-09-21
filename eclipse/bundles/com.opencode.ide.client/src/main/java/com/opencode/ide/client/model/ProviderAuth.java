@@ -1,11 +1,10 @@
 package com.opencode.ide.client.model;
 
 /**
- * One auth method of a provider ({@code GET /provider/auth}). The live v1.18
- * wire shape is a <b>map</b> keyed by provider id whose values are lists of
- * {@code {"type":"oauth"|"api","label":"…"}} methods - the client converts it
- * into this flat, one-entry-per-method form (same conversion as
- * {@link McpServerInfo} for {@code GET /mcp}). Nullable-tolerant.
+ * One auth method from the v2 {@code GET /api/integration} catalog. The client
+ * flattens each integration's {@code methods[]} into this display model,
+ * keyed by integration id. Types include {@code oauth}, {@code key},
+ * {@code env} and {@code command}; labels may be absent.
  */
 public record ProviderAuth(
         String provider,

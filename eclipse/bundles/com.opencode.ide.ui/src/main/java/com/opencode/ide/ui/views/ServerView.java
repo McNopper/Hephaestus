@@ -1060,13 +1060,12 @@ public class ServerView extends ViewPart implements Refreshable {
         }
     }
 
-    /** The session id of a v2 session event ({@code sessionID}, or {@code id} on older frames). */
+    /** The session id of a v2 session event (flat {@code sessionID}). */
     private static String sessionIdOf(OpencodeEvent event) {
-        String sid = event.string("sessionID");
-        return sid != null ? sid : event.string("id");
+        return event.string("sessionID");
     }
 
-    /** Reads the status type from {@code session.status}: v2 nests it as {@code status.type}. */
+    /** Reads the status label from a session event. */
     private static String extractStatusType(OpencodeEvent event) {
         String flat = event.string("status");
         return flat != null ? flat : event.at("status.type");

@@ -20,15 +20,15 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.opencode.ide.client.activity.PermissionEvents;
+import com.opencode.ide.client.activity.PermissionRequest;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.CommandInfo;
 import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.FileNode;
 import com.opencode.ide.client.model.ProjectSummary;
-import com.opencode.ide.client.model.SearchMatch;
 import com.opencode.ide.client.model.Session;
-import com.opencode.ide.client.model.SymbolResult;
 import com.opencode.ide.client.model.VcsInfo;
 
 /**
@@ -211,6 +211,23 @@ public class HttpOpencodeClientH5ComponentTest {
         assertEquals("{\"decision\":\"once\"}", lastBody.get());
     }
 
+    @Test
+    public void liveShapedPermissionEventRepliesToTheRequestNotTheToolInvocation() throws Exception {
+        PermissionRequest request = PermissionEvents.parse(Sse.parseEvent("""
+                {"id":"evt_7","created":1,"type":"permission.asked",
+                 "location":{"directory":"C:/repo"},"data":{
+                  "id":"perm_7","sessionID":"ses_1","action":"shell",
+                  "resources":["git status"],"save":[],
+                  "source":{"type":"tool","messageID":"msg_1","id":"call_7"}}}
+                """));
+        assertNotNull(request);
+
+        assertTrue(client.respondToPermission(request.sessionId(), request.permissionId(), "once", false));
+
+        assertEquals("/api/session/ses_1/permission/perm_7/reply", lastPath.get());
+        assertEquals("{\"decision\":\"once\"}", lastBody.get());
+    }
+
     /** {@code remember} becomes {@code always}; anything starting with "r" rejects. */
     @Test
     public void permissionDecisionMapsRememberAndReject() throws Exception {
@@ -270,23 +287,32 @@ public class HttpOpencodeClientH5ComponentTest {
     }
 
     @Test
-    public void fileTreeFindAndSymbolsParse() throws Exception {
+    public void fileTreeAndFindParse() throws Exception {
         List<FileNode> nodes = client.listFiles(null);
         assertEquals(2, nodes.size());
         assertTrue(nodes.get(0).isDirectory());
         assertFalse(nodes.get(1).isDirectory());
         assertEquals("the name derives from the path in v2", "src", nodes.get(0).name());
 
-        // v2 has NO text/symbol search: /fs/find only matches file/dir names
-        assertTrue(client.findText("add").isEmpty());
-        assertTrue(client.findSymbols("add").isEmpty());
-
+        // v2 has no text/symbol search; /fs/find matches file/dir names only
         List<String> files = client.findFiles("a.cpp");
         assertEquals(List.of("src/a.cpp", "src/b.cpp"), files);
+        assertEquals("/api/fs/find", lastPath.get());
+        assertEquals("query=a.cpp&type=file", lastQuery.get());
+    }
+
+    @Test
+    public void fileSearchEncodesTheQueryAndProjectScope() throws Exception {
+        client.findFiles("@src/read me.cpp", "C:\\repo with spaces");
+
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/fs/find", lastPath.get());
+        assertEquals("query=%40src%2Fread%20me.cpp&type=file"
+                + "&location%5Bdirectory%5D=C%3A%5Crepo%20with%20spaces", lastQuery.get());
     }
 
     /**
-     * The server rejects {@code GET /file} without a {@code path} key with
+     * The server rejects {@code GET /api/fs/list} without a {@code path} key with
      * HTTP 400 ({@code Missing key at ["path"]}), which used to break the Repo
      * view's very first (root) load. Every listing must carry the key.
      */

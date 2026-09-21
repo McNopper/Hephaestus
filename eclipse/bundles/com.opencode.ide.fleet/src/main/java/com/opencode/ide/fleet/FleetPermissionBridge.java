@@ -16,9 +16,9 @@ import com.opencode.ide.client.model.OpencodeEvent;
  * {@code session.deleted}.
  *
  * <p><b>Why the runner-level session-created callback:</b> the fleet's
- * prompt call ({@code POST /session/:id/prompt}) blocks until the agent's
- * final reply — and an unattended session that asks for permission waits,
- * mid-run, inside that very call. The session must therefore be watched
+ * synchronous client call queues {@code POST /session/:id/prompt} and polls
+ * until the agent's final reply. An unattended session can ask for permission
+ * while that call is waiting. The session must therefore be watched
  * from the moment it is created (before the prompt is sent), not after
  * {@code submit} returns. Wire the {@link FleetRunner}'s
  * {@code onSessionCreated} callback to {@link #sessionStarted(String)}
@@ -86,11 +86,9 @@ public final class FleetPermissionBridge {
      * sessions are forwarded to the queue. Unknown sessions, foreign event
      * types and malformed payloads are ignored — this method never throws.
      *
-     * <p><b>v2 payloads:</b> {@code permission.asked} keeps its identity at
-     * {@code source.id} and renames the category/patterns fields; that shape is
-     * resolved in the client-owned {@link PermissionEvents#parse(OpencodeEvent)}
-     * (the single place that knows the wire shape), so this bridge only reads
-     * the {@code sessionID} itself.</p>
+     * <p>The client-owned {@link PermissionEvents#parse(OpencodeEvent)} resolves
+     * the request id from {@code id} on asks and {@code requestID} on replies.
+     * This bridge only reads {@code sessionID} itself for session deletion.</p>
      */
     public void onEvent(OpencodeEvent event) {
         if (event == null || event.type() == null) {

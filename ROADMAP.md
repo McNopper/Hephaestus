@@ -16,6 +16,16 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
+## Current state (2026-09-21)
+
+The v2-only cleanup was cross-checked against the live 2.0.11 service.
+Permission requests use their top-level `id`; `source.id` is a separate tool
+invocation id. Chat and fleet fixtures now exercise those distinct identities,
+including requests without tool metadata. Provider auth discovery uses the
+scoped `/api/integration` catalog, and Repo file search uses the project scope.
+The removed text/symbol-search and session-todo routes are no longer called;
+U-013 records the need to verify a v2 todo source before rebuilding that feature.
+
 ## Current state (2026-09-20)
 
 **Evening wrap — stable status quo for machine shutdown.** Everything is committed
@@ -79,6 +89,7 @@ materialization) is fixed with regression tests.
 | **Fleet & agent observability — no hidden work (HIGHEST PRIORITY)** | L | Today the fleet runs workers on its own spawned server and the user cannot see *what they are doing*. Goal: every agent — chat session, fleet worker, subagent, subprocess — is visible live in Eclipse: current activity (text/tool/file), full transcript, tokens/cost. The mechanics exist (the engine's `GlobalEventsAggregator` already sees the fleet server's stream; sessions/messages are pollable) — the work is surfacing it: per-worker live activity in the Fleet view (parity with the Server view's "what is it doing"), a transcript drill-down per job, and publishing the fleet server's endpoint so it can appear as a managed connection. **Tickets: U-015 (watch live), U-024 (daemon rows), U-026 (V-flow), U-040 (Fleet view as a tree), U-041 (subagents + console tasks); Eclipse-reuse cross-check: `docs/fleet-observability-eclipse-reuse.md`** |
 | **v2 background tasks** | M | v2 can push a session to the background (`POST /api/session/:id/background`) — expose it: send a chat/fleet task to the background, list what's running there (they are ordinary sessions on the stream), and bring it back. **Ticket: U-042** |
 | **v2 subagents & subprocesses in the UI** | M | The TUI shows subagents and subprocesses; Eclipse should match. Subagent nesting exists (parentID); add the v2 shell/PTY surfaces (`/api/shell`, `/api/pty`, `shell.*` events) so per-session subprocess activity (what ran, status, output tail) is visible too. **Ticket: U-041** |
+| **Session todos → tickets over v2** | S/M | The v2 API has no session-todo endpoint or todo field on the session resource (checked against the live 2.0.11 contract). The old fleet import called the removed endpoint and has been retired; task-store todos remain available. Establish and verify a supported source of agent todo state before implementing its display/import. Transcript tool outputs are a candidate to investigate, not a verified contract. **Related: U-013 and the observability transcript work.** |
 | **In-Eclipse verification pass** | M | The deferred UI checklist: board/fleet live try (peer refresh, badges, busy icons, menus), CDT marker round trip, per-view screenshots (`glm-5.3-flash` multimodal). Everything else is done — this is the remaining gate. |
 | **V-006 slice (c): default flip** | S | Flip `FLEET_DAEMON` default to `auto` after the in-Eclipse validation run exercises the daemon opt-in. Slices a+b are shipped and tested; design + as-built note on ticket V-006. **Ticket: U-036** |
 | **Graceful full-stack shutdown** | M | One action: park admissions, checkpoint in-flight workers, stop the daemon, maintenance flag, shutdown report + resume. Trigger: host JDK upgrade; includes the engine-addressing bug (chat MCP stop hit the chat's local engine, not the daemon). **Ticket: U-038** |

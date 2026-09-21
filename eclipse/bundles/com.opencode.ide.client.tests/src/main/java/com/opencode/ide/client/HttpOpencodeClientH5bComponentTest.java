@@ -111,16 +111,15 @@ public class HttpOpencodeClientH5bComponentTest {
             // v2 serves raw file bytes at /fs/read/<path> (no JSON envelope);
             // the stub sees the DECODED path (getPath() unescapes %20)
             case "/api/fs/read/src/a b/main.cpp" -> "int main() { return 0; }";
-            // {"<providerID>": [{"type":"oauth"|"api","label":…, prompts?}, …]} - a MAP of method lists
-            case "/api/provider/auth" -> """
-                    {"anthropic":[{"type":"oauth","label":"Anthropic Console","prompts":[]}],
-                     "github":[{"type":"oauth","label":"GitHub"},{"type":"api","label":"Personal access token"}]}
-                    """;
             // v2 OAuth: the provider's integration lists its methods, the first
             // OAuth method starts via /api/integration/:id/connect/oauth
             case "/api/integration" -> """
                     {"location":{},"data":[{"id":"anthropic","name":"Anthropic",
                       "methods":[{"type":"key"},{"id":"browser","type":"oauth","label":"Anthropic Console"}],
+                      "connections":[]},
+                     {"id":"github-copilot","name":"GitHub Copilot",
+                      "methods":[{"type":"env","names":["GITHUB_TOKEN"]},
+                                 {"id":"device","type":"oauth","label":"GitHub"}],
                       "connections":[]}]}
                     """;
             case "/api/integration/anthropic/connect/oauth" ->
@@ -196,17 +195,38 @@ public class HttpOpencodeClientH5bComponentTest {
     }
 
     @Test
-    public void providerAuthsFlattenTheMethodMap() throws Exception {
+    public void providerAuthsFlattenTheV2IntegrationCatalog() throws Exception {
         List<ProviderAuth> auths = client.getProviderAuths();
-        assertEquals(3, auths.size());
+        assertEquals(4, auths.size());
         assertEquals("anthropic", auths.get(0).provider());
-        assertEquals("oauth", auths.get(0).type());
-        assertEquals("Anthropic Console", auths.get(0).label());
-        assertEquals("github", auths.get(1).provider());
+        assertEquals("key", auths.get(0).type());
+        assertNull(auths.get(0).label());
+        assertEquals("Anthropic Console", auths.get(1).label());
         assertEquals("oauth", auths.get(1).type());
-        assertEquals("api", auths.get(2).type());
+        assertEquals("github-copilot", auths.get(2).provider());
+        assertEquals("env", auths.get(2).type());
+        assertEquals("oauth", auths.get(3).type());
         assertEquals("GET", lastMethod.get());
-        assertEquals("/api/provider/auth", lastPath.get());
+        assertEquals("/api/integration", lastPath.get());
+        assertNull(lastQuery.get());
+    }
+
+    @Test
+    public void providerAuthCatalogScopesToTheProject() throws Exception {
+        client.getProviderAuths("C:\\repo with spaces");
+        assertEquals("/api/integration", lastPath.get());
+        assertEquals("location%5Bdirectory%5D=C%3A%5Crepo%20with%20spaces", lastQuery.get());
+    }
+
+    @Test
+    public void providerAuthsSkipIncompleteIntegrationsAndMethods() throws Exception {
+        bodyOverride.set("""
+                {"data":[null,{},
+                  {"id":"missing","methods":null},
+                  {"id":"wrong-shape","methods":"bad"},
+                  {"id":"valid","methods":[null,{},false,{"type":"key"}]}]}
+                """);
+        assertEquals(List.of(new ProviderAuth("valid", "key", null)), client.getProviderAuths());
     }
 
     @Test
@@ -215,7 +235,13 @@ public class HttpOpencodeClientH5bComponentTest {
         assertTrue(client.getProviderAuths().isEmpty());
 
         statusOverride.set(200);
-        bodyOverride.set("[{\"type\":\"oauth\"}]"); // array, not the live map shape
+        bodyOverride.set("[{\"type\":\"oauth\"}]"); // catalog requires a data envelope
+        assertTrue(client.getProviderAuths().isEmpty());
+
+        bodyOverride.set("{\"anthropic\":[{\"type\":\"oauth\"}]}"); // retired method-map shape
+        assertTrue(client.getProviderAuths().isEmpty());
+
+        bodyOverride.set("{\"data\":null}");
         assertTrue(client.getProviderAuths().isEmpty());
 
         bodyOverride.set("<<garbage>>");

@@ -12,7 +12,7 @@ import com.opencode.ide.client.model.ProviderAuth;
 
 /**
  * Pure (SWT-free) provider auth model for the Providers view: per provider,
- * the auth methods available ({@code GET /provider/auth}) —
+ * the auth methods available ({@code GET /api/integration}) —
  * {@link #authenticated()} means at least one method exists — and their
  * labels (falling back to the method type). Drives the
  * {@code " · auth"} suffix of a provider's rows and the availability of the
@@ -37,12 +37,17 @@ public final class ProviderAuthState {
      * order. Failure degrades to an empty map.
      */
     public static Map<String, ProviderAuthState> load(OpencodeClient client) {
+        return load(client, null);
+    }
+
+    /** Loads the integration catalog for the view's project directory. */
+    public static Map<String, ProviderAuthState> load(OpencodeClient client, String directory) {
         if (client == null) {
             return Map.of();
         }
         List<ProviderAuth> auths;
         try {
-            auths = client.getProviderAuths();
+            auths = client.getProviderAuths(directory);
         } catch (Exception e) {
             return Map.of();
         }

@@ -32,7 +32,6 @@ import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.client.model.SkillInfo;
 
 /**
@@ -144,8 +143,6 @@ public class HttpOpencodeClientComponentTest {
     /** The raw query string of the latest hit per path (for location-scoping assertions). */
     private static final java.util.Map<String, String> queriesByPath =
             new java.util.concurrent.ConcurrentHashMap<>();
-    /** Settable body served by the stub for {@code GET /api/session/:id/todo}. */
-    private static final AtomicReference<String> todoBody = new AtomicReference<>("[]");
     /** Settable body served by the stub for {@code GET /api/info}. */
     private static final AtomicReference<String> infoBody = new AtomicReference<>(INFO_BODY);
     /** Settable body served by the stub for {@code POST /api/session/:id/prompt}. */
@@ -191,8 +188,6 @@ public class HttpOpencodeClientComponentTest {
             } else if (path.endsWith("/active")) {
                 // v2 lists RUNNING sessions only; an absent session is idle
                 response = "{\"data\":{\"ses_busy\":{\"type\":\"running\"}}}";
-            } else if (path.endsWith("/todo")) {
-                response = todoBody.get();
             } else if (path.endsWith("/message")) {
                 response = nextMessagesBody();
             } else if (path.endsWith("/prompt")) {
@@ -289,7 +284,6 @@ public class HttpOpencodeClientComponentTest {
     public void resetStub() {
         requests.clear();
         queriesByPath.clear();
-        todoBody.set("[]");
         infoBody.set(INFO_BODY);
         promptAck.set(PROMPT_ACK);
         serveMessages(COMPLETED_TURN);
@@ -533,56 +527,6 @@ public class HttpOpencodeClientComponentTest {
         assertTrue(entries.get(1).isUser());
         assertEquals("a v2 user message carries a flat text, not parts",
                 "What is 2+2?", entries.get(1).text());
-    }
-
-    @Test
-    public void getSessionTodosParsesEntries() throws Exception {
-        todoBody.set("""
-                {"data":[
-                 {"id":"todo_1","content":"Write the plan","status":"in_progress","priority":"high"},
-                 {"id":"todo_2","content":"Run the build","status":"completed","priority":"low"}
-                ]}
-                """);
-
-        List<SessionTodo> todos = client.getSessionTodos("ses_new");
-
-        assertEquals("GET", lastMethod.get());
-        assertEquals("/api/session/ses_new/todo", lastPath.get());
-        assertEquals(2, todos.size());
-        assertEquals("todo_1", todos.get(0).id());
-        assertEquals("Write the plan", todos.get(0).content());
-        assertEquals("in_progress", todos.get(0).status());
-        assertEquals("high", todos.get(0).priority());
-        assertEquals("completed", todos.get(1).status());
-    }
-
-    @Test
-    public void getSessionTodosHandlesAnEmptyList() throws Exception {
-        todoBody.set("{\"data\":[]}");
-
-        assertTrue(client.getSessionTodos("ses_new").isEmpty());
-    }
-
-    @Test
-    public void getSessionTodosToleratesEntriesWithMissingFieldsAndNulls() throws Exception {
-        todoBody.set("""
-                {"data":[
-                 {},
-                 {"content":"Only content","status":"done"},
-                 null
-                ]}
-                """);
-
-        List<SessionTodo> todos = client.getSessionTodos("ses_new");
-
-        assertEquals(3, todos.size());
-        assertNull("missing fields map to null components", todos.get(0).id());
-        assertNull(todos.get(0).content());
-        assertNull(todos.get(0).status());
-        assertNull(todos.get(0).priority());
-        assertEquals("Only content", todos.get(1).content());
-        assertEquals("done", todos.get(1).status());
-        assertNull("null array entries parse to null elements (callers skip)", todos.get(2));
     }
 
     // ---------- the asynchronous v2 send path ----------

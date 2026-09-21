@@ -1,16 +1,12 @@
 package com.opencode.ide.fleet;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatMessageInfo;
 import com.opencode.ide.client.model.Session;
-import com.opencode.ide.client.model.SessionTodo;
-import com.opencode.ide.tasks.Task;
 
 /**
  * Pure telemetry helpers for {@link TaskFleet} (no I/O, never throws):
@@ -18,11 +14,6 @@ import com.opencode.ide.tasks.Task;
  *   <li>{@link #actualsComment(List)} - the per-run cost/token actuals line
  *       recorded as a ticket comment when a fleet job merges; the accumulated
  *       comments calibrate project-manager-estimate-costs.</li>
- *   <li>{@link #todosToMerge(List, List)} - the todo-merge plan syncing
- *       opencode session todos ({@code GET /session/:id/todo}) into the task
- *       store. Text reuse is the identity: ids differ between the store and
- *       the server, so a session todo whose (trimmed) content already exists
- *       on the ticket is NOT added again.</li>
  * </ul>
  *
  * <p>Every input may be {@code null} or partially populated (the DTOs are
@@ -93,48 +84,5 @@ public final class FleetTelemetry {
             return null;
         }
         return "fleet actuals: " + String.join(", ", parts);
-    }
-
-    /**
-     * The todo-merge plan: session todos whose sanitized, trimmed content is
-     * not already among the ticket's todo texts, in server order. A status
-     * containing (case-insensitive) {@code completed} or {@code done} maps to
-     * {@code done=true}; anything else - including {@code null} - stays
-     * unchecked. Blank contents, {@code null} entries, and duplicate texts
-     * (against the ticket or within the plan itself) are dropped; newlines
-     * become spaces (the store's single-line todo invariant).
-     */
-    public static List<Task.Todo> todosToMerge(List<SessionTodo> sessionTodos, List<Task.Todo> existing) {
-        Set<String> known = new HashSet<>();
-        if (existing != null) {
-            for (Task.Todo todo : existing) {
-                if (todo != null && todo.text() != null) {
-                    known.add(todo.text().trim());
-                }
-            }
-        }
-        List<Task.Todo> plan = new ArrayList<>();
-        if (sessionTodos == null) {
-            return plan;
-        }
-        for (SessionTodo sessionTodo : sessionTodos) {
-            if (sessionTodo == null || sessionTodo.content() == null) {
-                continue;
-            }
-            String text = sessionTodo.content().replace('\r', ' ').replace('\n', ' ').trim();
-            if (text.isBlank() || !known.add(text)) {
-                continue;
-            }
-            plan.add(new Task.Todo(text, mapsToDone(sessionTodo.status())));
-        }
-        return plan;
-    }
-
-    private static boolean mapsToDone(String status) {
-        if (status == null) {
-            return false;
-        }
-        String lowered = status.toLowerCase(Locale.ROOT);
-        return lowered.contains("completed") || lowered.contains("done");
     }
 }

@@ -18,7 +18,6 @@ import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.client.McpServerConfig;
 import com.opencode.ide.client.model.ShellResult;
 
@@ -44,8 +43,6 @@ final class FakeClient implements OpencodeClient {
     /** Cross-call order log ({@code shell <sid>} / {@code message <sid>}) - pins the bootstrap before the prompt. */
     final List<String> callLog = new java.util.concurrent.CopyOnWriteArrayList<>();
     final Map<String, List<ChatEntry>> messagesBySession = new java.util.concurrent.ConcurrentHashMap<>();
-    /** Served by {@link #getSessionTodos(String)} for every session (settable). */
-    final List<SessionTodo> sessionTodos = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /** Thread-safe since the 2026-08-28 watchdog redesign: the prompt runs on its own thread while the watchdog probes. */
     volatile String sessionType = "busy";
@@ -129,11 +126,6 @@ final class FakeClient implements OpencodeClient {
             throw new OpencodeException("messages fetch failed");
         }
         return messagesBySession.getOrDefault(sessionId, List.of());
-    }
-
-    @Override
-    public List<SessionTodo> getSessionTodos(String sessionId) {
-        return new ArrayList<>(sessionTodos);
     }
 
     @Override

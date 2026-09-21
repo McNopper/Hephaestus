@@ -19,32 +19,29 @@ import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProjectSummary;
 import com.opencode.ide.client.model.ProviderAuth;
 import com.opencode.ide.client.model.ProviderList;
-import com.opencode.ide.client.model.SearchMatch;
-import com.opencode.ide.client.model.SkillInfo;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
-import com.opencode.ide.client.model.SessionTodo;
 import com.opencode.ide.client.model.ShellResult;
-import com.opencode.ide.client.model.SymbolResult;
+import com.opencode.ide.client.model.SkillInfo;
 import com.opencode.ide.client.model.VcsInfo;
 
 /**
- * Client for an opencode server ({@code opencode serve}). All methods perform
+ * Client for an opencode v2 server. Request methods perform
  * synchronous HTTP and throw {@link OpencodeException} on failure.
  *
- * <p>Methods mirror the documented REST surface (see the opencode "Server" docs
- * and the server's OpenAPI spec at {@code /doc}).</p>
+ * <p>The wire contract is the server's OpenAPI spec at {@code /openapi.json}.
+ * Session prompt and shell operations queue work and poll for completion.</p>
  */
 public interface OpencodeClient {
 
-    /** {@code GET /global/health} - server health and version. */
+    /** {@code GET /api/info} - server health and version. */
     HealthStatus getHealth() throws OpencodeException;
 
-    /** {@code GET /agent} - all available agent definitions. */
+    /** {@code GET /api/agent} - all available agent definitions. */
     List<Agent> getAgents() throws OpencodeException;
 
     /**
-     * {@code GET /agent?location[directory]=…} - agent definitions scoped to a
+     * {@code GET /api/agent?location[directory]=…} - agent definitions scoped to a
      * project directory. v2 resolves these auxiliary lists per location: an
      * unscoped call on the shared background service answers for the user's
      * home directory, i.e. the wrong project's agents/skills/MCP servers.
@@ -55,7 +52,7 @@ public interface OpencodeClient {
         return getAgents();
     }
 
-    /** {@code GET /config/providers} - providers, their models, and the defaults. */
+    /** {@code GET /api/provider} and {@code /api/model} - providers and their models. */
     ProviderList getProviders() throws OpencodeException;
 
     /** Scoped variant (see {@link #getAgents(String)}): the catalog can differ per project config. */
@@ -63,22 +60,21 @@ public interface OpencodeClient {
         return getProviders();
     }
 
-    /** {@code GET /config} - server config (default model etc.). */
+    /** {@code GET /api/config} - server config (default model etc.). */
     ConfigInfo getConfig() throws OpencodeException;
 
-    /** {@code GET /config?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    /** {@code GET /api/config?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
     default ConfigInfo getConfig(String directory) throws OpencodeException {
         return getConfig();
     }
 
-    /** {@code GET /session} - all sessions (running agent instances), including subagent children. */
+    /** {@code GET /api/session} - sessions, including subagent children. */
     List<Session> getSessions() throws OpencodeException;
 
     /**
-     * {@code GET /session?directory=…} - sessions scoped to one project/worktree
+     * {@code GET /api/session?directory=…} - sessions scoped to one project/worktree
      * directory. Matters in v2: session state is global per user (every server
-     * lists every session of every project), so a view that wants "this repo's
-     * sessions" must filter — the v1 server did that scoping for us.
+     * lists every session of every project), so project views must filter.
      *
      * @param directory project/worktree path, or {@code null} for all sessions
      */
@@ -86,11 +82,11 @@ public interface OpencodeClient {
         return getSessions();
     }
 
-    /** {@code GET /session/status} - per-session status ({@code idle}/{@code busy}/{@code retry}). */
+    /** {@code GET /api/session/active} - active sessions mapped to client status; absent means idle. */
     Map<String, SessionStatus> getSessionStatus() throws OpencodeException;
 
     /**
-     * {@code POST /session} - create a new session.
+     * {@code POST /api/session} - create a new session.
      *
      * @param title optional title (may be {@code null})
      */
@@ -99,8 +95,8 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session?directory=…} - create a session scoped to a project
-     * directory (e.g. a git worktree an agent should work in).
+     * {@code POST /api/session} with {@code location.directory} in the JSON
+     * body - create a session in a project directory or git worktree.
      *
      * @param title     optional title (may be {@code null})
      * @param directory working directory the session operates in
@@ -109,7 +105,7 @@ public interface OpencodeClient {
     Session createSession(String title, Path directory) throws OpencodeException;
 
     /**
-     * {@code POST /mcp} - register an MCP server with the opencode server so its
+     * {@code PUT /api/experimental/mcp/:name} - register an MCP server so its
      * tools become available to agents.
      *
      * @param name   the MCP server name (e.g. {@code "eclipse-build"})
@@ -118,7 +114,7 @@ public interface OpencodeClient {
     void registerMcp(String name, McpServerConfig config) throws OpencodeException;
 
     /**
-     * {@code GET /mcp} - the MCP servers registered with the opencode server
+     * {@code GET /api/mcp} - the MCP servers registered with the opencode server
      * (their ids and transport types). Default returns empty so test fakes and
      * partial implementations stay compiling.
      */
@@ -126,13 +122,13 @@ public interface OpencodeClient {
         return List.of();
     }
 
-    /** {@code GET /mcp?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    /** {@code GET /api/mcp?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
     default List<McpServerInfo> getMcpServers(String directory) throws OpencodeException {
         return getMcpServers();
     }
 
     /**
-     * {@code GET /skill} - the skills loaded from the working directory's
+     * {@code GET /api/skill} - the skills loaded from the working directory's
      * {@code .opencode/skills/}. Default returns empty so test fakes and
      * partial implementations stay compiling.
      */
@@ -140,43 +136,29 @@ public interface OpencodeClient {
         return List.of();
     }
 
-    /** {@code GET /skill?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    /** {@code GET /api/skill?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
     default List<SkillInfo> getSkills(String directory) throws OpencodeException {
         return getSkills();
     }
 
-    /** {@code GET /session/:id/message} - the message history of a session. */
+    /** {@code GET /api/session/:id/message} - the message history of a session. */
     List<ChatEntry> getMessages(String sessionId) throws OpencodeException;
 
     /**
-     * {@code GET /session/:id/todo} - the session's todo list (opencode v1.18).
-     * Default returns empty so test fakes and partial implementations stay
-     * compiling (same pattern as {@link #abortSession(String)}).
-     */
-    default List<SessionTodo> getSessionTodos(String sessionId) throws OpencodeException {
-        return List.of();
-    }
-
-    /**
-     * {@code POST /session/:id/message} - send a user prompt and wait for the
-     * assistant reply. Streaming display should be driven by the {@code /event}
-     * SSE stream; this call's result is the final, complete reply.
+     * {@code POST /api/session/:id/prompt} - queue a user prompt, then poll the
+     * message history for its completed assistant reply. Streaming display uses
+     * the {@code /api/event} SSE stream.
      *
      * @param request model/agent/variant/system + the prompt (see {@link ChatRequest})
      */
     ChatEntry sendMessage(ChatRequest request) throws OpencodeException;
 
     /**
-     * {@link #sendMessage(ChatRequest)} with an explicit HTTP timeout for the
-     * blocking prompt call. The default delegates unchanged (the single-arg
-     * contract); callers that drive unattended runs (the task fleet) pass
-     * their whole run budget - an agent may legitimately stream for many
-     * minutes before the final reply, and a short fixed cap aborts healthy
-     * runs (Milestone V finding: a hard 5-minute cap killed every run that
-     * took longer).
+     * {@link #sendMessage(ChatRequest)} with an explicit reply-wait budget.
+     * The default delegates to the single-argument method; unattended callers
+     * pass their run budget so a long, active turn is allowed to complete.
      *
-     * @param promptTimeout how long the blocking POST may wait for the final
-     *                      reply; implementations clamp only to sane bounds
+     * @param promptTimeout how long to wait for the queued turn's final reply
      */
     default ChatEntry sendMessage(ChatRequest request, java.time.Duration promptTimeout)
             throws OpencodeException {
@@ -184,9 +166,8 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session/:id/abort} - abort the running agent in a session.
-     * A 4xx reply (typically "session is already idle") is tolerated and
-     * logged, not surfaced; server (>= 5xx) and transport errors raise
+     * {@code POST /api/session/:id/interrupt} - interrupt the running agent.
+     * A 404 is treated as already idle; other HTTP and transport errors raise
      * {@link OpencodeException}.
      *
      * <p>Default implementation throws {@link UnsupportedOperationException} so
@@ -203,7 +184,7 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /log} - write an entry into the opencode server log.
+     * Write an entry to the harness's client-side log.
      *
      * @param service free-form service identifier (e.g. {@code "opencode-eclipse"})
      * @param level   one of {@code DEBUG}, {@code INFO}, {@code WARN}, {@code ERROR}
@@ -212,10 +193,10 @@ public interface OpencodeClient {
      */
     void log(String service, String level, String message, Map<String, Object> extra) throws OpencodeException;
 
-    // ---------- H5 surface (opencode v1.18.x): all defaulted so existing fakes stay compiling ----------
+    // ---------- session lifecycle and workspace operations ----------
 
     /**
-     * {@code GET /session/:id/diff} - the session's file diffs (authoritative,
+     * {@code GET /api/session/:id/diff} - the session's file diffs (authoritative,
      * server-side; works for taken-over and external sessions too).
      *
      * @param sessionId the session
@@ -225,27 +206,26 @@ public interface OpencodeClient {
         return List.of();
     }
 
-    /** {@code POST /session/:id/fork} - fork a session at a message (explore a variant). */
+    /** {@code POST /api/session/:id/fork} - fork a session at a message (explore a variant). */
     default Session forkSession(String sessionId, String messageId) throws OpencodeException {
         throw new UnsupportedOperationException("forkSession");
     }
 
     /**
-     * {@code POST /session/:id/revert/stage} - revert the conversation to
-     * before a message. v2 reverts whole messages ({@code messageID} plus an
-     * optional {@code files} flag); v1's per-part {@code partID} is gone.
+     * {@code POST /api/session/:id/revert/stage} - stage a conversation revert
+     * to before a whole message ({@code messageID}).
      */
     default boolean revertMessage(String sessionId, String messageId) throws OpencodeException {
         throw new UnsupportedOperationException("revertMessage");
     }
 
-    /** {@code POST /session/:id/unrevert} - restore all reverted messages. */
+    /** {@code DELETE /api/session/:id/revert} - clear the staged revert. */
     default boolean unrevertSession(String sessionId) throws OpencodeException {
         throw new UnsupportedOperationException("unrevertSession");
     }
 
     /**
-     * {@code POST /session/:id/summarize} - compact a long session (provider/
+     * {@code POST /api/session/:id/compact} - compact a long session (provider/
      * model pick; the server then maintains the summary itself).
      */
     default boolean summarizeSession(String sessionId, String providerId, String modelId)
@@ -254,18 +234,18 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session/:id/permission/:requestID/reply} - answer a permission
+     * {@code POST /api/session/:id/permission/:requestID/reply} - answer a permission
      * request an unattended session raised.
      *
      * @param response     {@code "once"}, {@code "always"} or {@code "reject"}
-     * @param remember     persist the decision as a rule in the session config
+     * @param remember     send an {@code always} decision for an approval
      */
     default boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember)
             throws OpencodeException {
         throw new UnsupportedOperationException("respondToPermission");
     }
 
-    /** {@code GET /command} - the project's custom slash commands ({@code .opencode/command/}). */
+    /** {@code GET /api/command} - the project's custom slash commands. */
     default List<CommandInfo> getCommands() throws OpencodeException {
         return List.of();
     }
@@ -276,7 +256,7 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session/:id/command} - execute a custom slash command in a
+     * {@code POST /api/session/:id/command} - execute a custom slash command in a
      * session and wait for the reply.
      */
     default ChatEntry runCommand(String sessionId, String command, List<String> arguments)
@@ -285,28 +265,27 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /session/:id/shell} - execute a shell command in the
-     * session context and wait for the created assistant message (opencode
-     * v1.18.30; payload {@code {agent, command}} plus optional
-     * {@code messageID}/{@code model}). The reply is the message plus its
-     * shell tool part, mapped leniently into {@link ShellResult}.
+     * {@code POST /api/session/:id/shell} - execute a shell command in the
+     * session context. The client sends {@code {command}} and polls
+     * {@code GET /api/session/:id/message} for its completion. The reply is the shell message,
+     * mapped leniently into {@link ShellResult}.
      */
     default ShellResult runShell(String sessionId, String agent, String command) throws OpencodeException {
         throw new UnsupportedOperationException("runShell");
     }
 
-    /** {@code GET /project} - all projects the server knows (worktree + VCS position). */
+    /** {@code GET /api/project} - all projects the server knows. */
     default List<ProjectSummary> getProjects() throws OpencodeException {
         return List.of();
     }
 
-    /** {@code GET /vcs} - VCS state of the current project (branch, remote). */
+    /** {@code GET /api/vcs} - VCS state of the current project. */
     default VcsInfo getVcsInfo() throws OpencodeException {
         return new VcsInfo(null, null);
     }
 
     /**
-     * {@code GET /vcs?location=…} - VCS state scoped to one project directory.
+     * {@code GET /api/vcs?location[directory]=…} - VCS state scoped to one project directory.
      * Matters on the shared v2 service, whose own cwd is the user's home.
      */
     default VcsInfo getVcsInfo(String directory) throws OpencodeException {
@@ -314,40 +293,30 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code GET /file?path=…} - one level of the workspace file tree
+     * {@code GET /api/fs/list?path=…} - one level of the workspace file tree
      * (empty path or {@code "."} = the project root).
      */
     default List<FileNode> listFiles(String path) throws OpencodeException {
         return List.of();
     }
 
-    /** {@code GET /fs/list?path=…&location=…} - the listing scoped to one project directory. */
+    /** {@code GET /api/fs/list?path=…&location[directory]=…} - listing scoped to a project. */
     default List<FileNode> listFiles(String path, String directory) throws OpencodeException {
         return listFiles(path);
     }
 
-    /** {@code GET /find?pattern=…} - text search across workspace files. */
-    default List<SearchMatch> findText(String pattern) throws OpencodeException {
-        return List.of();
-    }
-
-    /** {@code GET /fs/find?query=…&location=…} - file-name search scoped to one project directory. */
+    /** {@code GET /api/fs/find?query=…&location[directory]=…} - file-name search scoped to a project. */
     default List<String> findFiles(String query, String directory) throws OpencodeException {
         return findFiles(query);
     }
 
-    /** {@code GET /find/file?query=…} - fuzzy file-name search (paths). */
+    /** {@code GET /api/fs/find?query=…&type=file} - fuzzy file-name search (paths). */
     default List<String> findFiles(String query) throws OpencodeException {
         return List.of();
     }
 
-    /** {@code GET /find/symbol?query=…} - workspace symbol search. */
-    default List<SymbolResult> findSymbols(String query) throws OpencodeException {
-        return List.of();
-    }
-
     /**
-     * {@code PATCH /config} - apply partial config changes (e.g. switch the
+     * {@code PATCH /api/experimental/config} - apply partial config changes (e.g. switch the
      * default model) and get the updated config back.
      *
      * @param changes JSON-serializable partial config (e.g. {@code {"model":"x/y"}})
@@ -357,23 +326,21 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code POST /tui/<action>} - drive the opencode TUI (the official IDE
-     * take-over mechanism): {@code append-prompt}, {@code submit-prompt},
-     * {@code clear-prompt}, {@code open-models}, {@code open-help},
-     * {@code open-sessions}, {@code open-themes}, {@code execute-command},
-     * {@code show-toast}.
+     * Report whether a TUI action was driven. The v2 HTTP implementation
+     * returns {@code false} without a request because there is no TUI-control
+     * endpoint; callers use that result to display unsupported-operation feedback.
      *
-     * @param action the TUI action (without the {@code /tui/} prefix)
+     * @param action the TUI action name
      * @param body   JSON-serializable payload (may be {@code null} for no-arg actions)
      */
     default boolean tuiAction(String action, Map<String, Object> body) throws OpencodeException {
         throw new UnsupportedOperationException("tuiAction");
     }
 
-    // ---------- H5 remainder (opencode v1.18.30): file status/content, provider auth, global events ----------
+    // ---------- file status/content, provider auth, global events ----------
 
     /**
-     * {@code GET /file/status} - the git status of all changed files in the
+     * {@code GET /api/vcs/status} - the git status of all changed files in the
      * project. Default returns empty so test fakes and partial
      * implementations stay compiling.
      */
@@ -387,22 +354,20 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code GET /file/content?path=…} - a file's content. The server answers
-     * with a {@code {"type":"text"|"binary","content":…}} envelope; this
-     * returns the {@code content} string ({@code base64} when the file is
-     * binary). {@code null} when the file does not exist (404).
+     * {@code GET /api/fs/read/<path>} - a file's raw content ({@code null} when
+     * the file does not exist, HTTP 404).
      */
     default String getFileContent(String path) throws OpencodeException {
         return null;
     }
 
-    /** {@code GET /fs/read/<path>?location=…} - the file's content scoped to one project directory. */
+    /** {@code GET /api/fs/read/<path>?location[directory]=…} - content scoped to a project. */
     default String getFileContent(String path, String directory) throws OpencodeException {
         return getFileContent(path);
     }
 
     /**
-     * {@code GET /provider/auth} - the available auth methods, flattened into
+     * {@code GET /api/integration} - the available auth methods, flattened into
      * one {@link ProviderAuth} per method. Default returns empty so test fakes
      * and partial implementations stay compiling.
      */
@@ -410,11 +375,16 @@ public interface OpencodeClient {
         return List.of();
     }
 
+    /** Scoped integration catalog (see {@link #getAgents(String)}). */
+    default List<ProviderAuth> getProviderAuths(String directory) throws OpencodeException {
+        return getProviderAuths();
+    }
+
     /**
-     * {@code POST /provider/:id/oauth/authorize} - start the provider's first
-     * auth method's OAuth flow (body {@code {"method":0}}) and get the
-     * authorization answer ({@code {url, method, instructions}}) so the
-     * caller can open the page itself. Parsed leniently: a 4xx, an empty or
+     * Read {@code /api/integration}, select the first OAuth method, and call
+     * {@code POST /api/integration/:id/connect/oauth} with its {@code methodID}.
+     * Return the authorization URL and instructions so the caller can open it.
+     * Parsed leniently: an HTTP error, an empty or
      * malformed body, or a missing url yields an {@link OauthStart} with a
      * {@code null} {@code url} ("not started"); transport errors still
      * throw.
@@ -434,10 +404,9 @@ public interface OpencodeClient {
     }
 
     /**
-     * {@code GET /global/event} - the SSE stream of events across all
-     * projects. Frames wrap the per-project event in a {@code payload}
-     * envelope which the stream unwraps, so the sink receives the same
-     * {@code {type, properties}} events as {@code /event}. Returns a
+     * {@code GET /api/event} - the SSE stream of events across all projects.
+     * The parser maps each frame's {@code data} payload and
+     * {@code location.directory} into {@link OpencodeEvent}. Returns a
      * not-yet-started {@link OpencodeEventStream}; the caller owns
      * {@code start()} and {@code stop()}.
      */
