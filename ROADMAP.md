@@ -38,6 +38,15 @@ shell launches via `session.shell.*`, activity via deltas). Prove it headless
 with tests plus a live demo dispatch; only then port to the Eclipse panels
 (U-040/U-041) and re-enable automatic pumping there.
 
+**Slice 1 shipped and demoed (caa1622):** `fleet_job_activity` — deep live
+session observation (activity, tools, shells, subagents, cost) over plain
+polling. The T-001 demo dispatch was watched live from the TUI end to end —
+and the demo itself exposed the next defects, all filed from evidence:
+**B-011** (critical: settle silently released the ticket with the worker's
+worktree changes uncommitted — data-loss class), **B-012** (stdio MCP zombie
+pipes), **B-013** (streaming tool status not shown as current activity), plus
+fresh completion-latency evidence on **B-008**.
+
 ## Current state (2026-09-21)
 
 The v2-only cleanup was cross-checked against the live 2.0.11 service.
