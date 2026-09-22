@@ -16,6 +16,18 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
+## Current state (2026-09-22)
+
+**Fleets no longer auto-start (user direction).** The repo's `fleet` MCP stdio
+engine is disabled in `opencode.json` — sessions no longer spawn its JVM (and
+later its own `opencode serve`) on open. `tasks` and `graphics` stay enabled
+(store/utility servers, not fleets). Fleets start **deliberately**: the Eclipse
+Board's `Auto ▶` / `Waves ▶` toggles run the in-Eclipse engine (no startup
+re-arm exists — verified), or re-enable the MCP entry for chat-first dispatch.
+Next requirement, folded into the top open item below: **no hidden work** —
+every shell launch and every subagent must be visible in a panel (U-041 covers
+the subagent/subprocess surfaces; the per-worker live activity is U-015/U-040).
+
 ## Current state (2026-09-21)
 
 The v2-only cleanup was cross-checked against the live 2.0.11 service.

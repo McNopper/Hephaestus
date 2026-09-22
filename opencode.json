@@ -12,7 +12,7 @@
       "fleet": {
         "type": "local",
         "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
-        "enabled": true
+        "enabled": false
       },
       "graphics": {
         "type": "local",
