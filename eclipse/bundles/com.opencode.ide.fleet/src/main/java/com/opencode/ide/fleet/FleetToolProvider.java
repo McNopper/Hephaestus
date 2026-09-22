@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -31,6 +32,8 @@ import com.opencode.ide.tools.ToolProvider;
  * git worktree and merges back), {@code fleet_jobs} (live job snapshot),
  * {@code fleet_job_details} (live progress probe for one job: busy, message
  * count, completion flag - the "are we moving?" answer),
+ * {@code fleet_job_activity} (deep live observation: current activity,
+ * tools, shell commands, subagents, cost - U-015's "no hidden work"),
  * {@code fleet_permissions}/{@code fleet_permissions_answer} (the chat path
  * of unattended sessions' permission asks - list and answer them without a
  * Board), {@code fleet_sync_store}/{@code fleet_status_store}/{@code fleet_recover_store}
@@ -114,6 +117,8 @@ public final class FleetToolProvider implements ToolProvider {
                 return jobs();
             case "fleet_job_details":
                 return jobDetails(a);
+            case "fleet_job_activity":
+                return jobActivity(a);
             case "fleet_permissions":
                 return permissions();
             case "fleet_permissions_answer":
@@ -272,6 +277,53 @@ public final class FleetToolProvider implements ToolProvider {
             }
         }
         return null;
+    }
+
+    /**
+     * U-015 {@code fleet_job_activity}: the deep "what is the worker DOING"
+     * observation - current activity, tools, shell commands, subagents, cost.
+     * Ticket lookup or direct session observation (subagent drill-down).
+     */
+    private McpToolResult jobActivity(JsonObject a) {
+        String ticketId = optStr(a, "ticket_id");
+        String sessionId = optStr(a, "session_id");
+        if (ticketId == null && sessionId == null) {
+            return McpToolResult.error("ticket_id or session_id is required");
+        }
+        JsonObject o = new JsonObject();
+        if (ticketId != null) {
+            o.addProperty("ticket_id", ticketId);
+            FleetJob job = control.jobs().get(ticketId);
+            if (job != null) {
+                o.addProperty("state", job.state().name());
+                if (sessionId == null) {
+                    sessionId = job.sessionId();
+                }
+            } else if (sessionId == null) {
+                o.addProperty("state", "unknown");
+                o.addProperty("hint", "no job in this engine - never dispatched here, or settled;"
+                        + " pass session_id to observe a live session directly");
+                return json(o);
+            }
+        }
+        com.opencode.ide.client.activity.SessionObservation observation =
+                control.jobObservation(ticketId, sessionId);
+        if (observation == null) {
+            o.addProperty("observation", sessionId == null
+                    ? "unavailable - the job has no session yet"
+                    : "unavailable - engine not running here, or the session is gone");
+            return json(o);
+        }
+        for (Map.Entry<String, com.google.gson.JsonElement> entry : observation.toJson().entrySet()) {
+            o.add(entry.getKey(), entry.getValue());
+        }
+        return json(o);
+    }
+
+    private static String optStr(JsonObject a, String key) {
+        return a.has(key) && a.get(key).isJsonPrimitive() && !a.get(key).getAsString().isBlank()
+                ? a.get(key).getAsString()
+                : null;
     }
 
     private McpToolResult jobDetails(JsonObject a) {
@@ -523,6 +575,19 @@ public final class FleetToolProvider implements ToolProvider {
                         + " worker fails fast while slow-but-working ones are never killed.",
                 schema(new String[]{"ticket_id"},
                         obj -> obj.add("ticket_id", strP("the ticket to inspect, e.g. W-004")))));
+        out.add(new McpTool("fleet_job_activity",
+                "Deep live observation of one job's session - what the worker is DOING, not just"
+                        + " whether it moves: current activity (the running tool/shell and its"
+                        + " target), every tool used so far, every shell command (with exit code"
+                        + " and output tail), subagent children, tokens/cost and the newest"
+                        + " assistant text. Poll it to watch a dispatched worker live. Pass"
+                        + " session_id directly to observe any session (e.g. a subagent child"
+                        + " from the subagents list).",
+                schema(new String[0], obj -> {
+                    obj.add("ticket_id", strP("the ticket to observe, e.g. U-015"));
+                    obj.add("session_id", strP("observe this session directly (e.g. a subagent child);"
+                            + " overrides the ticket lookup"));
+                })));
         out.add(new McpTool("fleet_permissions",
                 "Pending permission asks of unattended fleet sessions (a launched "
                         + "session waiting mid-run for human approval): each with "

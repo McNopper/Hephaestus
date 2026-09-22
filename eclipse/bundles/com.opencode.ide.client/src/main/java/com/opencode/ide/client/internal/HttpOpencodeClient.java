@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
@@ -357,6 +358,29 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
         return getList("/session/" + sessionId + "/message", ChatEntry.class);
+    }
+
+    @Override
+    public JsonArray getMessagesJson(String sessionId) throws OpencodeException {
+        String path = "/session/" + sessionId + "/message";
+        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+        String body = response.body();
+        if (response.statusCode() >= 400) {
+            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
+                    + " - " + truncate(body, ClientTuning.SNIPPET_MAX));
+        }
+        if (body == null || body.isBlank()) {
+            return new JsonArray();
+        }
+        try {
+            JsonElement element = JsonParser.parseString(body);
+            JsonElement data = element.isJsonObject() && element.getAsJsonObject().has("data")
+                    ? element.getAsJsonObject().get("data")
+                    : element;
+            return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+        } catch (JsonParseException | IllegalStateException e) {
+            throw new OpencodeException("opencode GET /api" + path + " failed: malformed response body", e);
+        }
     }
 
     @Override

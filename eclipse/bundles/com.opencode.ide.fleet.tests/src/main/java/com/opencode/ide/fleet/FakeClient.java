@@ -43,6 +43,9 @@ final class FakeClient implements OpencodeClient {
     /** Cross-call order log ({@code shell <sid>} / {@code message <sid>}) - pins the bootstrap before the prompt. */
     final List<String> callLog = new java.util.concurrent.CopyOnWriteArrayList<>();
     final Map<String, List<ChatEntry>> messagesBySession = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Raw message arrays served by {@link #getMessagesJson(String)} (observer fidelity; settable). */
+    final Map<String, com.google.gson.JsonArray> messagesJsonBySession =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Thread-safe since the 2026-08-28 watchdog redesign: the prompt runs on its own thread while the watchdog probes. */
     volatile String sessionType = "busy";
@@ -126,6 +129,11 @@ final class FakeClient implements OpencodeClient {
             throw new OpencodeException("messages fetch failed");
         }
         return messagesBySession.getOrDefault(sessionId, List.of());
+    }
+
+    @Override
+    public com.google.gson.JsonArray getMessagesJson(String sessionId) {
+        return messagesJsonBySession.getOrDefault(sessionId, new com.google.gson.JsonArray());
     }
 
     @Override

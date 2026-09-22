@@ -529,6 +529,17 @@ public class HttpOpencodeClientComponentTest {
                 "What is 2+2?", entries.get(1).text());
     }
 
+    /** The observer's raw read: same endpoint, but the unwrapped {@code data} array, unparsed. */
+    @Test
+    public void getMessagesJsonReturnsTheRawDataArray() throws Exception {
+        com.google.gson.JsonArray raw = client.getMessagesJson("ses_new");
+
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/session/ses_new/message", lastPath.get());
+        assertFalse(raw.isEmpty());
+        assertTrue(raw.get(0).isJsonObject());
+    }
+
     // ---------- the asynchronous v2 send path ----------
 
     /**

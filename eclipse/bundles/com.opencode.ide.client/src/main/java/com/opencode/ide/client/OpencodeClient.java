@@ -145,6 +145,18 @@ public interface OpencodeClient {
     List<ChatEntry> getMessages(String sessionId) throws OpencodeException;
 
     /**
+     * {@code GET /api/session/:id/message} - the RAW message array (the
+     * unwrapped {@code data} list, untouched by the chat-shaped parsing).
+     * {@link com.opencode.ide.client.activity.SessionObserver} needs this full
+     * fidelity: tool input and shell detail are deliberately dropped by the
+     * {@link ChatEntry} mapping. Default returns an empty array so test fakes
+     * stay compiling.
+     */
+    default com.google.gson.JsonArray getMessagesJson(String sessionId) throws OpencodeException {
+        return new com.google.gson.JsonArray();
+    }
+
+    /**
      * {@code POST /api/session/:id/prompt} - queue a user prompt, then poll the
      * message history for its completed assistant reply. Streaming display uses
      * the {@code /api/event} SSE stream.

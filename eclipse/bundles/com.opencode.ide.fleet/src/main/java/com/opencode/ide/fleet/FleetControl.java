@@ -96,6 +96,19 @@ public final class FleetControl implements AutoCloseable {
         }
 
         /**
+         * Deep live observation for the {@code fleet_job_activity} tool (U-015):
+         * what the worker is DOING - current activity, tools, shell commands,
+         * subagents, cost - via {@link com.opencode.ide.client.activity.SessionObserver}.
+         * {@code sessionId}
+         * overrides the ticket lookup (subagent drill-down). {@code null} when
+         * nothing can be observed. Default {@code null}: fakes have nothing.
+         */
+        default com.opencode.ide.client.activity.SessionObservation observe(String ticketId,
+                String sessionId) {
+            return null;
+        }
+
+        /**
          * The engine's permission queue: unattended fleet sessions' asks
          * collect here (fed from the server's global event stream) until the
          * human answers them.
@@ -444,6 +457,22 @@ public final class FleetControl implements AutoCloseable {
             }
 
             @Override
+            public com.opencode.ide.client.activity.SessionObservation observe(String ticketId,
+                    String sessionId) {
+                String sid = sessionId;
+                String directory = null;
+                if (sid == null) {
+                    FleetJob job = fleet.jobs().get(ticketId);
+                    if (job == null || job.sessionId() == null) {
+                        return null;
+                    }
+                    sid = job.sessionId();
+                    directory = job.worktree() == null ? null : job.worktree().toString();
+                }
+                return com.opencode.ide.client.activity.SessionObserver.observe(client, sid, directory);
+            }
+
+            @Override
             public PermissionQueue permissions() {
                 return queue;
             }
@@ -740,6 +769,21 @@ public final class FleetControl implements AutoCloseable {
             e = engine;
         }
         return e == null ? null : e.probe(ticketId);
+    }
+
+    /**
+     * Deep live observation for the {@code fleet_job_activity} tool (U-015):
+     * what the worker is doing right now. Like {@link #jobActivity(String)}
+     * this never spawns the engine; {@code null} when nothing can be observed.
+     * {@code sessionId} observes a session directly (subagent drill-down).
+     */
+    public com.opencode.ide.client.activity.SessionObservation jobObservation(String ticketId,
+            String sessionId) {
+        Engine e;
+        synchronized (this) {
+            e = engine;
+        }
+        return e == null ? null : e.observe(ticketId, sessionId);
     }
 
     /**

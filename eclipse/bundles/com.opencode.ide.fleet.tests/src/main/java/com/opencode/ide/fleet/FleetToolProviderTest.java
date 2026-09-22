@@ -22,6 +22,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import com.opencode.ide.client.activity.PermissionRequest;
+import com.opencode.ide.client.activity.SessionObservation;
+import com.opencode.ide.client.activity.SessionObserver;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tools.McpToolResult;
@@ -80,6 +82,19 @@ public class FleetToolProviderTest {
             @Override
             public PermissionQueue permissions() {
                 return enginePermissions;
+            }
+
+            @Override
+            public SessionObservation observe(String ticketId, String sessionId) {
+                String sid = sessionId;
+                if (sid == null) {
+                    FleetJob job = fleet.jobs().get(ticketId);
+                    if (job == null || job.sessionId() == null) {
+                        return null;
+                    }
+                    sid = job.sessionId();
+                }
+                return SessionObserver.observe(client, sid, null);
             }
 
             @Override
@@ -288,6 +303,79 @@ public class FleetToolProviderTest {
         McpToolResult r = provider.call("fleet_jobs", new JsonObject());
         assertOk(r);
         assertEquals(0, JsonParser.parseString(r.text()).getAsJsonArray().size());
+    }
+
+    @Test
+    public void jobActivityRequiresTicketOrSession() {
+        McpToolResult r = provider.call("fleet_job_activity", new JsonObject());
+        assertTrue(r.text(), r.isError());
+        assertTrue(r.text(), r.text().contains("ticket_id or session_id"));
+    }
+
+    @Test
+    public void jobActivityWithAnUnknownTicketStatesTheHint() {
+        McpToolResult r = provider.call("fleet_job_activity", args("ticket_id", "T-999"));
+        assertOk(r);
+        JsonObject out = JsonParser.parseString(r.text()).getAsJsonObject();
+        assertEquals("unknown", out.getAsJsonPrimitive("state").getAsString());
+        assertTrue(out.getAsJsonPrimitive("hint").getAsString().contains("session_id"));
+    }
+
+    @Test
+    public void jobActivityObservesTheJobsSessionLive() throws Exception {
+        String id = sprintTicket();
+        sessionCompletes();
+        // the worker's raw transcript (newest first): a finished shell, then
+        // an assistant mid-tool-call - exactly what the observer must surface
+        client.messagesJsonBySession.put("ses_1", JsonParser.parseString("""
+                [
+                 {"id":"m2","type":"shell","command":"git status","status":"exited","exit":0,
+                  "output":{"output":"clean"}},
+                 {"id":"m1","type":"assistant","agent":"executor","cost":0.01,
+                  "tokens":{"input":10,"output":2},
+                  "content":[
+                    {"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"mvn verify"}}},
+                    {"type":"text","text":"building now"}]}
+                ]
+                """).getAsJsonArray());
+
+        McpToolResult r = provider.call("fleet_dispatch",
+                args("project", PROJECT, "ticket_id", id, "timeout_minutes", "1"));
+        assertOk(r);
+        assertEquals(FleetJob.State.MERGED, awaitState(id, FleetJob.State.MERGED));
+
+        r = provider.call("fleet_job_activity", args("ticket_id", id));
+        assertOk(r);
+        JsonObject out = JsonParser.parseString(r.text()).getAsJsonObject();
+        assertEquals("MERGED", out.getAsJsonPrimitive("state").getAsString());
+        assertEquals("ses_1", out.getAsJsonPrimitive("session_id").getAsString());
+        assertEquals("idle", out.getAsJsonPrimitive("status").getAsString());
+        assertEquals("tool: bash mvn verify", out.getAsJsonPrimitive("activity").getAsString());
+        assertEquals("building now", out.getAsJsonPrimitive("last_text").getAsString());
+        JsonArray tools = out.getAsJsonArray("tools");
+        assertEquals(1, tools.size());
+        assertEquals("bash", tools.get(0).getAsJsonObject().getAsJsonPrimitive("name").getAsString());
+        assertEquals("mvn verify", tools.get(0).getAsJsonObject().getAsJsonPrimitive("target").getAsString());
+        JsonArray shells = out.getAsJsonArray("shells");
+        assertEquals(1, shells.size());
+        assertEquals("git status", shells.get(0).getAsJsonObject().getAsJsonPrimitive("command").getAsString());
+        assertEquals(0, shells.get(0).getAsJsonObject().getAsJsonPrimitive("exit").getAsInt());
+        assertEquals(0.01, out.getAsJsonPrimitive("cost_usd").getAsDouble(), 0.0001);
+    }
+
+    @Test
+    public void jobActivityBySessionIdNeedsNoTicket() {
+        client.messagesJsonBySession.put("ses_x", JsonParser.parseString("""
+                [{"id":"m1","type":"assistant","content":[{"type":"text","text":"subagent working"}]}]
+                """).getAsJsonArray());
+
+        McpToolResult r = provider.call("fleet_job_activity", args("session_id", "ses_x"));
+
+        assertOk(r);
+        JsonObject out = JsonParser.parseString(r.text()).getAsJsonObject();
+        assertFalse("no ticket fields on a direct observation", out.has("ticket_id"));
+        assertEquals("ses_x", out.getAsJsonPrimitive("session_id").getAsString());
+        assertEquals("subagent working", out.getAsJsonPrimitive("last_text").getAsString());
     }
 
     @Test
