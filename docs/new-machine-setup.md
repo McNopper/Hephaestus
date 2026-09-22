@@ -67,8 +67,11 @@ toggles, or set `"enabled": true` for a dev session / connect via
 
 ## Where work resumes
 
-`ROADMAP.md` top: observability (U-015 slice 1 shipped + demoed; Eclipse panels
-later) and the demo-filed defects **B-011** (critical: silent uncommitted-work
-release), **B-008** (completion latency), **B-012** (stdio zombie pipes),
-**B-013** (streaming tool status). Fleet model selection (ticket `model` field
-+ `fleet_dispatch(model=…)` override) is in.
+This machine is fully set up (2026-09-22: plugin deployed + live-verified,
+`tasks`/`graphics` MCP connected, `fleet` disabled). Next session starts
+with **T-002** (Eclipse live pass: task-store root preference, perspective,
+Board/Server/Chat, first Board *Launch task*), then the demo-filed defects
+in priority order: **B-011** (critical: silent uncommitted-work release),
+**B-008** (completion latency), **B-012** (stdio zombie pipes), **B-013**
+(streaming tool status). Panels U-040/U-041 follow the engine-side
+observability work. Details at `ROADMAP.md` top.

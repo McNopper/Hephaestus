@@ -16,6 +16,30 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
+## Current state (2026-09-22 — new-machine bring-up complete)
+
+**The Eclipse harness is live on the fresh machine.** Full reactor green
+(27 modules), all 11 bundles deployed to `C:\eclipse-cpp` and verified
+loading (`core`/`cdt`/`ui` ACTIVE, clean log); `tasks` + `graphics` MCP
+connected, `fleet` deliberately disabled (token eater — fleets start from
+the Eclipse Board only). Bring-up exposed and fixed the machine traps
+(`cb82e17`): pwsh is a hard prerequisite (build import-ban scan + stdio
+launchers), the launchers resolve gson with no hardcoded paths (Tycho p2
+cache / `ECLIPSE_HOME`), and *Restore Defaults* no longer leaks
+developer-machine paths (P1-4 leak; `OpencodePreferences.DEFAULT_*` are
+public and shared). Recovery knowledge is in `docs/new-machine-setup.md`
+and `eclipse/INSTALL.md`: in v2 the MCP servers are owned by the shared
+background service — reconnect per server via
+`POST /api/experimental/mcp/<name>/connect?location[directory]=…`; a TUI
+restart alone keeps the stale state.
+
+**Set for next session — T-002 (Eclipse live pass):** set the task-store
+root preference (the Eclipse workspace is not the repo, so the walk-up
+default finds nothing), verify perspective/Board/Server/Chat, then one
+small Board *Launch task* before any `Auto ▶`. After that the demo-filed
+defects in priority order: **B-011** (critical), B-008, B-012, B-013;
+panels U-040/U-041 once the engine-side observability work lands.
+
 ## Current state (2026-09-22)
 
 **Fleets no longer auto-start (user direction).** The repo's `fleet` MCP stdio
