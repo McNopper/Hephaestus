@@ -379,6 +379,39 @@ public class FleetToolProviderTest {
     }
 
     @Test
+    public void dispatchModelParamWinsOverTheTicketModel() throws Exception {
+        String id = sprintTicket();
+        store.update(PROJECT, id, Map.of("model", "prov-x/ticket-model"));
+        sessionCompletes();
+
+        McpToolResult r = provider.call("fleet_dispatch", args("project", PROJECT, "ticket_id", id,
+                "timeout_minutes", "1", "model", "prov-x/run-model#low"));
+        assertOk(r);
+        JsonObject out = JsonParser.parseString(r.text()).getAsJsonObject();
+        assertEquals("the override is echoed", "prov-x/run-model#low",
+                out.getAsJsonPrimitive("model").getAsString());
+        assertEquals(FleetJob.State.MERGED, awaitState(id, FleetJob.State.MERGED));
+        assertEquals("run-model", client.lastChatRequest.modelId());
+        assertEquals("low", client.lastChatRequest.variant());
+    }
+
+    @Test
+    public void dispatchWithoutParamRunsOnTheTicketModel() throws Exception {
+        String id = sprintTicket();
+        store.update(PROJECT, id, Map.of("model", "prov-x/ticket-model"));
+        sessionCompletes();
+
+        McpToolResult r = provider.call("fleet_dispatch",
+                args("project", PROJECT, "ticket_id", id, "timeout_minutes", "1"));
+        assertOk(r);
+        JsonObject out = JsonParser.parseString(r.text()).getAsJsonObject();
+        assertEquals("the ticket's model is echoed", "prov-x/ticket-model",
+                out.getAsJsonPrimitive("model").getAsString());
+        assertEquals(FleetJob.State.MERGED, awaitState(id, FleetJob.State.MERGED));
+        assertEquals("ticket-model", client.lastChatRequest.modelId());
+    }
+
+    @Test
     public void permissionsListIsEmptyWhenNothingIsPending() {
         McpToolResult r = provider.call("fleet_permissions", new JsonObject());
         assertOk(r);

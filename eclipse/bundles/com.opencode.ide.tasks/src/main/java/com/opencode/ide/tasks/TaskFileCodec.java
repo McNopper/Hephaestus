@@ -212,6 +212,7 @@ public final class TaskFileCodec {
         fm(b, "priority", t.priority);
         fm(b, "role", t.role);
         fm(b, "stage", t.stage);
+        fm(b, "model", t.model);
         fm(b, "story_points", t.storyPoints);
         fm(b, "sprint", t.sprint);
         fm(b, "epic", t.epic);
@@ -302,6 +303,7 @@ public final class TaskFileCodec {
         t.priority = orDefault(scalarString(raw.remove("priority")), "medium");
         t.role = orDefault(scalarString(raw.remove("role")), "developer");
         t.stage = scalarString(raw.remove("stage"));
+        t.model = scalarString(raw.remove("model"));
         Integer points = scalarInt(raw.remove("story_points"));
         t.storyPoints = points == null ? 0 : points;
         t.sprint = scalarString(raw.remove("sprint"));

@@ -45,6 +45,24 @@ public class TaskStoreSemanticsTest {
     }
 
     @Test
+    public void modelOverrideRoundTripsThroughTheStoreAndCodec() {
+        Task t = store.create("p", TaskStore.CreateSpec.of("modelled"));
+        assertNull("no model by default", t.model);
+
+        store.update("p", t.id, Map.of("model", "prov-x/m7#high"));
+
+        Task reloaded = new TaskStore(tmp.getRoot().toPath().resolve("tasks")).get("p", t.id);
+        assertEquals("prov-x/m7#high", reloaded.model);
+        assertTrue("frontmatter carries the field",
+                TaskFileCodec.write(reloaded).contains("model: prov-x/m7#high"));
+        assertEquals("toJson exposes it",
+                "prov-x/m7#high", reloaded.toJson().getAsJsonPrimitive("model").getAsString());
+
+        store.update("p", t.id, Map.of("model", com.google.gson.JsonNull.INSTANCE));
+        assertNull("an explicit null clears the override", store.get("p", t.id).model);
+    }
+
+    @Test
     public void createMintsSequentialIdsPerPrefix() {
         Task a = store.create("p", TaskStore.CreateSpec.of("first"));
         Task b = store.create("p", TaskStore.CreateSpec.of("second"));

@@ -288,6 +288,7 @@ public final class TaskStore {
                         t.stage = stage;
                         applied.add(e.getKey());
                     }
+                    case "model" -> { t.model = string(e.getValue()); applied.add(e.getKey()); }
                     case "status" -> {
                         String status = string(e.getValue());
                         if (status == null || !Task.VALID_STATUSES.contains(status)) {

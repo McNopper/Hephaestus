@@ -202,7 +202,11 @@ Concretely, a chat agent can already:
   ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
   residue itself (B-006) — "branch already exists" now means real unmerged work, never
   engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is not yet
-  progress-aware and can kill a busy session at the cap; B-008 tracks the fix),
+  progress-aware and can kill a busy session at the cap; B-008 tracks the fix). Model
+  selection is a **cost lever on the ticket**: the optional `model` field
+  (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run costs —
+  small well-specified tickets deserve cheap models; `fleet_dispatch(model=…)` overrides
+  per run. The reviewer pass stays on the server default.
   `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
   progress probe: busy/messages/complete — "are we moving?"),
   `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer

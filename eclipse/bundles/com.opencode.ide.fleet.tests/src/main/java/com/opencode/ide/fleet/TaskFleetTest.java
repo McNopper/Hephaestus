@@ -64,6 +64,33 @@ public class TaskFleetTest {
     }
 
     @Test
+    public void launchRunsOnTheTicketsModelWithVariant() {
+        String id = sprintTicket("developer");
+        store.update(PROJECT, id, Map.of("model", "prov-x/m7#high"));
+        sessionCompletes();
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertEquals("prov-x", client.lastChatRequest.providerId());
+        assertEquals("m7", client.lastChatRequest.modelId());
+        assertEquals("the #variant splits off the model id", "high", client.lastChatRequest.variant());
+    }
+
+    @Test
+    public void launchWithoutTicketModelKeepsTheServerDefault() {
+        String id = sprintTicket("developer");
+        sessionCompletes();
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertNull("no model pinned on the request", client.lastChatRequest.providerId());
+        assertNull(client.lastChatRequest.modelId());
+        assertNull(client.lastChatRequest.variant());
+    }
+
+    @Test
     public void happyPathEndToEnd() {
         String id = sprintTicket("developer");
         sessionCompletes();

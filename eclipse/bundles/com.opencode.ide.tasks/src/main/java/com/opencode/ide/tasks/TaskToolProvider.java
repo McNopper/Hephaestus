@@ -97,7 +97,13 @@ public final class TaskToolProvider implements ToolProvider {
                         strList(a, "labels"),
                         optStr(a, "epic", null),
                         orDefault(optStr(a, "id_prefix", null), "T"));
-                return json(store.create(reqStr(a, "project"), spec, optStr(a, "stage", null)).toJson());
+                String project = reqStr(a, "project");
+                Task created = store.create(project, spec, optStr(a, "stage", null));
+                String model = optStr(a, "model", null);
+                if (model != null) {
+                    created = store.update(project, created.id, Map.of("model", model));
+                }
+                return json(created.toJson());
             }
             case "task_get":
                 return json(store.get(reqStr(a, "project"), reqStr(a, "ticket_id")).toJson());
@@ -116,7 +122,7 @@ public final class TaskToolProvider implements ToolProvider {
             {
                 Map<String, Object> changes = new LinkedHashMap<>();
                 for (String field : List.of("title", "description", "type", "status", "story_points",
-                        "priority", "role", "stage", "assignee", "acceptance_criteria", "labels",
+                        "priority", "role", "stage", "model", "assignee", "acceptance_criteria", "labels",
                         "epic", "sprint")) {
                     JsonElement v = a.get(field);
                     if (v == null) {
@@ -325,6 +331,7 @@ public final class TaskToolProvider implements ToolProvider {
                     obj.add("type", enumP(Task.VALID_TYPES));
                     obj.add("role", strP(roleDesc));
                     obj.add("stage", stageP());
+                    obj.add("model", strP("fleet model override: provider/model[#variant]; omitted = server default"));
                     obj.add("priority", enumP(List.of("low", "medium", "high", "critical")));
                     obj.add("story_points", intP());
                     obj.add("acceptance_criteria", arrP());
@@ -356,6 +363,7 @@ public final class TaskToolProvider implements ToolProvider {
                     obj.add("priority", enumP(List.of("low", "medium", "high", "critical")));
                     obj.add("role", strP(roleDesc));
                     obj.add("stage", stageP());
+                    obj.add("model", strP("fleet model override: provider/model[#variant]; explicit null clears it"));
                     obj.add("assignee", strP());
                     obj.add("acceptance_criteria", arrP());
                     obj.add("labels", arrP());

@@ -47,6 +47,8 @@ final class FakeClient implements OpencodeClient {
     final Map<String, com.google.gson.JsonArray> messagesJsonBySession =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** The most recent prompt request (model/agent assertions); thread-safe for the watchdog's prompt thread. */
+    volatile ChatRequest lastChatRequest;
     /** Thread-safe since the 2026-08-28 watchdog redesign: the prompt runs on its own thread while the watchdog probes. */
     volatile String sessionType = "busy";
     volatile String replyOnSend;
@@ -138,6 +140,7 @@ final class FakeClient implements OpencodeClient {
 
     @Override
     public ChatEntry sendMessage(ChatRequest request) {
+        lastChatRequest = request;
         if (blockOnSend != null) {
             blockOnSend.run();
         }

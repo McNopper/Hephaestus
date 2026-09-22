@@ -47,6 +47,12 @@ worktree changes uncommitted — data-loss class), **B-012** (stdio MCP zombie
 pipes), **B-013** (streaming tool status not shown as current activity), plus
 fresh completion-latency evidence on **B-008**.
 
+**Fleet model selection (same day, user direction):** the cost lever now
+exists — tickets carry an optional `model` field (`provider/model[#variant]`,
+set via `task_create`/`task_update`), `fleet_dispatch(model=…)` overrides per
+run, and loops read the ticket. Small, well-specified tickets can run on
+cheap models; decomposition into testable slices is what makes that safe.
+
 ## Current state (2026-09-21)
 
 The v2-only cleanup was cross-checked against the live 2.0.11 service.

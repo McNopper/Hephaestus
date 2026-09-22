@@ -453,10 +453,20 @@ public class FleetRunner {
         }
         String model = task.model();
         if (model != null && model.contains("/")) {
+            // provider/modelId[#variant] - the variant splits off after '#'
+            String variant = null;
+            int hash = model.indexOf('#');
+            if (hash >= 0) {
+                variant = model.substring(hash + 1);
+                model = model.substring(0, hash);
+            }
             String provider = model.substring(0, model.indexOf('/'));
             String modelId = model.substring(model.indexOf('/') + 1);
             if (!provider.isBlank() && !modelId.isBlank()) {
                 request = request.withModel(provider, modelId);
+                if (variant != null && !variant.isBlank()) {
+                    request = request.withVariant(variant);
+                }
             }
         }
         return request;

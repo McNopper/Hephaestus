@@ -225,12 +225,22 @@ public final class TaskFleet {
      */
     public FleetJob launch(String project, String taskId, Path baseWorktree, Duration timeout,
             Bootstrap bootstrap) {
+        return launch(project, taskId, baseWorktree, timeout, bootstrap, null);
+    }
+
+    /**
+     * {@link #launch(String, String, Path, Duration, Bootstrap)} with a
+     * per-run model override ({@code provider/modelId[#variant]}), winning
+     * over the ticket's {@code model} field for this run only.
+     */
+    public FleetJob launch(String project, String taskId, Path baseWorktree, Duration timeout,
+            Bootstrap bootstrap, String modelOverride) {
         if (!inFlight.add(taskId)) {
             throw new IllegalStateException(
                     "ticket " + taskId + " already has a fleet job in flight (one launch per ticket at a time)");
         }
         try {
-            return launchGuarded(project, taskId, baseWorktree, timeout, bootstrap);
+            return launchGuarded(project, taskId, baseWorktree, timeout, bootstrap, modelOverride);
         } finally {
             inFlight.remove(taskId);
         }
@@ -248,19 +258,21 @@ public final class TaskFleet {
      * dropped on EVERY outcome (the {@code finally}).
      */
     private FleetJob launchGuarded(String project, String taskId, Path baseWorktree, Duration timeout,
-            Bootstrap bootstrap) {
+            Bootstrap bootstrap, String modelOverride) {
         Task ticket = launchableTicket(project, taskId);
         runner.claimProject(baseWorktree, project, taskId);
         FleetJob unclaimed = claimAndCommit(project, taskId, baseWorktree);
         if (unclaimed != null) {
             return unclaimed;
         }
+        // cost lever: the ticket's model field, unless this run overrides it
+        String model = modelOverride != null && !modelOverride.isBlank() ? modelOverride : ticket.model;
         FleetTask task = new FleetTask(
                 ticket.id,
                 ticket.title,
                 SelfClaimPrompt.forTicket(ticket).project(project).build(),
                 roleAgents.agentFor(ticket.role),
-                null,
+                model,
                 bootstrap,
                 baseWorktree);
         FleetJob job = null;

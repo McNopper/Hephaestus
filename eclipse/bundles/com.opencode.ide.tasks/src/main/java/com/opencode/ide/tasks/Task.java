@@ -94,6 +94,8 @@ public final class Task {
     public String role = "developer";
     /** V-model pipeline stage (see {@link VStages}); {@code null} = legacy/untracked ticket. */
     public String stage;
+    /** Optional fleet model override ({@code provider/modelId[#variant]}); {@code null} = server default. */
+    public String model;
     public String assignee;
     public String epic;
     public List<String> labels = new ArrayList<>();
@@ -145,6 +147,7 @@ public final class Task {
         o.addProperty("priority", priority);
         o.addProperty("role", role);
         o.addProperty("stage", stage);
+        o.addProperty("model", model);
         o.addProperty("assignee", assignee);
         JsonArray ac = new JsonArray();
         acceptanceCriteria.forEach(ac::add);

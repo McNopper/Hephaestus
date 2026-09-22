@@ -654,20 +654,37 @@ public final class FleetControl implements AutoCloseable {
      * outcome, recoverable via {@code fleet_recover_store}, not a failure).
      */
     public void dispatch(String project, String ticketId, Duration timeout) {
+        dispatch(project, ticketId, timeout, null);
+    }
+
+    /**
+     * Dispatch with a per-run model override ({@code provider/modelId[#variant]})
+     * that wins over the ticket's {@code model} field for this run.
+     */
+    public void dispatch(String project, String ticketId, Duration timeout, String modelOverride) {
         DispatchGuard.exclusive(repoRoot, () -> {
             synchronized (this) {
-                dispatchLocked(project, ticketId, timeout);
+                dispatchLocked(project, ticketId, timeout, modelOverride);
             }
             return null;
         });
     }
 
     private void dispatchLocked(String project, String ticketId, Duration timeout) {
-        dispatchLocked(project, ticketId, timeout, null, null);
+        dispatchLocked(project, ticketId, timeout, null, null, null);
+    }
+
+    private void dispatchLocked(String project, String ticketId, Duration timeout, String modelOverride) {
+        dispatchLocked(project, ticketId, timeout, null, null, modelOverride);
     }
 
     private void dispatchLocked(String project, String ticketId, Duration timeout, AutoDispatch autoPolicy,
             DispatchScheduler.LaunchAttempt attempt) {
+        dispatchLocked(project, ticketId, timeout, autoPolicy, attempt, null);
+    }
+
+    private void dispatchLocked(String project, String ticketId, Duration timeout, AutoDispatch autoPolicy,
+            DispatchScheduler.LaunchAttempt attempt, String modelOverride) {
         if (closed) {
             throw new IllegalStateException("fleet control is closed");
         }
@@ -686,7 +703,8 @@ public final class FleetControl implements AutoCloseable {
                     try {
                         try {
                             if (autoPolicy == null) {
-                                settled = e.fleet().launch(project, ticketId, repoRoot, timeout);
+                                settled = e.fleet().launch(project, ticketId, repoRoot, timeout, null,
+                                        modelOverride);
                             } else {
                                 settled = e.fleet().launchAuto(project, ticketId, repoRoot, timeout, guard, autoPolicy.includeStale());
                             }

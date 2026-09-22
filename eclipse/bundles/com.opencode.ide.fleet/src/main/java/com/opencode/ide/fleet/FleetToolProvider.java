@@ -206,10 +206,16 @@ public final class FleetToolProvider implements ToolProvider {
                 Math.max(1, (int) Math.min(FleetTuning.MAX_TICKET_BUDGET.toMinutes(), a.has("timeout_minutes")
                         ? reqInt(a, "timeout_minutes")
                         : FleetControl.DEFAULT_TIMEOUT.toMinutes())));
-        control.dispatch(project, ticketId, timeout);
+        String model = optStr(a, "model");
+        control.dispatch(project, ticketId, timeout, model);
         JsonObject out = new JsonObject();
         out.addProperty("ticket_id", ticketId);
         out.addProperty("state", FleetJob.State.RUNNING.name());
+        if (model != null) {
+            out.addProperty("model", model);
+        } else if (task.model != null) {
+            out.addProperty("model", task.model);
+        }
         out.addProperty("poll", "fleet_jobs");
         return json(out);
     }
@@ -556,11 +562,14 @@ public final class FleetToolProvider implements ToolProvider {
                         + "runs the ticket's stage/role prompt in an isolated git worktree, merges "
                         + "back on completion and records artifacts/actuals on the ticket. Async - "
                         + "returns immediately; poll fleet_jobs for the outcome. The ticket must "
-                        + "exist, be unblocked, not done and not already in flight.",
+                        + "exist, be unblocked, not done and not already in flight. Model: the "
+                        + "ticket's `model` field, or this call's `model` override.",
                 schema(new String[]{"project", "ticket_id"}, obj -> {
                     obj.add("project", strP("task store project (subdirectory of the store root)"));
                     obj.add("ticket_id", strP("the ticket to launch, e.g. T-042"));
                     obj.add("timeout_minutes", intP("per-ticket run budget, default 30, max 1440"));
+                    obj.add("model", strP("model for this run (provider/model[#variant]);"
+                            + " overrides the ticket's model field"));
                 })));
         out.add(new McpTool("fleet_jobs",
                 "Live snapshot of the fleet's jobs (keyed by ticket id): state "
