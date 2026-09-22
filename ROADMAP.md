@@ -28,6 +28,16 @@ Next requirement, folded into the top open item below: **no hidden work** —
 every shell launch and every subagent must be visible in a panel (U-041 covers
 the subagent/subprocess surfaces; the per-worker live activity is U-015/U-040).
 
+**Development order (user direction 2026-09-22): build it HERE first, not in
+Eclipse.** The observability + automatic-pumping feature is developed
+engine-side and chat-first: the fleet bundle is Eclipse-free plain Java, the
+task store is the blackboard, and the `fleet_*` MCP tools (re-enabled
+deliberately in dev sessions) drive dispatches we can observe live through
+the v2 API (sessions/messages/events — subagent nesting via `parentID`,
+shell launches via `session.shell.*`, activity via deltas). Prove it headless
+with tests plus a live demo dispatch; only then port to the Eclipse panels
+(U-040/U-041) and re-enable automatic pumping there.
+
 ## Current state (2026-09-21)
 
 The v2-only cleanup was cross-checked against the live 2.0.11 service.
