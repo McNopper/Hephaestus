@@ -10,6 +10,9 @@ Source lives in the repo's `eclipse/` folder.
 - **opencode** installed and on PATH (`opencode --version` → 2.x). Pinned and endpoint-verified against 2.0.10 (see `ServerVersionPin`).
 - A JDK 21+ on the machine (the `build.ps1` wrapper auto-detects one;
   `JAVA_HOME` does not have to be valid).
+- **PowerShell 7 (`pwsh`) on PATH** — required by the build itself (the
+  `tools`/`tasks` Eclipse-import-ban scan runs through it) and by the
+  `tasks`/`fleet` stdio MCP launchers. Install: `winget install Microsoft.PowerShell`.
 - **Node.js on PATH** — only needed for the chat web renderer/bridge checks that run inside
   `mvn verify` (skip with `-DskipNodeChecks=true` if you just want jars).
 - **WebView2 Runtime** (preinstalled on Windows 10/11) for the Chat view.
@@ -146,8 +149,9 @@ one-time setup:
 6. If the server URL or credentials differ, set them in
     **Window → Preferences → OpenCode** — primary connection incl. spawn settings and
     working directory, plus the **Defaults** group (chat model `provider/model` + variant —
-    default `zai-coding-plan/glm-5.3` with `max`; task-store root + Board project — default
-    this repo and `hephaestus`; remote-connections list with passwords in secure storage) —
+    default `zai-coding-plan/glm-5.3` with `max`; task-store root + Board project — blank
+    root = derived from the workspace (the Board walks up looking for `.opencode/tasks`),
+    project default `hephaestus`; remote-connections list with passwords in secure storage) —
     then hit **Refresh**.
 6. On startup the plugin also starts a local **MCP endpoint** for agents
    (log line: `eclipse-build MCP listening on http://127.0.0.1:<port>/mcp`) exposing
@@ -159,7 +163,7 @@ one-time setup:
 | Mode | Where the server comes from | Preference fields |
 |---|---|---|
 | **CONNECT** (default) | You start `opencode serve` | Server URL, Username, Password |
-| **SPAWN** | Plugin starts/owns `opencode serve` | (optional) opencode binary, hostname, port, Password, **working directory** (the repo whose `.opencode/` agents/skills/MCP config load; default this repository — an open CDT project still wins) |
+| **SPAWN** | Plugin starts/owns `opencode serve` | (optional) opencode binary, hostname, port, Password, **working directory** (the repo whose `.opencode/` agents/skills/MCP config load; blank = derived from the workspace — an open CDT project still wins) |
 
 > In SPAWN mode the server runs in the configured working directory, so the **Hephaestus
 > harness itself is what the plugin hosts**: its agents, skills and MCP servers (visible in
@@ -167,6 +171,13 @@ one-time setup:
 
 ## Troubleshooting
 
+- **`tasks`/`fleet` MCP servers fail with `Connection closed` (opencode TUI)** → the stdio
+  launchers (`eclipse/tasks-tools.ps1` / `fleet-tools.ps1`) died at spawn: install
+  PowerShell 7, run one `.\build.ps1 clean verify` (the launchers need the built jars and
+  resolve gson from the Tycho p2 cache `~/.m2` or `$env:ECLIPSE_HOME`). Then reconnect —
+  the MCP servers belong to the shared background service, so a TUI restart keeps the
+  stale state: `POST /api/experimental/mcp/<name>/connect?location[directory]=<repo>`
+  (Basic auth; password in `~/.local/state/opencode/service.json`), or restart the service.
 - **Perspective not visible** after a dropins/p2 update → start Eclipse once with `-clean`.
 - **Views show "Error: …"** → check the server is reachable:
   `opencode api get /api/info` (answers with `version`/`pid`/`urls` — reachability *is* health in v2;

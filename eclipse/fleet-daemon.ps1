@@ -35,8 +35,8 @@
 #
 # Requirements: a JDK 21+ (java on PATH or JAVA_HOME; the bundles are
 # JavaSE-21), the built fleet+client+git+tasks+tools bundles (mvn package in
-# eclipse/), and gson (resolved from the local Tycho p2 cache or an Eclipse
-# install).
+# eclipse/), and gson (resolved from the local Tycho p2 cache or the
+# ECLIPSE_HOME install - never a hardcoded path).
 param(
     [string]$Repo = (Get-Location).Path
 )
@@ -114,17 +114,18 @@ if ($missing.Count -gt 0) {
     throw "Built bundles not found. Run: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.fleet -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package"
 }
 
-# 3) gson: local Tycho p2 cache first, then Eclipse installs
+# 3) gson: local Tycho p2 cache first, then the Eclipse install ECLIPSE_HOME
+#    points at when set (no hardcoded install paths - each machine sets its own).
 $gsonCandidates = @()
 $gsonCandidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/com.google.gson/*/com.google.gson-*.jar") -ErrorAction SilentlyContinue
-foreach ($install in @($env:ECLIPSE_HOME, $(if ($IsWindows) { "C:\eclipse-cpp" }))) {
+foreach ($install in @($env:ECLIPSE_HOME)) {
     if ($install -and (Test-Path $install)) {
         $gsonCandidates += Get-ChildItem (Join-Path $install "plugins/com.google.gson_*.jar") -ErrorAction SilentlyContinue
     }
 }
 $gsonJar = $gsonCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $gsonJar) {
-    throw "gson jar not found (looked in the Tycho p2 cache ~/.m2/repository/p2/osgi/bundle and Eclipse plugins/). Run one eclipse build first."
+    throw "gson jar not found (looked in the Tycho p2 cache ~/.m2/repository/p2/osgi/bundle and `$ECLIPSE_HOME/plugins when set). Run one eclipse build first."
 }
 
 # 4) start the daemon DETACHED, both output streams APPENDED to one log

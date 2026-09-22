@@ -340,18 +340,20 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
 
     @Override
     protected void performDefaults() {
+        // Mirror the OpencodePreferences constants (P1-4: no developer-machine
+        // paths; blank tasksRoot/workingDirectory = derive from the workspace).
         modeCombo.setText(OpencodePreferences.MODE_SPAWN);
-        urlText.setText("http://127.0.0.1:4096");
+        urlText.setText(OpencodePreferences.DEFAULT_URL);
         userText.setText("opencode");
         passwordText.setText("");
         binaryText.setText("");
-        hostnameText.setText("127.0.0.1");
+        hostnameText.setText(OpencodePreferences.DEFAULT_HOST);
         attachServiceButton.setSelection(true);
-        workdirText.setText("C:\\Development\\GitHub\\Hephaestus");
-        defaultModelText.setText("kimi-code-plan-global/k3-256k");
-        defaultVariantText.setText("max");
-        tasksRootText.setText("C:\\Development\\GitHub\\Hephaestus\\.opencode\\tasks");
-        tasksProjectText.setText("hephaestus");
+        workdirText.setText(OpencodePreferences.DEFAULT_WORKING_DIRECTORY);
+        defaultModelText.setText(OpencodePreferences.DEFAULT_MODEL);
+        defaultVariantText.setText(OpencodePreferences.DEFAULT_VARIANT);
+        tasksRootText.setText(OpencodePreferences.DEFAULT_TASKS_ROOT);
+        tasksProjectText.setText(OpencodePreferences.DEFAULT_TASKS_PROJECT);
         remoteList.removeAll();
         remoteConfigs.clear();
         updateSpawnEnablement();

@@ -46,25 +46,25 @@ public final class OpencodePreferences {
     public static final String MODE_CONNECT = "CONNECT";
     public static final String MODE_SPAWN = "SPAWN";
 
-    private static final String DEFAULT_URL = "http://127.0.0.1:4096";
-    private static final String DEFAULT_HOST = "127.0.0.1";
+    public static final String DEFAULT_URL = "http://127.0.0.1:4096";
+    public static final String DEFAULT_HOST = "127.0.0.1";
     /** Preferred chat model for this machine ({@code provider/model}); validated against the live provider list. */
-    private static final String DEFAULT_MODEL = "zai-coding-plan/glm-5.3";
-    private static final String DEFAULT_VARIANT = "max";
+    public static final String DEFAULT_MODEL = "zai-coding-plan/glm-5.3";
+    public static final String DEFAULT_VARIANT = "max";
     /**
      * Default task store: derived from the workspace at first use (P1-4 fix —
      * no developer-machine hard-coded path). The Board view walks up from
      * the workspace root looking for {@code .opencode/tasks}; if none is
      * found the user must configure it via preferences.
      */
-    private static final String DEFAULT_TASKS_ROOT = "";
-    private static final String DEFAULT_TASKS_PROJECT = "hephaestus";
+    public static final String DEFAULT_TASKS_ROOT = "";
+    public static final String DEFAULT_TASKS_PROJECT = "hephaestus";
     /**
      * Spawn working directory fallback: empty means "derive from the
      * workspace" (P1-4). The active CDT project's directory (ProjectContext)
      * still wins when available.
      */
-    private static final String DEFAULT_WORKING_DIRECTORY = "";
+    public static final String DEFAULT_WORKING_DIRECTORY = "";
 
     private final IEclipsePreferences prefs;
     private final RemoteCredentials credentials;
