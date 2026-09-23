@@ -160,16 +160,14 @@ public final class FleetStdioMain {
         McpDispatcher dispatcher = new McpDispatcher(provider);
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         PrintStream out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
-        String line;
-        while ((line = in.readLine()) != null) {
-            if (line.isBlank()) {
-                continue;
-            }
-            String response = dispatcher.handle(line);
-            if (response != null) {
-                out.println(response);
-                out.flush();
-            }
+        // B-012 hardened (shared with TasksStdioMain): a dead pipe or an
+        // orphaned launcher exits NONZERO so the host respawns instead of
+        // keeping a zombie JVM. The shutdown hook above runs on System.exit
+        // and kills the engine's spawned serve in every exit path.
+        int code = com.opencode.ide.tools.StdioServer.serve(
+                in, out, dispatcher, new com.opencode.ide.tools.StdioServer.ParentLiveness());
+        if (code != com.opencode.ide.tools.StdioServer.EXIT_OK) {
+            System.exit(code);
         }
     }
 

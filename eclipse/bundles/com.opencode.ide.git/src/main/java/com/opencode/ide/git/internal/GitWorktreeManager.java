@@ -108,15 +108,17 @@ public final class GitWorktreeManager implements WorktreeManager {
         if (!nothingUnmerged) {
             throw new WorktreeException("Branch " + branch + " already exists for task '" + taskId
                     + "' and carries commits main lacks - refusing to auto-reclaim real work"
-                    + " (inspect it, or fleet_reset the ticket)");
+                    + " (the kept worktree is the rescue copy: merge it, inspect it, or fleet_reset"
+                    + " the ticket before re-dispatch)");
         }
         Optional<Worktree> registered = find(repo, taskId);
         if (registered.isPresent()) {
             GitOutput dirty = run(registered.get().path(), DEFAULT_TIMEOUT, "status", "--porcelain");
             if (!dirty.stdout().isBlank()) {
                 throw new WorktreeException("Branch " + branch + " already exists for task '" + taskId
-                        + "' and its worktree holds uncommitted edits - refusing to auto-reclaim"
-                        + " (inspect it, or fleet_reset the ticket)");
+                        + "' and its worktree holds uncommitted edits (the rescue copy at "
+                        + registered.get().path() + "): commit/merge them, or fleet_reset"
+                        + " the ticket before re-dispatch");
             }
         }
         removeGuarded(repoRoot, taskId, true);
@@ -278,7 +280,9 @@ public final class GitWorktreeManager implements WorktreeManager {
         if (ahead.exitCode() == 0 && "0".equals(ahead.stdout().trim())) {
             return new MergeResult(false, List.of(),
                     "worker produced no changes (no commits on " + branch
-                            + " and no pending worktree edits)");
+                            + " and no pending worktree edits) - the task may genuinely need no changes,"
+                            + " or the worker wrote outside its worktree (check the main checkout),"
+                            + " or the deliverable arrived only as chat text");
         }
         // peer tolerance (review F5): a store write that landed between the
         // pre-claim and now (a PM comment, another ticket's telemetry) would

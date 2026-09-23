@@ -357,7 +357,14 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
-        return getList("/session/" + sessionId + "/message", ChatEntry.class);
+        List<ChatEntry> messages = new ArrayList<>(getList("/session/" + sessionId + "/message", ChatEntry.class));
+        // B-008 / rubberduck F-1: the wire is NEWEST-FIRST (the mirrored 2.0.10
+        // capture in ChatParsingTest is the contract fixture) while every
+        // consumer in this codebase works chronologically - normalize ONCE
+        // here so "later in the list = newer" holds everywhere (stable sort:
+        // entries without timestamps keep their wire order)
+        messages.sort(java.util.Comparator.comparingLong(HttpOpencodeClient::createdAt));
+        return List.copyOf(messages);
     }
 
     @Override
@@ -437,25 +444,33 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     /**
-     * Polls {@code GET /session/:id/message} until THIS turn's assistant reply
-     * is complete, the turn ends with an {@code idle} marker, or the budget
-     * runs out. v2 has no blocking send, so this restores the synchronous
-     * contract the chat view and the fleet are built on.
+     * Polls {@code GET /session/:id/message} until THIS turn is over: the
+     * server's {@code idle} turn-end marker appears (the authoritative v2
+     * signal), or — marker-less servers only — the finished-reply evidence
+     * held quiet for {@link ClientTuning#TURN_QUIET_CONFIRM}. v2 has no
+     * blocking send, so this restores the synchronous contract the chat view
+     * and the fleet are built on.
      *
      * <p>Everything is anchored to {@code promptedAt} (the queued user
      * message's server timestamp): a resumed session carries previous turns'
      * assistant messages and idle markers, and answering from those would
      * return a stale — or still-empty — reply immediately.</p>
+     *
+     * <p>B-008 / rubberduck F-2/F-3: one turn produces MULTIPLE assistant
+     * messages (one per agentic step), each stamped {@code time.completed}
+     * when its own step finishes — the former "first stamped assistant wins"
+     * return therefore fired at every inter-step boundary and force-settled
+     * the fleet's watchdog mid-run (F-005 live: five workers falsely
+     * completed). {@code Turns} is the single judge now.</p>
      */
     private ChatEntry awaitReply(String sessionId, Duration budget, long promptedAt) throws OpencodeException {
         long deadline = System.nanoTime() + budget.toNanos();
-        ChatEntry newest = null;
+        long quietSince = 0;
+        int lastSize = -1;
+        int lastLength = -1;
         while (System.nanoTime() < deadline) {
-            List<ChatEntry> messages = getMessages(sessionId);
-            newest = newestAssistantAfter(messages, promptedAt);
-            if (newest != null && newest.info().isComplete()) {
-                return newest;
-            }
+            List<ChatEntry> messages = getMessages(sessionId); // chronological (the getMessages contract)
+            ChatEntry newest = newestAssistantAfter(messages, promptedAt);
             ChatEntry idle = idleAfter(messages, promptedAt);
             if (idle != null) {
                 if (newest != null) {
@@ -469,6 +484,24 @@ public final class HttpOpencodeClient implements OpencodeClient {
                                 ? " with outcome '" + outcome + "'" : "")
                         + " without a reply");
             }
+            ChatEntry evidence = com.opencode.ide.client.model.Turns.replyEvidence(
+                    turnSlice(messages, promptedAt));
+            if (evidence != null) {
+                // marker-less servers: only a QUIET stretch proves the turn is
+                // over - the evidence alone is true at every inter-step boundary
+                int size = messages.size();
+                int length = evidence.text().length();
+                if (quietSince == 0 || size != lastSize || length != lastLength) {
+                    quietSince = System.nanoTime();
+                }
+                lastSize = size;
+                lastLength = length;
+                if (System.nanoTime() - quietSince >= ClientTuning.TURN_QUIET_CONFIRM.toNanos()) {
+                    return evidence;
+                }
+            } else {
+                quietSince = 0;
+            }
             try {
                 Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
             } catch (InterruptedException e) {
@@ -481,15 +514,31 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 + " or check whether the session is stuck busy)");
     }
 
-    /** The newest assistant message of THIS turn (created at/after the prompt), or {@code null}. */
-    private static ChatEntry newestAssistantAfter(List<ChatEntry> messages, long promptedAt) {
-        for (ChatEntry entry : messages) { // v2 lists newest first
-            if (entry != null && entry.info() != null && "assistant".equals(entry.info().role())
-                    && createdAt(entry) >= promptedAt) {
-                return entry;
+    /** THIS turn's entries ({@code created >= promptedAt}; unknown stamps count in). */
+    private static List<ChatEntry> turnSlice(List<ChatEntry> messages, long promptedAt) {
+        if (promptedAt <= 0) {
+            return messages;
+        }
+        List<ChatEntry> turn = new java.util.ArrayList<>();
+        for (ChatEntry entry : messages) {
+            if (entry != null && (createdAt(entry) == 0 || createdAt(entry) >= promptedAt)) {
+                turn.add(entry);
             }
         }
-        return null;
+        return turn;
+    }
+
+    /** The newest assistant message of THIS turn (created at/after the prompt), or {@code null}. */
+    private static ChatEntry newestAssistantAfter(List<ChatEntry> messages, long promptedAt) {
+        // chronological contract (getMessages): the LAST match is the newest
+        ChatEntry newest = null;
+        for (ChatEntry entry : messages) {
+            if (entry != null && entry.info() != null && "assistant".equals(entry.info().role())
+                    && createdAt(entry) >= promptedAt) {
+                newest = entry;
+            }
+        }
+        return newest;
     }
 
     /** THIS turn's {@code idle} outcome marker, or {@code null} while the turn is still open. */
@@ -633,6 +682,152 @@ public final class HttpOpencodeClient implements OpencodeClient {
         return parseBody("POST", path,
                 request("POST", path, ChatRequests.commandBody(command, arguments), ClientTuning.PROMPT_TIMEOUT),
                 ChatEntry.class);
+    }
+
+    // ---------- U-045 / v2 parity surfaces (background tasks, ask recovery) ----------
+
+    @Override
+    public List<com.opencode.ide.client.activity.PermissionRequest> listPermissionRequests(String directory)
+            throws OpencodeException {
+        String path = withLocation("/permission/request", directory);
+        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+        if (response.statusCode() >= 400) {
+            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
+                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+        }
+        List<com.opencode.ide.client.activity.PermissionRequest> out = new java.util.ArrayList<>();
+        for (JsonElement element : dataOf(response.body())) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            JsonObject ask = element.getAsJsonObject();
+            // the pending-ask list returns Permission.Request objects - the same
+            // wire shape the permission.asked event carries as data (id,
+            // sessionID, action, resources[], metadata?) - mapped directly (no
+            // event wrapper on this read path)
+            List<String> patterns = new java.util.ArrayList<>();
+            if (ask.has("resources") && ask.get("resources").isJsonArray()) {
+                for (JsonElement resource : ask.getAsJsonArray("resources")) {
+                    if (resource.isJsonPrimitive()) {
+                        patterns.add(resource.getAsString());
+                    }
+                }
+            }
+            out.add(new com.opencode.ide.client.activity.PermissionRequest(
+                    askString(ask, "sessionID"), askString(ask, "id"), askString(ask, "action"),
+                    patterns, askTitle(ask),
+                    com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
+        }
+        return List.copyOf(out);
+    }
+
+    private static String askString(JsonObject object, String key) {
+        return (object.has(key) && object.get(key).isJsonPrimitive())
+                ? object.get(key).getAsString()
+                : null;
+    }
+
+    /** The ask's metadata title (falls back to summary/description; else null - display() degrades to the patterns). */
+    private static String askTitle(JsonObject ask) {
+        if (!ask.has("metadata") || !ask.get("metadata").isJsonObject()) {
+            return null;
+        }
+        JsonObject metadata = ask.getAsJsonObject("metadata");
+        for (String key : new String[] {"title", "summary", "description", "command"}) {
+            String value = askString(metadata, key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void backgroundSession(String sessionId) throws OpencodeException {
+        String path = "/session/" + sessionId + "/background";
+        HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
+        if (response.statusCode() >= 400) {
+            throw new OpencodeException("opencode POST /api" + path + " failed: HTTP " + response.statusCode()
+                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+        }
+    }
+
+    @Override
+    public List<com.opencode.ide.client.model.ShellTask> listShellTasks() throws OpencodeException {
+        return getList(withLocation("/shell", null), com.opencode.ide.client.model.ShellTask.class);
+    }
+
+    @Override
+    public String shellTaskOutput(String id) throws OpencodeException {
+        String path = "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/output";
+        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+        if (response.statusCode() >= 400) {
+            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
+                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+        }
+        // lenient: {"data":{"output":…}} today, a raw tail tomorrow
+        try {
+            JsonElement root = JsonParser.parseString(response.body() == null ? "" : response.body());
+            JsonElement data = root.isJsonObject() && root.getAsJsonObject().has("data")
+                    ? root.getAsJsonObject().get("data")
+                    : root;
+            if (data.isJsonObject() && data.getAsJsonObject().has("output")
+                    && data.getAsJsonObject().get("output").isJsonPrimitive()) {
+                return data.getAsJsonObject().get("output").getAsString();
+            }
+            if (data.isJsonPrimitive()) {
+                return data.getAsString();
+            }
+        } catch (JsonParseException | IllegalStateException e) {
+            // fall through to the raw body
+        }
+        return response.body();
+    }
+
+    @Override
+    public void removeShellTask(String id) throws OpencodeException {
+        request("DELETE", "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
+    }
+
+    @Override
+    public List<JsonObject> listInbox(String sessionId) throws OpencodeException {
+        return getList("/session/" + sessionId + "/inbox", JsonObject.class);
+    }
+
+    @Override
+    public void updateInboxItem(String sessionId, String messageId, String delivery) throws OpencodeException {
+        JsonObject body = new JsonObject();
+        body.addProperty("delivery", delivery);
+        HttpResponse<String> response = send("PATCH",
+                "/session/" + sessionId + "/inbox/" + URLEncoder.encode(messageId, StandardCharsets.UTF_8),
+                body.toString(), ClientTuning.REQUEST_TIMEOUT);
+        if (response.statusCode() >= 400) {
+            throw new OpencodeException("opencode PATCH /api/session " + sessionId + " inbox failed: HTTP "
+                    + response.statusCode() + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+        }
+    }
+
+    @Override
+    public void cancelInboxItem(String sessionId, String messageId) throws OpencodeException {
+        request("DELETE", "/session/" + sessionId + "/inbox/"
+                + URLEncoder.encode(messageId, StandardCharsets.UTF_8), null);
+    }
+
+    /** The {@code data} array of a {@code {location, data:[…]}} (or bare array) body. */
+    private static JsonArray dataOf(String body) {
+        if (body == null || body.isBlank()) {
+            return new JsonArray();
+        }
+        try {
+            JsonElement root = JsonParser.parseString(body);
+            if (root.isJsonObject() && root.getAsJsonObject().has("data")) {
+                JsonElement data = root.getAsJsonObject().get("data");
+                return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+            }
+            return root.isJsonArray() ? root.getAsJsonArray() : new JsonArray();
+        } catch (JsonParseException | IllegalStateException e) {
+            return new JsonArray();
+        }
     }
 
     @Override

@@ -52,9 +52,12 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
                 string(msg, "type"),
                 new Session.Time(created, completed > 0 ? completed : created, 0),
                 string(msg, "agent"),
-                null,
-                // terminal markers carry their result as "outcome", not "finish"
-                string(msg, "finish") != null ? string(msg, "finish") : string(msg, "outcome"),
+                string(msg, "mode"),
+                // terminal markers carry their result as "outcome", not "finish";
+                // shell rows carry their lifecycle in "status" (running/exited/...)
+                string(msg, "finish") != null ? string(msg, "finish")
+                        : string(msg, "outcome") != null ? string(msg, "outcome")
+                        : ("shell".equals(string(msg, "type")) ? string(msg, "status") : null),
                 msg.has("cost") && msg.get("cost").isJsonPrimitive() ? msg.get("cost").getAsDouble() : null,
                 msg.has("tokens") ? ctx.deserialize(msg.get("tokens"), Session.Tokens.class) : null,
                 providerId, modelId, variant, null, completed);

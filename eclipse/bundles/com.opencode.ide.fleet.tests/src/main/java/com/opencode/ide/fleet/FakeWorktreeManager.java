@@ -55,6 +55,14 @@ final class FakeWorktreeManager implements WorktreeManager {
                 "opencode/" + taskId);
     }
 
+    /**
+     * B-011 AC3: dirty-but-uncommitted worktree content. The real manager's
+     * contract auto-commits pending edits at merge-back (the worktree is the
+     * unit of work); the fake models the same so a settle over dirty content
+     * is pinned at the TaskFleet level (merged, never silently released).
+     */
+    final List<String> uncommittedFiles = new java.util.ArrayList<>();
+
     @Override
     public MergeResult mergeBack(Path repoRoot, String taskId) {
         if (mergeBackFailure != null) {
@@ -62,6 +70,11 @@ final class FakeWorktreeManager implements WorktreeManager {
         }
         if (onMergeBack != null) {
             onMergeBack.run();
+        }
+        if (!uncommittedFiles.isEmpty()) {
+            commitMessages.add("fleet: worker changes (auto-committed at merge-back) @"
+                    + String.join(",", uncommittedFiles));
+            uncommittedFiles.clear();
         }
         mergedTaskIds.add(taskId);
         mergedRepoRoots.add(repoRoot);

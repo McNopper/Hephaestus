@@ -168,6 +168,54 @@ public class SessionObserverTest {
     }
 
     @Test
+    public void streamingToolCallsAreCurrentActivity() {
+        FakeClient client = new FakeClient();
+        client.messages = messages(
+                """
+                {"id":"msg_1","type":"assistant","content":[
+                  {"type":"tool","tool":"bash","state":{"status":"streaming","input":{"command":"mvn verify"}}}]}
+                """);
+
+        SessionObservation o = SessionObserver.observe(client, "ses_1", null);
+
+        assertEquals("B-013: a streaming call is current activity",
+                "tool: bash mvn verify", o.activity());
+        assertEquals("streaming", o.tools().get(0).status());
+    }
+
+    @Test
+    public void terminalToolStatusesAreNotCurrentActivity() {
+        FakeClient client = new FakeClient();
+        client.messages = messages(
+                """
+                {"id":"msg_2","type":"assistant","content":[
+                  {"type":"tool","tool":"edit","state":{"status":"error","input":{"filePath":"src/A.java"}}}]}
+                """,
+                """
+                {"id":"msg_1","type":"assistant","content":[
+                  {"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"ls"}}}]}
+                """);
+
+        SessionObservation o = SessionObserver.observe(client, "ses_1", null);
+
+        assertNull("completed/error calls are terminal", o.activity());
+    }
+
+    @Test
+    public void blankToolStatusIsNotCurrentActivity() {
+        FakeClient client = new FakeClient();
+        client.messages = messages(
+                """
+                {"id":"msg_1","type":"assistant","content":[
+                  {"type":"tool","tool":"bash","state":{"status":"","input":{"command":"ls"}}}]}
+                """);
+
+        SessionObservation o = SessionObserver.observe(client, "ses_1", null);
+
+        assertNull("a blank status is no phantom activity", o.activity());
+    }
+
+    @Test
     public void shellRunsCarryCommandExitAndOutputTail() {
         FakeClient client = new FakeClient();
         client.messages = messages(

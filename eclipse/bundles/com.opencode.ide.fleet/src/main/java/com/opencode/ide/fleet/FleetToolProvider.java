@@ -567,7 +567,7 @@ public final class FleetToolProvider implements ToolProvider {
                 schema(new String[]{"project", "ticket_id"}, obj -> {
                     obj.add("project", strP("task store project (subdirectory of the store root)"));
                     obj.add("ticket_id", strP("the ticket to launch, e.g. T-042"));
-                    obj.add("timeout_minutes", intP("per-ticket run budget, default 30, max 1440"));
+                    obj.add("timeout_minutes", intP("per-ticket no-progress window (progress resets it; the absolute run cap is separate), default 30, max 1440"));
                     obj.add("model", strP("model for this run (provider/model[#variant]);"
                             + " overrides the ticket's model field"));
                 })));
@@ -580,13 +580,15 @@ public final class FleetToolProvider implements ToolProvider {
                 "In-flight PROGRESS for one job - are we moving or hung? Reports the job's state"
                         + " plus a live probe of its session: busy flag, message count (grows while"
                         + " the worker streams) and the completion flag. The engine's watchdog"
-                        + " aborts a session after ~5 minutes without new messages, so a hung"
-                        + " worker fails fast while slow-but-working ones are never killed.",
+                        + " aborts a session after ~5 minutes WITHOUT activity (new messages,"
+                        + " streaming growth, tool work or busy) and the per-ticket budget only"
+                        + " fires without observed progress - slow-but-working ones are never"
+                        + " killed (B-008); every abort carries a diagnostic snapshot.",
                 schema(new String[]{"ticket_id"},
                         obj -> obj.add("ticket_id", strP("the ticket to inspect, e.g. W-004")))));
         out.add(new McpTool("fleet_job_activity",
                 "Deep live observation of one job's session - what the worker is DOING, not just"
-                        + " whether it moves: current activity (the running tool/shell and its"
+                        + " whether it moves: current activity (the in-flight tool/shell and its"
                         + " target), every tool used so far, every shell command (with exit code"
                         + " and output tail), subagent children, tokens/cost and the newest"
                         + " assistant text. Poll it to watch a dispatched worker live. Pass"

@@ -16,6 +16,52 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
+## Current state (2026-09-23 — defect wave fixed + v2/TUI parity aligned)
+
+**The four demo-filed defects are fixed and tested** (B-008, B-011, B-012,
+B-013), with the cross-vendor critique folded in first. The hidden root of
+the watchdog family was a **message-ordering contradiction** (the v2 wire is
+newest-first per the mirrored capture, the consumers work chronologically,
+the fakes masked it) plus **multi-message turns** (the `time.completed`
+stamp is per-step, never turn end). Both are resolved at one choke point:
+`getMessages` normalizes to chronological order, and `Turns` is the single
+completion judge shared by the client's reply polling and the fleet probe —
+the v2 `idle` **turn-end marker** is the authoritative signal (a stuck prompt
+POST no longer delays a finished run by minutes), the stamped finished-reply
+is fallback evidence only. The per-ticket budget is now a **no-progress
+window** (busy/progressing sessions are never budget-killed, B-008's AC) with
+an absolute run cap as backstop; every abort records a **diagnostic
+snapshot** (last assistant text, last tool call, pending request) in the
+ticket's blocker. Settles are loud (failure comment + blocker + kept rescue
+worktree, never a silent release — B-011), and the stdio MCP servers fail
+fast (exit 2 pipe-died / 3 orphaned, parent-liveness watch) instead of
+lingering as zombie JVMs (B-012).
+
+**v2/TUI feature parity** (validated against the opencode v2 docs + OpenAPI
+contract, 2026-09-23): *plan mode* is the `plan` **agent** in v2 — there is
+no mode endpoint, the harness's agent picker already covers it
+(`ChatMessageInfo.mode` is parsed now for a badge); *permission asks* have a
+real poll-recovery read path (`GET /api/permission/request`) next to the
+event stream and one answer route (`POST /session/:id/permission/:requestID/
+reply`, once/always/reject); *background tasks* map to
+`POST /api/session/:id/background` + `/api/shell` (list/output/reap) + the
+session inbox (`steer|queue|cancel`). The **client surface for all three is
+in** (with `ShellTask`/inbox/permission models, lenient on older servers).
+The **Background view** (`com.opencode.ide.ui.views.BackgroundView`) landed
+next: the TUI-style "what is going on" cockpit — **Agents** pane (every
+session + subagent child with live activity, cost, last text — the agent
+requests and chats), **Shells** pane (every shell launched: command, status,
+exit code, output tail, reap), **Permission asks** pane (answerable:
+once/always/reject). Remaining slices: the in-chat ask banner + chat
+backgrounding action (**T-004**/**T-005**), the session inbox pane. Deliberately
+out of scope: slash-command palette UI, attachment upload, message forking
+beyond the existing fork button, mermaid; TUI-only cosmetics (themes,
+keybinds, which-key, formatters) stay TUI concerns.
+
+**Next:** the Eclipse live pass (**T-002**) — the T-004/T-005 chat surfaces
+land engine-side/chat-web first, the Board's live run stays gated on the
+single-launch pass.
+
 ## Current state (2026-09-22 — new-machine bring-up complete)
 
 **The Eclipse harness is live on the fresh machine.** Full reactor green

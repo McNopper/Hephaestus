@@ -74,7 +74,21 @@ final class FakeClient implements OpencodeClient {
     private int messageCounter;
 
     void addEntry(String sessionId, String role, String text) {
-        messagesBySession.get(sessionId).add(entry(sessionId, role, text));
+        addEntry(sessionId, role, text, COMPLETED_AT);
+    }
+
+    /** B-008: an entry with an explicit {@code time.completed} stamp (0 = the message is still streaming). */
+    void addEntry(String sessionId, String role, String text, long completedAt) {
+        messagesBySession.get(sessionId).add(entry(sessionId, role, text, completedAt));
+    }
+
+    /** B-008 diagnostic fixture: an assistant message carrying one tool part in the given status. */
+    void addToolEntry(String sessionId, String tool, String status) {
+        ChatMessageInfo info = new ChatMessageInfo(
+                "msg_" + (++messageCounter), sessionId, "assistant",
+                null, null, null, null, null, null, null, null, null, null, COMPLETED_AT);
+        messagesBySession.get(sessionId).add(new ChatEntry(info, java.util.List.of(
+                new ChatPart("tool", null, tool, new ChatPart.ToolState(status)))));
     }
 
     void completeSession(String sessionId, String reply) {
@@ -92,11 +106,17 @@ final class FakeClient implements OpencodeClient {
     }
 
     private ChatEntry entry(String sessionId, String role, String text) {
-        // every entry the fake serves is a FINISHED message: v2's trailing
-        // time.completed stamp (14th component) is what isComplete() polls on
+        return entry(sessionId, role, text, COMPLETED_AT);
+    }
+
+    private ChatEntry entry(String sessionId, String role, String text, long completedAt) {
+        // every entry the fake serves is a FINISHED message by default: v2's
+        // trailing time.completed stamp (14th component) is what the turn
+        // evidence (Turns.replyEvidence) polls on; completedAt=0 models a
+        // still-streaming step (B-008)
         ChatMessageInfo info = new ChatMessageInfo(
                 "msg_" + (++messageCounter), sessionId, role,
-                null, null, null, null, null, null, null, null, null, null, COMPLETED_AT);
+                null, null, null, null, null, null, null, null, null, null, completedAt);
         List<ChatPart> parts = (text == null) ? List.of() : List.of(new ChatPart("text", text, null, null));
         return new ChatEntry(info, parts);
     }

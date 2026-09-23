@@ -38,7 +38,7 @@ public record SessionObservation(
         subagents = subagents == null ? List.of() : List.copyOf(subagents);
     }
 
-    /** One tool invocation: name, coarse lifecycle ({@code running}/{@code completed}/{@code error}) and the main target (file/command/pattern) when known. */
+    /** One tool invocation: name, coarse lifecycle (non-terminal {@code running}/{@code streaming}/{@code pending}/… vs terminal {@code completed}/{@code error}) and the main target (file/command/pattern) when known. */
     public record ToolUse(String name, String status, String target) {
     }
 

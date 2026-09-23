@@ -176,10 +176,63 @@ public class TaskFleetTest {
         assertNull(after.assignee);
     }
 
+    /**
+     * B-011 AC3: a settle over dirty-but-uncommitted worktree content (the
+     * worktree-fake models the real manager's auto-commit contract) merges
+     * the work and settles the ticket - never a silent release.
+     */
+    @Test
+    public void dirtyButUncommittedWorkIsMergedNotReleased() {
+        String id = sprintTicket("developer");
+        sessionCompletes();
+        worktrees.uncommittedFiles.add("docs/fleet-job-activity.md");
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertTrue("the dirty work is auto-committed at merge-back: " + worktrees.commitMessages,
+                worktrees.commitMessages.stream().anyMatch(m -> m.contains("auto-committed at merge-back")));
+        Task after = store.get(PROJECT, id);
+        assertEquals("the ticket settles to in-review", "in-review", after.status);
+        assertFalse("no blocker on the auto-commit path", after.blocked);
+    }
+
+    /**
+     * B-011 AC1: when the settle refuses (worker produced nothing), the
+     * release is LOUD - job FAILED with the reason, blocker set, a comment
+     * carrying the failure, the rescue worktree kept - never a silent
+     * release that loses the work with the worktree.
+     */
+    @Test
+    public void refusedSettleIsLoudNotSilent() {
+        String id = sprintTicket("developer");
+        sessionCompletes();
+        worktrees.nextMergeResult = new MergeResult(false, List.of(),
+                "worker produced no changes (no commits on opencode/" + id
+                        + " and no pending worktree edits) - the task may genuinely need no changes,"
+                        + " or the worker wrote outside its worktree (check the main checkout),"
+                        + " or the deliverable arrived only as chat text");
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        Task after = store.get(PROJECT, id);
+        assertTrue(after.blocked);
+        assertTrue(after.blocker, after.blocker.contains("worker produced no changes"));
+        assertTrue(after.blocker, after.blocker.contains("check the main checkout"));
+        assertEquals("F-001: the claim is released - with the reason", "sprint-backlog", after.status);
+        assertNull("the fleet assignee is released with the claim", after.assignee);
+        assertTrue("B-011: a comment carries the failure: " + after.comments,
+                after.comments.toString().contains("fleet failed"));
+        assertTrue("the rescue worktree is kept for post-mortem", worktrees.removedTaskIds.isEmpty());
+    }
+
     @Test
     public void timeoutBlocksTicket() {
         String id = sprintTicket("pm");
-        // client stays busy: the session never completes
+        // idle with no reply and no message growth: no PROGRESS, so the
+        // progress-aware budget (B-008) is what stops the run
+        client.sessionType = "idle";
 
         FleetJob job = fleet.launch(PROJECT, id, REPO, Duration.ofMillis(50));
 

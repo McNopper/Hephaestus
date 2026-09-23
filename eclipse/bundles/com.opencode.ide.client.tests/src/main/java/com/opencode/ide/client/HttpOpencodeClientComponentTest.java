@@ -515,18 +515,21 @@ public class HttpOpencodeClientComponentTest {
     // ---------- messages ----------
 
     @Test
-    public void getMessagesUnwrapsTheDataEnvelopeNewestFirst() throws Exception {
+    public void getMessagesNormalizesTheNewestFirstEnvelopeToChronological() throws Exception {
         List<ChatEntry> entries = client.getMessages("ses_new");
 
         assertEquals("GET", lastMethod.get());
         assertEquals("/api/session/ses_new/message", lastPath.get());
         assertEquals("the {\"data\":[…]} envelope must be unwrapped", 2, entries.size());
-        // v2 returns the list NEWEST FIRST - the assistant reply leads
-        assertEquals("assistant", entries.get(0).info().role());
-        assertEquals("The answer is $4$.", entries.get(0).text());
-        assertTrue(entries.get(1).isUser());
+        // the v2 WIRE is newest-first (the assistant reply leads in the fixture),
+        // but getMessages normalizes to CHRONOLOGICAL for its consumers (B-008 /
+        // rubberduck F-1: "later in the list = newer" is the client contract -
+        // the fleet, the chat transcript and the fakes all work chronologically)
+        assertTrue(entries.get(0).isUser());
         assertEquals("a v2 user message carries a flat text, not parts",
-                "What is 2+2?", entries.get(1).text());
+                "What is 2+2?", entries.get(0).text());
+        assertEquals("assistant", entries.get(1).info().role());
+        assertEquals("The answer is $4$.", entries.get(1).text());
     }
 
     /** The observer's raw read: same endpoint, but the unwrapped {@code data} array, unparsed. */

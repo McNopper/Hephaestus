@@ -28,7 +28,11 @@ public final class TasksStdioMain {
     private TasksStdioMain() {
     }
 
-    /** Runs the stdio loop; returns when stdin closes. */
+    /**
+     * Runs the stdio loop (B-012 hardened: returns on clean stdin EOF;
+     * a dead pipe or an orphaned launcher exits NONZERO so the host respawns
+     * instead of keeping a zombie JVM — see {@link StdioServer}).
+     */
     public static void main(String[] args) throws Exception {
         Path root = Path.of(".opencode", "tasks");
         for (int i = 0; i < args.length - 1; i++) {
@@ -40,16 +44,12 @@ public final class TasksStdioMain {
         McpDispatcher dispatcher = new McpDispatcher(new TaskToolProvider(root));
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         PrintStream out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
-        String line;
-        while ((line = in.readLine()) != null) {
-            if (line.isBlank()) {
-                continue;
-            }
-            String response = dispatcher.handle(line);
-            if (response != null) {
-                out.println(response);
-                out.flush();
-            }
+        int code = com.opencode.ide.tools.StdioServer.serve(
+                in, out, dispatcher, new com.opencode.ide.tools.StdioServer.ParentLiveness());
+        if (code != com.opencode.ide.tools.StdioServer.EXIT_OK) {
+            // abnormal end: nonzero exit = "respawn me" (B-012); the clean EOF
+            // path returns normally so in-process callers keep working
+            System.exit(code);
         }
     }
 }

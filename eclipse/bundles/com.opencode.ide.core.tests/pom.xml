@@ -20,7 +20,7 @@
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>tycho-surefire-plugin</artifactId>
         <configuration>
-          <failIfNoTests>false</failIfNoTests>
+          <failIfNoTests>true</failIfNoTests>
         </configuration>
       </plugin>
     </plugins>

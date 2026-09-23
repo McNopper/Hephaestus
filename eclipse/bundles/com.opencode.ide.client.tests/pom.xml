@@ -20,7 +20,14 @@
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>tycho-surefire-plugin</artifactId>
         <configuration>
-          <failIfNoTests>false</failIfNoTests>
+          <failIfNoTests>true</failIfNoTests>
+          <!-- test-speed knobs: reply polling and the marker-less quiet window
+               run at test speed here; production defaults stay in ClientTuning
+               (the tests pin semantics, not wall-clock) -->
+          <environmentVariables>
+            <CLIENT_REPLY_POLL_MS>25</CLIENT_REPLY_POLL_MS>
+            <CLIENT_TURN_QUIET_MS>250</CLIENT_TURN_QUIET_MS>
+          </environmentVariables>
         </configuration>
       </plugin>
     </plugins>

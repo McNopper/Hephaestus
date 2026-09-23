@@ -21,8 +21,8 @@ stream needed), so you can poll it to watch a dispatched worker live.
 
 | Field | Meaning |
 |---|---|
-| `activity` | The current activity: the running tool/shell and its main target (file, command, pattern), when one is visible. |
-| `tools` | Every tool used so far: `name`, lifecycle `status` (`running`/`completed`/`error`), and the main `target` when known. |
+| `activity` | The current activity: the in-flight tool/shell (non-terminal status — `running`, `streaming`, …) and its main target (file, command, pattern), when one is visible. |
+| `tools` | Every tool used so far: `name`, lifecycle `status` (non-terminal `running`/`streaming`/… vs terminal `completed`/`error`), and the main `target` when known. |
 | `shells` | Every shell command run: `command`, `status`, `exit` code, and a short `output_tail`. |
 | `subagents` | Child sessions spawned by the worker (nested via `parentID`): `session_id`, `title`, `agent`, `status`, `cost_usd`, `tokens`. |
 | `cost_usd` / `tokens` | Cumulative cost and token usage of the session. |

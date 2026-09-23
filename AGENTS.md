@@ -201,8 +201,12 @@ Concretely, a chat agent can already:
   one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
   ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
   residue itself (B-006) — "branch already exists" now means real unmerged work, never
-  engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is not yet
-  progress-aware and can kill a busy session at the cap; B-008 tracks the fix). Model
+  engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is
+  progress-aware (B-008): it is a NO-PROGRESS window that progressing sessions
+  never hit (busy alone is not progress), an absolute run cap is the backstop, and
+  every abort records a
+  diagnostic snapshot (last assistant text, last tool call, pending request) on the
+  ticket). Model
   selection is a **cost lever on the ticket**: the optional `model` field
   (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run costs —
   small well-specified tickets deserve cheap models; `fleet_dispatch(model=…)` overrides
@@ -263,6 +267,11 @@ headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake build
   deliberately keeps spawning its own `opencode serve`. Session share and TUI steering are gone
   in v2; text/symbol search has no v2 equivalent.
 - **Build:** `cd eclipse; .\build.ps1 clean verify` (Java 21 + Tycho; Node for the chat-web checks).
+  Fast inner loop: `.\build.ps1 verify` (incremental — seconds, vs minutes for `clean`);
+  reserve `clean verify` for the release gate / pre-deploy. `-DskipNodeChecks=true`
+  skips the chat-web checks, opt-in `-T 2` trades a little CPU for wall clock (off by
+  default — keep the system responsive), and each test bundle boots its own OSGi test
+  runtime (Tycho) — that startup dominates short builds.
 - **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
 - **Docs:** `eclipse/README.md`, `eclipse/ARCHITECTURE.md`, and the root `ROADMAP.md`.
 

@@ -136,7 +136,8 @@ public final class SessionObserver {
                         if ("tool".equals(partType)) {
                             SessionObservation.ToolUse tool = toolOf(part);
                             tools.add(tool);
-                            if (activity == null && "running".equals(tool.status())) {
+                            if (activity == null
+                                    && com.opencode.ide.client.model.Turns.toolInFlight(tool.status())) {
                                 activity = tool.target() == null
                                         ? "tool: " + tool.name()
                                         : "tool: " + tool.name() + " " + tool.target();
@@ -152,7 +153,7 @@ public final class SessionObserver {
             } else if ("shell".equals(type)) {
                 SessionObservation.ShellRun shell = shellOf(message);
                 shells.add(shell);
-                if (activity == null && "running".equals(shell.status())) {
+                if (activity == null && com.opencode.ide.client.model.Turns.shellInFlight(shell.status())) {
                     activity = "shell: " + shell.command();
                 }
             }
@@ -173,6 +174,15 @@ public final class SessionObserver {
         return new SessionObservation(sessionId, title, agent, model, status, outcome,
                 cost, tokens, activity, lastText, tools, shells, children);
     }
+
+    /**
+     * B-013: a call is CURRENT activity while its status is non-terminal —
+     * v2 reports {@code running} and {@code streaming} (output still
+     * arriving); comparing against {@code running} alone missed every
+     * in-flight {@code streaming} call. The single semantic lives in
+     * {@link com.opencode.ide.client.model.Turns#toolInFlight(String)} /
+     * {@link com.opencode.ide.client.model.Turns#shellInFlight(String)}.
+     */
 
     /** Coarse status: the active map when it knows the session, else idle (v2 lists running sessions only). */
     private static String statusOf(Map<String, SessionStatus> active, String sessionId) {

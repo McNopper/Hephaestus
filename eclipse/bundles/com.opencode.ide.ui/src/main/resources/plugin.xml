@@ -36,6 +36,12 @@
           category="com.opencode.ide.ui"
           allowMultiple="true"
           class="com.opencode.ide.ui.views.SessionDetailsView"/>
+    <view
+          id="com.opencode.ide.ui.views.BackgroundView"
+          name="Background"
+          icon="icons/session-busy.png"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.ui.views.BackgroundView"/>
   </extension>
 
   <extension point="org.eclipse.ui.preferencePages">

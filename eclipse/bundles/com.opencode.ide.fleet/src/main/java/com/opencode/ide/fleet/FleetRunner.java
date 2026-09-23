@@ -97,8 +97,21 @@ public class FleetRunner {
         this.onSessionCreated = onSessionCreated;
     }
 
-    /** One watchdog probe: message count + completion + busy + last-assistant-text snippet. */
-    public record Activity(int messages, boolean complete, boolean busy, String lastAssistant) {
+    /**
+     * One watchdog probe: message count, completion evidence, the busy flag
+     * and the B-008 diagnostic carriers - the last assistant text (display
+     * snippet + FULL length as the streaming-growth progress signal; the
+     * 300-char snippet prefix stops changing while text keeps growing), the
+     * last tool call {@code name [status]}, and whether the server stamped
+     * this turn's end.
+     */
+    public record Activity(int messages, boolean complete, boolean busy, String lastAssistant,
+            int assistantTextLength, String lastTool, boolean turnEnded) {
+
+        /** Legacy shape (seams/tests): no diagnostics. */
+        public Activity(int messages, boolean complete, boolean busy, String lastAssistant) {
+            this(messages, complete, busy, lastAssistant, -1, null, false);
+        }
     }
 
     /**
@@ -212,30 +225,43 @@ public class FleetRunner {
 
     /**
      * One watchdog probe of a running session: message count (progress
-     * signal), the completion flag (idle + last message is an assistant reply
-     * with text - the same contract as {@link #isComplete}), the busy flag
-     * (a session present as non-idle in the busy-only status map), and the
-     * last assistant text snippet (what the worker is SAYING - the
-     * diagnostic that cracked the W-005 refusals: the model explained
-     * instead of writing).
+     * signal), the completion evidence ({@link com.opencode.ide.client.model.Turns}:
+     * the turn-end marker, or the finished-reply evidence - non-conversational
+     * marker/shell rows never mask the reply and a still-streaming step is no
+     * evidence), the busy flag (a session present as non-idle in the busy-only
+     * status map), and the diagnostic carriers (see {@link Activity}).
      */
     public Activity probe(String sessionId) throws OpencodeException {
         SessionStatus status = client.getSessionStatus().get(sessionId);
         boolean busy = status != null && !"idle".equals(status.type());
         List<ChatEntry> messages = client.getMessages(sessionId);
-        ChatEntry last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
-        boolean complete = !busy && last != null && last.info() != null
-                && "assistant".equals(last.info().role()) && !last.text().isBlank();
+        boolean turnEnded = com.opencode.ide.client.model.Turns.turnEnded(messages);
+        boolean complete = !busy && (turnEnded
+                || com.opencode.ide.client.model.Turns.replyEvidence(messages) != null);
         String lastAssistant = null;
+        int assistantTextLength = 0;
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatEntry m = messages.get(i);
-            if (m.info() != null && "assistant".equals(m.info().role()) && !m.text().isBlank()) {
+            if (m != null && m.info() != null && "assistant".equals(m.info().role()) && !m.text().isBlank()) {
                 String text = m.text().strip();
+                assistantTextLength = m.text().length();
                 lastAssistant = text.length() <= 300 ? text : text.substring(0, 300) + "…";
                 break;
             }
         }
-        return new Activity(messages.size(), complete, busy, lastAssistant);
+        String lastTool = null;
+        for (ChatEntry m : messages) {
+            if (m == null) {
+                continue;
+            }
+            for (com.opencode.ide.client.model.ChatPart part : m.parts()) {
+                if (part != null && part.isTool()) {
+                    lastTool = (part.tool() == null ? "tool" : part.tool()) + " [" + part.stateName() + "]";
+                }
+            }
+        }
+        return new Activity(messages.size(), complete, busy, lastAssistant,
+                assistantTextLength, lastTool, turnEnded);
     }
 
     /** Best-effort abort of a session; tolerance for already-idle is the client's. */
@@ -376,12 +402,14 @@ public class FleetRunner {
     }
 
     /**
-     * Completion check: the session reports {@code idle} and its last message
-     * is an assistant reply with non-empty text. As everywhere: the status
-     * map lists busy sessions only (v1 since opencode 1.18.23, and v2's
-     * {@code /session/active} by definition), so an
-     * ABSENT session is idle (requiring an explicit idle entry never completed
-     * - Milestone V); only a present non-idle entry means busy.
+     * Completion check (the {@link com.opencode.ide.client.model.Turns}
+     * contract): the session reports {@code idle} and the turn is over - the
+     * server's {@code idle} turn-end marker, or the finished-reply evidence
+     * (trailing conversational entry is an assistant reply with text, its
+     * step stamped {@code time.completed}, no tool call/shell run in flight).
+     * As everywhere: the status map lists busy sessions only (v2's
+     * {@code /session/active} by definition), so an ABSENT session is idle;
+     * only a present non-idle entry means busy.
      */
     public boolean isComplete(FleetJob job) throws OpencodeException {
         SessionStatus status = client.getSessionStatus().get(job.sessionId());
@@ -389,13 +417,8 @@ public class FleetRunner {
             return false;
         }
         List<ChatEntry> messages = client.getMessages(job.sessionId());
-        if (messages.isEmpty()) {
-            return false;
-        }
-        ChatEntry last = messages.get(messages.size() - 1);
-        return last.info() != null
-                && "assistant".equals(last.info().role())
-                && !last.text().isBlank();
+        return com.opencode.ide.client.model.Turns.turnEnded(messages)
+                || com.opencode.ide.client.model.Turns.replyEvidence(messages) != null;
     }
 
     /**

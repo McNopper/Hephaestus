@@ -29,6 +29,18 @@ public final class ClientTuning {
     public static final Duration REPLY_POLL_INTERVAL = duration(
             "CLIENT_REPLY_POLL_MS", Duration.ofMillis(750));
 
+    /**
+     * B-008 completion contract: how long the finished-reply evidence must
+     * hold QUIET before a marker-less server's turn counts as over. v2.0.x
+     * writes an {@code idle} turn-end marker and settles instantly on it;
+     * this short window only protects marker-less servers from settling at
+     * an inter-step boundary of a multi-message turn (a few polls' worth -
+     * the stamp and the marker carry the real weight). Env:
+     * CLIENT_TURN_QUIET_MS.
+     */
+    public static final Duration TURN_QUIET_CONFIRM = duration(
+            "CLIENT_TURN_QUIET_MS", Duration.ofSeconds(2));
+
     /** Readiness-probe connect timeout. Env: CLIENT_PROBE_CONNECT_MS. */
     public static final Duration PROBE_CONNECT_TIMEOUT = duration(
             "CLIENT_PROBE_CONNECT_MS", Duration.ofSeconds(5));

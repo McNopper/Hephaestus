@@ -257,6 +257,62 @@ public interface OpencodeClient {
         throw new UnsupportedOperationException("respondToPermission");
     }
 
+    /**
+     * {@code GET /api/permission/request} - every PENDING permission ask of
+     * unattended sessions (U-045/v2 parity). The poll-based read path: SSE
+     * events are not replayed after a reconnect, this list is the recovery
+     * surface for asks raised while no listener was attached.
+     */
+    default List<com.opencode.ide.client.activity.PermissionRequest> listPermissionRequests(String directory)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("listPermissionRequests");
+    }
+
+    /** Unscoped variant (see {@link #getAgents(String)}). */
+    default List<com.opencode.ide.client.activity.PermissionRequest> listPermissionRequests()
+            throws OpencodeException {
+        return listPermissionRequests(null);
+    }
+
+    /**
+     * {@code POST /api/session/:id/background} - background the session's
+     * blocking tools so the session continues while long tools run (v2's
+     * Ctrl+B). U-045/v2 parity.
+     */
+    default void backgroundSession(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("backgroundSession");
+    }
+
+    /** {@code GET /api/shell} - the live shell tasks (v2's Shell tab). U-045/v2 parity. */
+    default List<com.opencode.ide.client.model.ShellTask> listShellTasks() throws OpencodeException {
+        throw new UnsupportedOperationException("listShellTasks");
+    }
+
+    /** {@code GET /api/shell/:id/output} - a shell task's captured output tail. */
+    default String shellTaskOutput(String id) throws OpencodeException {
+        throw new UnsupportedOperationException("shellTaskOutput");
+    }
+
+    /** {@code DELETE /api/shell/:id} - reap a finished shell task. */
+    default void removeShellTask(String id) throws OpencodeException {
+        throw new UnsupportedOperationException("removeShellTask");
+    }
+
+    /** {@code GET /api/session/:id/inbox} - queued/steered pending prompts (v2's Alt+Enter queue). */
+    default List<com.google.gson.JsonObject> listInbox(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("listInbox");
+    }
+
+    /** {@code PATCH /api/session/:id/inbox/:msgID} - deliver a pending prompt as {@code steer} or {@code queue}. */
+    default void updateInboxItem(String sessionId, String messageId, String delivery) throws OpencodeException {
+        throw new UnsupportedOperationException("updateInboxItem");
+    }
+
+    /** {@code DELETE /api/session/:id/inbox/:msgID} - cancel a pending prompt. */
+    default void cancelInboxItem(String sessionId, String messageId) throws OpencodeException {
+        throw new UnsupportedOperationException("cancelInboxItem");
+    }
+
     /** {@code GET /api/command} - the project's custom slash commands. */
     default List<CommandInfo> getCommands() throws OpencodeException {
         return List.of();

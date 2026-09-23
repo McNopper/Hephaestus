@@ -784,39 +784,65 @@ public final class TaskFleet {
     }
 
     /**
-     * The watchdog: polls the session until it completes, the budget ends or
-     * it STALLS. Completion needs BOTH a complete-looking probe (busy flag +
-     * last assistant reply) AND the end of the run: the prompt POST
-     * resolving, or a complete-looking probe SUSTAINED for the whole stall
-     * window (a finished run whose POST is stuck must still merge - never
-     * held hostage by a dead HTTP response, never aborted). Probe alone is
-     * not enough: "idle + last assistant reply" is also true at every
-     * INTER-STEP boundary of a healthy agentic run (F-005: five concurrent
-     * workers were falsely completed ~1 min in and failed "worker produced
-     * no changes" while still streaming). A session with no new messages for
-     * {@link #stallTimeout} is aborted ({@code POST /session/:id/interrupt}) and
-     * fails cleanly instead of burning the whole budget on a hang.
-     * Slow-but-progressing workers are never killed by a guessed wall clock.
+     * The watchdog: polls the session until the turn ends, the budget ends or
+     * it STALLS (B-008 redesign, rubberduck F-2/F-3/F-4).
+     *
+     * <p><b>Completion</b> needs BOTH the {@link
+     * com.opencode.ide.client.model.Turns} completion evidence AND the end of
+     * the run: the server's {@code idle} turn-end marker (the authoritative v2
+     * signal - it fires even while the prompt POST is stuck, so a finished run
+     * settles within one probe, not after a sustained window), or the prompt
+     * POST resolving. Evidence alone is not enough: it is ALSO true at every
+     * INTER-STEP boundary of a multi-message turn (F-005: five concurrent
+     * workers were falsely completed ~1 min in and failed "worker produced no
+     * changes" while still streaming).</p>
+     *
+     * <p><b>Budgets</b>: the per-ticket budget ({@code timeout}) is
+     * PROGRESS-AWARE - it is a no-progress window, reset ONLY by observed
+     * progress: new messages, streaming assistant-text growth, tool activity
+     * (B-008 AC: a session showing progress is never budget-killed; busy
+     * alone is NOT progress - a busy-but-silent session is hung and is
+     * stopped here). A pending permission ask or prompt POST resets the
+     * STALL clock only (review F1: an ask is a question for the human, not a
+     * stall - but with no PROGRESS the budget eventually stops the run: the
+     * watchdog pauses, it does not decide). The absolute wall clock is
+     * {@link FleetTuning#HARD_RUN_CAP} (F-4: cost runaway / concurrency-slot
+     * starvation backstop). A session with no activity for
+     * {@link #stallTimeout} is aborted ({@code POST /session/:id/interrupt})
+     * and fails cleanly.</p>
+     *
+     * <p>Every abort carries a diagnostic snapshot (last assistant text + age,
+     * last tool call + age, pending request state) into the FAILED detail -
+     * and therefore into the ticket's blocker - so the next triage separates
+     * model-hang from tool-hang from true-hang.</p>
      */
     private FleetJob watchdog(FleetRunner.Submission submission, Duration timeout) throws OpencodeException {
         FleetJob job = submission.job();
-        long deadline = System.nanoTime() + timeout.toNanos();
+        long started = System.nanoTime();
+        long hardCapNanos = FleetTuning.HARD_RUN_CAP.toNanos();
+        long budgetNanos = timeout.toNanos();
         long stallNanos = stallTimeout.toNanos();
         int lastMessages = -1;
+        int lastAssistantLength = -1;
+        String lastTool = null;
+        long lastAssistantChange = System.nanoTime();
+        long lastToolChange = System.nanoTime();
         long lastProgress = System.nanoTime();
-        long looksFinishedSince = 0;
+        long lastStallReset = System.nanoTime();
         while (true) {
             String promptFailure = submission.promptFailure();
             if (promptFailure != null) {
                 return withState(job, FleetJob.State.FAILED, "prompt: " + promptFailure);
             }
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) {
-                // don't leave the session running (and burning tokens) past
-                // the budget the dispatcher granted (review F6)
+            if (System.nanoTime() - started >= hardCapNanos) {
+                // the budget below survives progress on purpose - THIS is the
+                // absolute backstop (review F6 intent, F-4 renegotiated):
+                // nothing runs (and burns tokens) past the hard run cap
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
-                        "timeout after " + timeout + " awaiting session " + job.sessionId());
+                        "timeout after " + FleetTuning.HARD_RUN_CAP
+                                + " (absolute run cap, despite progress) awaiting session " + job.sessionId()
+                                + " | " + diagnostic(job, submission, null, lastAssistantChange, lastToolChange));
             }
             FleetRunner.Activity activity = null;
             try {
@@ -834,45 +860,114 @@ public final class TaskFleet {
             // unblocks the POST; the budget backstops the rest.
             boolean promptInFlight = !submission.prompt().isDone();
             if (activity != null) {
+                boolean progressed = false;
                 if (activity.messages() != lastMessages) {
                     lastMessages = activity.messages();
+                    progressed = true;
+                }
+                // FULL text length, not the 300-char display snippet: past 300
+                // chars the snippet prefix is stable while the reply keeps
+                // streaming (F-4)
+                if (activity.assistantTextLength() != lastAssistantLength) {
+                    lastAssistantLength = activity.assistantTextLength();
+                    lastAssistantChange = System.nanoTime();
+                    progressed = true;
+                }
+                if (!java.util.Objects.equals(activity.lastTool(), lastTool)) {
+                    lastTool = activity.lastTool();
+                    lastToolChange = System.nanoTime();
+                    progressed = true;
+                }
+                if (progressed) {
                     lastProgress = System.nanoTime();
+                    lastStallReset = System.nanoTime(); // progress resets BOTH clocks
                 }
-                if (activity.complete()) {
-                    if (looksFinishedSince == 0) {
-                        looksFinishedSince = System.nanoTime();
-                    }
-                    if (!promptInFlight || System.nanoTime() - looksFinishedSince >= stallNanos) {
-                        return withState(job, FleetJob.State.COMPLETED, null);
-                    }
-                } else {
-                    looksFinishedSince = 0;
+                if (activity.complete() && (activity.turnEnded() || !promptInFlight)) {
+                    return withState(job, FleetJob.State.COMPLETED, null);
                 }
-                // BUSY resets the stall clock: a single long tool call (a
-                // reactor build, npm install) or one long generation emits no
-                // new message rows while legitimately working - busy-and-
-                // silent runs to the budget, only idle-and-silent is a hang
-                // (review F2). Same for a session WAITING on a permission
-                // answer: an ask is a question for the human, not a stall
-                // (review F1) - the run dies only if nobody ever answers.
+                // BUSY resets the STALL clock only (review F2: one long tool
+                // call - a reactor build - is WORKING) - busy alone is NOT
+                // observable PROGRESS: a busy session that stays silent is a
+                // hung session and the no-progress budget stops it. (U-024's
+                // healthy long run was saved by MESSAGE GROWTH, not by the
+                // busy flag; B-008 live 2026-09-23: "busy = progress" made a
+                // busy-static fixture unkillable and spun a test JVM for 67
+                // minutes - rubberduck F-4 exactly.)
                 if (activity.busy() || permissionWait || promptInFlight) {
-                    lastProgress = System.nanoTime();
+                    lastStallReset = System.nanoTime();
                 }
             } else if (promptInFlight || permissionWait) {
-                lastProgress = System.nanoTime();
+                lastStallReset = System.nanoTime();
             }
-            if (System.nanoTime() - lastProgress >= stallNanos) {
+            long now = System.nanoTime();
+            if (now - lastStallReset >= stallNanos) {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
                         "stalled: session idle and silent for " + stallTimeout
-                                + ", session aborted (the prompt was delivered; the worker hung)");
+                                + ", session aborted (the prompt was delivered; the worker hung)"
+                                + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
+            }
+            if (now - lastProgress >= budgetNanos) {
+                runner.abort(job.sessionId());
+                return withState(job, FleetJob.State.FAILED,
+                        "timeout after " + timeout + " without observed progress (ticket budget)"
+                                + (permissionWait ? "; a permission ask was never answered" : "")
+                                + ", session " + job.sessionId() + " aborted"
+                                + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
             }
             runner.pauseBetweenProbes();
         }
     }
 
+    /**
+     * B-008 AC1: the abort's diagnostic snapshot - WHAT was the session
+     * waiting on (model-hang vs tool-hang vs true-hang). Rendered into the
+     * FAILED detail and therefore the ticket's blocker text.
+     */
+    private static String diagnostic(FleetJob job, FleetRunner.Submission submission,
+            FleetRunner.Activity activity, long lastAssistantChange, long lastToolChange) {
+        long now = System.nanoTime();
+        boolean promptInFlight = submission != null && !submission.prompt().isDone();
+        String pending = promptInFlight ? "prompt POST still in flight (turn in flight server-side)"
+                : "none";
+        String assistant = activity == null ? "unavailable (probe failing)"
+                : activity.lastAssistant() == null ? "none seen"
+                : "\"" + activity.lastAssistant().replace('\n', ' ') + "\" (changed "
+                        + age(now, lastAssistantChange) + " ago)";
+        String tool = activity == null ? "unavailable"
+                : activity.lastTool() == null ? "none seen"
+                : activity.lastTool() + " (changed " + age(now, lastToolChange) + " ago)";
+        return "diagnostic: last assistant text " + assistant
+                + "; last tool call " + tool
+                + "; pending request: " + pending
+                + (activity == null ? "" : "; messages=" + activity.messages() + " busy=" + activity.busy());
+    }
+
+    private static String age(long nowNanos, long sinceNanos) {
+        return java.time.Duration.ofNanos(Math.max(0, nowNanos - sinceNanos)).toString();
+    }
+
+    /**
+     * B-011: a failed run is LOUD on the ticket - the reason lands as a
+     * COMMENT (the history trail a release would otherwise swallow) and as
+     * the blocker, and only then is the fleet's own claim released (F-001:
+     * never a zombie in-progress claim). Each step is independently guarded:
+     * a comment write failure can never skip the release, and a store
+     * failure can never hide the reason (it is logged). Callers keep the
+     * worktree for post-mortem/rescue; the collision messages name the
+     * rescue copy when a re-dispatch meets it (F-6 retry contract).
+     */
     private FleetJob blocked(FleetJob job, String project, String taskId, String blocker) {
-        store.setBlocked(project, taskId, blocker, ASSIGNEE);
+        try {
+            store.addComment(project, taskId, "fleet failed: " + blocker, ASSIGNEE);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "recording the fleet failure comment on " + taskId + " failed", e);
+        }
+        try {
+            store.setBlocked(project, taskId, blocker, ASSIGNEE);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "blocking " + taskId + " failed", e);
+        }
         releaseClaim(project, taskId);
         jobsByTask.put(taskId, job);
         return job;

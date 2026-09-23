@@ -109,7 +109,9 @@ public class TaskFleetPermissionsTest {
     @Test
     public void failedLaunchAlsoDropsPendingEntries() {
         String id = sprintTicket("developer");
-        client.sessionType = "busy"; // never completes -> watchdog timeout
+        // idle and without progress -> the budget stops the run (B-008: a
+        // continuously busy session would never be budget-killed)
+        client.sessionType = "idle";
         client.blockOnSend = () -> bridge.onEvent(askedEvent("ses_1", "per_1"));
 
         FleetJob job = fleet().launch(PROJECT, id, REPO, TIMEOUT);

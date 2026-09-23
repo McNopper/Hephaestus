@@ -57,6 +57,16 @@ public final class FleetTuning {
             "FLEET_SERVE_KILL_SETTLE_MS", Duration.ofMillis(750));
 
     /**
+     * B-008 / rubberduck F-4: the ABSOLUTE wall-clock run cap. The per-ticket
+     * budget is progress-aware (a run showing progress is never
+     * budget-killed, per B-008's AC) - this cap is the backstop that keeps a
+     * permanently-busy zombie session from holding a concurrency slot and
+     * burning tokens forever. Env: FLEET_HARD_RUN_CAP_MS.
+     */
+    public static final Duration HARD_RUN_CAP = duration(
+            "FLEET_HARD_RUN_CAP_MS", Duration.ofHours(4));
+
+    /**
      * U-022: recurring-waves cycle period - how often the loop re-checks
      * drain state, NEEDS-HUMAN tickets and wave planning. Env: FLEET_WAVE_LOOP_MS.
      */
