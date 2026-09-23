@@ -102,8 +102,11 @@ if (Test-Path -LiteralPath $bundlesInfo) {
             }
         }
         Set-Content -LiteralPath $bundlesInfo -Value $lines
-        Write-Host "[deploy-dev] refreshed opencode-ide lines in bundles.info"
+        Write-Host "[deploy-dev] refreshed opencode-ide lines in bundles.info" -ForegroundColor DarkGray
+    }
+}
 
+Write-Host ""
 # --- harness defaults: plugin_customization.ini + the eclipse.ini flag ---
 $customization = Join-Path $PSScriptRoot "plugin_customization.ini"
 if (Test-Path $customization) {
@@ -123,11 +126,8 @@ if (Test-Path $customization) {
             Write-Host "[deploy-dev] eclipse.ini: added -pluginCustomization plugin_customization.ini"
         }
     }
-} -ForegroundColor DarkGray
-    }
 }
 
-Write-Host ""
 Write-Host "Done. (Re)start $EclipseRoot to load the plugins." -ForegroundColor Cyan
 Write-Host "If views/perspective don't update, run eclipse once with -clean" -ForegroundColor DarkGray
 Write-Host "(add '-clean' on its own line near the top of $EclipseRoot\eclipse.ini, then remove it after one launch)." -ForegroundColor DarkGray
