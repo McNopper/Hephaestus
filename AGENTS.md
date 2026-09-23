@@ -272,6 +272,11 @@ headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake build
   skips the chat-web checks, opt-in `-T 2` trades a little CPU for wall clock (off by
   default — keep the system responsive), and each test bundle boots its own OSGi test
   runtime (Tycho) — that startup dominates short builds.
+  **Quality gate** (`eclipse/QUALITY.md`): every `verify` runs Checkstyle
+  (clean-code lint, enforced) and the clean-architecture exec check
+  (dependency direction + no fixed paths, enforced); `verify -Pquality` adds
+  SpotBugs (report-only) and PMD-CPD duplication checks — the release gate is
+  `.\build.ps1 clean verify -Pquality`.
 - **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
 - **Docs:** `eclipse/README.md`, `eclipse/ARCHITECTURE.md`, and the root `ROADMAP.md`.
 

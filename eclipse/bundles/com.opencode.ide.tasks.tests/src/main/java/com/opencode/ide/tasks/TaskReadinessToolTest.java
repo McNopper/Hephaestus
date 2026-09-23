@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,12 +12,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-import com.opencode.ide.tools.McpDispatcher;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 /**
  * The task_readiness tool (H6 agent-facing surface) over the JSON-RPC
@@ -29,27 +24,7 @@ import org.junit.rules.TemporaryFolder;
  * StageReadiness over the same store, and malformed input mapping to
  * JSON-RPC -32602 per pack convention.
  */
-public class TaskReadinessToolTest {
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private Path root;
-    private McpDispatcher dispatcher;
-
-    @Before
-    public void setUp() {
-        root = tmp.getRoot().toPath().resolve("tasks");
-        dispatcher = new McpDispatcher(new TaskToolProvider(root));
-    }
-
-    private JsonObject call(String tool, String argsJson) {
-        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\""
-                + tool + "\",\"arguments\":" + argsJson + "}}";
-        JsonObject response = JsonParser.parseString(dispatcher.handle(body)).getAsJsonObject();
-        assertFalse("domain errors must be isError results, not protocol errors", response.has("error"));
-        return response.getAsJsonObject("result");
-    }
+public class TaskReadinessToolTest extends ToolRpcHarness {
 
     private JsonArray callArray(String tool, String argsJson) {
         JsonObject result = call(tool, argsJson);

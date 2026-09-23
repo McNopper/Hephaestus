@@ -6,16 +6,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.VStages;
@@ -26,25 +22,11 @@ import com.opencode.ide.tasks.VStages;
  * counts/points per column, the blockedOnly filter in both modes, and the
  * sprint selector's effect on the pipeline.
  */
-public class BoardModelPipelineTest {
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private Path root;
-
-    @Before
-    public void setUp() {
-        root = tmp.getRoot().toPath().resolve("tasks");
-        store = new TaskStore(root);
-    }
+public class BoardModelPipelineTest extends BoardModelTestHarness {
 
     /** Creates a sprint-planned ticket with the given stage (nullable) and role. */
     private String sprintTicket(String title, String stage, String role) {
-        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
-                title, "", "task", role, "medium", 0, List.of(), List.of(), null, "T");
-        var t = store.create("p", spec);
+        var t = store.create("p", spec(title, role));
         Map<String, Object> changes = new HashMap<>();
         changes.put("story_points", 3);
         if (stage != null) {

@@ -1,6 +1,5 @@
 package com.opencode.ide.ui.views;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,7 +9,6 @@ import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CTabFolder;
 import org.eclipse.swt.custom.CTabItem;
-import org.eclipse.swt.layout.FillLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
@@ -28,12 +26,10 @@ import org.eclipse.ui.part.ViewPart;
 
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
-import com.opencode.ide.client.activity.PermissionRequest;
 import com.opencode.ide.client.activity.SessionObservation;
 import com.opencode.ide.client.activity.SessionObserver;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
-import com.opencode.ide.client.model.ShellTask;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.ui.model.BackgroundModel;
 
@@ -181,6 +177,15 @@ public class BackgroundView extends ViewPart {
             }
         };
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
+        Action tuningAction = new Action("Tuning") {
+            @Override
+            public void run() {
+                new TuningDialog(getSite().getShell()).open();
+            }
+        };
+        tuningAction.setToolTipText(
+                "Adjust the worker poll sleep and the idle/budget windows live (RuntimeTuning)");
+        toolBar.add(tuningAction);
         toolBar.add(refreshAction);
         toolBar.add(openChatAction);
         toolBar.add(outputAction);
@@ -263,8 +268,11 @@ public class BackgroundView extends ViewPart {
             statusLine.setText(finalNote.isEmpty()
                     ? "agents " + finalAgents.size() + " | shells " + finalShells.size()
                             + " | asks " + finalAsks.size() + " - refreshed " + java.time.LocalTime.now().withNano(0)
+                            + " | " + com.opencode.ide.client.RuntimeTuning.summary()
                     : finalNote);
-            display.timerExec(REFRESH_MILLIS, this::scheduleRefresh);
+            // the refresh cadence follows the live tuning knob (adjustable
+            // while workers run - the Tuning action)
+            display.timerExec((int) com.opencode.ide.client.RuntimeTuning.pollMillis(), this::scheduleRefresh);
         });
     }
 
@@ -392,10 +400,10 @@ public class BackgroundView extends ViewPart {
         });
     }
 
-    /** One worker thread per call; the result is delivered on the UI thread. */
+    /** One shared worker per call (WorkerPools - no thread-per-task); the result is delivered on the UI thread. */
     private void offUi(java.util.concurrent.Callable<String> work,
             java.util.function.Consumer<String> onResult) {
-        Thread worker = new Thread(() -> {
+        com.opencode.ide.client.WorkerPools.submit("background-view-action", () -> {
             String result;
             try {
                 result = work.call();
@@ -412,9 +420,7 @@ public class BackgroundView extends ViewPart {
                     onResult.accept(message);
                 }
             });
-        }, "opencode-background-view-action");
-        worker.setDaemon(true);
-        worker.start();
+        });
     }
 
     private void note(String message) {

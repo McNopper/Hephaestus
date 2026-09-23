@@ -2,15 +2,10 @@ package com.opencode.ide.fleet;
 
 import static org.junit.Assert.assertEquals;
 
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
@@ -24,27 +19,7 @@ import com.opencode.ide.tasks.VStages;
  * in-review — that would fake completion in the next stage's column and
  * pre-arm the advance quality gate.
  */
-public class FleetPipelineHandoffTest {
-
-    private static final Path REPO = Path.of("repo");
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private FakeClient client;
-    private FakeWorktreeManager worktrees;
-    private TaskFleet fleet;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-        client = new FakeClient();
-        worktrees = new FakeWorktreeManager();
-        fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store);
-    }
+public class FleetPipelineHandoffTest extends FleetTestHarness {
 
     private String stagedTicket(String stage) {
         TaskStore.CreateSpec spec = new TaskStore.CreateSpec(

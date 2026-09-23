@@ -23,6 +23,16 @@ public final class ChatRequests {
     }
 
     /** {@code POST /session/:id/prompt} body: the user prompt text. */
+    /** The v2 prompt body with explicit delivery (T-005 send-time parity): {@code "queue"} parks the prompt in the session inbox (v2 Alt+Enter); {@code "steer"} is the default shape. */
+    public static String promptBody(ChatRequest request, String delivery) {
+        JsonObject body = new JsonObject();
+        body.addProperty("text", request.text() == null ? "" : request.text());
+        if (delivery != null && !delivery.isBlank()) {
+            body.addProperty("delivery", delivery);
+        }
+        return body.toString();
+    }
+
     public static String promptBody(ChatRequest request) {
         JsonObject body = new JsonObject();
         body.addProperty("text", request.text() == null ? "" : request.text());

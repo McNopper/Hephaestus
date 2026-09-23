@@ -293,12 +293,14 @@ public final class CostOverview {
         }
         if (value < 1_000_000) {
             double k = value / 1000.0;
-            return k == Math.rint(k)
+            // integral k <=> a whole multiple of 1000 - exact in long math,
+            // no floating-point equality (SpotBugs FE_FLOATING_POINT_EQUALITY)
+            return value % 1000 == 0
                     ? String.format(Locale.ROOT, "%.0fk", k)
                     : String.format(Locale.ROOT, "%.1fk", k);
         }
         double m = value / 1_000_000.0;
-        return m == Math.rint(m)
+        return value % 1_000_000 == 0
                 ? String.format(Locale.ROOT, "%.0fM", m)
                 : String.format(Locale.ROOT, "%.1fM", m);
     }

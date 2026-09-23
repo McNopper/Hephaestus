@@ -132,9 +132,12 @@ public class FleetServeLifecycleTest {
     }
 
     private static void await(String what, BooleanSupplier condition) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 10_000;
+        // generous: git spawns cost 10-100x on a machine without the Defender
+        // exclusions (T-006) - see the storeClean note in FleetControlTest
+        // (2026-09-23: the "flake" was plain git latency, not a race)
+        long deadline = System.currentTimeMillis() + FleetTestHarness.EVENT_WAIT.toMillis();
         while (!condition.getAsBoolean()) {
-            assertTrue(what + " did not happen within 10s", System.currentTimeMillis() < deadline);
+            assertTrue(what + " did not happen in time", System.currentTimeMillis() < deadline);
             Thread.sleep(50);
         }
     }
@@ -258,7 +261,7 @@ public class FleetServeLifecycleTest {
         FakeWorktreeManager siblingWorktrees = new FakeWorktreeManager();
         siblingWorktrees.onMergeBack = () -> {
             try {
-                assertTrue(releaseSiblingMerge.await(10, TimeUnit.SECONDS));
+                assertTrue(releaseSiblingMerge.await(FleetTestHarness.LATCH_WAIT.toSeconds(), TimeUnit.SECONDS));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -272,7 +275,7 @@ public class FleetServeLifecycleTest {
             String sibling = sprintTicket();
             control.dispatch(PROJECT, sibling, TIMEOUT);
             assertTrue("sibling session started",
-                    siblingSessionCreated.await(10, TimeUnit.SECONDS));
+                    siblingSessionCreated.await(FleetTestHarness.LATCH_WAIT.toSeconds(), TimeUnit.SECONDS));
 
             client.failSessionCreation = true; // the sibling's session already exists
             String failed = sprintTicket();
@@ -413,7 +416,7 @@ public class FleetServeLifecycleTest {
         CountDownLatch releaseSibling = new CountDownLatch(1);
         client.blockOnSend = () -> {
             try {
-                assertTrue(releaseSibling.await(10, TimeUnit.SECONDS));
+                assertTrue(releaseSibling.await(FleetTestHarness.LATCH_WAIT.toSeconds(), TimeUnit.SECONDS));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -421,7 +424,7 @@ public class FleetServeLifecycleTest {
         try (FleetControl control = control()) {
             String sibling = sprintTicket();
             control.dispatch(PROJECT, sibling, TIMEOUT); // keeps the engine busy
-            assertTrue(siblingSessionCreated.await(10, TimeUnit.SECONDS));
+            assertTrue(siblingSessionCreated.await(FleetTestHarness.LATCH_WAIT.toSeconds(), TimeUnit.SECONDS));
             engines.get(0).pid = 62090L;
             FleetToolProvider provider = new FleetToolProvider(store.root(), control, locked);
 

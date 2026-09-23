@@ -295,6 +295,32 @@ public class ChatView extends ViewPart {
         // row 1.7: pending queue - messages typed while a reply streams wait
         // here (TUI parity) and auto-send when it completes. Excluded from the
         // layout until the first entry appears, like the picker above it.
+        // ---- T-004: the permission-ask banner (answerable in place) ----
+        Composite askRow = new Composite(outer, SWT.NONE);
+        GridLayout askLayout = new GridLayout(4, false);
+        askLayout.marginWidth = 0;
+        askLayout.marginHeight = 0;
+        askRow.setLayout(askLayout);
+        GridData askRowData = new GridData(GridData.FILL, GridData.CENTER, true, false);
+        askRowData.exclude = true; // hidden until an ask arrives
+        askRow.setLayoutData(askRowData);
+        askRow.setVisible(false);
+        askLabel = new org.eclipse.swt.widgets.Label(askRow, SWT.WRAP);
+        askLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        Button askOnce = new Button(askRow, SWT.PUSH);
+        askOnce.setText("Allow once");
+        askOnce.addListener(SWT.Selection, e -> answerAsk("once", false, null));
+        Button askAlways = new Button(askRow, SWT.PUSH);
+        askAlways.setText("Allow always");
+        askAlways.addListener(SWT.Selection, e -> answerAsk("always", true, null));
+        Button askReject = new Button(askRow, SWT.PUSH);
+        askReject.setText("Reject\u2026");
+        askReject.setToolTipText("Reject with optional feedback for the agent");
+        askReject.addListener(SWT.Selection, e -> rejectAskWithFeedback());
+        askRowComposite = askRow;
+        com.opencode.ide.chat.ChatPermissions.addSink(askSink);
+        scheduleAskRecovery();
+
         Composite queueRow = new Composite(outer, SWT.NONE);
         GridLayout queueLayout = new GridLayout(4, false);
         queueLayout.marginWidth = 0;
@@ -480,6 +506,22 @@ public class ChatView extends ViewPart {
         toolBar.add(undoAction);
         toolBar.add(redoAction);
         toolBar.add(abortAction);
+        Action backgroundAction = new Action("Background") {
+            @Override
+            public void run() {
+                backgroundSession();
+            }
+        };
+        backgroundAction.setToolTipText("Background this session's blocking tools and keep working (v2 Ctrl+B)");
+        Action queueSendAction = new Action("Send to Queue") {
+            @Override
+            public void run() {
+                queueCurrentInput();
+            }
+        };
+        queueSendAction.setToolTipText("Park this prompt in the session inbox - delivered after the current run (v2 Alt+Enter)");
+        toolBar.add(queueSendAction);
+        toolBar.add(backgroundAction);
         toolBar.add(reasoningAction);
     }
 
@@ -709,12 +751,9 @@ public class ChatView extends ViewPart {
 
     /** Opens (or focuses) the chat window RESUMING the given session. */
     public static ChatView openResume(IWorkbenchPage page, String sessionId) {
-        try {
-            return open(page, java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8),
-                    null, null);
-        } catch (Exception e) {
-            return null;
-        }
+        // T-009: the ONE session-id encoding (core.context.SessionViewIds) -
+        // the per-call-site encodings opened duplicate views per session
+        return open(page, com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId), null, null);
     }
 
     private static ChatView open(IWorkbenchPage page, String secondaryId, String providerId, String modelId) {
@@ -943,6 +982,156 @@ public class ChatView extends ViewPart {
         input.setFocus();
     }
 
+    // ---------- T-004 / T-005: ask banner + session actions ----------
+
+    private Composite askRowComposite;
+    private org.eclipse.swt.widgets.Label askLabel;
+    private volatile com.opencode.ide.client.activity.PermissionRequest currentAsk;
+    private volatile com.opencode.ide.client.OpencodeClient askClient;
+    private final java.util.Set<String> answeredAsks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Coexisting ChatPermissions listener (the multiplexer) - never steals the fleet queue's feed. */
+    private final com.opencode.ide.chat.ChatPermissionSink askSink = new com.opencode.ide.chat.ChatPermissionSink() {
+        @Override
+        public void asked(com.opencode.ide.client.activity.PermissionRequest request,
+                com.opencode.ide.client.OpencodeClient client) {
+            if (request == null || !request.pending() || answeredAsks.contains(request.permissionId())) {
+                return;
+            }
+            String sid = controller == null ? null : controller.sessionId();
+            if (sid != null && request.sessionId() != null && !sid.equals(request.sessionId())) {
+                return; // this banner = this session; the Background view shows every ask
+            }
+            Display.getDefault().asyncExec(() -> showAsk(request, client));
+        }
+
+        @Override
+        public void replied(String sessionId, String requestId) {
+            if (requestId != null) {
+                answeredAsks.add(requestId);
+            }
+            Display.getDefault().asyncExec(() -> hideAsk());
+        }
+    };
+
+    private void showAsk(com.opencode.ide.client.activity.PermissionRequest request,
+            com.opencode.ide.client.OpencodeClient client) {
+        if (askRowComposite == null || askRowComposite.isDisposed()) {
+            return;
+        }
+        currentAsk = request;
+        askClient = client;
+        askLabel.setText(request.display() == null ? request.permission() : request.display());
+        setAskRowVisible(true);
+    }
+
+    private void hideAsk() {
+        if (askRowComposite != null && !askRowComposite.isDisposed()) {
+            currentAsk = null;
+            setAskRowVisible(false);
+        }
+    }
+
+    private void setAskRowVisible(boolean visible) {
+        ((GridData) askRowComposite.getLayoutData()).exclude = !visible;
+        askRowComposite.setVisible(visible);
+        askRowComposite.getParent().layout();
+    }
+
+    /** The single answer path (once/always/reject) with optional reject feedback (T-004). */
+    private void answerAsk(String decision, boolean remember, String feedback) {
+        com.opencode.ide.client.activity.PermissionRequest ask = currentAsk;
+        com.opencode.ide.client.OpencodeClient client = askClient;
+        if (ask == null || client == null) {
+            return;
+        }
+        answeredAsks.add(ask.permissionId());
+        hideAsk();
+        com.opencode.ide.client.WorkerPools.submit("chat-permission-answer", () -> {
+            String message;
+            try {
+                message = client.respondToPermission(ask.sessionId(), ask.permissionId(), decision, remember, feedback)
+                        ? "answered '" + decision + "'" : "answer not accepted";
+            } catch (Exception e) {
+                message = "answer failed: " + e.getMessage();
+            }
+            String finalMessage = message;
+            Display.getDefault().asyncExec(() -> {
+                if (page != null) {
+                    page.notice(finalMessage);
+                }
+            });
+        });
+    }
+
+    private void rejectAskWithFeedback() {
+        org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                getSite().getShell(), "Reject with feedback",
+                "Optional feedback for the agent (why the request is rejected):", "", null);
+        if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+            String feedback = dialog.getValue();
+            answerAsk("reject", false, feedback == null || feedback.isBlank() ? null : feedback.trim());
+        }
+    }
+
+    /**
+     * Reconnect recovery (T-004): SSE events are not replayed, so pending
+     * asks are re-read from GET /permission/request when the view appears.
+     */
+    private void scheduleAskRecovery() {
+        com.opencode.ide.client.WorkerPools.submit("chat-ask-recovery", () -> {
+            try {
+                com.opencode.ide.core.OpencodeConnection connection =
+                        com.opencode.ide.core.OpencodeConnection.getInstance();
+                com.opencode.ide.client.OpencodeClient client = connection.getClient();
+                for (com.opencode.ide.client.activity.PermissionRequest request
+                        : client.listPermissionRequests(connection.getWorkingDirectory())) {
+                    String sid = controller == null ? null : controller.sessionId();
+                    if (request.pending() && !answeredAsks.contains(request.permissionId())
+                            && (sid == null || sid.equals(request.sessionId()))) {
+                        Display.getDefault().asyncExec(() -> showAsk(request, client));
+                    }
+                }
+            } catch (Exception ignored) {
+                // older server / not connected - the banner simply stays hidden
+            }
+        });
+    }
+
+    /** T-005: background the session's blocking tools (POST /session/:id/background). */
+    private void backgroundSession() {
+        String sid = controller == null ? null : controller.sessionId();
+        if (sid == null) {
+            page.notice("No session to background yet");
+            return;
+        }
+        com.opencode.ide.client.WorkerPools.submit("chat-background", () -> {
+            String message;
+            try {
+                com.opencode.ide.core.OpencodeConnection.getInstance().getClient().backgroundSession(sid);
+                message = "session backgrounded - long tools keep running while you work";
+            } catch (Exception e) {
+                message = "background failed: " + e.getMessage();
+            }
+            String finalMessage = message;
+            Display.getDefault().asyncExec(() -> {
+                if (page != null) {
+                    page.notice(finalMessage);
+                }
+            });
+        });
+    }
+
+    /** T-005 send-time queue: park the current input in the session inbox (v2 Alt+Enter). */
+    private void queueCurrentInput() {
+        String text = input.getText().trim();
+        if (text.isEmpty() || controller == null) {
+            return;
+        }
+        input.setText("");
+        controller.send(outgoingMessage(text), "queue");
+    }
+
     private ChatSessionController.OutgoingMessage outgoingMessage(String text) {
         final String agent = (agentCombo.getSelectionIndex() >= 0)
                 ? agentCombo.getItem(agentCombo.getSelectionIndex())
@@ -970,6 +1159,7 @@ public class ChatView extends ViewPart {
 
     @Override
     public void dispose() {
+        com.opencode.ide.chat.ChatPermissions.removeSink(askSink);
         if (controller != null) {
             controller.dispose(); // unsubscribe the SSE event listener
         }

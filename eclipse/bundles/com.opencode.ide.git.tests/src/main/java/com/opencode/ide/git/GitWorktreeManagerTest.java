@@ -5,12 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 import org.junit.After;
@@ -373,7 +371,10 @@ public class GitWorktreeManagerTest {
         };
         Thread a = new Thread(committer, "gate-test-commit");
         Thread b = new Thread(syncer, "gate-test-sync");
-        a.start(); b.start(); a.join(); b.join();
+        a.start();
+        b.start();
+        a.join();
+        b.join();
         assertEquals("no git mutation lost the index.lock race", 0, failures.get());
         assertEquals("", git("status", "--porcelain").trim());
     }
@@ -450,8 +451,7 @@ public class GitWorktreeManagerTest {
     }
 
     private void commitIn(Path worktree, String message) throws Exception {
-        git(worktree, "add", ".");
-        git(worktree, "commit", "-m", message);
+        GitTestRepos.commit(worktree, message);
     }
 
     private String git(String... args) throws Exception {
@@ -459,19 +459,7 @@ public class GitWorktreeManagerTest {
     }
 
     private static String git(Path dir, String... args) throws Exception {
-        List<String> command = new ArrayList<>();
-        command.add("git");
-        command.add("-C");
-        command.add(dir.toString());
-        command.addAll(List.of(args));
-        Process p = new ProcessBuilder(command).start();
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int code = p.waitFor();
-        if (code != 0) {
-            throw new IllegalStateException("git " + List.of(args) + " failed (exit " + code + "): " + err);
-        }
-        return out;
+        return GitTestRepos.git(dir, args);
     }
 
     private boolean gitOk(String... args) {
@@ -497,25 +485,10 @@ public class GitWorktreeManagerTest {
     }
 
     private static boolean gitAvailable() {
-        try {
-            Process p = new ProcessBuilder("git", "--version").start();
-            p.getErrorStream().readAllBytes();
-            return p.waitFor() == 0;
-        } catch (Exception e) {
-            return false;
-        }
+        return GitTestRepos.gitAvailable();
     }
 
     private static void deleteRecursively(Path root) {
-        try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    p.toFile().setWritable(true);
-                    Files.deleteIfExists(p);
-                } catch (IOException ignored) {
-                }
-            });
-        } catch (IOException ignored) {
-        }
+        GitTestRepos.deleteRecursively(root);
     }
 }

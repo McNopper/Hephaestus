@@ -5,18 +5,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
 import java.util.Map;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-import com.opencode.ide.tools.McpDispatcher;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 /**
  * Edge cases of the stage-bearing tools over the JSON-RPC dispatcher (same
@@ -25,28 +20,7 @@ import org.junit.rules.TemporaryFolder;
  * an explicit null clears the stage, and a happy-path task_advance produces
  * exactly the store effects of the direct TaskStore call.
  */
-public class StageToolsEdgeTest {
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private Path root;
-    private McpDispatcher dispatcher;
-
-    @Before
-    public void setUp() {
-        root = tmp.getRoot().toPath().resolve("tasks");
-        dispatcher = new McpDispatcher(new TaskToolProvider(root));
-    }
-
-    private JsonObject call(String tool, String argsJson) {
-        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\""
-                + tool + "\",\"arguments\":" + argsJson + "}}";
-        JsonObject response = JsonParser.parseString(dispatcher.handle(body)).getAsJsonObject();
-        assertFalse("domain errors must be isError results, not protocol errors", response.has("error"));
-        JsonObject result = response.getAsJsonObject("result");
-        return result;
-    }
+public class StageToolsEdgeTest extends ToolRpcHarness {
 
     private JsonObject callOk(String tool, String argsJson) {
         JsonObject result = call(tool, argsJson);

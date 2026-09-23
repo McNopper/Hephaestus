@@ -86,7 +86,8 @@ public class DispatchProcessTest {
             process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                     "-cp", classpath, ReservationPeer.class.getName(), repo.toString(), id)
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            output = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            output = new BufferedReader(new InputStreamReader(process.getInputStream(),
+                    java.nio.charset.StandardCharsets.UTF_8));
             assertEquals("READY", read());
         }
 

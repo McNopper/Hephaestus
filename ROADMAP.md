@@ -47,13 +47,21 @@ reply`, once/always/reject); *background tasks* map to
 `POST /api/session/:id/background` + `/api/shell` (list/output/reap) + the
 session inbox (`steer|queue|cancel`). The **client surface for all three is
 in** (with `ShellTask`/inbox/permission models, lenient on older servers).
-The **Background view** (`com.opencode.ide.ui.views.BackgroundView`) landed
-next: the TUI-style "what is going on" cockpit — **Agents** pane (every
-session + subagent child with live activity, cost, last text — the agent
-requests and chats), **Shells** pane (every shell launched: command, status,
-exit code, output tail, reap), **Permission asks** pane (answerable:
-once/always/reject). Remaining slices: the in-chat ask banner + chat
-backgrounding action (**T-004**/**T-005**), the session inbox pane. Deliberately
+The **Background view** (`com.opencode.ide.ui.views.BackgroundView`) is the
+TUI-style "what is going on" cockpit — **Agents** pane (every session +
+subagent child with live activity, cost, last text — the agent requests and
+chats), **Shells** pane (every shell launched: command, status, exit code,
+output tail, reap), **Permission asks** pane (answerable: once/always/reject
+with feedback). The **T-004**/**T-005** chat surfaces landed with it: the
+in-chat **ask banner** (once/always/reject + feedback text, with reconnect
+recovery through `GET /api/permission/request`) and the **Send-to-Queue /
+Background** actions (session inbox `steer|queue|cancel` + session
+backgrounding). The view's toolbar also carries the **Tuning** dialog — the
+four live runtime knobs (`RuntimeTuning`: poll cadence, stall timeout, ticket
+budget, **worker threads**) — and the fleet control row
+(**Enable/Pause/Stop**, `FleetLifecycle`: disabled by default, enable arms
+the auto-pump, pause disarms it while running jobs settle, stop takes the
+engine down). Remaining slice: the session inbox pane. Deliberately
 out of scope: slash-command palette UI, attachment upload, message forking
 beyond the existing fork button, mermaid; TUI-only cosmetics (themes,
 keybinds, which-key, formatters) stay TUI concerns.

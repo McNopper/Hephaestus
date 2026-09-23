@@ -9,10 +9,7 @@ import static org.junit.Assert.fail;
 import java.util.Collections;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 /**
  * V-model pipeline semantics over the real store: advance is the quality-gated
@@ -21,24 +18,7 @@ import org.junit.rules.TemporaryFolder;
  * loop (blocked + "sent back from ...: reason"), stages persist through the
  * file, and legacy unstaged tickets are rejected, never guessed.
  */
-public class VPipelineTest {
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-    }
-
-    /** A staged ticket with an assignee, in the given status. */
-    private String staged(String stage, String status) {
-        Task t = store.create("p", TaskStore.CreateSpec.of("t"), stage);
-        store.update("p", t.id, Map.of("status", status, "assignee", "worker"));
-        return t.id;
-    }
+public class VPipelineTest extends StoreTestHarness {
 
     @Test
     public void advanceMovesStageRoleStatusAndClearsAssignee() {

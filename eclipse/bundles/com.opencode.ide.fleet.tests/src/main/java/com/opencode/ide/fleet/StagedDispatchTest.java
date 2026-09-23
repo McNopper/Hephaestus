@@ -4,15 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.tasks.Task;
@@ -28,27 +23,7 @@ import com.opencode.ide.tasks.VStages;
  * {@link TaskFleetTest} fixtures; tickets are created with the store's
  * create-with-stage overload.
  */
-public class StagedDispatchTest {
-
-    private static final Path REPO = Path.of("repo");
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private FakeClient client;
-    private FakeWorktreeManager worktrees;
-    private TaskFleet fleet;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-        client = new FakeClient();
-        worktrees = new FakeWorktreeManager();
-        fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store);
-    }
+public class StagedDispatchTest extends FleetTestHarness {
 
     /** A staged ticket in the product backlog, role derived from the stage. */
     private String stagedTicket(String stage) {

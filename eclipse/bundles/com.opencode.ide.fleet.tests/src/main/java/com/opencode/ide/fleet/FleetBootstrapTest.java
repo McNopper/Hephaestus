@@ -4,14 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.tasks.Task;
@@ -25,27 +20,7 @@ import com.opencode.ide.tasks.TaskStore;
  * call at all. Uses the same in-memory fakes as the other fleet tests;
  * outcome logging is behavior-only here (the suite has no log capture).
  */
-public class FleetBootstrapTest {
-
-    private static final Path REPO = Path.of("repo");
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private FakeClient client;
-    private FakeWorktreeManager worktrees;
-    private TaskFleet fleet;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-        client = new FakeClient();
-        worktrees = new FakeWorktreeManager();
-        fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store);
-    }
+public class FleetBootstrapTest extends FleetTestHarness {
 
     private String sprintTicket() {
         Task t = store.create(PROJECT, new TaskStore.CreateSpec(

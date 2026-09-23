@@ -88,7 +88,11 @@ public final class SessionTranscript {
         return sb.toString();
     }
 
-    private static String header(SessionDetails snapshot) {
+    /**
+     * One-line header: title • id • model • cost • tokens. Null-tolerant.
+     * Shared with {@code SessionDetailsView} (one builder, CPD finding 2026-09-23).
+     */
+    public static String header(SessionDetails snapshot) {
         StringBuilder sb = new StringBuilder();
         sb.append(snapshot.title() == null || snapshot.title().isBlank() ? "(untitled)" : snapshot.title());
         sb.append("  \u2022  ").append(snapshot.sessionId() == null ? "?" : snapshot.sessionId());

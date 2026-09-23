@@ -72,7 +72,10 @@ public class BoardDispatchTest {
         TaskStore store = store();
         List<String> calls = new ArrayList<>();
         BoardDispatch dispatch = new BoardDispatch(store.root(), "p", "s",
-                automatic((project, id) -> { calls.add(id); return running(id); }), () -> false);
+                automatic((project, id) -> {
+                    calls.add(id);
+                    return running(id);
+                }), () -> false);
         var scheduler = dispatch.scheduler(() -> AutoDispatch.of(4, 0.045, true));
         assertTrue(scheduler.tick().launch().isEmpty());
         for (int i = 0; i < 3; i++) {

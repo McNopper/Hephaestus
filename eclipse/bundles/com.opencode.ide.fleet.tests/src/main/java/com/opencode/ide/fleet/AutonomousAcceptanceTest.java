@@ -6,15 +6,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.tasks.Task;
@@ -33,27 +28,11 @@ import com.opencode.ide.tasks.VStages;
  * comment. The review run's actuals land on the ticket like any run, so
  * the wave budget absorbs the reviewer's cost.
  */
-public class AutonomousAcceptanceTest {
+public class AutonomousAcceptanceTest extends FleetTestHarness {
 
-    private static final Path REPO = Path.of("repo");
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private FakeClient client;
-    private FakeWorktreeManager worktrees;
-    private TaskFleet fleet;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-        client = new FakeClient();
-        worktrees = new FakeWorktreeManager();
-        fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store)
-                .withAutonomousAcceptance();
+    @Override
+    protected TaskFleet build(TaskFleet fleet) {
+        return fleet.withAutonomousAcceptance();
     }
 
     private String stagedTicket(String stage) {

@@ -2,24 +2,13 @@ package com.opencode.ide.ui.model;
 
 import static org.junit.Assert.assertEquals;
 
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.Test;
 
-import com.opencode.ide.client.ChatRequest;
-import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
-import com.opencode.ide.client.model.Agent;
-import com.opencode.ide.client.model.ChatEntry;
-import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.FileStatus;
-import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.ProjectSummary;
-import com.opencode.ide.client.model.ProviderList;
-import com.opencode.ide.client.model.Session;
-import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.VcsInfo;
 
 /**
@@ -39,7 +28,7 @@ public class ProjectVcsTest {
     }
 
     /** Only the project/VCS/status endpoints work; everything else is never touched. */
-    private static final class FakeClient implements OpencodeClient {
+    private static final class FakeClient extends com.opencode.ide.ui.testsupport.StubClient {
         List<ProjectSummary> projects = List.of();
         VcsInfo vcs = new VcsInfo(null, null);
         List<FileStatus> status = List.of();
@@ -71,62 +60,6 @@ public class ProjectVcsTest {
             return status;
         }
 
-        @Override
-        public HealthStatus getHealth() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<Agent> getAgents() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ProviderList getProviders() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ConfigInfo getConfig() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<Session> getSessions() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Map<String, SessionStatus> getSessionStatus() throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Session createSession(String title, Path directory) throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void registerMcp(String name, com.opencode.ide.client.McpServerConfig config)
-                throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ChatEntry sendMessage(ChatRequest request) throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void log(String service, String level, String message, Map<String, Object> extra)
-                throws OpencodeException {
-            throw new UnsupportedOperationException();
-        }
     }
 
     // ---------- project resolution ----------

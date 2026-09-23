@@ -305,14 +305,22 @@ public class FleetControlTest {
      * carries the expected message - i.e. the auto-sync ran and committed.
      */
     private static boolean storeClean(Path repo, String expectedLastMessage) throws Exception {
-        // generous deadline: CI runners spawn git ~10x slower than a local dev
-        // box and this poll must not flake there (two CI failures 2026-08-28)
-        long deadline = System.currentTimeMillis() + 90_000;
+        // generous deadline: git spawns on a machine without the Defender
+        // exclusions (T-006) run 10-100x slower in fresh temp repos - the
+        // 2026-09-23 "flake" was the sync simply still mid-flight at 90s
+        // (its git steps ran ~90s apart). The poll waits for the REAL
+        // condition, so patience is honest here; T-006 removes the cost.
+        long deadline = System.currentTimeMillis() + FleetTestHarness.SETTLE_WAIT.toMillis();
         while (System.currentTimeMillis() < deadline) {
             // the exclude keeps the store's transient .lock out of the verdict
-            // (an in-flight transaction must not read as store dirt)
-            if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()) {
-                return expectedLastMessage.equals(gitOut(repo, "log", "-1", "--format=%s").trim());
+            // (an in-flight transaction must not read as store dirt). BOTH
+            // conditions must hold: the tree settles AND the expected sync
+            // commit has landed - a clean tree alone can just mean "not yet"
+            // (2026-09-23 flake: the old first-clean-wins check failed
+            // instantly when the sync had not run yet).
+            if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()
+                    && expectedLastMessage.equals(gitOut(repo, "log", "-1", "--format=%s").trim())) {
+                return true;
             }
             Thread.sleep(100);
         }
@@ -320,11 +328,11 @@ public class FleetControlTest {
         System.err.println("[storeClean] status: " + gitOut(repo, "status", "--porcelain"));
         System.err.println("[storeClean] log: " + gitOut(repo, "log", "--oneline", "-5"));
         Thread.getAllStackTraces().forEach((thread, frames) -> {
-            if (thread.getName().startsWith("fleet-") || thread.getName().contains("pool")) {
-                System.err.println("[storeClean] thread " + thread.getName() + " state=" + thread.getState());
-                for (int i = 0; i < Math.min(6, frames.length); i++) {
-                    System.err.println("[storeClean]   at " + frames[i]);
-                }
+            // every thread: the 2026-09-23 wedge lived on a thread the old
+            // name filter skipped, which made the timeout undiagnosable
+            System.err.println("[storeClean] thread " + thread.getName() + " state=" + thread.getState());
+            for (int i = 0; i < Math.min(6, frames.length); i++) {
+                System.err.println("[storeClean]   at " + frames[i]);
             }
         });
         return false;

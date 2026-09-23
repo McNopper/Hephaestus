@@ -202,7 +202,10 @@ public class TaskFleetLauncherAdmissionTest {
             public FleetJob launchAuto(TaskFleet fleet, String project, String id, Path root,
                     Duration timeout, DispatchGuard guard, boolean includeStale, Bootstrap supplied) {
                 assertTrue(includeStale);
-                guard.withOwnership(root, project, id, () -> { seen.set(supplied); return null; });
+                guard.withOwnership(root, project, id, () -> {
+                    seen.set(supplied);
+                    return null;
+                });
                 return new FleetJob(id, null, null, FleetJob.State.MERGED, "test");
             }
         });

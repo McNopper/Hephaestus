@@ -177,6 +177,23 @@ public final class FleetControl implements AutoCloseable {
         }
     }
 
+    /** Plans are advisory: revalidate readiness and spend under the same
+     * process lock used to count and reserve capacity, then launch. */
+    private void revalidateAndDispatch(TaskStore store, String project, String id,
+            AutoDispatch policy, DispatchScheduler.LaunchAttempt attempt, String sprint) {
+        var scope = store.list(project, null, null, null, null);
+        var candidate = scope.stream()
+                .filter(t -> id.equals(t.id) && sprint != null && sprint.equals(t.sprint)).toList();
+        var overview = CostOverview.of(scope);
+        var current = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)).plan(candidate,
+                com.opencode.ide.tasks.StageReadiness.evaluate(scope),
+                overview, DispatchGuard.runningIds(repoRoot));
+        if (!current.launch().contains(id)) {
+            throw new DispatchGuard.AdmissionDeferred("ticket no longer admissible: " + id);
+        }
+        dispatchLocked(project, id, DEFAULT_TIMEOUT, policy, attempt);
+    }
+
     private void dispatchAuto(TaskStore store, String project, String sprint, String id,
             AutoDispatch policy, long generation, DispatchScheduler.LaunchAttempt attempt) {
         DispatchGuard.admit(repoRoot, policy.maxConcurrent(), () -> {
@@ -184,19 +201,7 @@ public final class FleetControl implements AutoCloseable {
                 if (closed || generation != autoGeneration) {
                     throw new DispatchGuard.AdmissionDeferred("auto-dispatch stopped");
                 }
-                // Plans are advisory. Revalidate readiness and spend under the
-                // same process lock used to count and reserve capacity.
-                var scope = store.list(project, null, null, null, null);
-                var candidate = scope.stream()
-                        .filter(t -> id.equals(t.id) && sprint.equals(t.sprint)).toList();
-                var overview = CostOverview.of(scope);
-                var current = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)).plan(candidate,
-                        com.opencode.ide.tasks.StageReadiness.evaluate(scope),
-                        overview, DispatchGuard.runningIds(repoRoot));
-                if (!current.launch().contains(id)) {
-                    throw new DispatchGuard.AdmissionDeferred("ticket no longer admissible: " + id);
-                }
-                dispatchLocked(project, id, DEFAULT_TIMEOUT, policy, attempt);
+                revalidateAndDispatch(store, project, id, policy, attempt, sprint);
             }
             return null;
         });
@@ -295,19 +300,7 @@ public final class FleetControl implements AutoCloseable {
                     throw new DispatchGuard.AdmissionDeferred("recurring waves stopped or replaced");
                 }
                 String wave = loop.activeWave();
-                // Plans are advisory. Revalidate readiness and spend under the
-                // same process lock used to count and reserve capacity.
-                var scope = store.list(project, null, null, null, null);
-                var candidate = scope.stream()
-                        .filter(t -> id.equals(t.id) && wave != null && wave.equals(t.sprint)).toList();
-                var overview = CostOverview.of(scope);
-                var current = policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)).plan(candidate,
-                        com.opencode.ide.tasks.StageReadiness.evaluate(scope),
-                        overview, DispatchGuard.runningIds(repoRoot));
-                if (!current.launch().contains(id)) {
-                    throw new DispatchGuard.AdmissionDeferred("ticket no longer admissible: " + id);
-                }
-                dispatchLocked(project, id, DEFAULT_TIMEOUT, policy, attempt);
+                revalidateAndDispatch(store, project, id, policy, attempt, wave);
             }
             return null;
         });
@@ -492,12 +485,15 @@ public final class FleetControl implements AutoCloseable {
      * launcher and the connecting client only — it is never logged and never
      * part of any exception message.
      */
+    /** One shared generator - seeding a SecureRandom per password is costly and a lint/bug pattern. */
+    private static final SecureRandom PASSWORD_RANDOM = new SecureRandom();
+
     public static String resolvePassword(String envPassword) {
         if (envPassword != null && !envPassword.isBlank()) {
             return envPassword;
         }
         byte[] random = new byte[32];
-        new SecureRandom().nextBytes(random);
+        PASSWORD_RANDOM.nextBytes(random);
         return HexFormat.of().formatHex(random);
     }
 
@@ -728,9 +724,22 @@ public final class FleetControl implements AutoCloseable {
                         guard.close();
                     }
                     // B-004, after the in-flight marker is gone so sibling
-                    // launches still holding it protect their serve
-                    recycleEngineAfterFailure(ticketId, settled);
-                    StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
+                    // launches still holding it protect their serve. Each
+                    // step is guarded independently and in this order: a
+                    // failing recycle must never skip the store sync, and a
+                    // failing sync must never skip the recycle (2026-09-23).
+                    try {
+                        recycleEngineAfterFailure(ticketId, settled);
+                    } catch (RuntimeException recycleEx) {
+                        com.opencode.ide.client.ClientLog.warning(
+                                "engine recycle failed for " + ticketId + ": " + recycleEx.getMessage());
+                    }
+                    try {
+                        StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
+                    } catch (RuntimeException syncEx) {
+                        com.opencode.ide.client.ClientLog.warning(
+                                "store auto-sync failed for " + ticketId + ": " + syncEx.getMessage());
+                    }
                 } catch (RuntimeException ex) {
                     com.opencode.ide.client.ClientLog.warning(
                             "store auto-sync failed for " + ticketId + ": " + ex.getMessage());

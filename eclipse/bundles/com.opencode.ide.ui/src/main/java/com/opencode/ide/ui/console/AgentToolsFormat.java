@@ -1,7 +1,6 @@
 package com.opencode.ide.ui.console;
 
 import java.time.Instant;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 

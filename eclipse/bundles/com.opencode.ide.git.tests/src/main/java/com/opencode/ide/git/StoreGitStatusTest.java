@@ -6,13 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -197,30 +192,15 @@ public class StoreGitStatusTest {
     }
 
     private Path newRepo(String name) throws Exception {
-        Path repo = base.resolve(name);
-        Files.createDirectories(repo);
-        git(repo, "init");
-        git(repo, "config", "user.email", "a@b.c");
-        git(repo, "config", "user.name", "Test");
-        write(repo, "file.txt", "one\n");
-        git(repo, "add", ".");
-        git(repo, "commit", "-m", "initial");
-        git(repo, "branch", "-M", "main");
-        return repo;
+        return GitTestRepos.newRepo(base, name);
     }
 
     private Path sharedOrigin() throws Exception {
-        Path seed = newRepo("seed");
-        Path origin = base.resolve("origin.git");
-        git(base, "clone", "--bare", seed.toString(), origin.toString());
-        deleteRecursively(seed);
-        return origin;
+        return GitTestRepos.sharedOrigin(base);
     }
 
     private Path repoWithUpstream(String name) throws Exception {
-        Path origin = sharedOrigin();
-        Path repo = cloneOf(name, origin);
-        return repo;
+        return cloneOf(name, sharedOrigin());
     }
 
     private Path cloneOfOrigin(String name) throws Exception {
@@ -228,57 +208,26 @@ public class StoreGitStatusTest {
     }
 
     private Path cloneOf(String name, Path origin) throws Exception {
-        Path clone = base.resolve(name);
-        git(base, "clone", origin.toString(), clone.toString());
-        git(clone, "config", "user.email", "a@b.c");
-        git(clone, "config", "user.name", "Test");
-        return clone;
+        return GitTestRepos.cloneOf(base, name, origin);
     }
 
     private static void write(Path repo, String file, String content) throws Exception {
-        Files.writeString(repo.resolve(file), content, StandardCharsets.UTF_8);
+        GitTestRepos.write(repo, file, content);
     }
 
     private static void commit(Path repo, String message) throws Exception {
-        git(repo, "add", ".");
-        git(repo, "commit", "-m", message);
+        GitTestRepos.commit(repo, message);
     }
 
-    private static void git(Path dir, String... args) throws Exception {
-        List<String> command = new ArrayList<>();
-        command.add("git");
-        command.add("-C");
-        command.add(dir.toString());
-        command.addAll(List.of(args));
-        Process p = new ProcessBuilder(command).start();
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int code = p.waitFor();
-        if (code != 0) {
-            throw new IllegalStateException("git " + List.of(args) + " failed (exit " + code + "): " + err);
-        }
+    private static String git(Path dir, String... args) throws Exception {
+        return GitTestRepos.git(dir, args);
     }
 
     private static boolean gitAvailable() {
-        try {
-            Process p = new ProcessBuilder("git", "--version").start();
-            p.getErrorStream().readAllBytes();
-            return p.waitFor() == 0;
-        } catch (Exception e) {
-            return false;
-        }
+        return GitTestRepos.gitAvailable();
     }
 
     private static void deleteRecursively(Path root) {
-        try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    p.toFile().setWritable(true);
-                    Files.deleteIfExists(p);
-                } catch (IOException ignored) {
-                }
-            });
-        } catch (IOException ignored) {
-        }
+        GitTestRepos.deleteRecursively(root);
     }
 }

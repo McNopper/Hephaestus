@@ -73,6 +73,7 @@ public final class FleetStdioMain {
             case FAIL -> failFast(FleetControl.repoRootOf(root));
             case PROXY -> serveAsProxy("always".equals(normalized(env)), daemon, root);
             case OWN_ENGINE -> serveOwnedEngine(root);
+            default -> throw new IllegalStateException("unhandled stdio mode: " + mode);
         }
     }
 

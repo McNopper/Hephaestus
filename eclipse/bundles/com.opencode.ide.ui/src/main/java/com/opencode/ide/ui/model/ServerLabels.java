@@ -16,7 +16,6 @@ import com.opencode.ide.client.activity.FileActivity;
 import com.opencode.ide.client.activity.SessionActivity;
 import com.opencode.ide.client.activity.ToolActivity;
 import com.opencode.ide.client.model.Agent;
-import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
 

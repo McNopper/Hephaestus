@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.function.Consumer;
 
 import org.eclipse.core.filesystem.EFS;
@@ -56,7 +55,6 @@ import com.opencode.ide.ui.session.SessionDetailsController.LifecycleResult;
 import com.opencode.ide.ui.session.SessionDetailsController.MessageRow;
 import com.opencode.ide.ui.session.SessionDetailsController.SessionDetails;
 import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
-import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
 
 /**
  * Session details: the message history of ONE session (header aggregates +
@@ -122,7 +120,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
      * literal in that bundle — keep both spellings in sync.
      */
     public static final String AUTO_REFRESH_HINT_PROPERTY =
-            "com.opencode.ide.ui.sessionDetails.autoRefreshHint";
+            com.opencode.ide.core.context.SessionViewIds.AUTO_REFRESH_HINT_PROPERTY;
 
     /**
      * The workbench's built-in default text editor, opened by id (registry
@@ -242,15 +240,13 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     }
 
     /**
-     * Secondary ids must survive the workbench's mangled encoding; opencode
-     * session ids are plain {@code ses_…} strings, so stripping {@code %}
-     * (the workbench's escape character) is enough.
+     * The session id behind the secondary id - the ONE decoding
+     * ({@link com.opencode.ide.core.context.SessionViewIds}, T-009: the
+     * former per-view sanitizers produced different ids for the same
+     * session and opened duplicate views).
      */
     private static String sanitize(String secondaryId) {
-        if (secondaryId == null || secondaryId.isBlank()) {
-            return null;
-        }
-        return secondaryId.replace("%", "");
+        return com.opencode.ide.core.context.SessionViewIds.sessionId(secondaryId);
     }
 
     private OpencodeClient supplyClient() {
@@ -643,23 +639,8 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
     /** Null-tolerant one-line header: title • id • model • cost • tokens (+ error note). */
     private static String headerText(SessionDetails snapshot) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(snapshot.title() == null || snapshot.title().isBlank() ? "(untitled)" : snapshot.title());
-        sb.append("  \u2022  ").append(snapshot.sessionId() == null ? "?" : snapshot.sessionId());
-        if (snapshot.modelLabel() != null && !snapshot.modelLabel().isBlank()) {
-            sb.append("  \u2022  ").append(snapshot.modelLabel());
-        }
-        if (snapshot.totalCost() != null) {
-            sb.append("  \u2022  cost $").append(String.format(Locale.ROOT, "%.4f", snapshot.totalCost()));
-        }
-        TokenTotals tokens = snapshot.tokens();
-        if (tokens != null && !tokens.isEmpty()) {
-            sb.append("  \u2022  tokens ").append(tokens.summary());
-        }
-        if (snapshot.errorNote() != null) {
-            sb.append("\n").append(snapshot.errorNote());
-        }
-        return sb.toString();
+        String header = com.opencode.ide.ui.session.SessionTranscript.header(snapshot);
+        return snapshot.errorNote() == null ? header : header + "\n" + snapshot.errorNote();
     }
 
     // ---------- label helpers (all null-safe) ----------

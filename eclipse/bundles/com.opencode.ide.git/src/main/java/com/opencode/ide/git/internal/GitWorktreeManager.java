@@ -1,8 +1,6 @@
 package com.opencode.ide.git.internal;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -10,8 +8,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.MergeResult;
@@ -28,7 +24,6 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     private static final Duration DEFAULT_TIMEOUT = com.opencode.ide.git.GitTuning.COMMAND_TIMEOUT;
     private static final Duration MERGE_TIMEOUT = com.opencode.ide.git.GitTuning.MERGE_TIMEOUT;
-    private static final Duration DRAIN_WAIT = com.opencode.ide.git.GitTuning.OUTPUT_DRAIN_WAIT;
 
     private final String gitCommand;
     private final String gitOrigin;
@@ -469,36 +464,12 @@ public final class GitWorktreeManager implements WorktreeManager {
             throw new WorktreeException("Failed to start git (resolved via " + gitOrigin + ": " + gitCommand
                     + "): " + e.getMessage(), e);
         }
-        CompletableFuture<String> stdout = CompletableFuture.supplyAsync(() -> readUtf8(process.getInputStream()));
-        CompletableFuture<String> stderr = CompletableFuture.supplyAsync(() -> readUtf8(process.getErrorStream()));
-        boolean finished;
-        try {
-            finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            GitProcesses.terminate(process);
-            Thread.currentThread().interrupt();
-            throw new WorktreeException("Interrupted while waiting for git " + Arrays.toString(args), e);
+        // the shared run pipeline (GitProcesses.await) - failures become WorktreeExceptions here
+        GitProcesses.Result result = GitProcesses.await(process, args, timeout);
+        if (result.failed()) {
+            throw new WorktreeException(result.failure(), result.cause());
         }
-        if (!finished) {
-            GitProcesses.terminate(process);
-            throw new WorktreeException("git " + Arrays.toString(args) + " timed out after " + timeout);
-        }
-        return new GitOutput(process.exitValue(), join(stdout), join(stderr));
+        return new GitOutput(result.exitCode(), result.stdout(), result.stderr());
     }
 
-    private static String join(CompletableFuture<String> future) {
-        try {
-            return future.get(DRAIN_WAIT.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private static String readUtf8(InputStream in) {
-        try (in) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return "";
-        }
-    }
 }

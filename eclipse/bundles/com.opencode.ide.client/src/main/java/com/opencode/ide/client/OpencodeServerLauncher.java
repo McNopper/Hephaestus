@@ -1,6 +1,4 @@
 package com.opencode.ide.client;
-
-import com.opencode.ide.client.ClientTuning;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -150,7 +148,11 @@ public final class OpencodeServerLauncher {
         if (process != null) {
             try {
                 process.descendants().forEach(h -> {
-                    try { h.destroyForcibly(); } catch (Exception ignored) { /* ignore */ }
+                    try {
+                        h.destroyForcibly();
+                    } catch (Exception e) {
+                        ClientLog.warning("destroying an opencode child process failed: " + e.getMessage());
+                    }
                 });
                 process.destroyForcibly();
                 if (!process.waitFor(ClientTuning.DESTROY_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {

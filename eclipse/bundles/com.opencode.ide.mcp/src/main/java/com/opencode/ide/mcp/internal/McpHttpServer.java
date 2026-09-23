@@ -70,9 +70,12 @@ public final class McpHttpServer {
         return token;
     }
 
+    /** One shared generator - seeding a SecureRandom per token is costly and a lint/bug pattern. */
+    private static final SecureRandom TOKEN_RANDOM = new SecureRandom();
+
     private static String newToken() {
         byte[] raw = new byte[24];
-        new SecureRandom().nextBytes(raw);
+        TOKEN_RANDOM.nextBytes(raw);
         StringBuilder hex = new StringBuilder(raw.length * 2);
         for (byte b : raw) {
             hex.append(Character.forDigit((b >> 4) & 0xF, 16));

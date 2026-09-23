@@ -172,9 +172,24 @@ public interface OpencodeClient {
      *
      * @param promptTimeout how long to wait for the queued turn's final reply
      */
+    /**
+     * {@code POST /api/session/:id/prompt} - send and wait for the reply
+     * (v2: the POST is async, the reply is polled).
+     */
     default ChatEntry sendMessage(ChatRequest request, java.time.Duration promptTimeout)
             throws OpencodeException {
         return sendMessage(request);
+    }
+
+    /**
+     * The full send form with explicit delivery (T-005 send-time parity):
+     * {@code "queue"} parks the prompt in the session inbox instead of
+     * steering the active run (v2 Alt+Enter). Default delegates without the
+     * delivery so simple fakes stay source-compatible.
+     */
+    default ChatEntry sendMessage(ChatRequest request, java.time.Duration promptTimeout, String delivery)
+            throws OpencodeException {
+        return sendMessage(request, promptTimeout);
     }
 
     /**
@@ -255,6 +270,17 @@ public interface OpencodeClient {
     default boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember)
             throws OpencodeException {
         throw new UnsupportedOperationException("respondToPermission");
+    }
+
+    /**
+     * The full answer form (T-004): same single answer path, plus optional
+     * REJECT FEEDBACK that travels to the agent in the request's
+     * {@code message} field (v2 reply body). Default delegates without the
+     * feedback so simple fakes stay source-compatible.
+     */
+    default boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember,
+            String feedback) throws OpencodeException {
+        return respondToPermission(sessionId, permissionId, response, remember);
     }
 
     /**

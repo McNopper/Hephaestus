@@ -1,6 +1,4 @@
 package com.opencode.ide.client;
-
-import com.opencode.ide.client.ClientTuning;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;

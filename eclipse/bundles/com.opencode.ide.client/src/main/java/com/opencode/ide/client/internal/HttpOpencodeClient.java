@@ -36,8 +36,6 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatEntryDeserializer;
-import com.opencode.ide.client.model.ChatMessageInfo;
-import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.CommandInfo;
 import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.FileDiff;
@@ -397,17 +395,25 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
     @Override
     public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout) throws OpencodeException {
+        return sendMessage(chatRequest, promptTimeout, null);
+    }
+
+    @Override
+    public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, String delivery)
+            throws OpencodeException {
         // v2 split v1's single blocking POST /message. The agent and the model
         // are session state set before the turn, the per-request system prompt
         // becomes a synthetic message, and POST /prompt is ASYNCHRONOUS: it
         // returns the queued user message, so the reply has to be polled.
+        // delivery (T-005 send-time parity): "queue" parks the prompt in the
+        // session inbox instead of steering the active run (v2 Alt+Enter).
         String sessionId = chatRequest.sessionId();
         postIfPresent("/session/" + sessionId + "/agent", ChatRequests.agentBody(chatRequest));
         postIfPresent("/session/" + sessionId + "/model", ChatRequests.modelBody(chatRequest));
         postIfPresent("/session/" + sessionId + "/synthetic", ChatRequests.syntheticBody(chatRequest));
 
         String path = "/session/" + sessionId + "/prompt";
-        HttpResponse<String> prompt = request("POST", path, ChatRequests.promptBody(chatRequest),
+        HttpResponse<String> prompt = request("POST", path, ChatRequests.promptBody(chatRequest, delivery),
                 ClientTuning.REQUEST_TIMEOUT);
         // anchor the wait to THIS turn: a resumed session is full of previous
         // turns' assistant messages and idle markers, and answering from those
@@ -647,10 +653,20 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember)
             throws OpencodeException {
+        return respondToPermission(sessionId, permissionId, response, remember, null);
+    }
+
+    @Override
+    public boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember,
+            String feedback) throws OpencodeException {
         // v2: POST /session/:id/permission/:requestID/reply with a decision of
-        // once|always|reject (v1 posted {response, remember} to /permissions/:id)
+        // once|always|reject and an OPTIONAL feedback message (T-004: "reject
+        // with feedback" travels to the agent in the request's message field)
         JsonObject body = new JsonObject();
         body.addProperty("decision", decisionOf(response, remember));
+        if (feedback != null && !feedback.isBlank()) {
+            body.addProperty("message", feedback);
+        }
         String path = "/session/" + sessionId + "/permission/" + permissionId + "/reply";
         HttpResponse<String> reply = send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
         return reply.statusCode() < 300;

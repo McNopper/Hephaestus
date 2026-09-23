@@ -7,14 +7,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
@@ -28,27 +24,7 @@ import com.opencode.ide.tasks.VStages;
  * where the fleet can launch it again under the next stage's agent. A run
  * that failed (timeout, still in-progress) must NOT be advanceable.
  */
-public class AdvanceAfterFleetRunTest {
-
-    private static final Path REPO = Path.of("repo");
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-    private FakeClient client;
-    private FakeWorktreeManager worktrees;
-    private TaskFleet fleet;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-        client = new FakeClient();
-        worktrees = new FakeWorktreeManager();
-        fleet = new TaskFleet(new FleetRunner(client, worktrees, () -> { }), store);
-    }
+public class AdvanceAfterFleetRunTest extends FleetTestHarness {
 
     /** A requirements-stage ticket (role pm per VStages) in the product backlog. */
     private String requirementsTicket() {

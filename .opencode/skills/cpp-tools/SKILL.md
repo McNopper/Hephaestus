@@ -56,6 +56,37 @@ does not write feature code (that is `software-implementation`).
 - **Reports:** read the agent's stdout/stderr (and any `build/reports/*.txt`)
   for per-file:line findings; summarize by severity.
 
+## Quality contract (the gate)
+
+- **Lane exit codes** (every `tools/check-*.sh`): `0` clean, `1` findings,
+  `77` toolchain missing. In ctest the lanes register with
+  `SKIP_RETURN_CODE 77` and the `analysis` label (`ctest -L analysis` runs
+  only them, `ctest -LE analysis` skips them); a missing tool is a SKIP,
+  never a failure. A lane's exit code is the gate - not the wrapping build's.
+- **Fail vs report-only:** correctness findings fail - compiler warnings as
+  errors, `clang-diagnostic-*`, `clang-analyzer-*`, `bugprone-*`, cppcheck
+  warning/performance/portability, layer violations, sanitizer aborts, test
+  failures. Modernization (`modernize-*`), style and benchmark numbers are
+  report-only guidance: generated code is guided, not blocked.
+- **Sanitizers:** one dedicated build tree per lane
+  (`-DENABLE_SANITIZER=address,undefined` or `thread`); sanitized and plain
+  objects never mix. TSan suppressions live in `tools/tsan.supp`, short and
+  justified - deadlocks are never suppressed.
+- **Third-party scope:** vendored/fetched sources are not ours to gate -
+  they are excluded from warnings-as-errors and every analyzer (the
+  CMakeLists clears `CXX_CLANG_TIDY`/`CXX_CPPCHECK` on fetched targets).
+- **Tests - dual oracle:** assert on internal state, not only on output.
+  Golden files catch rendering; state assertions catch what pixels cannot
+  prove (silently skipped spawns, unwritten saves, invariant drift). A
+  golden mismatch must print the diff count and the first differing point.
+- **Parked gates:** a gate that cannot be green is parked - removed from the
+  default run with a written rationale, kept directly runnable. A
+  permanently red gate breeds alarm fatigue and hides real failures.
+- **Noise floor first:** before disabling any check, measure and record the
+  hit count that justifies it. A disable without a measurement is a guess.
+- **Honest gaps:** every test plan carries a "what is NOT covered" list with
+  reasons - coverage is auditable only when its holes are named.
+
 ## Reading the result
 
 - Build failure -> report the first error's file:line + the command that failed.

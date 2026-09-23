@@ -181,9 +181,7 @@ public class AutoDispatchTest {
         // $0.10 budget, nothing spent, $0.05 per launch: the second launch
         // lands exactly ON the budget and is admitted; the third would exceed
         AutoDispatch policy = AutoDispatch.of(10, 0.10, true);
-        List<Task> tasks = List.of(ticket("T-1"), ticket("T-2"), ticket("T-3"));
-        Map<String, Readiness> readiness = Map.of("T-1", READY, "T-2", READY, "T-3", READY);
-        AutoDispatch.DispatchPlan plan = policy.plan(tasks, readiness, CostOverview.empty(), Set.of());
+        AutoDispatch.DispatchPlan plan = planThreeReady(policy);
         assertEquals(List.of("T-1", "T-2"), plan.launch());
         assertTrue(reasonOf(plan, "T-3"), reasonOf(plan, "T-3").contains("budget"));
     }
@@ -321,9 +319,7 @@ public class AutoDispatchTest {
         // 0.08), the third (0.12) would exceed — the boundary math must use
         // the calibrated estimate, not the placeholder
         AutoDispatch policy = AutoDispatch.of(10, 0.10, true).withEstimateUsd(0.04);
-        List<Task> tasks = List.of(ticket("T-1"), ticket("T-2"), ticket("T-3"));
-        Map<String, Readiness> readiness = Map.of("T-1", READY, "T-2", READY, "T-3", READY);
-        AutoDispatch.DispatchPlan plan = policy.plan(tasks, readiness, CostOverview.empty(), Set.of());
+        AutoDispatch.DispatchPlan plan = planThreeReady(policy);
         assertEquals(List.of("T-1", "T-2"), plan.launch());
         assertTrue(reasonOf(plan, "T-3"), reasonOf(plan, "T-3").contains("$0.04"));
     }
@@ -331,6 +327,13 @@ public class AutoDispatchTest {
     // ------------------------------------------------------------------
     // Calibrated estimate
     // ------------------------------------------------------------------
+
+    /** Plans T-1..T-3 (all READY) with no spend recorded. */
+    private static AutoDispatch.DispatchPlan planThreeReady(AutoDispatch policy) {
+        List<Task> tasks = List.of(ticket("T-1"), ticket("T-2"), ticket("T-3"));
+        Map<String, Readiness> readiness = Map.of("T-1", READY, "T-2", READY, "T-3", READY);
+        return policy.plan(tasks, readiness, CostOverview.empty(), Set.of());
+    }
 
     /** An overview of one recorded ticket per cost. */
     private static CostOverview overviewOfCosts(double... costs) {

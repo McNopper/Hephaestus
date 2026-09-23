@@ -381,35 +381,10 @@ public final class OpencodeConnection {
         if (launcher == null || !launcher.isRunning()) {
             stopLauncher();
 
-            Path workingDirectory = null;
-            ProjectContext context = CoreActivator.getProjectContext();
-            if (context != null) {
-                workingDirectory = context.getWorkingDirectory().orElse(null);
-            }
-            if (workingDirectory == null) {
-                // fallback 1: the configured repo root (default Hephaestus) so the
-                // server loads that repo's .opencode/ agents, skills and MCP config
-                String configured = preferences.getWorkingDirectory();
-                if (configured != null && !configured.isBlank()) {
-                    Path candidate = Path.of(configured);
-                    if (Files.isDirectory(candidate)) {
-                        workingDirectory = candidate;
-                    }
-                }
-            }
-            if (workingDirectory == null) {
-                // fallback 2 (O-001): adopt an open workspace project that lives
-                // in an opencode repo - opening the repo's projects in Eclipse then
-                // behaves like opening the repo itself. Without this, a null
-                // directory makes the child inherit Eclipse's own working
-                // directory (the install folder), which carries no repo config.
-                workingDirectory = workspaceRepoRoot();
-            }
+            // one resolution ladder (resolveWorkingDirectory) - this block used
+            // to duplicate its 29 lines here (CPD finding 2026-09-23)
+            Path workingDirectory = resolveWorkingDirectory(preferences);
             if (workingDirectory != null) {
-                // O-001 parity rule: a nested project folder resolves to its repo
-                // root so the server sees .opencode/ agents+skills and the
-                // opencode.json MCP servers
-                workingDirectory = repoRootOf(workingDirectory);
                 ClientLog.info("[opencode serve] working directory: " + workingDirectory);
             }
             lastWorkingDirectory = workingDirectory;
@@ -500,14 +475,15 @@ public final class OpencodeConnection {
      * Generate a fresh random password instead (the same discipline as the
      * fleet's {@code FleetControl.resolvePassword}).
      */
+    /** One shared generator - seeding a SecureRandom per password is costly and a lint/bug pattern. */
+    private static final java.security.SecureRandom SPAWN_RANDOM = new java.security.SecureRandom();
+
     private static String resolveSpawnPassword(OpencodePreferences preferences) {
         String configured = preferences.getPassword();
         if (configured != null && !configured.isEmpty()) {
             return configured;
-        }
-        java.security.SecureRandom random = new java.security.SecureRandom();
-        byte[] bytes = new byte[32];
-        random.nextBytes(bytes);
+        }        byte[] bytes = new byte[32];
+        SPAWN_RANDOM.nextBytes(bytes);
         StringBuilder sb = new StringBuilder(64);
         for (byte b : bytes) {
             sb.append(String.format("%02x", b));

@@ -238,7 +238,10 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 
 ### Reuse as a template
 
-Hephaestus is a **template repo**. Copy the pieces you need:
+Hephaestus is a **template repo**. Copy the pieces you need (below), then
+follow **[`docs/own-project.md`](docs/own-project.md)** - the step-by-step
+guide for wiring the harness to YOUR project (store layout, config,
+tickets, waves, verification gate, and what to replace in the template):
 
 ```bash
 # from your project root

@@ -556,8 +556,8 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         try {
             getSite().getPage().showView(
-                    "com.opencode.ide.ui.views.SessionDetailsView",
-                    sessionId.replace('%', '_'),
+                    com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID,
+                    com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId),
                     org.eclipse.ui.IWorkbenchPage.VIEW_ACTIVATE);
         } catch (org.eclipse.ui.PartInitException e) {
             UiActivator.getDefault().getLog().log(

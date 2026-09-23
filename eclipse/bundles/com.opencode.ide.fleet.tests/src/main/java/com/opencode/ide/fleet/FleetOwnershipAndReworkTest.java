@@ -276,7 +276,7 @@ public class FleetOwnershipAndReworkTest {
         var command = new java.util.ArrayList<>(List.of("git", "-C", repo.toString()));
         command.addAll(List.of(args));
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        String output = new String(process.getInputStream().readAllBytes());
+        String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertEquals(output, 0, process.waitFor());
     }
 }

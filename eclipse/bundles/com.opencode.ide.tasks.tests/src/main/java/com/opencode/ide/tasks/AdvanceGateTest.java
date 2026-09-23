@@ -1,7 +1,6 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -11,10 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 /**
  * The advance quality gate as a matrix: only in-review/done pass (every other
@@ -24,24 +20,7 @@ import org.junit.rules.TemporaryFolder;
  * the pipeline), and the surrounding Scrum operations (claim, planSprint)
  * keep their own semantics without touching the stage.
  */
-public class AdvanceGateTest {
-
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
-    private TaskStore store;
-
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
-    }
-
-    /** A staged ticket with an assignee, in the given status. */
-    private String staged(String stage, String status) {
-        Task t = store.create("p", TaskStore.CreateSpec.of("t"), stage);
-        store.update("p", t.id, Map.of("status", status, "assignee", "worker"));
-        return t.id;
-    }
+public class AdvanceGateTest extends StoreTestHarness {
 
     @Test
     public void advanceIsRejectedFromUnfinishedStatusesNamingTheStatus() {

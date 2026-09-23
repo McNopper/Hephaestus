@@ -78,6 +78,58 @@
           </environments>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/releng/checkstyle.xml</configLocation>
+          <failOnViolation>true</failOnViolation>
+          <violationSeverity>error</violationSeverity>
+          <includeTestSourceDirectory>false</includeTestSourceDirectory>
+          <consoleOutput>true</consoleOutput>
+        </configuration>
+        <dependencies>
+          <!-- the plugin bundles checkstyle 9.3, whose parser predates Java
+               21 records/patterns - run the modern engine instead -->
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>10.17.0</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <id>checkstyle-lint</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>check-architecture</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>pwsh</executable>
+              <arguments>
+                <argument>-NoProfile</argument>
+                <argument>-File</argument>
+                <argument>${maven.multiModuleProjectDirectory}/releng/check-architecture.ps1</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
 
     <pluginManagement>
@@ -109,4 +161,59 @@
       </plugins>
     </pluginManagement>
   </build>
+
+  <profiles>
+    <!--
+      The deeper quality gate (QUALITY.md): `verify -Pquality` adds bug-pattern
+      and duplication scans on top of the always-on checkstyle + architecture
+      checks. Report-only today (findings print, build stays green) - promote
+      to enforced once the first cleanup pass has landed.
+    -->
+    <profile>
+      <id>quality</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-maven-plugin</artifactId>
+            <version>4.9.3.0</version>
+            <configuration>
+              <effort>Max</effort>
+              <threshold>High</threshold>
+              <failOnError>false</failOnError>
+              <xmlOutput>true</xmlOutput>
+            </configuration>
+            <executions>
+              <execution>
+                <id>spotbugs-scan</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-pmd-plugin</artifactId>
+            <version>3.26.0</version>
+            <configuration>
+              <linkXRef>false</linkXRef>
+              <printFailingErrors>true</printFailingErrors>
+              <minimumTokens>100</minimumTokens>
+            </configuration>
+            <executions>
+              <execution>
+                <id>cpd-duplication</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>cpd-check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

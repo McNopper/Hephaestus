@@ -121,7 +121,8 @@ public class FleetRunner {
      * stuck HTTP response can never hold the launch hostage again (the old
      * blocking {@link #submit(FleetTask, Duration)} died with the POST).
      */
-    public record Submission(FleetJob job, java.util.concurrent.CompletableFuture<ChatEntry> prompt) {
+    public record Submission(FleetJob job, java.util.concurrent.CompletableFuture<ChatEntry> prompt,
+            java.util.concurrent.Future<?> worker) {
 
         /** @return the failure message when the prompt call already failed, else null */
         String promptFailure() {
@@ -134,6 +135,18 @@ public class FleetRunner {
             } catch (Exception e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 return cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            }
+        }
+
+        /**
+         * Frees the prompt worker when the run settles or is aborted: a
+         * blocked prompt POST gets interrupted instead of occupying a pooled
+         * worker forever (2026-09-23 starvation fix - the worker handle used
+         * to be discarded). A no-op once the call has returned.
+         */
+        void releaseWorker() {
+            if (worker != null) {
+                worker.cancel(true);
             }
         }
     }
@@ -160,23 +173,22 @@ public class FleetRunner {
             runBootstrap(sid, task.bootstrap());
             tasks.put(task.taskId(), task);
             java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
-            Thread t = new Thread(() -> {
+            java.util.concurrent.Future<?> worker =
+                    com.opencode.ide.client.WorkerPools.submit("fleet-prompt-" + task.taskId(), () -> {
                 try {
                     prompt.complete(client.sendMessage(
                             chatRequest(sid, task), FleetTuning.MAX_TICKET_BUDGET));
                 } catch (Throwable e) {
                     prompt.completeExceptionally(e);
                 }
-            }, "fleet-prompt-" + task.taskId());
-            t.setDaemon(true);
-            t.start();
+            });
             return new Submission(
                     new FleetJob(task.taskId(), sid, worktree.path(), FleetJob.State.RUNNING, null),
-                    prompt);
+                    prompt, worker);
         } catch (OpencodeException e) {
             return new Submission(
                     new FleetJob(task.taskId(), sessionId, worktree.path(), FleetJob.State.FAILED, e.getMessage()),
-                    java.util.concurrent.CompletableFuture.failedFuture(e));
+                    java.util.concurrent.CompletableFuture.failedFuture(e), null);
         }
     }
 
@@ -202,24 +214,23 @@ public class FleetRunner {
                 onSessionCreated.accept(sid);
             }
             java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
-            Thread t = new Thread(() -> {
+            java.util.concurrent.Future<?> worker =
+                    com.opencode.ide.client.WorkerPools.submit("fleet-review-" + task.taskId(), () -> {
                 try {
                     prompt.complete(client.sendMessage(
                             chatRequest(sid, task), FleetTuning.MAX_TICKET_BUDGET));
                 } catch (Throwable e) {
                     prompt.completeExceptionally(e);
                 }
-            }, "fleet-review-" + task.taskId());
-            t.setDaemon(true);
-            t.start();
+            });
             return new Submission(
                     new FleetJob(task.taskId(), sid, task.baseWorktree(), FleetJob.State.RUNNING, null),
-                    prompt);
+                    prompt, worker);
         } catch (OpencodeException e) {
             return new Submission(
                     new FleetJob(task.taskId(), sessionId, task.baseWorktree(),
                             FleetJob.State.FAILED, e.getMessage()),
-                    java.util.concurrent.CompletableFuture.failedFuture(e));
+                    java.util.concurrent.CompletableFuture.failedFuture(e), null);
         }
     }
 
@@ -501,7 +512,9 @@ public class FleetRunner {
 
     private static void sleepPollInterval() {
         try {
-            Thread.sleep(DEFAULT_POLL_MILLIS);
+            // B-008/runtime tuning: the sleep is read LIVE per tick so the
+            // poll cadence is adjustable while workers run (RuntimeTuning)
+            Thread.sleep(Math.max(100, com.opencode.ide.client.RuntimeTuning.pollMillis()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

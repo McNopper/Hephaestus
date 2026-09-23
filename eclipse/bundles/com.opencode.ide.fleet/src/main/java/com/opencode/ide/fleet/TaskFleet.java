@@ -402,6 +402,11 @@ public final class TaskFleet {
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "fleet watchdog of ticket " + taskId + " failed unexpectedly", e);
             job = withState(job, FleetJob.State.FAILED, e.getMessage());
+        } finally {
+            // the run has settled or been killed: free the prompt worker even
+            // when the prompt POST is still blocked (it is interruptible) - a
+            // leaked blocked task would starve the bounded pool (2026-09-23)
+            submission.releaseWorker();
         }
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": await returned state=" + job.state());
         jobsByTask.put(taskId, job);
@@ -575,6 +580,10 @@ public final class TaskFleet {
             return;
         }
         switch (verdict.decision()) {
+            // exhaustive today (PASS/FAIL) - a future decision must fail loud,
+            // never silently leave a verdict unapplied
+            default -> throw new IllegalStateException(
+                    "unhandled review decision: " + verdict.decision());
             case PASS -> {
                 store.addComment(project, taskId,
                         "review: PASS" + reasonSuffix(verdict.reason()), REVIEWER);
@@ -819,9 +828,20 @@ public final class TaskFleet {
     private FleetJob watchdog(FleetRunner.Submission submission, Duration timeout) throws OpencodeException {
         FleetJob job = submission.job();
         long started = System.nanoTime();
+        // runtime tuning (2026-09-23): when the caller kept a tuning default,
+        // follow the LIVE knob so the idle/budget windows are adjustable while
+        // workers run; explicit timeouts (tests, per-ticket overrides) win.
+        Duration budget = FleetTuning.DEFAULT_TICKET_BUDGET.equals(timeout)
+                ? com.opencode.ide.client.RuntimeTuning.ticketBudget()
+                : timeout;
+        Duration stall = (stallTimeout == null || FleetTuning.STALL_TIMEOUT.equals(stallTimeout))
+                ? com.opencode.ide.client.RuntimeTuning.stallTimeout()
+                : stallTimeout;
+        long timeoutNanos = budget.toNanos();
+        long started0 = System.nanoTime();
         long hardCapNanos = FleetTuning.HARD_RUN_CAP.toNanos();
-        long budgetNanos = timeout.toNanos();
-        long stallNanos = stallTimeout.toNanos();
+        long budgetNanos = timeoutNanos;
+        long stallNanos = stall.toNanos();
         int lastMessages = -1;
         int lastAssistantLength = -1;
         String lastTool = null;

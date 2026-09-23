@@ -53,22 +53,7 @@ public final class ReviewPrompt {
         if (ticket.stage != null) {
             out.append("Stage: ").append(ticket.stage).append('\n');
         }
-        out.append("Type: ").append(ticket.type).append('\n');
-        out.append("Task store: ").append(storeLocation).append(" (one Markdown file per ticket)\n");
-        out.append('\n');
-        out.append("Description:\n");
-        String description = ticket.description == null ? "" : ticket.description.strip();
-        out.append(description.isEmpty() ? "(none)" : description).append('\n');
-        out.append('\n');
-        out.append("Acceptance criteria:\n");
-        List<String> criteria = ticket.acceptanceCriteria == null ? List.of() : ticket.acceptanceCriteria;
-        if (criteria.isEmpty()) {
-            out.append("(none)\n");
-        } else {
-            for (int i = 0; i < criteria.size(); i++) {
-                out.append(i + 1).append(". ").append(criteria.get(i)).append('\n');
-            }
-        }
+        PromptSections.appendTicketBody(out, ticket, storeLocation);
         out.append('\n');
         out.append("Recorded artifacts:\n");
         List<Task.Artifact> artifacts = ticket.artifacts == null ? List.of() : ticket.artifacts;

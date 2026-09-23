@@ -112,24 +112,18 @@ public class FleetView extends ViewPart {
 
     public static final String ID = "com.opencode.ide.board.views.FleetView";
 
-    /**
-     * Session Details view, opened by plain id exactly like
-     * ServerView#openSessionDetails — a registry lookup, so the board bundle
-     * needs no dependency on the ui bundle. Its secondary id is the session
-     * id ({@code allowMultiple}).
-     */
-    private static final String SESSION_DETAILS_VIEW_ID = "com.opencode.ide.ui.views.SessionDetailsView";
+    private static final String SESSION_DETAILS_VIEW_ID =
+            com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID;
 
     /**
      * One-shot Session Details auto-refresh hint, set right before
      * {@code showView} for a RUNNING job so the freshly created view opens
-     * live-watching (both sides run on the same UI-thread call stack).
-     * Mirrored plain literal of
-     * {@code SessionDetailsView#AUTO_REFRESH_HINT_PROPERTY} — this bundle
-     * cannot see that class; keep the spellings in sync.
+     * live-watching (both sides run on the same UI-thread call stack). The
+     * spelling lives in {@code core.context.SessionViewIds} (T-009) - this
+     * bundle used to mirror the literal.
      */
     private static final String SESSION_DETAILS_AUTO_REFRESH_HINT =
-            "com.opencode.ide.ui.sessionDetails.autoRefreshHint";
+            com.opencode.ide.core.context.SessionViewIds.AUTO_REFRESH_HINT_PROPERTY;
 
     private static final String EMPTY_STATE =
             "No fleet jobs yet — launch from the Board view or a chat session's fleet server.";
@@ -210,6 +204,82 @@ public class FleetView extends ViewPart {
         layout.marginWidth = 0;
         layout.marginHeight = 0;
         outer.setLayout(layout);
+
+        // ---- the prominent fleet control (user requirement 2026-09-23): the
+        // fleet is DISABLED by default - enable / pause / stop live HERE ----
+        Composite fleetRow = new Composite(outer, SWT.NONE);
+        GridLayout fleetRowLayout = new GridLayout(4, false);
+        fleetRowLayout.marginWidth = 4;
+        fleetRowLayout.marginHeight = 4;
+        fleetRow.setLayout(fleetRowLayout);
+        fleetRow.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
+        org.eclipse.swt.widgets.Label fleetState = new org.eclipse.swt.widgets.Label(fleetRow, SWT.NONE);
+        fleetState.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        org.eclipse.swt.widgets.Button enableFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+        enableFleet.setText("Enable Fleet");
+        enableFleet.setToolTipText(
+                "Arm the auto-dispatch pump (the recurring Waves mode stays the Board's opt-up). Disabled by default - the fleet is a token eater.");
+        org.eclipse.swt.widgets.Button pauseFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+        pauseFleet.setText("Pause");
+        pauseFleet.setToolTipText("No NEW dispatches; running jobs settle normally (never killed)");
+        org.eclipse.swt.widgets.Button stopFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+        stopFleet.setText("Stop");
+        stopFleet.setToolTipText("Pumps off and the engine down - back to the disabled default");
+
+        com.opencode.ide.core.FleetLifecycle fleetControl = com.opencode.ide.core.FleetLifecycle.getDefault();
+        Runnable renderFleetState = () -> {
+            if (fleetState.isDisposed()) {
+                return;
+            }
+            fleetState.setText(fleetControl.label());
+            enableFleet.setEnabled(fleetControl.canEnable());
+            pauseFleet.setEnabled(fleetControl.canPause());
+            stopFleet.setEnabled(fleetControl.canStop());
+        };
+        renderFleetState.run();
+        fleetControl.addListener(state -> getSite().getShell().getDisplay().asyncExec(renderFleetState));
+        enableFleet.addListener(SWT.Selection, e -> fleetControl.enable());
+        pauseFleet.addListener(SWT.Selection, e -> fleetControl.pause());
+        stopFleet.addListener(SWT.Selection, e -> fleetControl.stop());
+        // the pump switches live on the Board (sprint context): one bridge,
+        // wired here where the control lives; enabling brings the Board up
+        // first when it is closed
+        fleetControl.setActions(new com.opencode.ide.core.FleetLifecycle.Actions() {
+            @Override
+            public void startPumping() {
+                boardPumps("enable");
+            }
+
+            @Override
+            public void stopPumping() {
+                boardPumps("pause");
+            }
+
+            @Override
+            public void stopEngine() {
+                boardPumps("stop");
+            }
+
+            private void boardPumps(String command) {
+                getSite().getShell().getDisplay().asyncExec(() -> {
+                    org.eclipse.ui.IWorkbenchPage page = getSite().getPage();
+                    org.eclipse.ui.IViewPart board = page.findView(com.opencode.ide.board.views.BoardView.ID);
+                    if (board == null) {
+                        if (!"enable".equals(command)) {
+                            return; // no board open: nothing is pumping anyway
+                        }
+                        try {
+                            board = page.showView(com.opencode.ide.board.views.BoardView.ID);
+                        } catch (org.eclipse.ui.PartInitException e) {
+                            return;
+                        }
+                    }
+                    if (board instanceof com.opencode.ide.board.views.BoardView boardView) {
+                        boardView.applyFleetControl(command);
+                    }
+                });
+            }
+        });
 
         tableComposite = new Composite(outer, SWT.NONE);
         TableColumnLayout tableLayout = new TableColumnLayout();

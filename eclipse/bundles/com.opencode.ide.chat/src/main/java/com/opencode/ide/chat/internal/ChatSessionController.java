@@ -17,7 +17,6 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatPart;
-import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
@@ -467,6 +466,15 @@ public final class ChatSessionController {
 
     /** Sends one prompt; renders the echo immediately and the final reply on completion. */
     public void send(OutgoingMessage message) {
+        send(message, null);
+    }
+
+    /**
+     * Sends with an explicit delivery (T-005 send-time parity): {@code null}
+     * or {@code "steer"} sends normally (interrupting an active run), {@code
+     * "queue"} parks the prompt in the session inbox (v2 Alt+Enter).
+     */
+    public void send(OutgoingMessage message, String delivery) {
         if (sending) {
             return;
         }
@@ -477,7 +485,7 @@ public final class ChatSessionController {
             host.sendingChanged(true);
             host.info("send: begin (" + message.text().length() + " chars)");
             renderer.appendUser(message.text());
-            host.runInBackground("Sending opencode chat message", () -> runSendJob(message));
+            host.runInBackground("Sending opencode chat message", () -> runSendJob(message, delivery));
         } catch (Throwable t) {
             host.error("send failed unexpectedly", t);
             sending = false;
@@ -485,7 +493,7 @@ public final class ChatSessionController {
         }
     }
 
-    private void runSendJob(OutgoingMessage message) {
+    private void runSendJob(OutgoingMessage message, String delivery) {
         boolean handedOff = false;
         String sid = null;
         try {
@@ -512,7 +520,7 @@ public final class ChatSessionController {
 
             ChatRequest request = new ChatRequest(sid, message.agent(), providerId, modelId,
                     message.variant(), message.system(), message.text());
-            ChatEntry reply = connection.getClient().sendMessage(request);
+            ChatEntry reply = connection.getClient().sendMessage(request, null, delivery);
             settleReply(reply);
             historyHasUserMessage = true; // the prompt is recorded server-side now
             host.runOnUi(this::fireUndoRedoChanged);
@@ -909,7 +917,7 @@ public final class ChatSessionController {
                     () -> runCommandJob(command, arguments));
         } else {
             host.runInBackground("Sending opencode chat message",
-                    () -> runSendJob(submission.message()));
+                    () -> runSendJob(submission.message(), null));
         }
     }
 

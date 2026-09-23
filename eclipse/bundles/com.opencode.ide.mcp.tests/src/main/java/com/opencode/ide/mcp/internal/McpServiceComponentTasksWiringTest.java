@@ -80,7 +80,7 @@ public class McpServiceComponentTasksWiringTest {
                         + "{\"name\":\"task_create\",\"arguments\":"
                         + "{\"project\":\"wiring\",\"title\":\"from the endpoint\"}}}"))
                 .getAsJsonObject();
-        assertTrue(created.getAsJsonObject("result").get("isError").getAsBoolean() == false);
+        assertTrue(!created.getAsJsonObject("result").get("isError").getAsBoolean());
 
         Path taskFile = tmp.getRoot().toPath().resolve("tasks").resolve("wiring").resolve("T-001.md");
         assertTrue("the write must land under the configured root: " + taskFile,

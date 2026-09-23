@@ -32,6 +32,13 @@ analysis triage.
 - Configure once (`cmake -S . -B build`), then build in place (`cmake --build build`).
 - Enforce formatting with clang-format; report files that need `clang-format -i`.
 - Run cppcheck + clang-tidy; triage findings by severity (error → warning → style).
+- Run the analysis lanes (`bash tools/check-tidy.sh`, `check-cppcheck.sh`,
+  `check-layers.sh`, or `ctest -L analysis`): exit `0` clean, `1` findings,
+  `77` toolchain missing - report `77` as SKIP, never as a failure.
+- Build and run the sanitizer lanes in their own build dirs
+  (`-DENABLE_SANITIZER=address,undefined` / `thread`) when the change
+  touches memory, concurrency or lifetime code; a sanitizer abort is a bug
+  report, never noise.
 - Produce the dependency graph with the `scan-deps` target and read
   `build/reports/scan-deps/deps.json` (per-TU include sets; module deps once
   the project adopts C++23 modules).

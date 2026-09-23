@@ -1,17 +1,12 @@
 package com.opencode.ide.git.internal;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -32,7 +27,6 @@ public final class GitStore {
     private static final Logger LOG = Logger.getLogger(GitStore.class.getName());
 
     private static final Duration TIMEOUT = com.opencode.ide.git.GitTuning.SYNC_TIMEOUT;
-    private static final Duration DRAIN_WAIT = com.opencode.ide.git.GitTuning.OUTPUT_DRAIN_WAIT;
     private static final String GIT = com.opencode.ide.git.GitLocator.resolve().command().toString();
     private static final String DEFAULT_MESSAGE = "sync task store";
     private static final int LOG_TAIL = com.opencode.ide.git.GitTuning.WARN_TAIL;
@@ -246,37 +240,12 @@ public final class GitStore {
         } catch (IOException e) {
             return new GitOutput(-1, "", "failed to start git (" + GIT + "): " + e.getMessage());
         }
-        CompletableFuture<String> stdout = CompletableFuture.supplyAsync(() -> readUtf8(process.getInputStream()));
-        CompletableFuture<String> stderr = CompletableFuture.supplyAsync(() -> readUtf8(process.getErrorStream()));
-        boolean finished;
-        try {
-            finished = process.waitFor(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            GitProcesses.terminate(process);
-            Thread.currentThread().interrupt();
-            return new GitOutput(-1, "", "interrupted while waiting for git " + Arrays.toString(args));
+        // the shared run pipeline (GitProcesses.await) - failures stay values here
+        GitProcesses.Result result = GitProcesses.await(process, args, TIMEOUT);
+        if (result.failed()) {
+            return new GitOutput(-1, "", result.failure());
         }
-        if (!finished) {
-            GitProcesses.terminate(process);
-            return new GitOutput(-1, "", "git " + Arrays.toString(args) + " timed out after " + TIMEOUT);
-        }
-        return new GitOutput(process.exitValue(), join(stdout), join(stderr));
-    }
-
-    private static String join(CompletableFuture<String> future) {
-        try {
-            return future.get(DRAIN_WAIT.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private static String readUtf8(InputStream in) {
-        try (in) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return "";
-        }
+        return new GitOutput(result.exitCode(), result.stdout(), result.stderr());
     }
 
 }

@@ -19,7 +19,6 @@ import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.ControlContribution;
 import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.IStatusLineManager;
-import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.Separator;
@@ -2058,6 +2057,26 @@ public class BoardView extends ViewPart {
      * {@link DispatchPolicyStore} at toggle time (with the cost-calibrated
      * estimate); the manual "Auto-dispatch" action above loads it per click.
      */
+    /**
+     * The shared fleet control's bridge ({@link com.opencode.ide.core.FleetLifecycle}
+     * - the prominent Enable/Pause/Stop row in the Fleet panel): flips THIS
+     * board's pump toggles, the one owner of the pumps (they need the board's
+     * sprint context). Enable arms the auto-dispatch pump (the recurring
+     * Waves mode stays the Board's explicit opt-up); pause/stop reuse the
+     * selection-cancel path - both loops off, toggles reset, running jobs
+     * settle normally (they are never killed).
+     */
+    public void applyFleetControl(String command) {
+        if ("enable".equals(command)) {
+            if (autoLoopAction != null && !autoLoopAction.isChecked()) {
+                autoLoopAction.setChecked(true);
+                toggleDispatchLoop();
+            }
+        } else {
+            cancelDispatchForSelection();
+        }
+    }
+
     private void toggleDispatchLoop() {
         if (autoLoopAction == null) {
             return;
@@ -2355,6 +2374,8 @@ public class BoardView extends ViewPart {
                     "The task store root is not a git working copy:\n" + model.root());
             case FAILED -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
                     "Sync failed (see the Error log for git details).");
+            default -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
+                    "Unexpected sync outcome: " + outcome);
         }
     }
 
@@ -2619,17 +2640,10 @@ public class BoardView extends ViewPart {
         super.dispose();
     }
 
-    /**
-     * The Stages toolbar dropdown: one check item per V stage (plus the
-     * untracked group), an "All stages" reset, and a live count. Checking
-     * stages switches from "all visible" to an explicit selection; unchecking
-     * the last visible stage re-enables everything (never an empty board by
-     * accident).
-     */
-    /** The per-status visibility drop-down (hide done & co individually; persisted). */
-    private final class StatusFilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
+    /** The shared drop-down lifecycle of the filter menus (status/stage); subclasses fill the items. */
+    private abstract class FilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
 
-        private org.eclipse.swt.widgets.Menu menu;
+        protected org.eclipse.swt.widgets.Menu menu;
 
         @Override
         public void dispose() {
@@ -2655,7 +2669,14 @@ public class BoardView extends ViewPart {
             return menu;
         }
 
-        private void fillMenu() {
+        protected abstract void fillMenu();
+    }
+
+    /** The per-status visibility drop-down (hide done & co individually; persisted). */
+    private final class StatusFilterMenuCreator extends FilterMenuCreator {
+
+        @Override
+        protected void fillMenu() {
             for (String status : Task.VALID_STATUSES) {
                 org.eclipse.swt.widgets.MenuItem item =
                         new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
@@ -2696,35 +2717,17 @@ public class BoardView extends ViewPart {
         }
     }
 
-    private final class StageFilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
-
-        private org.eclipse.swt.widgets.Menu menu;
-
-        @Override
-        public void dispose() {
-            if (menu != null) {
-                menu.dispose();
-                menu = null;
-            }
-        }
+    /**
+     * The Stages toolbar dropdown: one check item per V stage (plus the
+     * untracked group), an "All stages" reset, and a live count. Checking
+     * stages switches from "all visible" to an explicit selection; unchecking
+     * the last visible stage re-enables everything (never an empty board by
+     * accident).
+     */
+    private final class StageFilterMenuCreator extends FilterMenuCreator {
 
         @Override
-        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Control parent) {
-            dispose();
-            menu = new org.eclipse.swt.widgets.Menu(parent);
-            fillMenu();
-            return menu;
-        }
-
-        @Override
-        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Menu parent) {
-            dispose();
-            menu = new org.eclipse.swt.widgets.Menu(parent);
-            fillMenu();
-            return menu;
-        }
-
-        private void fillMenu() {
+        protected void fillMenu() {
             java.util.List<String> stages = new ArrayList<>(VStages.STAGES);
             stages.add(PipelineSnapshot.UNTRACKED);
             for (String stage : stages) {

@@ -76,6 +76,14 @@ option(ENABLE_CLANG_SCAN_DEPS "Enable the clang-scan-deps dependency graph targe
 option(ENABLE_TESTING "Enable GoogleTest-based tests" ON)
 option(ENABLE_DOXYGEN "Enable Doxygen documentation target" ON)
 
+# Sanitizer lane (Clang/GCC only; empty = off). Use one dedicated build
+# directory per lane, e.g.:
+#   -DENABLE_SANITIZER=address,undefined   (ASan+UBSan)
+#   -DENABLE_SANITIZER=thread              (TSan; suppressions in tools/tsan.supp)
+# Sanitized objects must never be mixed with plain ones.
+set(ENABLE_SANITIZER "" CACHE STRING
+    "Sanitizer(s) for this build tree (address,undefined | thread); empty = off")
+
 # ============================================================
 # Shared source list (used by clang-format and clang-tidy targets)
 # ============================================================
@@ -338,6 +346,26 @@ endif()
 # enabled or skipped for this toolchain.
 # verify-full: full strict verification (verify + format + static analysis + docs).
 # ============================================================
+
+# ============================================================
+# Analysis lanes as CTest entries
+#
+# One contract for every lane script: exit 0 = clean, exit 1 = findings,
+# exit 77 = toolchain missing. SKIP_RETURN_CODE 77 turns a missing tool
+# into a ctest SKIP (not a failure), and the "analysis" label keeps the
+# lanes selectable: ctest -L analysis (only) / ctest -LE analysis (skip).
+# A lane's exit code is the gate - never the wrapping build's.
+# ============================================================
+
+foreach(_lane tidy cppcheck layers)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/tools/check-${_lane}.sh")
+        add_test(NAME test_${_lane}
+            COMMAND bash "${CMAKE_SOURCE_DIR}/tools/check-${_lane}.sh" "${CMAKE_BINARY_DIR}")
+        set_tests_properties(test_${_lane} PROPERTIES
+            SKIP_RETURN_CODE 77
+            LABELS analysis)
+    endif()
+endforeach()
 
 add_custom_target(verify-analysis-status
     COMMAND ${CMAKE_COMMAND} -E echo "AI analysis status: ${PROJECT_ANALYSIS_STATUS} (${PROJECT_ANALYSIS_REASON})"

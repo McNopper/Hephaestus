@@ -26,7 +26,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -268,10 +267,22 @@ public final class TaskStore {
             List<String> applied = new ArrayList<>();
             for (Map.Entry<String, Object> e : changes.entrySet()) {
                 switch (e.getKey()) {
-                    case "title" -> { t.title = string(e.getValue()); applied.add(e.getKey()); }
-                    case "description" -> { t.description = string(e.getValue()); applied.add(e.getKey()); }
-                    case "type" -> { t.type = string(e.getValue()); applied.add(e.getKey()); }
-                    case "priority" -> { t.priority = string(e.getValue()); applied.add(e.getKey()); }
+                    case "title" -> {
+                        t.title = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "description" -> {
+                        t.description = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "type" -> {
+                        t.type = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "priority" -> {
+                        t.priority = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
                     case "role" -> {
                         String role = string(e.getValue());
                         if (role == null || role.isBlank()) {
@@ -288,7 +299,10 @@ public final class TaskStore {
                         t.stage = stage;
                         applied.add(e.getKey());
                     }
-                    case "model" -> { t.model = string(e.getValue()); applied.add(e.getKey()); }
+                    case "model" -> {
+                        t.model = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
                     case "status" -> {
                         String status = string(e.getValue());
                         if (status == null || !Task.VALID_STATUSES.contains(status)) {
@@ -297,19 +311,40 @@ public final class TaskStore {
                         t.status = status;
                         applied.add(e.getKey());
                     }
-                    case "story_points" -> { t.storyPoints = intOf(e.getValue()); applied.add(e.getKey()); }
-                    case "assignee" -> { t.assignee = string(e.getValue()); applied.add(e.getKey()); }
+                    case "story_points" -> {
+                        t.storyPoints = intOf(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "assignee" -> {
+                        t.assignee = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
                     // the blocked flag/blocker text are updatable like any other field (the board's
                     // drag-and-drop stage move uses this for the send-back contract)
-                    case "blocked" -> { t.blocked = truthy(e.getValue()); applied.add(e.getKey()); }
-                    case "blocker" -> { t.blocker = string(e.getValue()); applied.add(e.getKey()); }
-                    case "sprint" -> { t.sprint = string(e.getValue()); applied.add(e.getKey()); }
-                    case "epic" -> { t.epic = string(e.getValue()); applied.add(e.getKey()); }
+                    case "blocked" -> {
+                        t.blocked = truthy(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "blocker" -> {
+                        t.blocker = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "sprint" -> {
+                        t.sprint = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
+                    case "epic" -> {
+                        t.epic = string(e.getValue());
+                        applied.add(e.getKey());
+                    }
                     case "acceptance_criteria" -> {
                         t.acceptanceCriteria = stringList(e.getValue());
                         applied.add(e.getKey());
                     }
-                    case "labels" -> { t.labels = stringList(e.getValue()); applied.add(e.getKey()); }
+                    case "labels" -> {
+                        t.labels = stringList(e.getValue());
+                        applied.add(e.getKey());
+                    }
                     default -> { /* protected or unknown: silently dropped (pm parity) */ }
                 }
             }
@@ -947,12 +982,7 @@ public final class TaskStore {
                 data.metaDirty = true;
             }
             if (doc.has("sprints")) {
-                for (Map.Entry<String, JsonElement> e : doc.getAsJsonObject("sprints").entrySet()) {
-                    JsonObject s = e.getValue().getAsJsonObject();
-                    data.sprints.put(e.getKey(), new Task.Sprint(
-                            strOrNull(s, "id"), strOrNull(s, "goal"), strOrNull(s, "status"),
-                            instantOrNull(s, "created_at"), instantOrNull(s, "closed_at")));
-                }
+                readSprints(doc, data);
                 data.metaDirty = true;
             }
             return count;
@@ -962,6 +992,16 @@ public final class TaskStore {
     // ------------------------------------------------------------------
     // Transaction engine
     // ------------------------------------------------------------------
+
+    /** {@code _meta.json}'s {@code sprints} map -> the in-memory sprint table (one parser for both load paths). */
+    private static void readSprints(JsonObject doc, ProjectData data) {
+        for (Map.Entry<String, JsonElement> e : doc.getAsJsonObject("sprints").entrySet()) {
+            JsonObject s = e.getValue().getAsJsonObject();
+            data.sprints.put(e.getKey(), new Task.Sprint(
+                    strOrNull(s, "id"), strOrNull(s, "goal"), strOrNull(s, "status"),
+                    instantOrNull(s, "created_at"), instantOrNull(s, "closed_at")));
+        }
+    }
 
     private static final class ProjectData {
         final Map<String, Task> tasks = new LinkedHashMap<>();
@@ -1065,12 +1105,7 @@ public final class TaskStore {
                 }
                 data.counter = doc.has("counter") ? doc.get("counter").getAsInt() : 0;
                 if (doc.has("sprints")) {
-                    for (Map.Entry<String, JsonElement> e : doc.getAsJsonObject("sprints").entrySet()) {
-                        JsonObject s = e.getValue().getAsJsonObject();
-                        data.sprints.put(e.getKey(), new Task.Sprint(
-                                strOrNull(s, "id"), strOrNull(s, "goal"), strOrNull(s, "status"),
-                                instantOrNull(s, "created_at"), instantOrNull(s, "closed_at")));
-                    }
+                    readSprints(doc, data);
                 }
             } catch (IOException | RuntimeException e) {
                 LOG.log(Level.WARNING, "unreadable _meta.json in " + dir + " (" + e.getMessage() + "); recovering", e);
