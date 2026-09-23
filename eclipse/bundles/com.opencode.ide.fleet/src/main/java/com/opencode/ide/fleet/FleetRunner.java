@@ -122,7 +122,12 @@ public class FleetRunner {
      * blocking {@link #submit(FleetTask, Duration)} died with the POST).
      */
     public record Submission(FleetJob job, java.util.concurrent.CompletableFuture<ChatEntry> prompt,
-            java.util.concurrent.Future<?> worker) {
+            java.util.concurrent.Future<?> worker, java.util.concurrent.atomic.AtomicBoolean started) {
+
+        /** QUEUED is not DELIVERED: the watchdog must know the difference (2026-09-23). */
+        boolean promptStarted() {
+            return started.get();
+        }
 
         /** @return the failure message when the prompt call already failed, else null */
         String promptFailure() {
@@ -173,8 +178,10 @@ public class FleetRunner {
             runBootstrap(sid, task.bootstrap());
             tasks.put(task.taskId(), task);
             java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
+            java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
             java.util.concurrent.Future<?> worker =
                     com.opencode.ide.client.WorkerPools.submit("fleet-prompt-" + task.taskId(), () -> {
+                started.set(true);
                 try {
                     prompt.complete(client.sendMessage(
                             chatRequest(sid, task), FleetTuning.MAX_TICKET_BUDGET));
@@ -184,11 +191,12 @@ public class FleetRunner {
             });
             return new Submission(
                     new FleetJob(task.taskId(), sid, worktree.path(), FleetJob.State.RUNNING, null),
-                    prompt, worker);
+                    prompt, worker, started);
         } catch (OpencodeException e) {
             return new Submission(
                     new FleetJob(task.taskId(), sessionId, worktree.path(), FleetJob.State.FAILED, e.getMessage()),
-                    java.util.concurrent.CompletableFuture.failedFuture(e), null);
+                    java.util.concurrent.CompletableFuture.failedFuture(e), null,
+                    new java.util.concurrent.atomic.AtomicBoolean());
         }
     }
 
@@ -214,8 +222,10 @@ public class FleetRunner {
                 onSessionCreated.accept(sid);
             }
             java.util.concurrent.CompletableFuture<ChatEntry> prompt = new java.util.concurrent.CompletableFuture<>();
+            java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
             java.util.concurrent.Future<?> worker =
                     com.opencode.ide.client.WorkerPools.submit("fleet-review-" + task.taskId(), () -> {
+                started.set(true);
                 try {
                     prompt.complete(client.sendMessage(
                             chatRequest(sid, task), FleetTuning.MAX_TICKET_BUDGET));
@@ -225,12 +235,13 @@ public class FleetRunner {
             });
             return new Submission(
                     new FleetJob(task.taskId(), sid, task.baseWorktree(), FleetJob.State.RUNNING, null),
-                    prompt, worker);
+                    prompt, worker, started);
         } catch (OpencodeException e) {
             return new Submission(
                     new FleetJob(task.taskId(), sessionId, task.baseWorktree(),
                             FleetJob.State.FAILED, e.getMessage()),
-                    java.util.concurrent.CompletableFuture.failedFuture(e), null);
+                    java.util.concurrent.CompletableFuture.failedFuture(e), null,
+                    new java.util.concurrent.atomic.AtomicBoolean());
         }
     }
 

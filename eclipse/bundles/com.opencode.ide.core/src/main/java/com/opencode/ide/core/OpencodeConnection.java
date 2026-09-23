@@ -174,6 +174,18 @@ public final class OpencodeConnection {
     }
 
     /**
+     * The explicitly configured working directory (the preference / ini
+     * value), or {@code ""} when unset - as opposed to
+     * {@link #getWorkingDirectory()}, which is the RESOLVED directory and can
+     * fall back to an incidental location (the user home for an attached
+     * shared service). Scope selection prefers this value when it names a
+     * repo (2026-09-23 live finding).
+     */
+    public String getConfiguredWorkingDirectory() {
+        return preferences().getWorkingDirectory();
+    }
+
+    /**
      * @return the working directory the last spawn config resolved to, or
      *         {@code null} when unknown. v2 serves sessions for the whole user
      *         from every server, so views scope their session lists to this

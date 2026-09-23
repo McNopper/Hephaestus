@@ -10,7 +10,7 @@ import java.time.Duration;
  *
  * <p>Scope: numbers the FLEET engine controls. Per-call defaults that live
  * inside lower bundles (the client's 30&nbsp;s HTTP default, the git
- * manager's 60&nbsp;s / 10&nbsp;min timeouts) keep their in-place defaults,
+ * manager's 3/5/10&nbsp;min timeouts) keep their in-place defaults,
  * but wherever the engine cares, it passes one of THESE values explicitly -
  * so the engine's behavior is fully described by this table.</p>
  */

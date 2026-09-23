@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class WorkerPools {
 
-    private static final long IDLE_DIE_SECONDS = 60;
     private static final Object LOCK = new Object();
     private static ThreadPoolExecutor pool;
 

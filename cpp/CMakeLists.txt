@@ -84,6 +84,20 @@ option(ENABLE_DOXYGEN "Enable Doxygen documentation target" ON)
 set(ENABLE_SANITIZER "" CACHE STRING
     "Sanitizer(s) for this build tree (address,undefined | thread); empty = off")
 
+# The lane is real: the flag is applied to compile AND link (a review finding
+# 2026-09-23: the option used to be declared but never consumed, while the
+# skill/agent/QUALITY.md advertised working sanitizer lanes).
+if(ENABLE_SANITIZER)
+    add_compile_options(-fsanitize=${ENABLE_SANITIZER} -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${ENABLE_SANITIZER})
+    if(ENABLE_SANITIZER MATCHES "thread")
+        # TSan suppressions are a RUNTIME matter: run ctest with
+        # TSAN_OPTIONS=suppressions=<root>/tools/tsan.supp
+        message(STATUS "TSan lane: run tests with TSAN_OPTIONS=suppressions=${CMAKE_SOURCE_DIR}/tools/tsan.supp")
+    endif()
+    message(STATUS "Sanitizers enabled: ${ENABLE_SANITIZER}")
+endif()
+
 # ============================================================
 # Shared source list (used by clang-format and clang-tidy targets)
 # ============================================================

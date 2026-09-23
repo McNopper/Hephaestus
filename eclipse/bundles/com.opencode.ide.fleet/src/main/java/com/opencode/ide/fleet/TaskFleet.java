@@ -546,6 +546,10 @@ public final class TaskFleet {
             LOG.log(Level.WARNING, "fleet review watchdog failed unexpectedly", e);
             return withState(job, FleetJob.State.FAILED, e.getMessage());
         } finally {
+            // the review session's prompt worker is released exactly like a
+            // worker run's (2026-09-23 review finding: this path leaked the
+            // blocked POST and starved the bounded pool)
+            submission.releaseWorker();
             if (permissions != null && job.sessionId() != null) {
                 permissions.sessionEnded(job.sessionId());
             }
@@ -879,6 +883,10 @@ public final class TaskFleet {
             // The provider/server chunk timeout deals with dead streams and
             // unblocks the POST; the budget backstops the rest.
             boolean promptInFlight = !submission.prompt().isDone();
+            // QUEUED is not DELIVERED (2026-09-23 review finding): a prompt
+            // task still waiting on the shared pool must neither reset the
+            // stall clock nor be blamed as "the worker hung"
+            boolean promptStarted = submission.promptStarted();
             if (activity != null) {
                 boolean progressed = false;
                 if (activity.messages() != lastMessages) {
@@ -913,10 +921,10 @@ public final class TaskFleet {
                 // busy flag; B-008 live 2026-09-23: "busy = progress" made a
                 // busy-static fixture unkillable and spun a test JVM for 67
                 // minutes - rubberduck F-4 exactly.)
-                if (activity.busy() || permissionWait || promptInFlight) {
+                if (activity.busy() || permissionWait || (promptInFlight && promptStarted)) {
                     lastStallReset = System.nanoTime();
                 }
-            } else if (promptInFlight || permissionWait) {
+            } else if ((promptInFlight && promptStarted) || permissionWait) {
                 lastStallReset = System.nanoTime();
             }
             long now = System.nanoTime();
@@ -924,7 +932,9 @@ public final class TaskFleet {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
                         "stalled: session idle and silent for " + stallTimeout
-                                + ", session aborted (the prompt was delivered; the worker hung)"
+                                + ", session aborted (" + (promptStarted
+                                        ? "the prompt was delivered; the worker hung"
+                                        : "the prompt never left the worker pool") + ")"
                                 + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
             }
             if (now - lastProgress >= budgetNanos) {

@@ -117,11 +117,15 @@ if (Test-Path $customization) {
         $ini = Get-Content $iniPath
         if (-not ($ini | Select-String -SimpleMatch "-pluginCustomization")) {
             # same rule as the -clean hint: one option per line near the top
-            $at = 0
+            $at = $ini.Count
             for ($i = 0; $i -lt $ini.Count; $i++) {
                 if ($ini[$i] -match "^-vmargs") { $at = $i; break }
             }
-            $patched = $ini[0..($at - 1)] + @("-pluginCustomization", "plugin_customization.ini") + $ini[$at..($ini.Count - 1)]
+            if ($at -ge 1) {
+                $patched = $ini[0..($at - 1)] + @("-pluginCustomization", "plugin_customization.ini") + $ini[$at..($ini.Count - 1)]
+            } else {
+                $patched = @("-pluginCustomization", "plugin_customization.ini") + $ini
+            }
             Set-Content -Path $iniPath -Value $patched
             Write-Host "[deploy-dev] eclipse.ini: added -pluginCustomization plugin_customization.ini"
         }

@@ -700,15 +700,26 @@ public class ServerView extends ViewPart implements Refreshable {
         // connection's working directory, or the shared service answers for
         // the user's home (wrong project's agents/skills/MCP servers)
         String scopeDir = connection.getWorkingDirectory();
-        if (scopeDir == null || scopeDir.isBlank()) {
-            // attached (shared-service) connections never run the spawn
-            // resolution - adopt the active project's repo root (the O-001
-            // rule) so the scoped lists are never blank-scoped (2026-09-23
-            // live finding: no MCP servers visible while they were alive)
+        // A scope that is not an opencode repo is a WRONG scope: an attached
+        // shared service resolves to the user home (its own cwd) and then
+        // every directory-scoped list answers EMPTY (2026-09-23 live probe:
+        // GET /api/mcp answers [] for the home directory but tasks/graphics/
+        // fleet for the repo - the servers were alive all along). Preference
+        // order: the explicit working-directory setting, then the active
+        // project's repo root, then the connection's own resolution - and
+        // every candidate must BE a repo (carry an opencode marker).
+        String configured = connection.getConfiguredWorkingDirectory();
+        java.nio.file.Path configuredRepo = repoRootOrSelf(configured);
+        if (configuredRepo != null) {
+            scopeDir = configuredRepo.toString();
+        }
+        if (repoRootOrSelf(scopeDir) == null) {
             java.nio.file.Path project = activeProjectLocation();
             if (project != null) {
                 java.nio.file.Path repo = OpencodeConnection.repoRootOf(project);
-                scopeDir = (repo == null ? project : repo).toString();
+                if (OpencodeConnection.isRepoMarker(repo)) {
+                    scopeDir = repo.toString();
+                }
             }
         }
         lastScopeDir = scopeDir;
@@ -1172,6 +1183,25 @@ public class ServerView extends ViewPart implements Refreshable {
     private String scopeSuffix() {
         String scope = lastScopeDir;
         return scope == null || scope.isBlank() ? " | no scope directory" : " | scoped to: " + scope;
+    }
+
+    /**
+     * The repo root of a user-supplied directory, or {@code null} when it is
+     * blank, unparseable or not inside a repo. {@code Path.of("")} is the
+     * JVM's cwd and a bad preference string must never take the view down
+     * (2026-09-23 review findings); nested configured folders climb to their
+     * repo root exactly like the spawn resolution does.
+     */
+    private static java.nio.file.Path repoRootOrSelf(String dir) {
+        if (dir == null || dir.isBlank()) {
+            return null;
+        }
+        try {
+            java.nio.file.Path repo = OpencodeConnection.repoRootOf(java.nio.file.Path.of(dir));
+            return OpencodeConnection.isRepoMarker(repo) ? repo : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     // ---------- project/VCS header (SWT-free logic in ProjectVcs) ----------

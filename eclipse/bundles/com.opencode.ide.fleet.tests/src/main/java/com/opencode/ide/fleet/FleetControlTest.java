@@ -315,11 +315,12 @@ public class FleetControlTest {
             // the exclude keeps the store's transient .lock out of the verdict
             // (an in-flight transaction must not read as store dirt). BOTH
             // conditions must hold: the tree settles AND the expected sync
-            // commit has landed - a clean tree alone can just mean "not yet"
-            // (2026-09-23 flake: the old first-clean-wins check failed
-            // instantly when the sync had not run yet).
+            // commit has LANDED - it need not be the newest commit, because
+            // the engine's own claim/merge commitAll may legitimately follow
+            // or coalesce it (2026-09-23 flake #2: the old last-message check
+            // over-pinned ordering, not the contract).
             if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()
-                    && expectedLastMessage.equals(gitOut(repo, "log", "-1", "--format=%s").trim())) {
+                    && gitOut(repo, "log", "-10", "--format=%s").contains(expectedLastMessage)) {
                 return true;
             }
             Thread.sleep(100);
