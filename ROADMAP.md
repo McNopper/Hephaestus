@@ -159,7 +159,8 @@ implementation: U-040 (Fleet tree), U-041 (subagents+console), U-042 (background
 U-043 (blocked-as-state) + `docs/fleet-observability-eclipse-reuse.md`.
 **Board truth at wrap: 8 NEEDS-HUMAN blocked (stall class, B-009 gate), B-007 at
 system stage ready, wave parked.** Next session: diagnose B-009 from the stalled
-transcripts, then restart the wave (`fleet-daemon.ps1` + `fleet_waves_start`).
+transcripts, then restart the wave (`fleet_waves_start`; the pump lives in
+Eclipse).
 
 **The opencode v1 → v2 migration is landed and reactor-green** (27/27 modules,
 1480 tests, commit `df28c93`). The harness now speaks the v2 API end-to-end —
@@ -206,8 +207,8 @@ materialization) is fixed with regression tests.
 | **v2 subagents & subprocesses in the UI** | M | The TUI shows subagents and subprocesses; Eclipse should match. Subagent nesting exists (parentID); add the v2 shell/PTY surfaces (`/api/shell`, `/api/pty`, `shell.*` events) so per-session subprocess activity (what ran, status, output tail) is visible too. **Ticket: U-041** |
 | **Session todos → tickets over v2** | S/M | The v2 API has no session-todo endpoint or todo field on the session resource (checked against the live 2.0.11 contract). The old fleet import called the removed endpoint and has been retired; task-store todos remain available. Establish and verify a supported source of agent todo state before implementing its display/import. Transcript tool outputs are a candidate to investigate, not a verified contract. **Related: U-013 and the observability transcript work.** |
 | **In-Eclipse verification pass** | M | The deferred UI checklist: board/fleet live try (peer refresh, badges, busy icons, menus), CDT marker round trip, per-view screenshots (`glm-5.3-flash` multimodal). Everything else is done — this is the remaining gate. |
-| **V-006 slice (c): default flip** | S | Flip `FLEET_DAEMON` default to `auto` after the in-Eclipse validation run exercises the daemon opt-in. Slices a+b are shipped and tested; design + as-built note on ticket V-006. **Ticket: U-036** |
-| **Graceful full-stack shutdown** | M | One action: park admissions, checkpoint in-flight workers, stop the daemon, maintenance flag, shutdown report + resume. Trigger: host JDK upgrade; includes the engine-addressing bug (chat MCP stop hit the chat's local engine, not the daemon). **Ticket: U-038** |
+| ~~**V-006 slice (c): default flip**~~ | — | **RETIRED 2026-09-23** (host discipline: "opencode or Eclipse — everything else is reinventing the wheel"). The daemon core, stdio proxy and launcher are deleted; the pump lives in Eclipse and is off when Eclipse is closed, by design. **Ticket: U-036 obsolete** |
+| **Graceful full-stack shutdown** | M | One action: park admissions, checkpoint in-flight workers, maintenance flag, shutdown report + resume. Trigger: host JDK upgrade; includes the engine-addressing bug (chat MCP stop hit the chat's local engine). **Ticket: U-038** |
 | **Live automatic-dispatch acceptance** | S | Exercise against a real model during the Eclipse pass; chat controls, shared reservations and the daemon are in place. |
 | **Clean Eclipse reinstall / p2 profile repair** | S | The recovered install runs on hand-maintained `bundles.info` lines (see `docs/eclipse-deploy-recovery.md` caveat). |
 | **Linux integration verification** | S/M | WSL GCC fixture passes; full Linux Java/Tycho run awaits a JDK-equipped environment or CI. Non-blocking. |

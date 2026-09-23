@@ -32,6 +32,15 @@ over ~8 gate runs (each 4-7 minutes). The stack of WRONG theories, in order:
 Every layer 1-4 was a REAL defect worth fixing - but none was THE defect, and
 each fix cycle cost a full gate run.
 
+**Addendum (same day, 16:00):** "THE ACTUAL LAST CAUSE" aged badly - there was
+a SIXTH layer. Under machine load the 5&nbsp;s post-exit output-drain window
+blew, a successful git command read as "output drain lost", and the sync
+aborted MID-SEQUENCE (index stranded staged-but-uncommitted). The lesson is
+the point of this doc: there is no "last cause" until the gate is green twice
+under DIFFERENT conditions (quiet machine AND loaded machine). The loud
+logging earned its keep - the failure was named in one grep instead of eight
+build cycles.
+
 ## What the process got wrong
 
 1. **Theory before evidence.** The failing run's output ALREADY contained the

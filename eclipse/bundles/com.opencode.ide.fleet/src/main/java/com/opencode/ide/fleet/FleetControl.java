@@ -7,9 +7,6 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import com.opencode.ide.client.ConnectionConfig;
@@ -505,7 +502,7 @@ public final class FleetControl implements AutoCloseable {
      *                  package privacy does not reach across bundles)
      */
     public FleetControl(Path storeRoot, Function<Path, Engine> engineFactory) {
-        this(storeRoot, engineFactory, Executors.newCachedThreadPool(daemons()));
+        this(storeRoot, engineFactory, com.opencode.ide.client.WorkerPools.executor("fleet-dispatch"));
     }
 
     /** Injected dispatch executor; ownership transfers to this control. */
@@ -879,12 +876,4 @@ public final class FleetControl implements AutoCloseable {
         }
     }
 
-    private static ThreadFactory daemons() {
-        AtomicInteger n = new AtomicInteger();
-        return r -> {
-            Thread t = new Thread(r, "fleet-dispatch-" + n.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-        };
-    }
 }

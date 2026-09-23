@@ -4,6 +4,7 @@ Bundle-Name: OpenCode IDE - Git
 Bundle-SymbolicName: com.opencode.ide.git;singleton:=true
 Bundle-Version: 0.1.0.qualifier
 Bundle-Vendor: OpenCode
+Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0"
 Export-Package: com.opencode.ide.git;version="0.1.0",
  com.opencode.ide.git.internal;x-friends:="com.opencode.ide.git.tests"
 Bundle-RequiredExecutionEnvironment: JavaSE-21

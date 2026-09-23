@@ -68,7 +68,7 @@ repository, two ways to use it:
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
 | **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
-| **Fleet daemon** — engine outliving the client (`eclipse/fleet-daemon.ps1`, `FLEET_DAEMON=auto\|always`) | ✅ detach/reconnect without killing runs | ✅ (views keep their own engine until the default flips) |
+| **Fleet daemon** (V-006) | ❌ retired 2026-09-23 | "opencode or Eclipse — everything else is reinventing the wheel": the pump lives in Eclipse and is off when Eclipse is closed, by design |
 | Maven mojos `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
 | `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
@@ -78,7 +78,7 @@ repository, two ways to use it:
 | Building this harness itself | `eclipse/build.ps1` (JDK 21, Maven/Tycho reactor) | same |
 
 The split is deliberate architecture, not happenstance: the `client`, `tools`,
-`tasks`, `git` and `fleet` bundles are **Eclipse-free (build-enforced)** — the IDE
+`tasks`, `git` and `fleet` bundles are **platform-free (UI/runtime; the JobManager runtime `org.eclipse.core.jobs`+`equinox.common` is allowed since 2026-09-23 - "we do not reinvent everything from scratch", and both run in a plain JVM)** — the IDE
 consumes them, never owns them (see `eclipse/ARCHITECTURE.md`).
 
 ## Layout
@@ -93,7 +93,7 @@ consumes them, never owns them (see `eclipse/ARCHITECTURE.md`).
 | `.opencode/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
 | `mcp/graphics/` | the graphics MCP server (captures, comparisons). |
 | `cpp/` | standalone AI-first C++23 build skeleton (its own `AGENTS.md`). |
-| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board + Fleet views**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, git-worktree fleet incl. the task-driven `TaskFleet` and the **detached daemon** (`fleet-daemon.ps1`), the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1`/`fleet-tools.ps1` stdio launchers; Maven/Tycho reactor). |
+| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board + Fleet views**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, git-worktree fleet incl. the task-driven `TaskFleet`, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1`/`fleet-tools.ps1` stdio launchers; Maven/Tycho reactor). |
 
 ## Skills (flat, by domain)
 
@@ -229,9 +229,9 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
    and `fleet` stdio launchers and the `graphics` MCP server start from `opencode.json`.
 6. Your first headless fleet dispatch: see **`docs/fleet-quickstart.md`** (seed
    ticket → `fleet_dispatch` → poll → merge → actuals — the whole engine works
-   without Eclipse). Optionally start the engine **detached** with
-   `eclipse/fleet-daemon.ps1` and set `FLEET_DAEMON=auto` so runs survive
-   disconnecting (V-006 daemon).
+   without Eclipse). Note the host discipline (2026-09-23): the AUTOMATIC
+   pump (auto-dispatch / waves) lives in Eclipse and is off when Eclipse is
+   closed, by design; the V-006 detached daemon is retired.
 
 > **MCP scope:** the bundled servers implement a deliberately minimal JSON-RPC surface
 > (`initialize`, `tools/list`, `tools/call`, plus `ping` on the Java `tasks`/`eclipse-build`

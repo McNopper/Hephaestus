@@ -76,21 +76,35 @@ if ($missing.Count -gt 0) {
     throw "Built bundles not found. Run: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.fleet -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package"
 }
 
-# 3) gson: local Tycho p2 cache first, then the Eclipse install ECLIPSE_HOME
-#    points at when set (no hardcoded install paths - each machine sets its own).
-$gsonCandidates = @()
-$gsonCandidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/com.google.gson/*/com.google.gson-*.jar") -ErrorAction SilentlyContinue
-foreach ($install in @($env:ECLIPSE_HOME)) {
-    if ($install -and (Test-Path $install)) {
-        $gsonCandidates += Get-ChildItem (Join-Path $install "plugins/com.google.gson_*.jar") -ErrorAction SilentlyContinue
+# 3) third-party + platform jars: local Tycho p2 cache first, then the Eclipse
+#    install ECLIPSE_HOME points at when set (no hardcoded install paths -
+#    each machine sets its own).
+function Find-PlatformJar([string]$bundle, [string]$cacheGlob, [string]$installGlob) {
+    $candidates = @()
+    $candidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/$bundle/*/$cacheGlob") -ErrorAction SilentlyContinue
+    foreach ($install in @($env:ECLIPSE_HOME)) {
+        if ($install -and (Test-Path $install)) {
+            $candidates += Get-ChildItem (Join-Path $install "plugins/$installGlob") -ErrorAction SilentlyContinue
+        }
     }
-}
-$gsonJar = $gsonCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $gsonJar) {
-    throw "gson jar not found (looked in the Tycho p2 cache ~/.m2/repository/p2/osgi/bundle and `$ECLIPSE_HOME/plugins when set). Run one eclipse build first."
+    $jar = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $jar) {
+        throw "$bundle jar not found (looked in the Tycho p2 cache ~/.m2/repository/p2/osgi/bundle and `$ECLIPSE_HOME/plugins when set). Run one eclipse build first."
+    }
+    return $jar
 }
 
-$cp = ($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName, $toolsJar.FullName, $gsonJar.FullName) -join [IO.Path]::PathSeparator
+$gsonJar = Find-PlatformJar "com.google.gson" "com.google.gson-*.jar" "com.google.gson_*.jar"
+# The ECLIPSE JOB MANAGER is the one work scheduler (WorkerPools bridges onto
+# it) - this tool JVM uses the very same mechanism as Eclipse, never a private
+# pool (2026-09-23: "we chose Eclipse because we do not reinvent everything
+# from scratch").
+$jobsJar = Find-PlatformJar "org.eclipse.core.jobs" "org.eclipse.core.jobs_*.jar" "org.eclipse.core.jobs_*.jar"
+$commonJar = Find-PlatformJar "org.eclipse.equinox.common" "org.eclipse.equinox.common_*.jar" "org.eclipse.equinox.common_*.jar"
+$osgiJar = Find-PlatformJar "org.eclipse.osgi" "org.eclipse.osgi_*.jar" "org.eclipse.osgi_*.jar"
+
+$cp = ($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName, $toolsJar.FullName,
+       $gsonJar.FullName, $jobsJar.FullName, $commonJar.FullName, $osgiJar.FullName) -join [IO.Path]::PathSeparator
 & $java -cp $cp "-Dfile.encoding=UTF-8" com.opencode.ide.fleet.FleetStdioMain --root $Root
 # Propagate the JVM's exit code: opencode must see a crashed MCP server as a failure.
 exit $LASTEXITCODE

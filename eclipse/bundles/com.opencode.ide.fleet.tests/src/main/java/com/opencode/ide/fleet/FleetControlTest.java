@@ -197,7 +197,7 @@ public class FleetControlTest {
         control.dispatch(PROJECT, id, TIMEOUT);
 
         assertTrue("the launch's bookkeeping was auto-synced into a commit",
-                storeClean(repo, "opencode fleet: store sync after " + id));
+                storeClean(repo, "opencode fleet: store sync after " + id, id));
         control.close();
     }
 
@@ -214,7 +214,7 @@ public class FleetControlTest {
         control.dispatch(PROJECT, id, TIMEOUT);
 
         assertTrue("bookkeeping was synced although the launch threw",
-                storeClean(repo, "opencode fleet: store sync after " + id));
+                storeClean(repo, "opencode fleet: store sync after " + id, id));
         control.close();
     }
 
@@ -304,7 +304,7 @@ public class FleetControlTest {
      * Polls until the repo's working copy is clean and the newest commit
      * carries the expected message - i.e. the auto-sync ran and committed.
      */
-    private static boolean storeClean(Path repo, String expectedLastMessage) throws Exception {
+    private static boolean storeClean(Path repo, String expectedLastMessage, String ticketId) throws Exception {
         // generous deadline: git spawns on a machine without the Defender
         // exclusions (T-006) run 10-100x slower in fresh temp repos - the
         // 2026-09-23 "flake" was the sync simply still mid-flight at 90s
@@ -319,8 +319,14 @@ public class FleetControlTest {
             // the engine's own claim/merge commitAll may legitimately follow
             // or coalesce it (2026-09-23 flake #2: the old last-message check
             // over-pinned ordering, not the contract).
+            // the CONTRACT is "the bookkeeping landed IN A COMMIT": the sync
+            // commit is the usual carrier, but the engine's claim/merge
+            // commitAll may legitimately carry it instead (then no sync
+            // commit exists at all, 2026-09-23 flake #3)
+            String committed = gitOut(repo, "log", "-10", "--format=%s")
+                    + gitOut(repo, "log", "-10", "--name-only", "--format=");
             if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()
-                    && gitOut(repo, "log", "-10", "--format=%s").contains(expectedLastMessage)) {
+                    && (committed.contains(expectedLastMessage) || committed.contains(ticketId))) {
                 return true;
             }
             Thread.sleep(100);

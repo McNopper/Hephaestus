@@ -1,7 +1,6 @@
 package com.opencode.ide.core.internal;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import com.opencode.ide.client.ClientLog;
 import com.opencode.ide.core.OpencodeConnection;
@@ -24,11 +23,7 @@ public class McpRegistrationComponent {
     private volatile McpInfo mcpInfo;
 
     protected void activate() {
-        executor = Executors.newSingleThreadExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "opencode-mcp-registration");
-            thread.setDaemon(true);
-            return thread;
-        });
+        executor = com.opencode.ide.client.WorkerPools.serialExecutor("opencode-mcp-registration");
         scheduleRegistration();
     }
 

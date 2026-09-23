@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -284,11 +283,7 @@ public final class DispatchScheduler {
      * previous start.
      */
     public void start(Duration period) {
-        start(period, Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "fleet-auto-dispatch");
-            thread.setDaemon(true);
-            return thread;
-        }));
+        start(period, com.opencode.ide.client.WorkerPools.timer("fleet-auto-dispatch"));
     }
 
     /**

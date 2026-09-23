@@ -7,29 +7,21 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /** The shared git-run pipeline and termination, used by worktree and store commands. */
 final class GitProcesses {
     private GitProcesses() { }
 
     /**
-     * Drains run on a private CACHED pool with named threads. Cached, not
-     * fixed: each awaiting command holds one thread per stream, so a fixed
-     * 2-thread pool supports exactly ONE git process - any overlap queued
-     * drains past the drain wait and a successful command read as empty
-     * output (2026-09-23 review finding: the incident this exists to fix).
-     * Idle threads reap; drains are cheap blocked reads.
+     * Drains run as JOBS on the shared workers (the ECLIPSE JOB MANAGER -
+     * never the ForkJoin common pool and never a pool of ours; the 2026-09-23
+     * incident: pooled drains that could not keep up made SUCCESSFUL git
+     * commands read as empty output and the sync abort mid-sequence).
      */
-    private static final AtomicInteger DRAIN_SEQ = new AtomicInteger();
-    private static final ExecutorService DRAINS =
-            Executors.newCachedThreadPool(runnable -> {
-                Thread thread = new Thread(runnable, "git-drain-" + DRAIN_SEQ.incrementAndGet());
-                thread.setDaemon(true);
-                return thread;
-            });
+    private static ExecutorService drains() {
+        return com.opencode.ide.client.WorkerPools.ioExecutor("git-drain");
+    }
 
     /** Wait before releasing RepoGate. Git locks carry no owner identity, so
      * never delete them or abort an unknown merge as automatic cleanup. */
@@ -60,13 +52,14 @@ final class GitProcesses {
      * stream read failing turns the result into a failure
      * ({@code "output drain lost for git ..."}), so callers can retry or
      * error out instead of manufacturing {@code NOT_A_REPO} from an empty
-     * stdout (the 2026-09-23 incident).</p>
+     * stdout (the 2026-09-23 incident). The streams are CLOSED on loss so a
+     * parked reader unblocks and its worker returns to the pool.</p>
      */
     static Result await(Process process, String[] args, Duration timeout) {
         CompletableFuture<String> stdout = CompletableFuture.supplyAsync(
-                () -> readUtf8(process.getInputStream()), DRAINS);
+                () -> readUtf8(process.getInputStream()), drains());
         CompletableFuture<String> stderr = CompletableFuture.supplyAsync(
-                () -> readUtf8(process.getErrorStream()), DRAINS);
+                () -> readUtf8(process.getErrorStream()), drains());
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 terminate(process);
@@ -80,6 +73,8 @@ final class GitProcesses {
         String out = join(stdout, args);
         String err = join(stderr, args);
         if (out == null || err == null) {
+            closeQuietly(process.getInputStream());
+            closeQuietly(process.getErrorStream());
             return new Result(null, out == null ? "" : out, err == null ? "" : err,
                     "output drain lost for git " + Arrays.toString(args), null);
         }
@@ -112,6 +107,15 @@ final class GitProcesses {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    /** Unblocks a parked drain reader after a lost join (best effort). */
+    private static void closeQuietly(InputStream in) {
+        try {
+            in.close();
+        } catch (IOException ignored) {
+            // best effort: the reader unblocks either way
         }
     }
 }

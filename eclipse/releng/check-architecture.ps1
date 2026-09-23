@@ -5,9 +5,13 @@
 # the parent pom; fails the build on any violation.
 #
 # Rules (from the panel-IA verdict 2026-09-23):
-#   1. the Eclipse-free layer (client/tools/tasks/git/fleet) and core must not
+#   1. the platform-free layer (client/tools/tasks/git/fleet) and core must not
 #      depend on the presentation bundles (ui/chat/board) - the dependency
-#      arrow only ever points UP the layer cake;
+#      arrow only ever points UP the layer cake. (The layer's one allowed
+#      platform dependency is the JobManager runtime, org.eclipse.core.jobs +
+#      org.eclipse.equinox.common - both plain-JVM-safe, per the 2026-09-23
+#      "we do not reinvent everything from scratch" direction; tools/tasks
+#      keep strict `ban-eclipse-imports` purity.);
 #   2. chat must not depend on ui or board; ui must not depend on chat or board;
 #   3. nothing depends on a *.tests bundle;
 #   4. no machine-specific absolute paths in sources (the no-fixed-paths rule).

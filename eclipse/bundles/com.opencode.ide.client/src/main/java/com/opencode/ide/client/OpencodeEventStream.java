@@ -47,7 +47,7 @@ public final class OpencodeEventStream {
     private volatile boolean running;
     private volatile Stream<String> body;
     private volatile boolean connected;
-    private Thread loop;
+    private volatile java.util.concurrent.Future<?> loop;
     private Duration backoff = ClientTuning.SSE_BACKOFF_BASE;
 
     public OpencodeEventStream(ConnectionConfig config, Consumer<OpencodeEvent> sink) {
@@ -93,9 +93,7 @@ public final class OpencodeEventStream {
             return;
         }
         running = true;
-        loop = new Thread(this::runLoop, "opencode-sse");
-        loop.setDaemon(true);
-        loop.start();
+        loop = WorkerPools.serialExecutor("opencode-sse").submit(this::runLoop);
     }
 
     /** Stops the loop and releases the connection, selector thread and executor. */
@@ -110,7 +108,7 @@ public final class OpencodeEventStream {
             }
         }
         if (loop != null) {
-            loop.interrupt();
+            loop.cancel(true); // interrupts the reader parked on the SSE body
             loop = null;
         }
         try {

@@ -16,9 +16,17 @@
 
   <build>
     <plugins>
-      <!-- Keep this bundle Eclipse/OSGi-free (reusable as a plain library): the
+      <!-- Keep this bundle platform-free (reusable as a plain library): the
            pwsh scan fails the build on any org.eclipse. / org.osgi. reference
-           under src/main/java, on every OS (skip only with -DskipEclipseBan=true). -->
+           under src/main/java, on every OS (skip only with -DskipEclipseBan=true).
+           ONE allowlist since 2026-09-23 (user direction: "we chose Eclipse
+           because we do not reinvent everything from scratch ... hello, use
+           [the JobManager]"): the JobManager runtime - org.eclipse.core.runtime.jobs.*
+           plus IProgressMonitor/IStatus/Status - is permitted. Both live in
+           org.eclipse.core.jobs + org.eclipse.equinox.common, which run in a
+           PLAIN JVM (proven by a standalone smoke test), so the reusable-as-a-
+           plain-library purpose of this check is preserved: WorkerPools is a
+           thin JobGroup bridge, never a thread pool of our own. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
@@ -34,7 +42,7 @@
                 <argument>-NoProfile</argument>
                 <argument>-NonInteractive</argument>
                 <argument>-Command</argument>
-                <argument>$hits = Get-ChildItem 'src/main/java' -Recurse -Filter *.java | Select-String -Pattern 'org\.eclipse\.|org\.osgi\.'; if ($hits) { $hits | ForEach-Object { Write-Host ('FAIL {0}:{1}: {2}' -f $_.Path, $_.LineNumber, $_.Line.Trim()) }; exit 1 }; Write-Host 'client bundle is Eclipse/OSGi-free'</argument>
+                <argument>$allow = 'org\.eclipse\.core\.runtime\.jobs\.|org\.eclipse\.core\.runtime\.(IProgressMonitor|IStatus|Status);'; $hits = Get-ChildItem 'src/main/java' -Recurse -Filter *.java | Select-String -Pattern 'org\.eclipse\.|org\.osgi\.' | Where-Object { $_.Line -notmatch $allow }; if ($hits) { $hits | ForEach-Object { Write-Host ('FAIL {0}:{1}: {2}' -f $_.Path, $_.LineNumber, $_.Line.Trim()) }; exit 1 }; Write-Host 'client bundle is platform-free except the JobManager runtime'</argument>
               </arguments>
               <skip>${skipEclipseBan}</skip>
             </configuration>

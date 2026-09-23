@@ -206,9 +206,7 @@ public class BackgroundView extends ViewPart {
             return;
         }
         refreshing = true;
-        Thread worker = new Thread(this::load, "opencode-background-view");
-        worker.setDaemon(true);
-        worker.start();
+        com.opencode.ide.client.WorkerPools.submit("opencode-background-view", this::load);
     }
 
     private void load() {

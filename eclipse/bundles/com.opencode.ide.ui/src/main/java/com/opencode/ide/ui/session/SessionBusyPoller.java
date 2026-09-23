@@ -81,7 +81,7 @@ public final class SessionBusyPoller {
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private final Object lifecycleLock = new Object();
 
-    private Thread worker;
+    private java.util.concurrent.Future<?> worker;
     private volatile boolean disposed;
     private boolean lastPollFailed;   // worker-thread confined: failure-transition detection
 
@@ -124,9 +124,8 @@ public final class SessionBusyPoller {
             if (disposed || worker != null) {
                 return;
             }
-            worker = new Thread(this::run, "opencode-session-busy-poller");
-            worker.setDaemon(true);
-            worker.start();
+            worker = com.opencode.ide.client.WorkerPools.serialExecutor(
+                    "opencode-session-busy-poller").submit(this::run);
         }
     }
 
@@ -144,7 +143,7 @@ public final class SessionBusyPoller {
      * to prove the thread still ends.
      */
     public void dispose() {
-        Thread thread;
+        java.util.concurrent.Future<?> thread;
         synchronized (lifecycleLock) {
             if (disposed) {
                 return;
@@ -154,7 +153,7 @@ public final class SessionBusyPoller {
         }
         listeners.clear();
         if (thread != null) {
-            thread.interrupt();
+            thread.cancel(true);
         }
     }
 
@@ -165,7 +164,7 @@ public final class SessionBusyPoller {
      * @return whether the worker terminated within the timeout
      */
     public boolean awaitTermination(long timeoutMillis) {
-        Thread thread;
+        java.util.concurrent.Future<?> thread;
         synchronized (lifecycleLock) {
             thread = worker;
         }
@@ -173,12 +172,14 @@ public final class SessionBusyPoller {
             return true;
         }
         try {
-            thread.join(timeoutMillis);
-            return !thread.isAlive();
+            thread.get(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return !thread.isAlive();
+        } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException
+                | java.util.concurrent.CancellationException e) {
+            // timed out, failed or cancelled: isDone() below is the verdict
         }
+        return thread.isDone();
     }
 
     // ---------- worker loop ----------

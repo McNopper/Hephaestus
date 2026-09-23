@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.core.runtime.Platform;
@@ -297,16 +296,8 @@ public class BoardView extends ViewPart {
 
     @Override
     public void createPartControl(Composite parent) {
-        refreshExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "board-refresh");
-            thread.setDaemon(true);
-            return thread;
-        });
-        takeoverExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "board-takeover");
-            thread.setDaemon(true);
-            return thread;
-        });
+        refreshExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-refresh");
+        takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-takeover");
 
         Composite outer = new Composite(parent, SWT.NONE);
         GridLayout outerLayout = new GridLayout(1, false);

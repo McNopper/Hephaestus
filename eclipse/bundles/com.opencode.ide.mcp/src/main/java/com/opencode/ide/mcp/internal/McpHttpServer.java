@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import com.opencode.ide.tools.McpDispatcher;
 import com.sun.net.httpserver.HttpExchange;
@@ -44,11 +43,7 @@ public final class McpHttpServer {
 
     public static McpHttpServer start(McpDispatcher dispatcher) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        ExecutorService executor = Executors.newCachedThreadPool(r -> {
-            Thread thread = new Thread(r, "mcp-http");
-            thread.setDaemon(true);
-            return thread;
-        });
+        ExecutorService executor = com.opencode.ide.client.WorkerPools.executor("mcp-http");
         server.setExecutor(executor);
         McpHttpServer mcp = new McpHttpServer(server, executor, dispatcher, newToken());
         server.createContext("/mcp", mcp::handle);

@@ -69,6 +69,36 @@ public final class OpencodePreferences {
     private final IEclipsePreferences prefs;
     private final RemoteCredentials credentials;
 
+    /**
+     * The repo path pinned in {@code eclipse.ini} as
+     * {@code -Dopencode.repo=<path>} - the one obvious place the machine's
+     * project repo lives (user 2026-09-23: "there needs a path to
+     * C:\Development\GitHub\Hephaestus in the eclipse ini and mainly our
+     * plugin"). When set it WINS over every preference/ini key below.
+     */
+    public static String repoRoot() {
+        String value = System.getProperty("opencode.repo");
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * Layered read: an explicit instance value wins, but a BLANK/unset one
+     * falls back to the DEFAULT scope - the layer that
+     * {@code -pluginCustomization plugin_customization.ini} seeds. (2026-09-23:
+     * raw instance reads with {@code ""} fallbacks made the shipped ini
+     * defaults structurally powerless - a fresh install never learned where
+     * the repo lives, and both the MCP list and the Board fell back to
+     * whatever directory happened to be around.)
+     */
+    private String layered(String key, String fallback) {
+        String value = prefs.get(key, null);
+        if (value != null && !value.isBlank()) {
+            return value;
+        }
+        return org.eclipse.core.runtime.preferences.DefaultScope.INSTANCE
+                .getNode(NODE_ID).get(key, fallback);
+    }
+
     /** Production constructor: passwords go to Equinox secure storage. */
     public OpencodePreferences() {
         this(defaultCredentials());
@@ -268,7 +298,15 @@ public final class OpencodePreferences {
 
     /** Default task-store root ({@code <repo>/.opencode/tasks}); the Board view's fallback when no override is set. */
     public String getTasksRoot() {
-        return prefs.get(KEY_TASKS_ROOT, DEFAULT_TASKS_ROOT);
+        String repo = repoRoot();
+        if (repo != null) {
+            try {
+                return java.nio.file.Path.of(repo).resolve(".opencode").resolve("tasks").toString();
+            } catch (RuntimeException e) {
+                ClientLog.warning("invalid -Dopencode.repo value: " + repo);
+            }
+        }
+        return layered(KEY_TASKS_ROOT, DEFAULT_TASKS_ROOT);
     }
 
     public void setTasksRoot(String root) {
@@ -277,7 +315,7 @@ public final class OpencodePreferences {
 
     /** Default task-store project shown in the Board view. */
     public String getTasksProject() {
-        return prefs.get(KEY_TASKS_PROJECT, DEFAULT_TASKS_PROJECT);
+        return layered(KEY_TASKS_PROJECT, DEFAULT_TASKS_PROJECT);
     }
 
     public void setTasksProject(String project) {
@@ -290,7 +328,11 @@ public final class OpencodePreferences {
      * MCP config load. Blank = Eclipse process default.
      */
     public String getWorkingDirectory() {
-        return prefs.get(KEY_WORKING_DIRECTORY, DEFAULT_WORKING_DIRECTORY);
+        String repo = repoRoot();
+        if (repo != null) {
+            return repo;
+        }
+        return layered(KEY_WORKING_DIRECTORY, DEFAULT_WORKING_DIRECTORY);
     }
 
     public void setWorkingDirectory(String directory) {

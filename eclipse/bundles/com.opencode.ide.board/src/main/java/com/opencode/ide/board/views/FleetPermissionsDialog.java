@@ -191,7 +191,7 @@ final class FleetPermissionsDialog extends Dialog {
             return; // an answer for this request is already in flight
         }
         rebuildRows();
-        Thread worker = new Thread(() -> {
+        com.opencode.ide.client.WorkerPools.submit("fleet-permission-answer", () -> {
             PermissionQueue.AnswerResult result = queue.answer(row.permissionId(), response, remember);
             Display display = Display.getDefault();
             if (display == null || display.isDisposed()) {
@@ -205,9 +205,7 @@ final class FleetPermissionsDialog extends Dialog {
                 statusLine.setText((result.success() ? "" : "FAILED: ") + result.message());
                 rebuildRows();
             });
-        }, "fleet-permission-answer");
-        worker.setDaemon(true);
-        worker.start();
+        });
     }
 
     private TableColumn column(String title, int width) {

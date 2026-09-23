@@ -7,7 +7,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -180,24 +179,12 @@ public class FleetView extends ViewPart {
 
     @Override
     public void createPartControl(Composite parent) {
-        diffExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "board-fleet-diff");
-            thread.setDaemon(true);
-            return thread;
-        });
-        takeoverExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "board-fleet-takeover");
-            thread.setDaemon(true);
-            return thread;
-        });
+        diffExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-diff");
+        takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-takeover");
         events = new GlobalEventsAggregator();
         eventsFeed = new EventsFeed();
         events.addListener(eventsListener);
-        eventsExecutor = Executors.newSingleThreadExecutor(task -> {
-            Thread thread = new Thread(task, "board-fleet-events");
-            thread.setDaemon(true);
-            return thread;
-        });
+        eventsExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-events");
 
         Composite outer = new Composite(parent, SWT.NONE);
         GridLayout layout = new GridLayout(1, false);
@@ -748,16 +735,14 @@ public class FleetView extends ViewPart {
         applyRows(own);
         Set<String> liveAtScan = liveTaskIds(own);
         int generation = refreshGeneration.incrementAndGet();
-        Thread peerScan = new Thread(() -> {
+        com.opencode.ide.client.WorkerPools.submit("fleet-peer-scan", () -> {
             List<FleetJobHandle> peer = peerRows(liveAtScan);
             Display display = Display.getDefault();
             if (display == null || display.isDisposed()) {
                 return;
             }
             display.asyncExec(() -> applyPeerRows(generation, peer));
-        }, "fleet-peer-scan");
-        peerScan.setDaemon(true);
-        peerScan.start();
+        });
     }
 
     /** Task ids of the given own-engine jobs (dedup set for the peer scan). */

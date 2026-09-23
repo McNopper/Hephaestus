@@ -6,6 +6,7 @@ Bundle-Version: 0.1.0.qualifier
 Bundle-Vendor: OpenCode
 Require-Bundle: com.opencode.ide.tools;bundle-version="0.1.0",
  com.opencode.ide.tasks;bundle-version="0.1.0",
+ com.opencode.ide.client;bundle-version="0.1.0",
  com.google.gson;bundle-version="2.10.0"
 Export-Package: com.opencode.ide.mcp;version="0.1.0",
  com.opencode.ide.mcp.internal;x-friends:="com.opencode.ide.mcp.tests"

@@ -45,7 +45,7 @@ public final class OpencodeServerLauncher {
 
     private Process process;
     private URI baseUrl;
-    private Thread outputDrainer;
+    private java.util.concurrent.Future<?> outputDrainer;
     private volatile HealthStatus lastHealth;
 
     public OpencodeServerLauncher(String configuredBinary, String hostname, int port,
@@ -284,9 +284,9 @@ public final class OpencodeServerLauncher {
         }
     }
 
-    /** Spawns a daemon thread that keeps the child's stdout drained. */
+    /** Keeps the child's stdout drained (a Job in its own lane - no thread of ours). */
     private void drainOutput(InputStream in) {
-        outputDrainer = new Thread(() -> {
+        outputDrainer = WorkerPools.serialExecutor("opencode-serve-output").submit(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -295,8 +295,6 @@ public final class OpencodeServerLauncher {
             } catch (IOException ignored) {
                 // process closed stream - expected on stop
             }
-        }, "opencode-serve-output");
-        outputDrainer.setDaemon(true);
-        outputDrainer.start();
+        });
     }
 }

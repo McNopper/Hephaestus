@@ -103,8 +103,13 @@ Background views then show your project, not Hephaestus'.
 
 ## First Eclipse start (how Eclipse finds your repo)
 
-Eclipse cannot guess where the repo lives - one of two things must tell it,
-and both are one-timers:
+Eclipse cannot guess where the repo lives - three things can tell it, and
+each is a one-timer:
+
+0. **Pin it in `eclipse.ini`** (the simplest, machine-wide): one line in the
+   vmargs - `-Dopencode.repo=C:/path/to/your/repo` - and the plugin takes it
+   as THE repo (connection scope + task store + board project). `deploy-dev.ps1`
+   pins it automatically to the repo it was run from.
 
 1. **Open the relevant directory**: import/open your project's repo folder
    as a workspace project. The adoption rules then do the rest - the task

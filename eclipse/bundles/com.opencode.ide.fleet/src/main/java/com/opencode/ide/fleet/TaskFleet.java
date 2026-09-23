@@ -854,6 +854,27 @@ public final class TaskFleet {
         long lastProgress = System.nanoTime();
         long lastStallReset = System.nanoTime();
         while (true) {
+            // QUEUED is not EXECUTED (user requirement 2026-09-23: "the
+            // timeout, or the budget starts, when a task is executed"): while
+            // the prompt still waits for a worker, NO clock runs - the budget,
+            // the stall window and the hard cap all start at EXECUTION
+            if (!submission.promptStarted()) {
+                long now = System.nanoTime();
+                started = now;
+                started0 = now;
+                lastProgress = now;
+                lastStallReset = now;
+                lastAssistantChange = now;
+                lastToolChange = now;
+                try {
+                    Thread.sleep(com.opencode.ide.client.RuntimeTuning.pollMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return withState(job, FleetJob.State.FAILED,
+                            "watchdog interrupted while the prompt was still queued");
+                }
+                continue;
+            }
             String promptFailure = submission.promptFailure();
             if (promptFailure != null) {
                 return withState(job, FleetJob.State.FAILED, "prompt: " + promptFailure);

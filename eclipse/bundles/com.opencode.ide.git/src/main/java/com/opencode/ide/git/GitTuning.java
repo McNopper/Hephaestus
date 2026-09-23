@@ -30,9 +30,18 @@ public final class GitTuning {
     public static final Duration SYNC_TIMEOUT = duration(
             "GIT_SYNC_TIMEOUT_MS", Duration.ofMinutes(5));
 
-    /** How long to wait for a git process's stdout/stderr drain. Env: GIT_DRAIN_WAIT_MS. */
+    /**
+     * How long to wait for a git process's stdout/stderr drain AFTER the
+     * process exited. Env: GIT_DRAIN_WAIT_MS. Generous on purpose
+     * (2026-09-23: 5&nbsp;s was blown under machine load - the drain thread
+     * simply was not scheduled in time, the result read as "output drain
+     * lost", and the sync aborted MID-SEQUENCE with the store stranded
+     * staged-but-uncommitted). Still bounded: a descendant holding the pipe
+     * open cannot wedge git forever - and the loss stays LOUD in
+     * GitProcesses, never a silent empty output.
+     */
     public static final Duration OUTPUT_DRAIN_WAIT = duration(
-            "GIT_DRAIN_WAIT_MS", Duration.ofSeconds(5));
+            "GIT_DRAIN_WAIT_MS", Duration.ofSeconds(60));
 
     /** Max tail characters of git stderr kept in log warnings. Env: GIT_WARN_TAIL. */
     public static final int WARN_TAIL = integer(

@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -404,11 +403,7 @@ public final class RecurringWaves implements AutoCloseable {
      * replaces a previous start.
      */
     public void start(Duration period) {
-        start(period, Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "fleet-recurring-waves");
-            thread.setDaemon(true);
-            return thread;
-        }));
+        start(period, com.opencode.ide.client.WorkerPools.timer("fleet-recurring-waves"));
     }
 
     /**

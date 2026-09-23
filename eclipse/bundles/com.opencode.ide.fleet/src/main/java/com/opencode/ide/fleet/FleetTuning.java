@@ -44,10 +44,6 @@ public final class FleetTuning {
     public static final Duration SHUTDOWN_GRACE = duration(
             "FLEET_SHUTDOWN_GRACE_MS", Duration.ofSeconds(30));
 
-    /** Daemon stop: how long open client connections may drain. Env: FLEET_DAEMON_DRAIN_MS. */
-    public static final Duration DAEMON_DRAIN_WAIT = duration(
-            "FLEET_DAEMON_DRAIN_MS", Duration.ofSeconds(5));
-
     /**
      * B-004: pause after killing a leaked serve before retrying worktree
      * removal - the OS releases a dead process's file handles asynchronously

@@ -4,7 +4,9 @@ Bundle-Name: OpenCode IDE - Client
 Bundle-SymbolicName: com.opencode.ide.client
 Bundle-Version: 0.1.0.qualifier
 Bundle-Vendor: OpenCode
-Require-Bundle: com.google.gson;bundle-version="2.10.0"
+Require-Bundle: com.google.gson;bundle-version="2.10.0",
+ org.eclipse.core.jobs,
+ org.eclipse.equinox.common
 Export-Package: com.opencode.ide.client,
  com.opencode.ide.client.activity,
  com.opencode.ide.client.model,

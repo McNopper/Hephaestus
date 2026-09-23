@@ -202,11 +202,12 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 - `AGENTS.md` — states, the V-pipeline stages, and the chat-first control plane.
 - `eclipse/DISTRIBUTED-FLEETS.md` — running one store across many machines.
 
-## Optional: run the engine detached (the daemon)
+## Retired: the detached daemon (V-006)
 
 By default the fleet engine lives in your session's `fleet` MCP server
 process — closing the session ends its runs (bookkeeping survives on the
-tickets). The **V-006 daemon** decouples them (opt-in, Windows-first):
+tickets). The **V-006 daemon is RETIRED** (2026-09-23): the pump lives in Eclipse and
+is off when Eclipse is closed, by design. (The section below is historical.)
 
 ```powershell
 # once per machine/repo (from the repo root):

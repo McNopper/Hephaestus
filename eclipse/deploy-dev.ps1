@@ -132,6 +132,26 @@ if (Test-Path $customization) {
     }
 }
 
+# --- the repo path: ONE plain -D line in the vmargs (opencode.repo) ---
+# This is the authoritative "where is my project" setting for the plugin:
+# the connection scope (MCP/agents/skills) and the task store both resolve
+# from it. deploy-dev pins it to the repo it was run from.
+if (-not ((Get-Content $iniPath) | Select-String -SimpleMatch "-Dopencode.repo=")) {
+    $vm = -1
+    $lines = Get-Content $iniPath
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "^-vmargs") { $vm = $i; break }
+    }
+    $repoPath = ((Get-Item $PSScriptRoot).Parent.FullName -replace "\\", "/")
+    if ($vm -ge 0) {
+        $patched = $lines[0..$vm] + @("-Dopencode.repo=$repoPath") + $lines[($vm + 1)..($lines.Count - 1)]
+    } else {
+        $patched = @("-vmargs", "-Dopencode.repo=$repoPath") + $lines
+    }
+    Set-Content -Path $iniPath -Value $patched
+    Write-Host "[deploy-dev] eclipse.ini: -Dopencode.repo pinned to $repoPath"
+}
+
 Write-Host "Done. (Re)start $EclipseRoot to load the plugins." -ForegroundColor Cyan
 Write-Host "If views/perspective don't update, run eclipse once with -clean" -ForegroundColor DarkGray
 Write-Host "(add '-clean' on its own line near the top of $EclipseRoot\eclipse.ini, then remove it after one launch)." -ForegroundColor DarkGray

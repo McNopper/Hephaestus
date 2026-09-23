@@ -8,7 +8,6 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -62,11 +61,7 @@ import com.opencode.ide.tasks.TaskStore;
  */
 public final class TaskFleetLauncher implements FleetLauncher {
 
-    private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool(task -> {
-        Thread thread = new Thread(task, "board-fleet-launch");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ExecutorService EXECUTOR = com.opencode.ide.client.WorkerPools.executor("board-fleet-launch");
 
     private static final Map<CacheKey, TaskFleet> FLEETS_BY_ROOT = new ConcurrentHashMap<>();
 

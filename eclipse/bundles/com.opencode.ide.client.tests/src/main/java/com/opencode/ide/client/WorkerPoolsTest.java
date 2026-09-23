@@ -12,10 +12,12 @@ import org.junit.After;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link WorkerPools}: one bounded shared pool instead of a
- * thread per task (2026-09-23 requirement: "we are not launching every time
- * a new thread - bad design"). Proves the bound (two chores share one
- * worker), the named-task visibility, and live capacity growth.
+ * Unit tests for {@link WorkerPools}: the fixed worker count over the
+ * ECLIPSE JOB MANAGER (2026-09-23: "we are not launching every time a new
+ * thread - bad design" + "we chose Eclipse because we do not reinvent
+ * everything from scratch"). Proves the bound (two chores NEVER run
+ * concurrently on one worker), the named-task visibility, and live capacity
+ * growth.
  */
 public class WorkerPoolsTest {
 
@@ -26,17 +28,27 @@ public class WorkerPoolsTest {
     }
 
     @Test
-    public void choresShareOneBoundedWorkerInsteadOfSpawningThreads() throws Exception {
+    public void oneWorkerRunsChoresSequentiallyNeverConcurrently() throws Exception {
         WorkerPools.resize(1);
-        AtomicReference<Thread> first = new AtomicReference<>();
-        AtomicReference<Thread> second = new AtomicReference<>();
-        Future<?> a = WorkerPools.submit("job-a", () -> first.set(Thread.currentThread()));
-        Future<?> b = WorkerPools.submit("job-b", () -> second.set(Thread.currentThread()));
+        java.util.concurrent.atomic.AtomicInteger running = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger peak = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable chore = () -> {
+            int now = running.incrementAndGet();
+            peak.accumulateAndGet(now, Math::max);
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            running.decrementAndGet();
+        };
+        Future<?> a = WorkerPools.submit("job-a", chore);
+        Future<?> b = WorkerPools.submit("job-b", chore);
         a.get(5, TimeUnit.SECONDS);
         b.get(5, TimeUnit.SECONDS);
 
-        assertTrue("both chores ran on the SAME pooled worker, not one thread each",
-                first.get() == second.get());
+        assertEquals("the bound is CONCURRENCY: one worker never runs two chores at once",
+                1, peak.get());
     }
 
     @Test

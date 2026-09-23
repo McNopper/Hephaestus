@@ -44,7 +44,7 @@ public final class TaskStoreWatcher {
     private final Runnable listener;
     private WatchService service;
     private WatchKey dirKey;
-    private Thread thread;
+    private java.util.concurrent.Future<?> thread;
     private volatile boolean running;
     private long fingerprint = FINGERPRINT_UNSET;
 
@@ -55,7 +55,7 @@ public final class TaskStoreWatcher {
 
     /** Starts watching; the baseline fingerprint is taken synchronously (no initial fire). */
     public synchronized void start() {
-        if (thread != null && thread.isAlive()) {
+        if (thread != null && !thread.isDone()) {
             return;
         }
         try {
@@ -66,18 +66,17 @@ public final class TaskStoreWatcher {
         dirKey = null;
         fingerprint = fingerprint();
         running = true;
-        thread = new Thread(this::loop, "task-store-watcher[" + dir.getFileName() + "]");
-        thread.setDaemon(true);
-        thread.start();
+        thread = com.opencode.ide.client.WorkerPools.serialExecutor(
+                "task-store-watcher[" + dir.getFileName() + "]").submit(this::loop);
     }
 
     /** Stops watching; safe to call more than once. */
     public synchronized void stop() {
         running = false;
-        Thread t = thread;
+        java.util.concurrent.Future<?> t = thread;
         thread = null;
         if (t != null) {
-            t.interrupt();
+            t.cancel(true);
         }
         if (dirKey != null) {
             dirKey.cancel();

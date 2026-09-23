@@ -67,8 +67,13 @@ public final class GitCli {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start " + command.get(0) + ": " + e.getMessage(), e);
         }
-        CompletableFuture<String> stdout = CompletableFuture.supplyAsync(() -> readUtf8(process.getInputStream()));
-        CompletableFuture<String> stderr = CompletableFuture.supplyAsync(() -> readUtf8(process.getErrorStream()));
+        // drains run on the I/O lane (JobManager pool, immediate start) -
+        // NEVER the ForkJoin common pool and never behind long work (2026-09-23
+        // incident class: queued/lost drains made successful git commands read
+        // as empty output)
+        java.util.concurrent.ExecutorService drains = com.opencode.ide.client.WorkerPools.ioExecutor("git-drain");
+        CompletableFuture<String> stdout = CompletableFuture.supplyAsync(() -> readUtf8(process.getInputStream()), drains);
+        CompletableFuture<String> stderr = CompletableFuture.supplyAsync(() -> readUtf8(process.getErrorStream()), drains);
         boolean finished;
         try {
             finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
