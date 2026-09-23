@@ -32,6 +32,13 @@
    `cd eclipse; .\deploy-dev.ps1`, restart Eclipse. Set `ECLIPSE_HOME` when
    Eclipse lives elsewhere — `deploy-dev.ps1` and the stdio launchers
    (optional gson source) honor it; no script hardcodes an install path.
+   **If the Eclipse workspace is not the repo** (e.g. the default
+   `~\eclipse-workspace`), the plugin derives a wrong scope: the Server view
+   asks the shared service for agents/skills/MCP servers per *directory*,
+   and for the workspace directory the service answers empty — MCP servers
+   look dead while they are alive. Fix once in *Preferences → OpenCode →
+   Connection*: **Working directory** = the repo root (next to it: task-store
+   root = `<repo>\.opencode\tasks` for the Board).
 5. opencode: start it in the repo root. The shared background service
    self-registers (`~/.config/opencode/service.json`, generated per machine).
    Re-connect providers (`/connect`) — credentials are machine-local.
