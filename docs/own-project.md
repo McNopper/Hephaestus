@@ -101,6 +101,29 @@ workspace project (anything under a git repo carrying `.opencode/tasks`
 qualifies; there is also a preference override). The PM Board, Fleet and
 Background views then show your project, not Hephaestus'.
 
+## First Eclipse start (how Eclipse finds your repo)
+
+Eclipse cannot guess where the repo lives - one of two things must tell it,
+and both are one-timers:
+
+1. **Open the relevant directory**: import/open your project's repo folder
+   as a workspace project. The adoption rules then do the rest - the task
+   store (`<repo>/.opencode/tasks`) and the connection scope (the repo root,
+   which is what MCP servers/agents/skills are scoped to) are both adopted
+   from the open project. This is the recommended path.
+2. **Or ship the values in an ini file**: `eclipse/plugin_customization.ini`
+   holds the three machine-local values (connection `workingDirectory`,
+   `tasksRoot`, `tasksProject`) and is seeded into a fresh workspace when
+   Eclipse runs with `-pluginCustomization plugin_customization.ini`
+   (`deploy-dev.ps1` copies the file and adds the flag). Adapt the three
+   paths for your machine; users can still override everything in
+   Preferences (they are defaults, not locks).
+
+Either way, the Server view's description line shows the active scope
+(`scoped to: ...`) so an empty MCP list is never silently misleading, and a
+user-typed store root that is really a repo root descends into its
+`.opencode/tasks` automatically.
+
 ## Replacing the Hephaestus-specific bits (checklist)
 
 | Template artifact | Replace with |

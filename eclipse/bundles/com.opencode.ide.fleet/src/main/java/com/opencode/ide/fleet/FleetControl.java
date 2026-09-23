@@ -735,7 +735,15 @@ public final class FleetControl implements AutoCloseable {
                                 "engine recycle failed for " + ticketId + ": " + recycleEx.getMessage());
                     }
                     try {
-                        StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
+                        StoreSync.Outcome outcome =
+                                StoreSync.sync(storeRoot, "opencode fleet: store sync after " + ticketId);
+                        // never drop the outcome silently (2026-09-23: a
+                        // killed mid-sequence git step used to vanish here)
+                        if (outcome != StoreSync.Outcome.PUSHED
+                                && outcome != StoreSync.Outcome.UP_TO_DATE) {
+                            com.opencode.ide.client.ClientLog.warning(
+                                    "store auto-sync outcome for " + ticketId + ": " + outcome);
+                        }
                     } catch (RuntimeException syncEx) {
                         com.opencode.ide.client.ClientLog.warning(
                                 "store auto-sync failed for " + ticketId + ": " + syncEx.getMessage());

@@ -71,6 +71,17 @@ public class TasksRootResolutionTest {
     }
 
     @Test
+    public void repoRootInputDescendsIntoItsDotOpencodeTasks() throws Exception {
+        java.nio.file.Path repo = java.nio.file.Files.createTempDirectory("tasks-root-repo");
+        java.nio.file.Path store = repo.resolve(".opencode").resolve("tasks");
+        java.nio.file.Files.createDirectories(store);
+
+        assertEquals("a user-typed repo root yields its store, not the root",
+                store, TasksRootResolution.resolve(repo.toString(), repo.getParent(),
+                        java.util.List.of(), () -> null));
+    }
+
+    @Test
     public void workspaceClimbBeatsAdoptionAndPreference() throws IOException {
         // workspace nested inside a repo: the climb finds that repo's store
         Path nestedWorkspace = repo.resolve("eclipse-workspace");

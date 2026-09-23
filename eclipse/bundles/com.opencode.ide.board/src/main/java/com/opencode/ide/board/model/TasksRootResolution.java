@@ -67,7 +67,7 @@ public final class TasksRootResolution {
             Supplier<String> preferenceRoot) {
         if (override != null && !override.isBlank()) {
             Path path = Path.of(override.trim());
-            return (path.isAbsolute() ? path : workspace.resolve(path)).normalize();
+            return normalizeStore(path.isAbsolute() ? path : workspace.resolve(path));
         }
         for (Path dir = workspace; dir != null; dir = dir.getParent()) {
             Path candidate = dir.resolve(".opencode").resolve("tasks");
@@ -83,10 +83,22 @@ public final class TasksRootResolution {
         if (configured != null) {
             Path candidate = Path.of(configured);
             if (Files.isDirectory(candidate)) {
-                return candidate.normalize();
+                return normalizeStore(candidate);
             }
         }
         return workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize();
+    }
+
+    /**
+     * A root that is really a REPO ROOT (carries {@code .opencode/tasks})
+     * descends into that store: typing {@code C:\dev\myrepo} must yield its
+     * {@code .opencode/tasks}, not treat every top-level folder as a project
+     * (2026-09-23 live finding: "the repo points to root and not to
+     * hephaestus"). Anything else is honored as-is.
+     */
+    private static Path normalizeStore(Path root) {
+        Path store = root.resolve(".opencode").resolve("tasks");
+        return (Files.isDirectory(store) ? store : root).normalize();
     }
 
     /**

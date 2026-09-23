@@ -689,6 +689,9 @@ public class ServerView extends ViewPart implements Refreshable {
     }
 
     /** The primary root: exactly the former single-root load (unchanged behavior). */
+    /** The scope the auxiliary lists were last queried with (shown in the description). */
+    private volatile String lastScopeDir;
+
     private ServerNode loadPrimaryNode() throws Exception {
         OpencodeConnection connection = OpencodeConnection.getInstance();
         connection.getClient(); // ensure spawned/connected
@@ -697,6 +700,18 @@ public class ServerView extends ViewPart implements Refreshable {
         // connection's working directory, or the shared service answers for
         // the user's home (wrong project's agents/skills/MCP servers)
         String scopeDir = connection.getWorkingDirectory();
+        if (scopeDir == null || scopeDir.isBlank()) {
+            // attached (shared-service) connections never run the spawn
+            // resolution - adopt the active project's repo root (the O-001
+            // rule) so the scoped lists are never blank-scoped (2026-09-23
+            // live finding: no MCP servers visible while they were alive)
+            java.nio.file.Path project = activeProjectLocation();
+            if (project != null) {
+                java.nio.file.Path repo = OpencodeConnection.repoRootOf(project);
+                scopeDir = (repo == null ? project : repo).toString();
+            }
+        }
+        lastScopeDir = scopeDir;
         List<Agent> agents = connection.getClient().getAgents(scopeDir);
         // v2 session state is global per user: scope the primary view to the
         // connection's working directory, or every project on the machine
@@ -1125,7 +1140,7 @@ public class ServerView extends ViewPart implements Refreshable {
             setContentDescription((primary.healthy ? "Connected" : "Unreachable") + ": " + primary.url
                     + "  •  live  •  " + primary.agents.size() + " agents, " + primary.sessions.size() + " sessions"
                     + (working > 0 ? "  •  " + working + " working" : "")
-                    + projectVcsSuffix());
+                    + projectVcsSuffix() + scopeSuffix());
             return;
         }
         long up = nodes.stream().filter(n -> n.healthy).count();
@@ -1146,7 +1161,17 @@ public class ServerView extends ViewPart implements Refreshable {
             }
         }
         sb.append(projectVcsSuffix());
+        sb.append(scopeSuffix());
         setContentDescription(sb.toString());
+    }
+
+    /**
+     * Where the auxiliary lists are scoped - an empty MCP/skills list must
+     * never look like "nothing installed" (2026-09-23 live finding).
+     */
+    private String scopeSuffix() {
+        String scope = lastScopeDir;
+        return scope == null || scope.isBlank() ? " | no scope directory" : " | scoped to: " + scope;
     }
 
     // ---------- project/VCS header (SWT-free logic in ProjectVcs) ----------

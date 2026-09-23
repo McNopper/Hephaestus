@@ -102,7 +102,28 @@ if (Test-Path -LiteralPath $bundlesInfo) {
             }
         }
         Set-Content -LiteralPath $bundlesInfo -Value $lines
-        Write-Host "[deploy-dev] refreshed opencode-ide lines in bundles.info" -ForegroundColor DarkGray
+        Write-Host "[deploy-dev] refreshed opencode-ide lines in bundles.info"
+
+# --- harness defaults: plugin_customization.ini + the eclipse.ini flag ---
+$customization = Join-Path $PSScriptRoot "plugin_customization.ini"
+if (Test-Path $customization) {
+    Copy-Item $customization $EclipseRoot -Force
+    Write-Host "[deploy-dev] plugin_customization.ini -> $EclipseRoot"
+    $iniPath = Join-Path $EclipseRoot "eclipse.ini"
+    if (Test-Path $iniPath) {
+        $ini = Get-Content $iniPath
+        if (-not ($ini | Select-String -SimpleMatch "-pluginCustomization")) {
+            # same rule as the -clean hint: one option per line near the top
+            $at = 0
+            for ($i = 0; $i -lt $ini.Count; $i++) {
+                if ($ini[$i] -match "^-vmargs") { $at = $i; break }
+            }
+            $patched = $ini[0..($at - 1)] + @("-pluginCustomization", "plugin_customization.ini") + $ini[$at..($ini.Count - 1)]
+            Set-Content -Path $iniPath -Value $patched
+            Write-Host "[deploy-dev] eclipse.ini: added -pluginCustomization plugin_customization.ini"
+        }
+    }
+} -ForegroundColor DarkGray
     }
 }
 

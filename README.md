@@ -2,6 +2,16 @@
 
 [![verify](https://github.com/McNopper/Hephaestus/actions/workflows/verify.yml/badge.svg)](https://github.com/McNopper/Hephaestus/actions/workflows/verify.yml)
 
+> **Early stage + token warning.** This is early-stage software - expect rough
+> edges and rapid change. It also **burns tokens**: the fleet engine spawns
+> real agent sessions per dispatched ticket (a worker run, and a reviewer pass
+> per merged ticket when autonomous acceptance is on), and long waves multiply
+> that fast. The fleet is therefore **disabled by default** - arm it
+> deliberately (Fleet view -> Enable), keep the concurrency and cost budgets
+> set, and use the ticket `model` field as the cost lever (small,
+> well-specified tickets deserve cheap models). Dispatch by hand where you
+> can; let the fleet run only what pays for itself.
+
 ## About this document
 - **Kind:** `doc` / repo README (top-level entry point)
 - **Read by:** humans evaluating/adopting the template; **written by:** maintainers
