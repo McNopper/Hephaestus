@@ -410,6 +410,12 @@ public final class TaskStore {
      *                 {@code requirements} (no previous stage).
      */
     public Task sendBack(String project, String id, String reason, String by) {
+        // U-023: a question is not a defect. A 'clarification:' hand-back
+        // routes to the ORIGINATOR agent instead of blocking for a human;
+        // plain send-backs keep the blocking semantics below.
+        if (reason != null && reason.strip().toLowerCase(java.util.Locale.ROOT).startsWith("clarification:")) {
+            return clarify(project, id, reason.strip().substring("clarification:".length()).strip(), by);
+        }
         return transaction(project, data -> {
             Task t = require(data, project, id);
             if (t.stage == null || !VStages.isValid(t.stage)) {
@@ -431,6 +437,180 @@ public final class TaskStore {
             t.blocker = "sent back from " + from + ": " + reason;
             t.updatedAt = now();
             t.history("sent back to " + prev + ": " + reason, by);
+            data.changed.add(id);
+            return t;
+        });
+    }
+
+    /**
+     * U-029 stage pass-through: the current stage has no applicable change -
+     * the ticket VISITS it and advances with a recorded rationale instead of
+     * a full dispatch. The transition is exactly {@link #advance}'s (next
+     * stage + role, product-backlog, assignee cleared), no artifact required;
+     * the history carries {@code stage N passed: reason} (author + timestamp)
+     * so the flow trace counts the stage as visited. The V tip can never pass;
+     * a blank reason is rejected (FR-001..003 of
+     * {@code docs/requirements/U-029-stage-pass-through.md}).
+     *
+     * @throws Invalid when the ticket has no (valid) stored stage, when the
+     *                 reason is blank, or when the ticket sits at the V tip
+     */
+    public Task passStage(String project, String id, String reason, String by) {
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            if (t.stage == null || !VStages.isValid(t.stage)) {
+                throw new Invalid("ticket has no stage; set one first");
+            }
+            if (reason == null || reason.isBlank()) {
+                throw new Invalid("reason must be a non-empty string");
+            }
+            String next = VStages.next(t.stage);
+            if (next == null) {
+                throw new Invalid("ticket is at the V tip stage '" + t.stage
+                        + "'; a stage pass is never allowed here");
+            }
+            int number = VStages.STAGES.indexOf(t.stage) + 1;
+            t.stage = next;
+            t.role = VStages.roleOf(next);
+            t.status = "product-backlog";
+            t.assignee = null;
+            t.updatedAt = now();
+            t.history("stage " + number + " passed: " + reason, by);
+            data.changed.add(id);
+            return t;
+        });
+    }
+
+    /**
+     * U-031 HORIZONTAL resolution route: a blocked ticket reports to its
+     * V-level pair stage (e.g. {@code test-design} -&gt; {@code design}) with
+     * the reason - exactly like a vertical {@link #sendBack} but sideways:
+     * product backlog of the pair stage, assignee cleared, the blocked flag
+     * raised with {@code "reported from <stage>: <reason>"} and a
+     * {@code "reported to <stage>: <reason>"} history event.
+     *
+     * @throws Invalid when the ticket has no (valid) stored stage or the
+     *                 reason is blank
+     */
+    public Task reportHorizontal(String project, String id, String reason, String by) {
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            if (t.stage == null || !VStages.isValid(t.stage)) {
+                throw new Invalid("ticket has no stage; set one first");
+            }
+            if (reason == null || reason.isBlank()) {
+                throw new Invalid("reason must be a non-empty string");
+            }
+            String from = t.stage;
+            String pair = VStages.pairOf(from);
+            t.stage = pair;
+            t.role = VStages.roleOf(pair);
+            t.status = "product-backlog";
+            t.assignee = null;
+            t.blocked = true;
+            t.blocker = "reported from " + from + ": " + reason;
+            t.updatedAt = now();
+            t.history("reported to " + pair + ": " + reason, by);
+            data.changed.add(id);
+            return t;
+        });
+    }
+
+    /** Round-trips on one clarification pair before it escalates to the human (U-023). */
+    public static final int CLARIFICATION_LIMIT = 3;
+
+    /**
+     * U-023 clarification loop: a stage agent needing clarification routes
+     * the QUESTION to the ORIGINATOR instead of blocking for a human. The
+     * originator is the upstream-stage ticket of the same epic (the epic
+     * parent {@code u.id == t.epic} or a sibling {@code u.epic == t.epic},
+     * as the readiness chain walks it), else the epic's requirements-stage
+     * ticket; with neither, the ticket escalates to NEEDS-HUMAN. The
+     * requester stays runnable - the existing inputs-changed/STALE machinery
+     * re-runs it when the originator's artifact updates. More than
+     * {@link #CLARIFICATION_LIMIT} clarifications on the same pair escalate
+     * (the pair is stuck, not unclear). A blank question is rejected.
+     *
+     * @throws Invalid when the ticket has no (valid) stored stage or the
+     *                 question is blank
+     */
+    public Task clarify(String project, String id, String question, String by) {
+        if (question == null || question.isBlank()) {
+            throw new Invalid("question must be a non-empty string");
+        }
+        Task requester = get(project, id);
+        if (requester.stage == null || !VStages.isValid(requester.stage)) {
+            throw new Invalid("ticket has no stage; set one first");
+        }
+        long trips = requester.history.stream()
+                .filter(event -> event.action().startsWith("clarification to"))
+                .count();
+        Task originator = originatorOf(requester, list(project, null, null, null, null));
+        if (originator == null || trips >= CLARIFICATION_LIMIT) {
+            String why = originator == null ? "no agent route (originator absent)"
+                    : "round-trip limit " + CLARIFICATION_LIMIT + " exceeded";
+            return transaction(project, data -> {
+                Task t = require(data, project, id);
+                t.blocked = true;
+                t.blocker = "clarification escalated to NEEDS-HUMAN (" + why + "): " + question;
+                t.updatedAt = now();
+                t.history("clarification escalated to NEEDS-HUMAN: " + question, by);
+                data.changed.add(id);
+                return t;
+            });
+        }
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            Task o = require(data, project, originator.id);
+            o.history("clarification from " + t.stage + " (" + t.id + "): " + question, by);
+            o.status = "product-backlog";
+            o.assignee = null;
+            o.updatedAt = now();
+            t.history("clarification to " + o.stage + " (" + o.id + "): " + question, by);
+            t.updatedAt = now();
+            data.changed.add(id);
+            data.changed.add(o.id);
+            return t;
+        });
+    }
+
+    /** The U-023 originator of a clarification: upstream epic ticket, else the epic's requirements ticket, else null. */
+    private static Task originatorOf(Task requester, List<Task> all) {
+        String upstream = StageReadiness.upstreamStage(requester.stage);
+        Task fallback = null;
+        for (Task candidate : all) {
+            if (candidate == null || candidate.id.equals(requester.id) || requester.epic == null) {
+                continue;
+            }
+            boolean inEpic = candidate.id.equals(requester.epic)
+                    || candidate.epic != null && candidate.epic.equals(requester.epic);
+            if (!inEpic) {
+                continue;
+            }
+            if (upstream != null && upstream.equals(candidate.stage)) {
+                return candidate;
+            }
+            if (fallback == null && "requirements".equals(candidate.stage)) {
+                fallback = candidate;
+            }
+        }
+        return fallback;
+    }
+
+    /**
+     * U-038: park a ticket for maintenance - status {@code paused} (visible,
+     * never blocked and never NEEDS-HUMAN), the reason in history. Resume is
+     * a plain status update back to {@code in-progress}: the branch and its
+     * checkpointed WIP survived the shutdown.
+     */
+    public Task setPaused(String project, String id, String reason, String by) {
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            t.status = "paused";
+            t.assignee = null;
+            t.blocked = false;
+            t.updatedAt = now();
+            t.history("paused: " + (reason == null || reason.isBlank() ? "maintenance" : reason), by);
             data.changed.add(id);
             return t;
         });
@@ -721,6 +901,48 @@ public final class TaskStore {
             out.put("archived", true);
             return out;
         });
+    }
+
+    /**
+     * U-027 wave close with SAFE auto-archiving: the done tickets of the
+     * closed wave are archived only when no live ticket of their epic chain
+     * still needs them as upstream (archiving never orphans downstream
+     * stages). The plain {@link #closeSprint(String, String)} never archives.
+     *
+     * @param autoArchive archive the unneeded done tickets of the wave
+     * @return the plain close result plus {@code auto_archived} (the ids moved
+     *         to {@code _archive/})
+     */
+    public Map<String, Object> closeSprint(String project, String sprintId, boolean autoArchive) {
+        Map<String, Object> result = closeSprint(project, sprintId);
+        if (!autoArchive) {
+            return result;
+        }
+        List<String> archivedIds = new java.util.ArrayList<>();
+        List<Task> live = list(project, null, null, null, null);
+        for (Task candidate : live) {
+            if (!"done".equals(candidate.status)) {
+                continue;
+            }
+            boolean needed = live.stream()
+                    .anyMatch(u -> u != candidate && !"done".equals(u.status)
+                            && inSameEpicChain(u, candidate));
+            if (!needed) {
+                archive(project, candidate.id, "auto-archive");
+                archivedIds.add(candidate.id);
+            }
+        }
+        result.put("auto_archived", List.copyOf(archivedIds));
+        return result;
+    }
+
+    /** The U-023/U-027 epic chain: the epic parent ({@code u.id == t.epic}) or a sibling ({@code u.epic == t.epic}). */
+    static boolean inSameEpicChain(Task a, Task b) {
+        if (a == null || b == null || a.id.equals(b.id)) {
+            return false;
+        }
+        return a.id.equals(b.epic) || b.id.equals(a.epic)
+                || a.epic != null && a.epic.equals(b.epic);
     }
 
     /**

@@ -51,6 +51,7 @@ import com.opencode.ide.ui.session.SessionDetailsController;
 import com.opencode.ide.ui.session.SessionEventFilter;
 import com.opencode.ide.ui.session.SessionTranscript;
 import com.opencode.ide.ui.session.SessionTranscriptFiles;
+import com.opencode.ide.ui.session.ServiceText;
 import com.opencode.ide.ui.session.SessionDetailsController.LifecycleResult;
 import com.opencode.ide.ui.session.SessionDetailsController.MessageRow;
 import com.opencode.ide.ui.session.SessionDetailsController.SessionDetails;
@@ -353,6 +354,11 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
                 new Status(Status.ERROR, UiActivator.PLUGIN_ID, what + " failed: " + detail));
     }
 
+    /** Read-only document dialog (session log, session stats, terminal screen). */
+    private void showTextDialog(String title, String text) {
+        new com.opencode.ide.ui.session.TextDialog(getSite().getShell(), title, text).open();
+    }
+
     /** Transient action feedback goes to the workbench status line. */
     private void showStatus(String message) {
         statusLineMessage(message);
@@ -408,6 +414,264 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             forkAtMessage.setEnabled(canFork);
             menu.add(forkAtMessage);
             menu.add(new Separator());
+            Action renameSession = new Action("Rename session...") {
+                @Override
+                public void run() {
+                    SessionDetails snapshot = currentSnapshot;
+                    if (snapshot == null) {
+                        return;
+                    }
+                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                            getSite().getShell(), "Rename session", "Session title:",
+                            snapshot.title() == null ? "" : snapshot.title(), null);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String title = dialog.getValue();
+                        runLifecycleAction("Renaming session", () -> controller.rename(title),
+                                result -> showStatus("Session renamed: " + title));
+                    }
+                }
+            };
+            renameSession.setToolTipText("Rename this session (v2 PATCH /api/session/{id})");
+            renameSession.setEnabled(currentSnapshot != null && currentSnapshot.sessionId() != null);
+            menu.add(renameSession);
+            Action sendToBackground = new Action("Send to background") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    runLifecycleAction("Sending to background", controller::sendToBackground,
+                            result -> showStatus(result.detail()));
+                }
+            };
+            sendToBackground.setToolTipText("Push this session to the background (v2 POST .../background)");
+            sendToBackground.setEnabled(currentSnapshot != null);
+            menu.add(sendToBackground);
+            Action runShell = new Action("Run shell command...") {
+                @Override
+                public void run() {
+                    SessionDetails snapshot = currentSnapshot;
+                    if (snapshot == null) {
+                        return;
+                    }
+                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                            getSite().getShell(), "Run shell command", "Command:", "make test", null);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String command = dialog.getValue();
+                        runLifecycleAction("Running shell", () -> controller.runShell(command),
+                                result -> showStatus(result.detail()));
+                    }
+                }
+            };
+            runShell.setToolTipText("Run a shell command in this session's context (v2 POST .../shell)");
+            runShell.setEnabled(currentSnapshot != null);
+            menu.add(runShell);
+            Action snapshotAtMessage = new Action("Snapshot at this message") {
+                @Override
+                public void run() {
+                    MessageRow selected = selectedMessageRow();
+                    if (selected == null || selected.id() == null || selected.id().isBlank()) {
+                        return;
+                    }
+                    runLifecycleAction("Staging snapshot", () -> controller.stageSnapshot(selected.id()),
+                            result -> showStatus(result.detail()));
+                }
+            };
+            snapshotAtMessage.setToolTipText("Remember the session state at the selected message (v2 revert/stage)");
+            snapshotAtMessage.setEnabled(canFork);
+            menu.add(snapshotAtMessage);
+            Action restoreSnapshot = new Action("Restore snapshot") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    runLifecycleAction("Restoring snapshot", controller::restoreSnapshot,
+                            result -> showStatus(result.detail()));
+                }
+            };
+            restoreSnapshot.setToolTipText("Restore the staged snapshot (v2 revert/commit)");
+            restoreSnapshot.setEnabled(currentSnapshot != null);
+            menu.add(restoreSnapshot);
+            Action discardSnapshot = new Action("Discard snapshot") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    runLifecycleAction("Discarding snapshot", controller::discardSnapshot,
+                            result -> showStatus(result.detail()));
+                }
+            };
+            discardSnapshot.setToolTipText("Discard the staged snapshot (v2 revert/clear)");
+            discardSnapshot.setEnabled(currentSnapshot != null);
+            menu.add(discardSnapshot);
+            menu.add(new Separator());
+            Action moveSession = new Action("Move to directory...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                            getSite().getShell(), "Move session", "Directory:", "", null);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String directory = dialog.getValue();
+                        runLifecycleAction("Moving session", () -> controller.move(directory),
+                                result -> showStatus(result.detail()));
+                    }
+                }
+            };
+            moveSession.setToolTipText("Move this session to another directory (v2 POST .../move)");
+            moveSession.setEnabled(currentSnapshot != null);
+            menu.add(moveSession);
+            Action switchAgent = new Action("Switch agent...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                            getSite().getShell(), "Switch agent", "Agent:", "", null);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String agent = dialog.getValue();
+                        runLifecycleAction("Switching agent", () -> controller.switchAgent(agent),
+                                result -> showStatus(result.detail()));
+                    }
+                }
+            };
+            switchAgent.setToolTipText("Switch this session's agent mid-run (v2 POST .../agent)");
+            switchAgent.setEnabled(currentSnapshot != null);
+            menu.add(switchAgent);
+            Action switchModel = new Action("Switch model...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                            getSite().getShell(), "Switch model", "Model (provider/model):", "", null);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String model = dialog.getValue();
+                        runLifecycleAction("Switching model", () -> controller.switchModel(model),
+                                result -> showStatus(result.detail()));
+                    }
+                }
+            };
+            switchModel.setToolTipText("Switch this session's model mid-run (v2 POST .../model) - the cost lever");
+            switchModel.setEnabled(currentSnapshot != null);
+            menu.add(switchModel);
+            Action compactSession = new Action("Compact context") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    runLifecycleAction("Compacting context", controller::compact,
+                            result -> showStatus(result.detail()));
+                }
+            };
+            compactSession.setToolTipText("Compact this session's context (v2 POST .../compact)");
+            compactSession.setEnabled(currentSnapshot != null);
+            menu.add(compactSession);
+            menu.add(new Separator());
+            Action exportTranscript = new Action("Export transcript...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    org.eclipse.swt.widgets.FileDialog dialog = new org.eclipse.swt.widgets.FileDialog(
+                            getSite().getShell(), org.eclipse.swt.SWT.SAVE);
+                    dialog.setFileName("session-export.txt");
+                    String target = dialog.open();
+                    if (target == null) {
+                        return;
+                    }
+                    String document = controller.export();
+                    if (document == null) {
+                        showActionError("Exporting transcript", "the service returned no export");
+                        return;
+                    }
+                    try {
+                        java.nio.file.Files.writeString(java.nio.file.Path.of(target), document);
+                        showStatus("Exported to " + target);
+                    } catch (java.io.IOException e) {
+                        showActionError("Exporting transcript", String.valueOf(e.getMessage()));
+                    }
+                }
+            };
+            exportTranscript.setToolTipText("Export this session (v2 GET .../experimental/session/{id}/export)");
+            exportTranscript.setEnabled(currentSnapshot != null);
+            menu.add(exportTranscript);
+            Action sessionLogAction = new Action("Session log...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    String log = controller.sessionLog();
+                    showTextDialog("Session log", log == null ? "(unavailable)" : log);
+                }
+            };
+            sessionLogAction.setToolTipText("Read the session log (v2 GET .../experimental/session/{id}/log)");
+            sessionLogAction.setEnabled(currentSnapshot != null);
+            menu.add(sessionLogAction);
+            Action sessionStatsAction = new Action("Session stats...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    showTextDialog("Session stats", ServiceText.keyValues(controller.stats()));
+                }
+            };
+            sessionStatsAction.setToolTipText("Session statistics from the service (v2 GET .../experimental/session/stats)");
+            sessionStatsAction.setEnabled(currentSnapshot != null);
+            menu.add(sessionStatsAction);
+            Action terminalAction = new Action("Terminal...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    showTextDialog("Session terminal", ServiceText.terminal(controller.terminal()));
+                }
+            };
+            terminalAction.setToolTipText("The session's controlled terminal, read-only (v2 .../terminal/read)");
+            terminalAction.setEnabled(currentSnapshot != null);
+            menu.add(terminalAction);
+            menu.add(new Separator());
+            Action forms = new Action("Forms...") {
+                @Override
+                public void run() {
+                    if (currentSnapshot == null) {
+                        return;
+                    }
+                    java.util.List<java.util.Map<String, Object>> open = controller.openForms();
+                    if (open.isEmpty()) {
+                        showStatus("No open forms for this session");
+                        return;
+                    }
+                    java.util.Map<String, Object> form = open.get(0);
+                    String formTitle = String.valueOf(form.getOrDefault("title", "Form"));
+                    com.opencode.ide.ui.session.FormsDialog dialog =
+                            new com.opencode.ide.ui.session.FormsDialog(getSite().getShell(), formTitle,
+                                    com.opencode.ide.ui.session.FormSchema.fieldsOf(form.get("fields")));
+                    if (open.size() > 1) {
+                        showStatus(open.size() + " open forms - showing the first");
+                    }
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+                        String formID = String.valueOf(form.get("id"));
+                        runLifecycleAction("Answering form",
+                                () -> controller.replyForm(formID, dialog.answer()),
+                                result -> showStatus(result.detail()));
+                    }
+                }
+            };
+            forms.setToolTipText("Open and answer the session's forms (v2 session.form.*)");
+            forms.setEnabled(currentSnapshot != null);
+            menu.add(forms);
             Action copyText = new Action("Copy message text") {
                 @Override
                 public void run() {

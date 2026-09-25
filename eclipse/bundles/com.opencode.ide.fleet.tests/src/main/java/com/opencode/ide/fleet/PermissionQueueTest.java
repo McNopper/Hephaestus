@@ -61,6 +61,25 @@ public class PermissionQueueTest {
     }
 
     @Test
+    public void reconcileAddsMissedAsksAndNeverDropsQueuedOnes() {
+        PermissionQueue queue = new PermissionQueue(null);
+        queue.offer(asked("ses_1", "per_1", "first"));
+
+        // the service list carries an ask the event stream MISSED plus a
+        // re-delivery of the one already held
+        int gained = queue.reconcile(List.of(
+                asked("ses_1", "per_1", "first"),
+                asked("ses_2", "per_2", "missed by the stream")));
+
+        assertEquals("only the unknown ask is gained", 1, gained);
+        assertEquals("both asks are pending", 2, queue.pendingCount());
+
+        // a PARTIAL list never drops what the queue already holds
+        assertEquals(0, queue.reconcile(List.of()));
+        assertEquals("the list is a floor, not a replacement", 2, queue.pendingCount());
+    }
+
+    @Test
     public void pendingReturnsUnansweredOldestFirstAcrossSessions() {
         PermissionQueue queue = new PermissionQueue(null);
         queue.offer(asked("ses_1", "per_1", null));

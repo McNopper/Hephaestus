@@ -53,6 +53,22 @@ public final class PeerJobReconstructor {
      * @return external-engine rows, in store-claim order
      */
     public static List<FleetJobHandle> externalJobs(TaskStore store, Path repoRoot, Set<String> liveTaskIds) {
+        return externalJobs(store, worktreesUnder(repoRoot == null ? null : FleetGit.fleetRoot(repoRoot)),
+                liveTaskIds);
+    }
+
+    /**
+     * {@link #externalJobs(TaskStore, Path, Set)} with the worktree map
+     * supplied by the caller - typically {@link #worktreesVia} (the service's
+     * view) with the local scan as the offline fallback.
+     */
+    public static List<FleetJobHandle> externalJobs(TaskStore store, Map<String, Path> worktrees,
+            Set<String> liveTaskIds) {
+        return externalRows(claims(store), worktrees == null ? Map.of() : worktrees, liveTaskIds);
+    }
+
+    /** Every store project's in-progress tickets; a mid-write project is skipped, never fatal. */
+    private static List<Task> claims(TaskStore store) {
         if (store == null) {
             return List.of();
         }
@@ -64,8 +80,7 @@ public final class PeerJobReconstructor {
                 // a project mid-write elsewhere is skipped, not fatal
             }
         }
-        return externalRows(claims,
-                worktreesUnder(repoRoot == null ? null : FleetGit.fleetRoot(repoRoot)), liveTaskIds);
+        return claims;
     }
 
     /**
@@ -106,6 +121,36 @@ public final class PeerJobReconstructor {
      * unreadable root yields an empty map — claims without worktrees still
      * show, just pathless.
      */
+    /**
+     * The fleet worktree directories AS THE SERVICE SEES THEM (v2
+     * {@code worktree.*} - capability alignment 2026-09-25; a live experiment
+     * proved git-created fleet worktrees appear after
+     * {@code worktree/refresh} with {@code strategy:"git"}), keyed by task id
+     * exactly like {@link #worktreesUnder}. Requires the service project id
+     * (from {@code getProjects()}; see the adoption doc - the id is not yet
+     * on {@code ProjectSummary}). Failures yield an empty map, matching
+     * {@link #worktreesUnder}'s "unreadable root" semantics: claims without
+     * worktrees still show, pathless.
+     */
+    public static Map<String, Path> worktreesVia(com.opencode.ide.client.OpencodeClient client, String projectID) {
+        Map<String, Path> worktrees = new LinkedHashMap<>();
+        try {
+            client.refreshWorktrees(projectID);
+            for (Map<String, Object> entry : client.listWorktrees(projectID)) {
+                Object directory = entry.get("directory");
+                if (directory == null || String.valueOf(directory).isBlank()) {
+                    continue;
+                }
+                Path dir = Path.of(String.valueOf(directory));
+                worktrees.put(dir.getFileName().toString(), dir);
+            }
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            // service unreachable or rejecting: the caller decides on the
+            // fallback; an empty map never breaks the view
+        }
+        return worktrees;
+    }
+
     public static Map<String, Path> worktreesUnder(Path fleetRoot) {
         Map<String, Path> worktrees = new LinkedHashMap<>();
         if (fleetRoot == null || !Files.isDirectory(fleetRoot)) {

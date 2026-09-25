@@ -457,7 +457,11 @@ public final class OpencodeConnection {
      * store adoption - must agree on the marker set or the two drift apart.
      */
     public static boolean isRepoMarker(Path dir) {
+        // The user home is never a repo root (2026-09-25, see repoRootOf):
+        // ~/.opencode is opencode's USER-LEVEL config (plan/, global state),
+        // not a project marker.
         return dir != null
+                && !isAtOrAboveUserHome(dir)
                 && (Files.isDirectory(dir.resolve(".opencode"))
                         || Files.isRegularFile(dir.resolve("opencode.json")));
     }
@@ -473,12 +477,29 @@ public final class OpencodeConnection {
     public static Path repoRootOf(Path candidate) {
         Path current = candidate.toAbsolutePath().normalize();
         while (current != null) {
-            if (isRepoMarker(current)) {
+            // A repo root is never the user home or above: ~/.opencode is
+            // opencode's USER-LEVEL config (plan/, global state), not a
+            // project marker (2026-09-25: the home gained .opencode and every
+            // climb started adopting the home directory as a repo root -
+            // caught by RepoRootOfTest.noMarkerAnywhereReturnsTheCandidateUnchanged).
+            if (!isAtOrAboveUserHome(current) && isRepoMarker(current)) {
                 return current;
             }
             current = current.getParent();
         }
         return candidate;
+    }
+
+    /** @return whether {@code dir} is the user home or one of its ancestors. */
+    private static boolean isAtOrAboveUserHome(Path dir) {
+        Path home;
+        try {
+            home = Path.of(System.getProperty("user.home", "")).toAbsolutePath().normalize();
+        } catch (RuntimeException e) {
+            return false;
+        }
+        Path normalized = dir.toAbsolutePath().normalize();
+        return normalized.equals(home) || home.startsWith(normalized);
     }
 
     /**

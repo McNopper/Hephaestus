@@ -56,8 +56,8 @@ public class BoardModelTest {
         model.setSprint("S-01");
         BoardSnapshot snapshot = model.refresh();
 
-        assertEquals(5, snapshot.columns().size());
-        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "done"),
+        assertEquals(6, snapshot.columns().size());
+        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"),
                 List.copyOf(snapshot.columns().keySet()));
         assertEquals(1, snapshot.column("sprint-backlog").size());
         assertEquals(1, snapshot.column("in-progress").size());
@@ -160,7 +160,7 @@ public class BoardModelTest {
         BoardSnapshot snapshot = model.refresh();
 
         assertNotNull(snapshot.error());
-        assertEquals(5, snapshot.columns().size());
+        assertEquals(6, snapshot.columns().size());
         assertEquals(0, snapshot.total());
         assertTrue(snapshot.column("in-progress").isEmpty());
         assertEquals(List.of(BoardModel.BACKLOG), model.sprints());

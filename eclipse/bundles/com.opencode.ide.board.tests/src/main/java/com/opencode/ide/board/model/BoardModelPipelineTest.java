@@ -190,7 +190,8 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
         BoardSnapshot snapshot = model.refresh();
 
         assertNull(snapshot.pipeline());
-        assertEquals(5, snapshot.columns().size());
+        assertEquals("flat columns = the valid statuses (incl. U-038's paused)", 6,
+                snapshot.columns().size());
         assertTrue(snapshot.column("product-backlog").isEmpty());
         assertEquals(1, snapshot.column("sprint-backlog").size());
     }

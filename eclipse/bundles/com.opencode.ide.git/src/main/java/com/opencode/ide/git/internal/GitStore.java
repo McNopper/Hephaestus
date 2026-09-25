@@ -117,19 +117,19 @@ public final class GitStore {
         // per-project OS lock file out of the index: once staged it stays
         // dirty forever (staged-add survives worktree deletion), which hung
         // a fleet test's clean-check for its whole deadline (2026-09-13).
-        GitOutput add = run(repo, "add", "-A", "--", ".", ":(exclude)*.lock");
+        GitOutput add = runLocked(repo, "add", "-A", "--", ".", ":(exclude)*.lock");
         if (add.exitCode() != 0) {
             warn("git add -A", add);
             return Outcome.FAILED;
         }
-        GitOutput staged = run(repo, "diff", "--cached", "--name-only", "--", ".", ":(exclude)*.lock");
+        GitOutput staged = runLocked(repo, "diff", "--cached", "--name-only", "--", ".", ":(exclude)*.lock");
         if (staged.exitCode() != 0) {
             warn("git diff --cached --name-only", staged);
             return Outcome.FAILED;
         }
         boolean committed = false;
         if (!staged.stdout().isBlank()) {
-            GitOutput commit = run(repo, "commit", "--only", "-m",
+            GitOutput commit = runLocked(repo, "commit", "--only", "-m",
                     message == null || message.isBlank() ? DEFAULT_MESSAGE : message,
                     "--", ".", ":(exclude)*.lock");
             if (commit.exitCode() != 0) {
@@ -138,13 +138,13 @@ public final class GitStore {
             }
             committed = true;
         }
-        GitOutput pull = run(repo, "pull", "--rebase");
+        GitOutput pull = runLocked(repo, "pull", "--rebase");
         if (pull.exitCode() != 0) {
             warn("git pull --rebase", pull);
             return rebaseInProgress(repo) ? Outcome.PULL_CONFLICT : Outcome.FAILED;
         }
         boolean unpushed = unpushedCommits(repo) != 0;
-        GitOutput push = run(repo, "push");
+        GitOutput push = runLocked(repo, "push");
         if (push.exitCode() != 0) {
             warn("git push", push);
             return rejected(push) ? Outcome.PUSH_REJECTED : Outcome.FAILED;
@@ -175,13 +175,54 @@ public final class GitStore {
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
+    /**
+     * Runs a mutating git step with bounded retries on transient lock
+     * contention ({@code index.lock: File exists} / "Another git process").
+     * Any concurrent git - a poller's status refresh, an IDE, a peer engine,
+     * the CLI - briefly takes the index lock; a one-shot step then fails
+     * forever after (2026-09-25: the store sync reported FAILED while a
+     * test's git-status poll refreshed the index). Transient by nature, so
+     * retry with a growing sleep between attempts.
+     */
+    private static GitOutput runLocked(Path repo, String... command) {
+        GitOutput last = null;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            last = run(repo, command);
+            if (last.exitCode() == 0 || !lockContended(last)) {
+                return last;
+            }
+            try {
+                Thread.sleep(50L * (attempt + 1));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return last;
+            }
+        }
+        return last;
+    }
+
+    /** @return whether the failure is transient index-lock contention. */
+    private static boolean lockContended(GitOutput out) {
+        String text = out.stdout() + out.stderr();
+        return text.contains("index.lock") || text.contains("Another git process");
+    }
+
     private static boolean isWorkTree(Path repo) {
         GitOutput probe = run(repo, "rev-parse", "--is-inside-work-tree");
-        return probe.exitCode() == 0 && "true".equals(probe.stdout().trim());
+        boolean inside = probe.exitCode() == 0 && "true".equals(probe.stdout().trim());
+        if (!inside) {
+            // loud at the decision point (2026-09-25: NOT_A_REPO was decided
+            // here with the probe's evidence dropped - debug by telemetry)
+            warn("git rev-parse --is-inside-work-tree (probe of " + repo + ")", probe);
+        }
+        return inside;
     }
 
     private static boolean gitUnusable() {
         GitOutput version = run(Path.of("."), "--version");
+        if (version.exitCode() != 0) {
+            warn("git --version (usability probe)", version);
+        }
         return version.exitCode() != 0;
     }
 

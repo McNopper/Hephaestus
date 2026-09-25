@@ -57,6 +57,15 @@ public final class FleetPermissionBridge {
     }
 
     /**
+     * Delegates the REST safety net (slice 3, 2026-09-25): asks the event
+     * stream missed reach the queue from the service's own list - the list is
+     * a floor, events stay the fast path.
+     */
+    public int reconcile(java.util.List<com.opencode.ide.client.activity.PermissionRequest> requests) {
+        return queue.reconcile(requests);
+    }
+
+    /**
      * Marks a session as fleet-watched: its permission requests are enqueued.
      * Idempotent; the direct target of the {@link FleetRunner}'s
      * session-created callback (see class javadoc), invoked before the

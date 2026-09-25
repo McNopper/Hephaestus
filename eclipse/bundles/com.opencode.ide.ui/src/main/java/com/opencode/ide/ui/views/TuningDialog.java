@@ -35,7 +35,7 @@ public class TuningDialog extends Dialog {
     @Override
     protected void configureShell(Shell newShell) {
         super.configureShell(newShell);
-        newShell.setText("Worker Tuning (applies live)");
+        newShell.setText("Worker Tuning (applies live) - " + com.opencode.ide.client.WorkerPools.summary());
     }
 
     @Override
@@ -47,7 +47,9 @@ public class TuningDialog extends Dialog {
         body.setLayout(layout);
 
         Label intro = new Label(body, SWT.WRAP);
-        intro.setText("Adjustable while workers run - pollers and the fleet watchdog read these live.");
+        intro.setText("Adjustable while workers run - pollers and the fleet watchdog read these live. "
+                + com.opencode.ide.client.WorkerPools.summary()
+                + " (queue depth + load; live per-job detail: the Progress view).");
         GridData introData = new GridData(SWT.FILL, SWT.CENTER, true, false, 2, 1);
         intro.setLayoutData(introData);
 

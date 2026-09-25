@@ -68,8 +68,7 @@ repository, two ways to use it:
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
 | **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
-| **Fleet daemon** (V-006) | ❌ retired 2026-09-23 | "opencode or Eclipse — everything else is reinventing the wheel": the pump lives in Eclipse and is off when Eclipse is closed, by design |
-| Maven mojos `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
+| **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
 | `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
 | Structured C++ tool pack as MCP tools (`cmake_*`, `ctest_run`, `debug_batch`, …) | ❌ lives in Eclipse's `eclipse-build` endpoint | ✅ (per-start token auth) |
@@ -135,6 +134,7 @@ directly (and hand edits are tolerated between tool writes). Ticket states:
 ```
 product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
    (incomplete on sprint close ───────────────────────────────────────────────────────────────┘)
+paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
 blocked = orthogonal flag (blocked:bool + blocker:str) at any active state
 ```
 

@@ -59,13 +59,27 @@ public final class StageReadiness {
      * skipped, a null list yields an empty map.
      */
     public static Map<String, Readiness> evaluate(List<Task> tickets) {
+        return evaluate(tickets, List.of());
+    }
+
+    /**
+     * U-027: readiness over the LIVE tickets with the ARCHIVED pool as extra
+     * epic-chain evidence - an archived upstream still satisfies its
+     * downstream (archiving never orphans the V chain). Archived tickets are
+     * evidence only; they are never evaluated as rows.
+     */
+    public static Map<String, Readiness> evaluate(List<Task> live, List<Task> archived) {
         Map<String, Readiness> out = new LinkedHashMap<>();
-        if (tickets == null) {
+        if (live == null) {
             return out;
         }
-        for (Task t : tickets) {
+        List<Task> pool = new java.util.ArrayList<>(live);
+        if (archived != null) {
+            pool.addAll(archived);
+        }
+        for (Task t : live) {
             if (t != null && t.id != null) {
-                out.put(t.id, of(t, tickets));
+                out.put(t.id, of(t, pool));
             }
         }
         return out;

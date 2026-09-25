@@ -286,6 +286,48 @@ public class TaskFleetTest extends FleetTestHarness {
      * names both sides so the operator can act without a post-mortem.
      */
     @Test
+    public void proseAbbreviationsAreNeverTreatedAsAcPaths() {
+        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
+                List.of("updates the parser (e.g. src/main/java/Foo.java)"), List.of(), null, "H1"));
+        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+        sessionCompletes();
+        worktrees.nextChangedFiles = new ArrayList<>(List.of("src/main/java/Y.java"));
+
+        FleetJob job = fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+
+        // B-010: 'e.g.' is prose, never a path - only the real file gates the merge
+        assertTrue("the refusal lists the real path: " + job.detail(),
+                job.detail().contains("src/main/java/Foo.java"));
+        assertTrue("an abbreviation is never an expected path: " + job.detail(),
+                !job.detail().contains("e.g."));
+    }
+
+    @Test
+    public void anEngagedMaintenanceGateRefusesTheLaunch() throws Exception {
+        MaintenanceGate.engage(REPO, "JDK upgrade on the host");
+        try {
+            Task t = store.create(PROJECT, new TaskStore.CreateSpec(
+                    "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
+                    List.of("it works"), List.of(), null, "H1"));
+            store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+
+            boolean refused = false;
+            try {
+                fleet.launch(PROJECT, t.id, REPO, TIMEOUT);
+            } catch (IllegalStateException e) {
+                refused = String.valueOf(e.getMessage()).contains("maintenance");
+            }
+
+            assertTrue("the launch is refused with the maintenance reason", refused);
+            assertEquals("nothing is claimed or touched while under maintenance",
+                    "sprint-backlog", store.get(PROJECT, t.id).status);
+        } finally {
+            MaintenanceGate.clear(REPO);
+        }
+    }
+
+    @Test
     public void analysisOnlyRunIsRefusedBeforeMergingWithSpecificMessage() {
         Task t = store.create(PROJECT, new TaskStore.CreateSpec(
                 "Fix the widget", "Do the thing.", "task", "developer", "high", 3,

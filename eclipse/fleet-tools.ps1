@@ -78,13 +78,17 @@ if ($missing.Count -gt 0) {
 
 # 3) third-party + platform jars: local Tycho p2 cache first, then the Eclipse
 #    install ECLIPSE_HOME points at when set (no hardcoded install paths -
-#    each machine sets its own).
-function Find-PlatformJar([string]$bundle, [string]$cacheGlob, [string]$installGlob) {
+#    each machine sets its own). Naming convention differs by source: the p2
+#    cache uses `bundle-<version>.jar` (dash), an Eclipse install uses
+#    `bundle_<version>.jar` (underscore) - try both everywhere.
+function Find-PlatformJar([string]$bundle) {
     $candidates = @()
-    $candidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/$bundle/*/$cacheGlob") -ErrorAction SilentlyContinue
+    $candidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/$bundle/*/$bundle-*.jar") -ErrorAction SilentlyContinue
+    $candidates += Get-ChildItem (Join-Path $HOME ".m2/repository/p2/osgi/bundle/$bundle/*/${bundle}_*.jar") -ErrorAction SilentlyContinue
     foreach ($install in @($env:ECLIPSE_HOME)) {
         if ($install -and (Test-Path $install)) {
-            $candidates += Get-ChildItem (Join-Path $install "plugins/$installGlob") -ErrorAction SilentlyContinue
+            $candidates += Get-ChildItem (Join-Path $install "plugins/${bundle}_*.jar") -ErrorAction SilentlyContinue
+            $candidates += Get-ChildItem (Join-Path $install "plugins/$bundle-*.jar") -ErrorAction SilentlyContinue
         }
     }
     $jar = $candidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -94,14 +98,14 @@ function Find-PlatformJar([string]$bundle, [string]$cacheGlob, [string]$installG
     return $jar
 }
 
-$gsonJar = Find-PlatformJar "com.google.gson" "com.google.gson-*.jar" "com.google.gson_*.jar"
+$gsonJar = Find-PlatformJar "com.google.gson"
 # The ECLIPSE JOB MANAGER is the one work scheduler (WorkerPools bridges onto
 # it) - this tool JVM uses the very same mechanism as Eclipse, never a private
 # pool (2026-09-23: "we chose Eclipse because we do not reinvent everything
 # from scratch").
-$jobsJar = Find-PlatformJar "org.eclipse.core.jobs" "org.eclipse.core.jobs_*.jar" "org.eclipse.core.jobs_*.jar"
-$commonJar = Find-PlatformJar "org.eclipse.equinox.common" "org.eclipse.equinox.common_*.jar" "org.eclipse.equinox.common_*.jar"
-$osgiJar = Find-PlatformJar "org.eclipse.osgi" "org.eclipse.osgi_*.jar" "org.eclipse.osgi_*.jar"
+$jobsJar = Find-PlatformJar "org.eclipse.core.jobs"
+$commonJar = Find-PlatformJar "org.eclipse.equinox.common"
+$osgiJar = Find-PlatformJar "org.eclipse.osgi"
 
 $cp = ($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName, $toolsJar.FullName,
        $gsonJar.FullName, $jobsJar.FullName, $commonJar.FullName, $osgiJar.FullName) -join [IO.Path]::PathSeparator

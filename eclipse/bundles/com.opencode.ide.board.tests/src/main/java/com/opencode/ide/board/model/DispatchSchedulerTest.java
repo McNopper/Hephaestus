@@ -256,6 +256,37 @@ public class DispatchSchedulerTest {
     }
 
     @Test
+    public void resolutionRunsBeforePlanningAndDispatchesTheAttempt() {
+        Seams seams = new Seams();
+        seams.sprint = List.of(ready("T-1"), blocked("T-9"));
+        List<String> routes = new CopyOnWriteArrayList<>();
+        DispatchScheduler scheduler = seams.scheduler(POLICY)
+                .withResolution((id, route) -> routes.add(id + ":" + route));
+
+        AutoDispatch.DispatchPlan plan = scheduler.tick();
+
+        assertEquals("the blocked ticket is routed first (U-031 resolution pass)",
+                List.of("T-9:VERTICAL"), routes);
+        assertEquals("the attempt is itself a dispatch, ahead of the planned launch",
+                List.of("T-9", "T-1"), plan.launch());
+    }
+
+    @Test
+    public void oneResolutionAttemptPerTicketPerTick() {
+        Seams seams = new Seams();
+        seams.sprint = List.of(blocked("T-8"), blocked("T-9"));
+        List<String> routes = new CopyOnWriteArrayList<>();
+        DispatchScheduler scheduler = seams.scheduler(POLICY)
+                .withResolution((id, route) -> routes.add(id));
+
+        scheduler.tick();
+        assertEquals("both blocked tickets are attempted once, in order",
+                List.of("T-8", "T-9"), routes);
+        scheduler.tick();
+        assertEquals("the launch hold shields a hot second attempt", 2, routes.size());
+    }
+
+    @Test
     public void onlySprintSupplierTasksAreEverLaunched() {
         Seams seams = new Seams();
         // T-out exists in the project but is out of the sprint: the supplier

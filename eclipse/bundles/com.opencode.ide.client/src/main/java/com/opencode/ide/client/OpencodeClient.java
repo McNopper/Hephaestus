@@ -105,6 +105,271 @@ public interface OpencodeClient {
     Session createSession(String title, Path directory) throws OpencodeException;
 
     /**
+     * Renames a session (v2 {@code PATCH /api/session/{id}} with a
+     * {@code title} body). Adoption 2026-09-25: U-002 was skipped for "no
+     * title-update endpoint" - the v2 contract has one. Default throws so
+     * test fakes stay minimal.
+     */
+    default void renameSession(String sessionId, String title) throws OpencodeException {
+        throw new UnsupportedOperationException("renameSession");
+    }
+
+    /**
+     * v2 adoption wave A (2026-09-25): move a session to another directory
+     * ({@code POST /api/session/{id}/move}, body {@code {directory}}) - scope
+     * moves without a re-chat. Default throws so test fakes stay minimal.
+     */
+    default void moveSession(String sessionId, String directory) throws OpencodeException {
+        throw new UnsupportedOperationException("moveSession");
+    }
+
+    /**
+     * {@code POST /api/session/{id}/agent} - switch the session's agent
+     * mid-run (body {@code {agent}}).
+     */
+    default void switchSessionAgent(String sessionId, String agent) throws OpencodeException {
+        throw new UnsupportedOperationException("switchSessionAgent");
+    }
+
+    /**
+     * {@code POST /api/session/{id}/model} - switch the session's model
+     * mid-run (body {@code {model}}) - the cost lever on a live session.
+     */
+    default void switchSessionModel(String sessionId, String model) throws OpencodeException {
+        throw new UnsupportedOperationException("switchSessionModel");
+    }
+
+    /**
+     * {@code POST /api/session/{id}/compact} - compact a long session's
+     * context (long-run control for fleet workers).
+     */
+    default void compactSession(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("compactSession");
+    }
+
+    /**
+     * {@code GET /api/experimental/session/{id}/export} - the session export
+     * document as RAW text. Raw on purpose: the export format is the
+     * service's, we never re-encode it.
+     */
+    default String exportSession(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("exportSession");
+    }
+
+    /**
+     * {@code GET /api/experimental/session/{id}/log} - the session log, raw.
+     */
+    default String sessionLog(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("sessionLog");
+    }
+
+    /**
+     * {@code GET /api/experimental/session/stats} - session statistics
+     * straight from the service (no message-list math on our side).
+     */
+    default java.util.Map<String, Object> sessionStats() throws OpencodeException {
+        throw new UnsupportedOperationException("sessionStats");
+    }
+
+    /**
+     * v2 adoption wave A (2026-09-25): the service's location (config root) -
+     * {@code GET /api/location} -> {@code Location.PublicInfo}.
+     */
+    default java.util.Map<String, Object> getLocation() throws OpencodeException {
+        throw new UnsupportedOperationException("getLocation");
+    }
+
+    /** {@code POST /api/location/reload} - reload the service's configuration. */
+    default void reloadLocation() throws OpencodeException {
+        throw new UnsupportedOperationException("reloadLocation");
+    }
+
+    /** {@code PATCH /api/project/{id}} - update a project (body {@code {name}}). */
+    default void updateProject(String projectId, String name) throws OpencodeException {
+        throw new UnsupportedOperationException("updateProject");
+    }
+
+    /** {@code GET /api/reference} - the reference catalog the service exposes. */
+    default java.util.List<java.util.Map<String, Object>> listReferences() throws OpencodeException {
+        throw new UnsupportedOperationException("listReferences");
+    }
+
+    /** {@code GET /api/plugin} - installed plugins and their state. */
+    default java.util.List<java.util.Map<String, Object>> listPlugins() throws OpencodeException {
+        throw new UnsupportedOperationException("listPlugins");
+    }
+
+    /** {@code PATCH /api/credential/{id}} - relabel a credential (body {@code {label}}). */
+    default void renameCredential(String credentialId, String label) throws OpencodeException {
+        throw new UnsupportedOperationException("renameCredential");
+    }
+
+    /** {@code POST /api/credential/{id}/activate} - make a credential the active one. */
+    default void activateCredential(String credentialId) throws OpencodeException {
+        throw new UnsupportedOperationException("activateCredential");
+    }
+
+    /** {@code DELETE /api/credential/{id}} - remove a credential. */
+    default void removeCredential(String credentialId) throws OpencodeException {
+        throw new UnsupportedOperationException("removeCredential");
+    }
+
+    /** {@code GET /api/websearch/provider} - available web-search providers. */
+    default java.util.List<java.util.Map<String, Object>> listWebsearchProviders() throws OpencodeException {
+        throw new UnsupportedOperationException("listWebsearchProviders");
+    }
+
+    /** {@code POST /api/websearch} - search the web (body {@code {query, providerID}}). */
+    default java.util.Map<String, Object> websearch(String query, String providerId) throws OpencodeException {
+        throw new UnsupportedOperationException("websearch");
+    }
+
+    /** {@code GET /api/pty} - PTY sessions (interactive terminals). */
+    default java.util.List<java.util.Map<String, Object>> listPtys() throws OpencodeException {
+        throw new UnsupportedOperationException("listPtys");
+    }
+
+    /** {@code POST /api/pty} - create a PTY session (body {@code {command, args, cwd, title}}). */
+    default java.util.Map<String, Object> createPty(String command, java.util.List<String> args, String cwd,
+            String title) throws OpencodeException {
+        throw new UnsupportedOperationException("createPty");
+    }
+
+    /** {@code DELETE /api/pty/{id}} - remove a PTY session. */
+    default void removePty(String ptyId) throws OpencodeException {
+        throw new UnsupportedOperationException("removePty");
+    }
+
+    /**
+     * {@code GET /api/experimental/session/{id}/terminal/read} - the session's
+     * controlled terminal as {@code PersistentPty.ReadResult} (rendered
+     * {@code screen} + {@code foregroundProcess}). The read-only terminal pane
+     * rides this - no emulator on our side.
+     */
+    default java.util.Map<String, Object> readSessionTerminal(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("readSessionTerminal");
+    }
+
+    /**
+     * {@code GET /api/experimental/persistent-pty/{id}/snapshot} - terminal
+     * snapshot (text + cursor + checkpoint) for scrollback capture.
+     */
+    default java.util.Map<String, Object> persistentPtySnapshot(String ptyId) throws OpencodeException {
+        throw new UnsupportedOperationException("persistentPtySnapshot");
+    }
+
+    /**
+     * {@code POST /api/plugin/check} - check installed plugins for updates.
+     * Empty body on purpose (live-probed 2026-09-25: the check takes no
+     * arguments; a {@code target} argument is rejected with 400).
+     */
+    default java.util.List<java.util.Map<String, Object>> checkPlugins() throws OpencodeException {
+        throw new UnsupportedOperationException("checkPlugins");
+    }
+
+    /** {@code POST /api/plugin/update} - update the named plugins (body {@code {targets}}). */
+    default java.util.List<java.util.Map<String, Object>> updatePlugins(java.util.List<String> targets)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("updatePlugins");
+    }
+
+    /**
+     * {@code GET /api/experimental/session/{id}/terminal} - the session's
+     * controlled terminal info ({@code PersistentPty.Info}).
+     */
+    default java.util.Map<String, Object> sessionTerminal(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("sessionTerminal");
+    }
+
+    /**
+     * {@code POST /api/experimental/session/{id}/terminal} - create the
+     * session's controlled terminal ({@code PersistentPty.CreateInput}:
+     * command, args, cwd, title - the service's DECLARED schema; the route
+     * and its body validation were live-probed 2026-09-25).
+     */
+    default java.util.Map<String, Object> createSessionTerminal(String sessionId, String command,
+            java.util.List<String> args, String cwd, String title) throws OpencodeException {
+        throw new UnsupportedOperationException("createSessionTerminal");
+    }
+
+    /**
+     * Per-session context usage (v2 {@code GET /api/session/{id}/context}).
+     * Adoption 2026-09-25: token/context telemetry straight from the
+     * service, no message-list math. Default throws so test fakes stay
+     * minimal.
+     */
+    default java.util.Map<String, Object> getSessionContext(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("getSessionContext");
+    }
+
+    /** v2 snapshots: restore the staged snapshot ({@code revert/commit}) - the one verb the H5 surface lacked. */
+    default void commitSessionRevert(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("commitSessionRevert");
+    }
+
+    /**
+     * v2 worktrees: list a project's worktrees (slice 2 - 2026-09-25). The
+     * service REQUIRES a {@code projectID} (the service-side project id from
+     * {@link #getProjects()}, not a path - a path 404s); callers resolve the
+     * id from the project list first.
+     */
+    default java.util.List<java.util.Map<String, Object>> listWorktrees(String projectID)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("listWorktrees");
+    }
+
+    /** v2 worktrees: create one (from/branch/directory/name are optional). */
+    default java.util.Map<String, Object> createWorktree(String projectID, String from, String branch,
+            String directory, String name) throws OpencodeException {
+        throw new UnsupportedOperationException("createWorktree");
+    }
+
+    /**
+     * v2 worktrees: rescan after external git activity. The body REQUIRES
+     * {@code projectID} (live probe 2026-09-25: an empty body answers 400
+     * "Missing key at [projectID]"); after the refresh the service lists
+     * git-CLI-created worktrees with {@code strategy:"git"}.
+     */
+    default void refreshWorktrees(String projectID) throws OpencodeException {
+        throw new UnsupportedOperationException("refreshWorktrees");
+    }
+
+    /**
+     * v2 forms: the open forms of one session (slice 3 - 2026-09-25). The
+     * service owns the form SCHEMA - fields come back verbatim and replies
+     * echo values keyed by those names; we never guess the shape.
+     */
+    default java.util.List<java.util.Map<String, Object>> listForms(String sessionId) throws OpencodeException {
+        throw new UnsupportedOperationException("listForms");
+    }
+
+    /** v2 forms: answer one ({@code POST .../form/{formID}/reply}). */
+    default void replyForm(String sessionId, String formID, java.util.Map<String, Object> values)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("replyForm");
+    }
+
+    /** v2 forms: cancel one ({@code DELETE .../form/{formID}}). */
+    default void cancelForm(String sessionId, String formID) throws OpencodeException {
+        throw new UnsupportedOperationException("cancelForm");
+    }
+
+    /** v2 MCP management: remove a configured server (experimental.mcp.remove). */
+    default void removeMcp(String name) throws OpencodeException {
+        throw new UnsupportedOperationException("removeMcp");
+    }
+
+    /** v2 MCP management: reconnect a server (experimental.mcp.connect). */
+    default void connectMcp(String name) throws OpencodeException {
+        throw new UnsupportedOperationException("connectMcp");
+    }
+
+    /** v2 MCP management: disconnect a server (experimental.mcp.disconnect). */
+    default void disconnectMcp(String name) throws OpencodeException {
+        throw new UnsupportedOperationException("disconnectMcp");
+    }
+
+    /**
      * {@code PUT /api/experimental/mcp/:name} - register an MCP server so its
      * tools become available to agents.
      *

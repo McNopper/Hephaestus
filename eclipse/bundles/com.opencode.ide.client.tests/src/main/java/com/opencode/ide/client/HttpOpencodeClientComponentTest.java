@@ -159,6 +159,12 @@ public class HttpOpencodeClientComponentTest {
     public static void startStub() throws IOException {
         server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 
+        server.createContext("/api/experimental/mcp", exchange -> {
+            recordExchange(exchange);
+            String path = exchange.getRequestURI().getPath();
+            respond(exchange, 200, path.endsWith("/connect") || path.endsWith("/disconnect")
+                    ? "{\"data\":{}}" : "{}");
+        });
         server.createContext("/api/session", exchange -> {
             String path = recordExchange(exchange);
             lastQuery.set(exchange.getRequestURI().getRawQuery());
@@ -173,6 +179,31 @@ public class HttpOpencodeClientComponentTest {
                 int status = path.contains("denied") ? 403 : path.contains("idle") ? 404 : 200;
                 respond(exchange, status,
                         status == 404 ? "{\"error\":\"session is not active\"}" : "{}");
+                return;
+            }
+            if (path.endsWith("/background") || path.endsWith("/revert/stage")
+                    || path.endsWith("/revert/commit") || path.endsWith("/revert")) {
+                respond(exchange, 200, "{\"data\":{}}");
+                return;
+            }
+            if (path.endsWith("/form")) {
+                respond(exchange, 200, "{\"data\":[{\"formID\":\"f_1\",\"title\":\"Deploy?\"}]}");
+                return;
+            }
+            if (path.contains("/form/")) {
+                respond(exchange, 200, "{\"data\":{}}");
+                return;
+            }
+            if (path.endsWith("/shell")) {
+                respond(exchange, 200, "{\"data\":{\"shellID\":\"sh_1\",\"status\":\"running\"}}");
+                return;
+            }
+            if (path.endsWith("/context")) {
+                respond(exchange, 200, "{\"data\":{\"tokens\":123,\"cost\":0.5}}");
+                return;
+            }
+            if ("PATCH".equals(exchange.getRequestMethod()) && path.matches("/api/session/[^/]+")) {
+                respond(exchange, 200, "{\"data\":{}}");
                 return;
             }
             String response;
@@ -213,11 +244,74 @@ public class HttpOpencodeClientComponentTest {
         });
 
         // v2 registration moved to PUT /api/experimental/mcp/:server
-        server.createContext("/api/experimental/mcp", exchange -> {
+        server.createContext("/api/worktree", exchange -> {
             recordExchange(exchange);
-            respond(exchange, 200, "{}");
+            lastQuery.set(exchange.getRequestURI().getRawQuery());
+            String path = exchange.getRequestURI().getPath();
+            String body = path.endsWith("/refresh") ? "{\"data\":{}}"
+                    : "POST".equals(exchange.getRequestMethod())
+                            ? "{\"data\":{\"directory\":\"C:/wt\",\"branch\":\"b\"}}"
+                            : "{\"data\":[{\"directory\":\"C:/wt\",\"branch\":\"b\"}]}";
+            respond(exchange, 200, body);
+        });
+        // Wave A (2026-09-25): the v2 adoption routes - location/project/
+        // plugin/credential/websearch/reference/pty plus the experimental
+        // session surface (export/log/stats/terminal) and persistent-pty.
+        server.createContext("/api/location", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":{\"directory\":\"C:/repo\",\"project\":{\"id\":\"proj_1\"}}}");
+        });
+        server.createContext("/api/project", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":{}}");
+        });
+        server.createContext("/api/plugin", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":[]}");
+        });
+        server.createContext("/api/credential", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":{}}");
+        });
+        server.createContext("/api/websearch", exchange -> {
+            recordExchange(exchange);
+            String path = exchange.getRequestURI().getPath();
+            respond(exchange, 200, path.endsWith("/provider")
+                    ? "{\"data\":[{\"id\":\"brave\",\"name\":\"Brave\"}]}"
+                    : "{\"data\":{\"providerID\":\"brave\",\"results\":[]}}");
+        });
+        server.createContext("/api/reference", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":[]}");
+        });
+        server.createContext("/api/pty", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "GET".equals(exchange.getRequestMethod())
+                    ? "{\"data\":[{\"id\":\"pty_1\",\"status\":\"running\"}]}"
+                    : "{\"data\":{\"id\":\"pty_1\",\"status\":\"running\"}}");
+        });
+        server.createContext("/api/experimental/session", exchange -> {
+            recordExchange(exchange);
+            String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/export")) {
+                respond(exchange, 200, "the export document");
+                return;
+            }
+            if (path.endsWith("/log")) {
+                respond(exchange, 200, "the session log");
+                return;
+            }
+            respond(exchange, 200, "{\"data\":{\"sessions\":0,\"terminal\":\"idle\"}}");
+        });
+        server.createContext("/api/experimental/persistent-pty", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":{\"ptyID\":\"pty_1\",\"screen\":\"busy\"}}");
         });
 
+        server.createContext("/api/vcs", exchange -> {
+            recordExchange(exchange);
+            respond(exchange, 200, "{\"data\":{\"branch\":\"main\",\"dirty\":1}}");
+        });
         server.createContext("/api/skill", exchange -> {
             recordExchange(exchange);
             lastQuery.set(exchange.getRequestURI().getRawQuery());
@@ -382,6 +476,237 @@ public class HttpOpencodeClientComponentTest {
         assertTrue("reaching /api/info at all IS the health signal", health.healthy());
         assertEquals("2.0.10", health.version());
     }
+
+    @Test
+    public void formsAndMcpManagementUseTheV2Verbs() throws Exception {
+        assertEquals("one open form", 1, client.listForms("ses_1").size());
+        assertEquals("/api/session/ses_1/form", lastPath.get());
+
+        client.replyForm("ses_1", "f_1", Map.of("choice", "yes"));
+        assertEquals("/api/session/ses_1/form/f_1/reply", lastPath.get());
+        assertTrue("the reply body is the declared Form.Reply shape: " + lastBody.get(),
+                lastBody.get().contains("\"answer\""));
+        assertTrue("form values are echoed verbatim (the service owns the schema): "
+                + lastBody.get(), lastBody.get().contains("\"choice\":\"yes\""));
+
+        client.cancelForm("ses_1", "f_1");
+        assertEquals("DELETE", lastMethod.get());
+        assertEquals("/api/session/ses_1/form/f_1", lastPath.get());
+
+        client.removeMcp("tools");
+        assertEquals("/api/experimental/mcp/tools", lastPath.get());
+        client.connectMcp("tools");
+        assertEquals("/api/experimental/mcp/tools/connect", lastPath.get());
+        client.disconnectMcp("tools");
+        assertEquals("/api/experimental/mcp/tools/disconnect", lastPath.get());
+    }
+
+    @Test
+    public void moveSessionPostsTheDirectory() throws Exception {
+        client.moveSession("ses_123", "C:/other");
+
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_123/move", lastPath.get());
+        assertTrue("the body carries the directory: " + lastBody.get(),
+                lastBody.get().contains("\"directory\":\"C:/other\""));
+    }
+
+    @Test
+    public void switchAgentAndModelPostTheirSelections() throws Exception {
+        client.switchSessionAgent("ses_123", "executor");
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_123/agent", lastPath.get());
+        assertTrue("the body carries the agent: " + lastBody.get(),
+                lastBody.get().contains("\"agent\":\"executor\""));
+
+        client.switchSessionModel("ses_123", "prov/model");
+        assertEquals("/api/session/ses_123/model", lastPath.get());
+        assertTrue("the body carries the model: " + lastBody.get(),
+                lastBody.get().contains("\"model\":\"prov/model\""));
+    }
+
+    @Test
+    public void compactSessionPostsAnEmptyBody() throws Exception {
+        client.compactSession("ses_123");
+
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_123/compact", lastPath.get());
+        assertEquals("{}", lastBody.get());
+    }
+
+    @Test
+    public void exportAndLogReadTheExperimentalRoutes() throws Exception {
+        client.exportSession("ses_123");
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/experimental/session/ses_123/export", lastPath.get());
+
+        client.sessionLog("ses_123");
+        assertEquals("/api/experimental/session/ses_123/log", lastPath.get());
+    }
+
+    @Test
+    public void sessionStatsReadsTheStatsRoute() throws Exception {
+        client.sessionStats();
+
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/experimental/session/stats", lastPath.get());
+    }
+
+    @Test
+    public void locationReloadAndProjectUpdateUseTheirRoutes() throws Exception {
+        client.getLocation();
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/location", lastPath.get());
+
+        client.reloadLocation();
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/location/reload", lastPath.get());
+
+        client.updateProject("proj_1", "Renamed");
+        assertEquals("PATCH", lastMethod.get());
+        assertEquals("/api/project/proj_1", lastPath.get());
+        assertTrue("the body carries the name: " + lastBody.get(),
+                lastBody.get().contains("\"name\":\"Renamed\""));
+    }
+
+    @Test
+    public void credentialsAreRenamedActivatedAndRemoved() throws Exception {
+        client.renameCredential("cred_1", "prod key");
+        assertEquals("PATCH", lastMethod.get());
+        assertEquals("/api/credential/cred_1", lastPath.get());
+        assertTrue("the body carries the label: " + lastBody.get(),
+                lastBody.get().contains("\"label\":\"prod key\""));
+
+        client.activateCredential("cred_1");
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/credential/cred_1/activate", lastPath.get());
+
+        client.removeCredential("cred_1");
+        assertEquals("DELETE", lastMethod.get());
+        assertEquals("/api/credential/cred_1", lastPath.get());
+    }
+
+    @Test
+    public void referencesPluginsAndProvidersAreListed() throws Exception {
+        client.listReferences();
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/reference", lastPath.get());
+
+        client.listPlugins();
+        assertEquals("/api/plugin", lastPath.get());
+
+        client.listWebsearchProviders();
+        assertEquals("/api/websearch/provider", lastPath.get());
+    }
+
+    @Test
+    public void websearchPostsQueryAndProvider() throws Exception {
+        client.websearch("opencode v2", "brave");
+
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/websearch", lastPath.get());
+        assertTrue("query and provider travel: " + lastBody.get(),
+                lastBody.get().contains("\"query\":\"opencode v2\"")
+                        && lastBody.get().contains("\"providerID\":\"brave\""));
+    }
+
+    @Test
+    public void ptyLifecycleUsesThePtyRoutes() throws Exception {
+        client.createPty("cmd", java.util.List.of("/c", "dir"), "C:/tmp", "build");
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/pty", lastPath.get());
+        assertTrue("command/args/cwd/title travel: " + lastBody.get(),
+                lastBody.get().contains("\"command\":\"cmd\"")
+                        && lastBody.get().contains("\"args\":[\"/c\",\"dir\"]")
+                        && lastBody.get().contains("\"cwd\":\"C:/tmp\"")
+                        && lastBody.get().contains("\"title\":\"build\""));
+
+        client.listPtys();
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/pty", lastPath.get());
+
+        client.removePty("pty_1");
+        assertEquals("DELETE", lastMethod.get());
+        assertEquals("/api/pty/pty_1", lastPath.get());
+    }
+
+    @Test
+    public void terminalReadAndSnapshotUseThePersistentPtyRoutes() throws Exception {
+        client.readSessionTerminal("ses_123");
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/experimental/session/ses_123/terminal/read", lastPath.get());
+
+        client.persistentPtySnapshot("pty_1");
+        assertEquals("/api/experimental/persistent-pty/pty_1/snapshot", lastPath.get());
+    }
+
+    @Test
+    public void pluginCheckTakesNoArgumentsAndUpdateListsTargets() throws Exception {
+        client.checkPlugins();
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/plugin/check", lastPath.get());
+        assertEquals("the live-probed check body is empty", "{}", lastBody.get());
+
+        client.updatePlugins(java.util.List.of("p1"));
+        assertEquals("/api/plugin/update", lastPath.get());
+        assertTrue("targets travel: " + lastBody.get(),
+                lastBody.get().contains("\"targets\":[\"p1\"]"));
+    }
+
+    @Test
+    public void sessionTerminalInfoAndCreateUseTheExperimentalRoutes() throws Exception {
+        client.sessionTerminal("ses_123");
+        assertEquals("GET", lastMethod.get());
+        assertEquals("/api/experimental/session/ses_123/terminal", lastPath.get());
+
+        client.createSessionTerminal("ses_123", "cmd", java.util.List.of("/c"), "C:/tmp", "term");
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/experimental/session/ses_123/terminal", lastPath.get());
+        assertTrue("the CreateInput fields travel: " + lastBody.get(),
+                lastBody.get().contains("\"command\":\"cmd\"")
+                        && lastBody.get().contains("\"title\":\"term\""));
+    }
+
+    @Test
+    public void renameSessionPatchesTheTitle() throws Exception {
+        client.renameSession("ses_123", "New title");
+
+        assertEquals("PATCH", lastMethod.get());
+        assertEquals("/api/session/ses_123", lastPath.get());
+        assertTrue("the body carries the new title: " + lastBody.get(),
+                lastBody.get().contains("\"title\":\"New title\""));
+    }
+
+    @Test
+    public void sessionContextReadsTheDataEnvelope() throws Exception {
+        Map<String, Object> context = client.getSessionContext("ses_123");
+
+        assertEquals("/api/session/ses_123/context", lastPath.get());
+        assertEquals("tokens come from the service, not from message math",
+                123.0, context.get("tokens"));
+    }
+
+    @Test
+    public void backgroundCommitAndWorktreesUseTheV2Surface() throws Exception {
+        client.backgroundSession("ses_123");
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/session/ses_123/background", lastPath.get());
+
+        client.commitSessionRevert("ses_123");
+        assertEquals("/api/session/ses_123/revert/commit", lastPath.get());
+
+        assertEquals("one worktree comes back", 1, client.listWorktrees("p1").size());
+        assertEquals("/api/worktree", lastPath.get());
+        assertTrue("the query carries the REQUIRED project id: " + lastQuery.get(),
+                lastQuery.get().contains("projectID=p1"));
+
+        Map<String, Object> created = client.createWorktree("p1", "main", "b", "C:/wt", "n");
+        assertEquals("the created worktree reports its branch", "b", created.get("branch"));
+
+        client.refreshWorktrees("p1");
+        assertEquals("/api/worktree/refresh", lastPath.get());
+    }
+
 
     @Test
     public void garbage200BodyRaisesOpencodeExceptionWithEndpointStatusAndSnippet() {

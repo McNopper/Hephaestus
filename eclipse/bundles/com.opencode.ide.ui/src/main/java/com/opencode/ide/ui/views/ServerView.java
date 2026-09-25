@@ -53,6 +53,7 @@ import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
 import com.opencode.ide.ui.model.WorkingSet;
+import com.opencode.ide.ui.session.ServiceText;
 import com.opencode.ide.ui.session.SessionActivity;
 import com.opencode.ide.ui.session.SessionBusyPoller;
 
@@ -379,6 +380,30 @@ public class ServerView extends ViewPart implements Refreshable {
         menu.add(newWithAgent);
         // server-level, view-only (tier-0): lists the MCP servers already
         // loaded with the owning node — no IO, no confirmation
+        org.eclipse.jface.action.Action pluginsList = new org.eclipse.jface.action.Action("Plugins\u2026") {
+            @Override
+            public void run() {
+                showPlugins();
+            }
+        };
+        pluginsList.setToolTipText("The plugins installed for this opencode server (v2 GET /api/plugin)");
+        org.eclipse.jface.action.Action pluginsCheck = new org.eclipse.jface.action.Action("Check plugin updates") {
+            @Override
+            public void run() {
+                checkPlugins();
+            }
+        };
+        pluginsCheck.setToolTipText("Check installed plugins for updates (v2 POST /api/plugin/check)");
+        org.eclipse.jface.action.Action pluginsUpdate = new org.eclipse.jface.action.Action("Update plugins") {
+            @Override
+            public void run() {
+                updatePlugins();
+            }
+        };
+        pluginsUpdate.setToolTipText("Update every installed plugin (v2 POST /api/plugin/update)");
+        menu.add(pluginsList);
+        menu.add(pluginsCheck);
+        menu.add(pluginsUpdate);
         org.eclipse.jface.action.Action mcpServers = new org.eclipse.jface.action.Action("MCP servers\u2026") {
             @Override
             public void run() {
@@ -388,6 +413,14 @@ public class ServerView extends ViewPart implements Refreshable {
         mcpServers.setToolTipText("The MCP servers registered with this opencode server");
         menu.add(new org.eclipse.jface.action.Separator());
         menu.add(mcpServers);
+        org.eclipse.jface.action.Action mcpManage = new org.eclipse.jface.action.Action("Manage MCP servers\u2026") {
+            @Override
+            public void run() {
+                showMcpManager();
+            }
+        };
+        mcpManage.setToolTipText("Connect, disconnect or remove this server's MCP servers (v2 experimental.mcp)");
+        menu.add(mcpManage);
         viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
         menu.addMenuListener(manager -> {
             ServerSelection target = selectedTarget();
@@ -400,6 +433,10 @@ public class ServerView extends ViewPart implements Refreshable {
             agentDetails.setEnabled(target.agentDetails());
             newWithAgent.setEnabled(target.newAgentSession());
             mcpServers.setEnabled(target.mcpDetails());
+            pluginsList.setEnabled(target.mcpDetails());
+            pluginsCheck.setEnabled(target.mcpDetails());
+            pluginsUpdate.setEnabled(target.mcpDetails());
+            mcpManage.setEnabled(target.mcpDetails());
         });
         getSite().registerContextMenu(menu, viewer);
 
@@ -495,6 +532,75 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         org.eclipse.jface.dialogs.MessageDialog.openInformation(getSite().getShell(), "MCP servers",
                 McpServerRows.dialogText(owner.label, owner.mcpServers));
+    }
+
+    /** Wave A (2026-09-25): the installed plugins (v2 GET /api/plugin), read-only. */
+    private void showPlugins() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        showDocument("Plugins", ServiceText.plugins(safePlugins(owner.client)));
+    }
+
+    /** Wave A: check installed plugins for updates (v2 POST /api/plugin/check). */
+    private void checkPlugins() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        try {
+            showDocument("Plugin updates", ServiceText.list(owner.client.checkPlugins()));
+        } catch (Exception e) {
+            showDocument("Plugin updates", "(check failed: " + e.getMessage() + ")");
+        }
+    }
+
+    /** Wave A: update every installed plugin (v2 POST /api/plugin/update). */
+    private void updatePlugins() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        java.util.List<String> targets = new java.util.ArrayList<>();
+        for (java.util.Map<String, Object> info : safePlugins(owner.client)) {
+            Object id = info.get("id");
+            if (id != null) {
+                targets.add(String.valueOf(id));
+            }
+        }
+        if (targets.isEmpty()) {
+            showDocument("Plugin updates", "(no plugins installed)");
+            return;
+        }
+        try {
+            showDocument("Plugin updates", ServiceText.list(owner.client.updatePlugins(targets)));
+        } catch (Exception e) {
+            showDocument("Plugin updates", "(update failed: " + e.getMessage() + ")");
+        }
+    }
+
+    private static java.util.List<java.util.Map<String, Object>> safePlugins(OpencodeClient client) {
+        try {
+            java.util.List<java.util.Map<String, Object>> plugins = client.listPlugins();
+            return plugins == null ? java.util.List.of() : plugins;
+        } catch (Exception e) {
+            return java.util.List.of();
+        }
+    }
+
+    /** Read-only document dialog shared by the plugin and document surfaces. */
+    private void showDocument(String title, String text) {
+        new com.opencode.ide.ui.session.TextDialog(getSite().getShell(), title, text).open();
+    }
+
+    /** Wave A: manage this server's MCP servers (connect/disconnect/remove). */
+    private void showMcpManager() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        new McpServersDialog(getSite().getShell(), owner.client, owner.mcpServers).open();
     }
 
     /** Read-only agent definition dialog: mode, description, model. */
@@ -688,10 +794,10 @@ public class ServerView extends ViewPart implements Refreshable {
         }, this::showNodes, this::showError);
     }
 
-    /** The primary root: exactly the former single-root load (unchanged behavior). */
     /** The scope the auxiliary lists were last queried with (shown in the description). */
     private volatile String lastScopeDir;
 
+    /** The primary root: exactly the former single-root load (unchanged behavior). */
     private ServerNode loadPrimaryNode() throws Exception {
         OpencodeConnection connection = OpencodeConnection.getInstance();
         connection.getClient(); // ensure spawned/connected

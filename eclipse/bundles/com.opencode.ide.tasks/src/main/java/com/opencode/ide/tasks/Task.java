@@ -30,7 +30,7 @@ public final class Task {
 
     /** The status machine. Update is deliberately lax (any of these, no transition graph), as in the pm server. */
     public static final List<String> VALID_STATUSES = List.of(
-            "product-backlog", "sprint-backlog", "in-progress", "in-review", "done");
+            "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done");
 
     /** Priority weight for claim/backlog ordering (higher = first). */
     public static final Map<String, Integer> PRIORITY_ORDER = Map.of(

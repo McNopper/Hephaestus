@@ -8,5 +8,11 @@ package com.opencode.ide.client.model;
 public record ProjectSummary(
         String worktree,
         String branch,
-        String repository) {
+        String repository,
+        String id) {
+
+    /** Compatibility construction when the id is not available (lenient parse, tests). */
+    public ProjectSummary(String worktree, String branch, String repository) {
+        this(worktree, branch, repository, null);
+    }
 }

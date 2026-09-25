@@ -805,10 +805,54 @@ public class FleetView extends ViewPart {
             }
             Path opencode = storeRoot.getParent();
             Path repoRoot = opencode == null ? null : opencode.getParent();
-            return PeerJobReconstructor.externalJobs(new TaskStore(storeRoot), repoRoot, liveTaskIds);
+            TaskStore store = new TaskStore(storeRoot);
+            // the SERVICE's worktree view first (v2 worktree.* - capability
+            // alignment 2026-09-25); the local .git scan stays as the offline
+            // fallback and keeps today's behavior when no client is attached
+            java.util.Map<String, Path> worktrees = serviceWorktrees(repoRoot);
+            return worktrees == null
+                    ? PeerJobReconstructor.externalJobs(store, repoRoot, liveTaskIds)
+                    : PeerJobReconstructor.externalJobs(store, worktrees, liveTaskIds);
         } catch (RuntimeException e) {
             return List.of();
         }
+    }
+
+    /**
+     * The repo's fleet worktrees as the service sees them, or {@code null}
+     * when no client is attached or the project id cannot be resolved (the
+     * caller falls back to the local scan).
+     */
+    private static java.util.Map<String, Path> serviceWorktrees(Path repoRoot) {
+        if (repoRoot == null) {
+            return null;
+        }
+        try {
+            ManagedConnection primary = null;
+            for (ManagedConnection connection : ConnectionsManager.getDefault().connections()) {
+                if (connection.client() != null) {
+                    primary = connection;
+                    break;
+                }
+            }
+            com.opencode.ide.client.OpencodeClient client = primary == null ? null : primary.client();
+            if (client == null) {
+                return null;
+            }
+            String wanted = repoRoot.toAbsolutePath().normalize().toString();
+            for (com.opencode.ide.client.model.ProjectSummary project : client.getProjects()) {
+                if (project.id() == null || project.id().isBlank() || project.worktree() == null) {
+                    continue;
+                }
+                Path candidate = Path.of(project.worktree()).toAbsolutePath().normalize();
+                if (candidate.toString().equalsIgnoreCase(wanted)) {
+                    return PeerJobReconstructor.worktreesVia(client, project.id());
+                }
+            }
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            // service unavailable or unparseable: fall back to the local scan
+        }
+        return null;
     }
 
     private static void setLaidOut(Control control, boolean visible) {

@@ -94,6 +94,174 @@ public final class SessionDetailsController {
      *
      * @return the new session id, or the failure reason; never throws.
      */
+    /**
+     * Renames the session (v2 {@code PATCH /api/session/{id}} - capability
+     * alignment 2026-09-25; U-002 was skipped for "no title endpoint").
+     */
+    public LifecycleResult rename(String title) {
+        try {
+            clientSupplier.get().renameSession(sessionId(), title);
+            return new LifecycleResult(true, "renamed to: " + title, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2 snapshots: remember the session state at the selected message. */
+    public LifecycleResult stageSnapshot(String messageId) {
+        try {
+            clientSupplier.get().revertMessage(sessionId(), messageId);
+            return new LifecycleResult(true, "snapshot staged at " + messageId, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2 snapshots: restore the staged snapshot. */
+    public LifecycleResult restoreSnapshot() {
+        try {
+            clientSupplier.get().commitSessionRevert(sessionId());
+            return new LifecycleResult(true, "snapshot restored", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2 snapshots: discard the staged snapshot. */
+    public LifecycleResult discardSnapshot() {
+        try {
+            clientSupplier.get().unrevertSession(sessionId());
+            return new LifecycleResult(true, "snapshot discarded", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Wave A (2026-09-25): move the session to another directory (v2 move). */
+    public LifecycleResult move(String directory) {
+        try {
+            clientSupplier.get().moveSession(sessionId(), directory);
+            return new LifecycleResult(true, "moved to " + directory, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Wave A: switch the session's agent mid-run (v2 {@code /agent}). */
+    public LifecycleResult switchAgent(String agent) {
+        try {
+            clientSupplier.get().switchSessionAgent(sessionId(), agent);
+            return new LifecycleResult(true, "agent switched to " + agent, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Wave A: switch the session's model mid-run (v2 {@code /model}). */
+    public LifecycleResult switchModel(String model) {
+        try {
+            clientSupplier.get().switchSessionModel(sessionId(), model);
+            return new LifecycleResult(true, "model switched to " + model, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Wave A: compact the session's context (v2 {@code /compact}). */
+    public LifecycleResult compact() {
+        try {
+            clientSupplier.get().compactSession(sessionId());
+            return new LifecycleResult(true, "context compacted", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Wave A: the export document as raw text (null on failure). */
+    public String export() {
+        try {
+            return clientSupplier.get().exportSession(sessionId());
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Wave A: the session log as raw text (null on failure). */
+    public String sessionLog() {
+        try {
+            return clientSupplier.get().sessionLog(sessionId());
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Wave A: session statistics from the service (empty on failure). */
+    public java.util.Map<String, Object> stats() {
+        try {
+            return clientSupplier.get().sessionStats();
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return java.util.Map.of();
+        }
+    }
+
+    /** Wave A: the session's controlled terminal (PersistentPty.ReadResult; empty on failure). */
+    public java.util.Map<String, Object> terminal() {
+        try {
+            return clientSupplier.get().readSessionTerminal(sessionId());
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return java.util.Map.of();
+        }
+    }
+
+    /** v2 forms: the session's open forms (slice 3, 2026-09-25). */
+    public java.util.List<java.util.Map<String, Object>> openForms() {
+        try {
+            return clientSupplier.get().listForms(sessionId());
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return java.util.List.of();
+        }
+    }
+
+    /** v2 forms: answer one with values collected from the schema-driven dialog. */
+    public LifecycleResult replyForm(String formID, java.util.Map<String, Object> values) {
+        try {
+            clientSupplier.get().replyForm(sessionId(), formID, values);
+            return new LifecycleResult(true, "form answered", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2 forms: cancel one. */
+    public LifecycleResult cancelForm(String formID) {
+        try {
+            clientSupplier.get().cancelForm(sessionId(), formID);
+            return new LifecycleResult(true, "form cancelled", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2: push the session to the background (adoption 2026-09-25, U-042). */
+    public LifecycleResult sendToBackground() {
+        try {
+            clientSupplier.get().backgroundSession(sessionId());
+            return new LifecycleResult(true, "session sent to the background", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** v2: run a shell in the session's context (adoption 2026-09-25, U-041). */
+    public LifecycleResult runShell(String command) {
+        try {
+            clientSupplier.get().runShell(sessionId(), null, command);
+            return new LifecycleResult(true, "shell started: " + command, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
     public LifecycleResult fork(String messageId) {
         try {
             Session forked = clientSupplier.get().forkSession(sessionId, messageId);

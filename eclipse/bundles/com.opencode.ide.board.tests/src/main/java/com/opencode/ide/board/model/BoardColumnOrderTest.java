@@ -75,7 +75,7 @@ public class BoardColumnOrderTest {
 
         List<String> keys = new ArrayList<>(model.refresh().columns().keySet());
 
-        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "done"),
+        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"),
                 keys);
         assertEquals("flat order IS the workflow-progress order", Task.VALID_STATUSES, keys);
     }

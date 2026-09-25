@@ -120,7 +120,9 @@ public class TaskToolsDispatchTest {
         assertEquals("in-progress", claimed.get("status").getAsString());
         assertEquals("agent-1", claimed.get("assignee").getAsString());
         JsonObject board = callOk("task_board", "{\"project\":\"p\"}");
-        assertEquals(5, board.size());
+        assertEquals("the board has one column per valid status (incl. U-038's paused)",
+                Task.VALID_STATUSES.size(), board.size());
+        assertEquals(0, board.getAsJsonArray("paused").size());
         assertEquals(1, board.getAsJsonArray("in-progress").size());
         assertEquals(1, board.getAsJsonArray("sprint-backlog").size());
     }

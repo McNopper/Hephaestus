@@ -189,6 +189,31 @@ public final class PermissionQueue {
         return changed[0];
     }
 
+    /**
+     * Safety-net reconciliation with the service's own permission list (v2
+     * {@code permission.request.list} - slice 3, 2026-09-25): events are the
+     * fast path, this catches asks MISSED by the stream (an event gap, a
+     * reconnect). Unknown asks are offered exactly like an {@code asked}
+     * event. The list is a FLOOR, never a replacement - nothing already
+     * queued is dropped by a partial list; removal rides {@code replied}
+     * events.
+     *
+     * @param requests the service's current request list
+     * @return how many asks the queue gained
+     */
+    public int reconcile(java.util.List<PermissionRequest> requests) {
+        if (requests == null) {
+            return 0;
+        }
+        int gained = 0;
+        for (PermissionRequest request : requests) {
+            if (request != null && !entries.containsKey(request.permissionId()) && offer(request)) {
+                gained++;
+            }
+        }
+        return gained;
+    }
+
     /** The unanswered requests, oldest first (copy-on-read, never null). */
     public List<PermissionRequest> pending() {
         return entries.values().stream()

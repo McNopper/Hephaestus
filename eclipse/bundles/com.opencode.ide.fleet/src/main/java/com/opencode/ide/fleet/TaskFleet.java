@@ -235,6 +235,14 @@ public final class TaskFleet {
      */
     public FleetJob launch(String project, String taskId, Path baseWorktree, Duration timeout,
             Bootstrap bootstrap, String modelOverride) {
+        // U-038: while the maintenance gate is engaged every dispatch path
+        // refuses with a clear 'maintenance' reason - a pre-flight refusal of
+        // launchableTicket's class: nothing is claimed, nothing starts (the
+        // scheduler records the refusal loudly on its side).
+        String maintenance = MaintenanceGate.reason(baseWorktree);
+        if (maintenance != null) {
+            throw new IllegalStateException("maintenance: " + maintenance);
+        }
         if (!inFlight.add(taskId)) {
             throw new IllegalStateException(
                     "ticket " + taskId + " already has a fleet job in flight (one launch per ticket at a time)");
@@ -730,10 +738,63 @@ public final class TaskFleet {
             }
             java.util.regex.Matcher m = AC_PATH.matcher(criterion);
             while (m.find()) {
-                paths.add(m.group());
+                String candidate = m.group();
+                // B-010 (2026-09-25): prose like "e.g." / "i.e." is path-shaped
+                // enough to match - an abbreviation is NEVER a path. Drop
+                // trailing-dot tokens and the common abbreviations outright.
+                if (candidate.endsWith(".")
+                        || PROSE_ABBREVIATIONS.contains(candidate.toLowerCase(java.util.Locale.ROOT))) {
+                    continue;
+                }
+                paths.add(candidate);
             }
         }
         return List.copyOf(paths);
+    }
+
+    /** Words that look path-shaped to the regex but are prose, never files (B-010). */
+    private static final java.util.Set<String> PROSE_ABBREVIATIONS = java.util.Set.of(
+            "e.g.", "i.e.", "etc.", "vs.", "cf.", "e.g", "i.e", "etc", "vs", "cf");
+
+    /**
+     * U-038 graceful shutdown for maintenance - the ordered teardown: (1)
+     * PARK admissions (the maintenance gate engages; every dispatch path
+     * refuses with a clear 'maintenance' reason), (2) CHECKPOINT every
+     * in-flight worker: its worktree WIP is committed to the task branch and
+     * the ticket is PAUSED (visible, not blocked, never NEEDS-HUMAN), (3)
+     * REPORT what stopped and what was checkpointed. Bring-up clears the flag
+     * ({@link MaintenanceGate#clear}); resume is a plain status update back
+     * to in-progress (the branch and its checkpoint survived).
+     */
+    public java.util.Map<String, Object> shutdownForMaintenance(String project, Path baseWorktree,
+            String reason, String by) {
+        try {
+            MaintenanceGate.engage(baseWorktree, reason);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot engage the maintenance gate: " + e.getMessage(), e);
+        }
+        java.util.List<String> checkpointed = new java.util.ArrayList<>();
+        java.util.List<String> paused = new java.util.ArrayList<>();
+        for (String taskId : java.util.List.copyOf(inFlight)) {
+            FleetJob job = jobsByTask.get(taskId);
+            try {
+                if (job != null && job.worktree() != null
+                        && java.nio.file.Files.isDirectory(job.worktree())) {
+                    runner.checkpoint(job.worktree(), "U-038 checkpoint: paused for maintenance");
+                    checkpointed.add(taskId);
+                }
+                store.setPaused(project, taskId, reason, by);
+                paused.add(taskId);
+            } catch (RuntimeException e) {
+                LOG.log(Level.WARNING, "U-038 checkpoint of " + taskId + " failed: " + e.getMessage(), e);
+            }
+        }
+        java.util.Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("maintenance", reason == null || reason.isBlank() ? "maintenance" : reason);
+        report.put("checkpointed", java.util.List.copyOf(checkpointed));
+        report.put("paused", java.util.List.copyOf(paused));
+        report.put("in_flight_residue", java.util.List.copyOf(inFlight));
+        return report;
     }
 
     /**
@@ -853,6 +914,20 @@ public final class TaskFleet {
         long lastToolChange = System.nanoTime();
         long lastProgress = System.nanoTime();
         long lastStallReset = System.nanoTime();
+        // slice 3 (2026-09-25): one reconciliation with the service's own
+        // permission list at RUN START - asks the event stream missed (a gap,
+        // a reconnect) reach the queue before the watchdog decides whether an
+        // ask is pending. The list is a floor, events stay the fast path.
+        if (permissions != null && telemetryClient != null) {
+            OpencodeClient service = telemetryClient.get();
+            if (service != null) {
+                try {
+                    permissions.reconcile(service.listPermissionRequests());
+                } catch (OpencodeException | RuntimeException e) {
+                    // best-effort: the events remain the fast path
+                }
+            }
+        }
         while (true) {
             // QUEUED is not EXECUTED (user requirement 2026-09-23: "the
             // timeout, or the budget starts, when a task is executed"): while
@@ -886,7 +961,8 @@ public final class TaskFleet {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
                         "timeout after " + FleetTuning.HARD_RUN_CAP
-                                + " (absolute run cap, despite progress) awaiting session " + job.sessionId()
+                                + " (absolute run cap, despite progress; knob: FleetTuning.HARD_RUN_CAP, env FLEET_HARD_RUN_CAP_MS"
+                                + " - per-ticket budgets ride the launch timeout) awaiting session " + job.sessionId()
                                 + " | " + diagnostic(job, submission, null, lastAssistantChange, lastToolChange));
             }
             FleetRunner.Activity activity = null;
@@ -956,14 +1032,23 @@ public final class TaskFleet {
                                 + ", session aborted (" + (promptStarted
                                         ? "the prompt was delivered; the worker hung"
                                         : "the prompt never left the worker pool") + ")"
+                                + " | knob: FleetTuning.STALL_TIMEOUT (env FLEET_STALL_TIMEOUT_MS)"
+                                + " | cause: " + HangKind.of(
+                                        activity == null ? null : activity.lastAssistant(),
+                                        activity == null ? null : activity.lastTool())
                                 + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
             }
             if (now - lastProgress >= budgetNanos) {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
-                        "timeout after " + timeout + " without observed progress (ticket budget)"
+                        "timeout after " + timeout + " without observed progress (ticket budget; knob: "
+                                + "FleetTuning.DEFAULT_TICKET_BUDGET, env FLEET_TICKET_BUDGET_MS - "
+                                + "per-ticket: the launch timeout)"
                                 + (permissionWait ? "; a permission ask was never answered" : "")
                                 + ", session " + job.sessionId() + " aborted"
+                                + " | cause: " + HangKind.of(
+                                        activity == null ? null : activity.lastAssistant(),
+                                        activity == null ? null : activity.lastTool())
                                 + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
             }
             runner.pauseBetweenProbes();

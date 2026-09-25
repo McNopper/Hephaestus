@@ -79,6 +79,20 @@ public final class VStages {
         return stage != null && STAGES.indexOf(stage) >= STAGES.indexOf("test-implementation");
     }
 
+    /**
+     * The stage's V-LEVEL PAIR: the verification leg of a definition stage and
+     * vice versa ({@code design} &harr; {@code test-design}, ...). U-029/U-031:
+     * the horizontal resolution route reports a blocked ticket to this stage.
+     *
+     * @return the pair stage, or {@code null} when the stage is unknown
+     */
+    public static String pairOf(String stage) {
+        if (!isValid(stage)) {
+            return null;
+        }
+        return isVerification(stage) ? stage.substring("test-".length()) : "test-" + stage;
+    }
+
     /** @return the next stage down/up the V, or {@code null} at either end. */
     public static String next(String stage) {
         if (!isValid(stage)) {

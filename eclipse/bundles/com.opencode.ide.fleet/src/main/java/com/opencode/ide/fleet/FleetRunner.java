@@ -312,6 +312,15 @@ public class FleetRunner {
         worktrees.remove(repoRoot, taskId, true);
     }
 
+    /**
+     * U-038: checkpoint a worker's worktree before a shutdown - its
+     * uncommitted WIP is committed to the task branch so nothing is ever
+     * lost. Best-effort by contract at the call site (reported, never fatal).
+     */
+    public void checkpoint(Path worktree, String message) {
+        worktrees.commitAll(worktree, ".", message);
+    }
+
     /** F-002 seam: locates the task's worktree, if any (reconciliation). */
     public void claimProject(Path repoRoot, String project, String taskId) {
         worktrees.claimProject(repoRoot, project, taskId);

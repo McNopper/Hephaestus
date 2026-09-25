@@ -67,6 +67,23 @@ public final class DispatchScheduler {
     private final Map<String, String> failedRevision = new ConcurrentHashMap<>();
     private final Map<String, LaunchAttempt> attempts = new ConcurrentHashMap<>();
 
+    /** U-031: the owner's store moves for blocked tickets; null disables the resolution pass. */
+    private volatile BiConsumer<String, ResolutionPolicy.Route> resolution;
+
+    /** U-031: resolution attempts spent per ticket (round-trip accounting). */
+    private final Map<String, Integer> resolutionAttempts = new ConcurrentHashMap<>();
+
+    /**
+     * U-031 resolution-first pumping: each tick routes BLOCKED tickets for
+     * rework before planning new launches. The callback performs the store
+     * move for the route ({@code sendBack} / {@code reportHorizontal}); the
+     * ticket's blocked reason rides along as the attempt's context.
+     */
+    public DispatchScheduler withResolution(BiConsumer<String, ResolutionPolicy.Route> resolution) {
+        this.resolution = resolution;
+        return this;
+    }
+
     /** Feedback for exactly one submission. Pass this token to the queued worker
      * and call deferred() if readiness/admission revalidation prevents execution.
      * Safe before the launch callback returns, after restart, and on repeated calls.
@@ -216,6 +233,37 @@ public final class DispatchScheduler {
         List<Task> candidates = new ArrayList<>();
         Map<String, String> revisions = new java.util.HashMap<>();
         List<AutoDispatch.Skip> skipped = new ArrayList<>();
+        List<String> accepted = new ArrayList<>();
+        // U-031 resolution-first pumping (user direction 2026-09-19): every
+        // tick tries to RESOLVE BLOCKED ITEMS FIRST - route them for rework
+        // (vertical send-back / horizontal report) and dispatch the attempt
+        // with the blocked reason in the ticket context - and only then plans
+        // new launches. One attempt per ticket per tick (no hot loops); when
+        // the round-trips are exhausted the ticket stays NEEDS-HUMAN.
+        BiConsumer<String, ResolutionPolicy.Route> resolver = resolution;
+        if (resolver != null) {
+            for (Task task : sprint) {
+                if (task == null || task.id == null || !task.blocked || occupied.contains(task.id)) {
+                    continue;
+                }
+                int spent = resolutionAttempts.getOrDefault(task.id, 0);
+                ResolutionPolicy.Route route = ResolutionPolicy.route(task, spent);
+                if (route == ResolutionPolicy.Route.NEEDS_HUMAN) {
+                    skipped.add(new AutoDispatch.Skip(task.id,
+                            "resolution attempts exhausted (" + spent + "): NEEDS-HUMAN"));
+                    continue;
+                }
+                resolutionAttempts.merge(task.id, 1, Integer::sum);
+                resolver.accept(task.id, route);
+                occupied.add(task.id);
+                launchOne(task.id, "resolution:" + spent + ":" + revision(task), now, current,
+                        accepted, skipped);
+            }
+        }
+        resolutionAttempts.keySet().retainAll(sprint.stream()
+                .map(task -> task == null ? null : task.id)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet()));
         for (Task task : sprint) {
             if (task == null || task.id == null) {
                 continue;
@@ -237,39 +285,48 @@ public final class DispatchScheduler {
                 (calibrateCosts ? policy.withEstimateUsd(AutoDispatch.calibratedEstimate(overview)) : policy)
                         .plan(candidates, StageReadiness.evaluate(scope), overview, occupied);
         skipped.addAll(planned.skipped());
-        List<String> accepted = new ArrayList<>();
         for (String id : planned.launch()) {
-            synchronized (admissionLock) {
-                synchronized (lifecycleLock) {
-                    if (stopped || current != generation) {
-                        skipped.add(new AutoDispatch.Skip(id, "auto-dispatch stopped or replaced"));
-                        continue;
-                    }
-                }
-                // Publish before invoking user code. Feedback only changes this
-                // token, so an early deferral cannot be overwritten on return.
-                LaunchAttempt attempt = new LaunchAttempt(revisions.get(id), now);
-                attempts.put(id, attempt);
-                try {
-                    launch.accept(id, attempt);
-                    failedRevision.remove(id);
-                    if (attempt.deferred) {
-                        skipped.add(new AutoDispatch.Skip(id, "submission deferred before execution"));
-                    } else {
-                        accepted.add(id);
-                    }
-                } catch (com.opencode.ide.fleet.DispatchGuard.AdmissionDeferred e) {
-                    attempt.deferred();
-                    skipped.add(new AutoDispatch.Skip(id, "admission deferred: " + e.getMessage()));
-                } catch (RuntimeException e) {
-                    attempts.remove(id, attempt);
-                    failedRevision.put(id, revisions.get(id));
-                    skipped.add(new AutoDispatch.Skip(id, "launch failed: " + e.getMessage()));
-                    LOG.log(Level.WARNING, "dispatch launch of " + id + " failed: " + e.getMessage(), e);
-                }
-            }
+            launchOne(id, revisions.get(id), now, current, accepted, skipped);
         }
         return new AutoDispatch.DispatchPlan(List.copyOf(accepted), List.copyOf(skipped));
+    }
+
+    /**
+     * One guarded launch: admission-safe (the stopped/replaced checks under
+     * the locks), attempt-tracked and never throwing. Shared by the U-031
+     * resolution attempts and the readiness-planned launches.
+     */
+    private void launchOne(String id, String revision, Instant now, long current,
+            List<String> accepted, List<AutoDispatch.Skip> skipped) {
+        synchronized (admissionLock) {
+            synchronized (lifecycleLock) {
+                if (stopped || current != generation) {
+                    skipped.add(new AutoDispatch.Skip(id, "auto-dispatch stopped or replaced"));
+                    return;
+                }
+            }
+            // Publish before invoking user code. Feedback only changes this
+            // token, so an early deferral cannot be overwritten on return.
+            LaunchAttempt attempt = new LaunchAttempt(revision, now);
+            attempts.put(id, attempt);
+            try {
+                launch.accept(id, attempt);
+                failedRevision.remove(id);
+                if (attempt.deferred) {
+                    skipped.add(new AutoDispatch.Skip(id, "submission deferred before execution"));
+                } else {
+                    accepted.add(id);
+                }
+            } catch (com.opencode.ide.fleet.DispatchGuard.AdmissionDeferred e) {
+                attempt.deferred();
+                skipped.add(new AutoDispatch.Skip(id, "admission deferred: " + e.getMessage()));
+            } catch (RuntimeException e) {
+                attempts.remove(id, attempt);
+                failedRevision.put(id, revision);
+                skipped.add(new AutoDispatch.Skip(id, "launch failed: " + e.getMessage()));
+                LOG.log(Level.WARNING, "dispatch launch of " + id + " failed: " + e.getMessage(), e);
+            }
+        }
     }
 
     /** @return true while the background loop is scheduled. */

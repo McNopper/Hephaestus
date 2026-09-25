@@ -1,9 +1,10 @@
 # History
 
-Chronological record of milestones, sessions and findings. Current state and
-open work live in `ROADMAP.md`; this file is the archive.
+Chronological record of milestones, sessions and findings - **the changelog**.
+Current state and open work live in `ROADMAP.md`; this file is the only place
+the historical evolution is kept.
 
-**Kind:** `doc` / history archive. **Read by:** anyone reconstructing *why*
+**Kind:** `doc` / changelog. **Read by:** anyone reconstructing *why*
 the current state is what it is. **Related:** `ROADMAP.md` (current plan).
 
 ## H0 — Consolidation ✅ 2026-08-17
@@ -152,3 +153,35 @@ persistence across restarts), U-040 (Fleet view as a tree), U-041 (v2
 subagents+console tasks parity), U-042 (v2 background tasks), B-008
 (watchdog semantics). Daemon lifecycle is scripted now (drive/status/stop
 over the TCP protocol; docs updated: AGENTS.md, fleet-quickstart).
+
+## H7.1 - Hardening, waves and the v2 migration (2026-09-14 to 2026-09-23)
+The engine's reliability era. 2026-09-14: the production-readiness sweep
+(G-001..G-006), UI batches A-C, the cross-process git/admission gates and the
+first live deployment. 2026-09-16: the tuning-table sweep (G-004) and the V-006
+fleet daemon slices. 2026-09-20: the v1 to v2 API migration (27/27 green,
+commit df28c93), the waves-era run that filed B-008..B-013 plus U-036..U-043,
+and host discipline adopted: "opencode or Eclipse - everything else is
+reinventing the wheel". 2026-09-21: the v2-only cleanup cross-checked against
+the live 2.0.11 service. 2026-09-22: new-machine bring-up (machine traps fixed,
+cb82e17) and the no-hidden-work rule. 2026-09-23: the defect wave resolved
+(B-008/B-011/B-012/B-013 - message-ordering normalization and the Turns
+completion judge), the JobManager everywhere move, and v2/TUI feature parity
+(plan mode = the plan agent, permission-ask recovery, background tasks,
+T-004/T-005 chat surfaces). Tickets are the record of each finding.
+
+## H8 - v2 capability alignment - 2026-09-25
+Strict reuse policy audited against the live `GET /openapi.json` contract
+(130+ operations, docs/opencode-v2-adoption.md): a capability comes from the
+first tier that has it - opencode v2, then Eclipse, our own code only where
+neither host has the thing; capability parity, not TUI simulation. Adopted:
+session rename, background, shells, snapshots, fork, schema-driven forms
+(the declared Form.Field types drive the typed Form.Reply answer), context
+usage, permission REST reconciliation (floor semantics, wired into the
+watchdog), the v2 worktree API for peer job reconstruction, MCP management
+verbs. Quality: mojibake repaired repo-wide (124 sequences), B-010 (prose is
+never paths), G-004 (timeout failures name their knob), javadoc placements.
+Paired verification law (AGENTS.md): verification criteria are created and
+linked at definition-stage entry. T-006 verified live (Defender exclusions:
+git spawns ~22 ms). Squashed to one commit on top of v0.1.0 for push; the
+sliced review trail is on wip/slices-v2-adoption. Remaining v2 rows stay in
+the adoption matrix as 'adopt next'.

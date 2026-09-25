@@ -2068,6 +2068,11 @@ public class BoardView extends ViewPart {
         }
     }
 
+    /**
+     * Flips the auto-dispatch pump toggle for THIS board (the pump needs the
+     * board's sprint context); called by the toggle row and by
+     * {@link #applyFleetControl(String)}.
+     */
     private void toggleDispatchLoop() {
         if (autoLoopAction == null) {
             return;

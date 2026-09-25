@@ -276,6 +276,359 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     @Override
+    public void renameSession(String sessionId, String title) throws OpencodeException {
+        // v2 adoption 2026-09-25 (U-002 unblocked): PATCH /session/{id}
+        JsonObject body = new JsonObject();
+        body.addProperty("title", title);
+        request("PATCH", "/session/" + sessionId, body.toString());
+    }
+
+    @Override
+    public void moveSession(String sessionId, String directory) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("directory", directory);
+        request("POST", "/session/" + sessionId + "/move", body.toString());
+    }
+
+    @Override
+    public void switchSessionAgent(String sessionId, String agent) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("agent", agent);
+        request("POST", "/session/" + sessionId + "/agent", body.toString());
+    }
+
+    @Override
+    public void switchSessionModel(String sessionId, String model) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("model", model);
+        request("POST", "/session/" + sessionId + "/model", body.toString());
+    }
+
+    @Override
+    public void compactSession(String sessionId) throws OpencodeException {
+        request("POST", "/session/" + sessionId + "/compact", "{}");
+    }
+
+    @Override
+    public String exportSession(String sessionId) throws OpencodeException {
+        return send("GET", "/experimental/session/" + sessionId + "/export",
+                null, ClientTuning.REQUEST_TIMEOUT).body();
+    }
+
+    @Override
+    public String sessionLog(String sessionId) throws OpencodeException {
+        return send("GET", "/experimental/session/" + sessionId + "/log",
+                null, ClientTuning.REQUEST_TIMEOUT).body();
+    }
+
+    @Override
+    public Map<String, Object> sessionStats() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/experimental/session/stats",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public Map<String, Object> getLocation() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/location", null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public void reloadLocation() throws OpencodeException {
+        request("POST", "/location/reload", "{}");
+    }
+
+    @Override
+    public void updateProject(String projectId, String name) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("name", name);
+        request("PATCH", "/project/" + projectId, body.toString());
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listReferences() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/reference", null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "references");
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listPlugins() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/plugin", null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "plugins");
+    }
+
+    @Override
+    public void renameCredential(String credentialId, String label) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("label", label);
+        request("PATCH", "/credential/" + credentialId, body.toString());
+    }
+
+    @Override
+    public void activateCredential(String credentialId) throws OpencodeException {
+        request("POST", "/credential/" + credentialId + "/activate", "{}");
+    }
+
+    @Override
+    public void removeCredential(String credentialId) throws OpencodeException {
+        request("DELETE", "/credential/" + credentialId, "{}");
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listWebsearchProviders() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/websearch/provider", null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "providers");
+    }
+
+    @Override
+    public Map<String, Object> websearch(String query, String providerId) throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("query", query);
+        if (providerId != null) {
+            body.addProperty("providerID", providerId);
+        }
+        HttpResponse<String> response = send("POST", "/websearch", body.toString(), ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listPtys() throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/pty", null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "ptys");
+    }
+
+    @Override
+    public Map<String, Object> createPty(String command, java.util.List<String> args, String cwd, String title)
+            throws OpencodeException {
+        HttpResponse<String> response = send("POST", "/pty", commandBody(command, args, cwd, title),
+                ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    /**
+     * Shared {@code {command, args, cwd, title}} request body - the declared
+     * {@code PersistentPty.CreateInput} family used by both the PTY create and
+     * the session terminal create.
+     */
+    private static String commandBody(String command, java.util.List<String> args, String cwd, String title) {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        body.addProperty("command", command);
+        if (args != null) {
+            com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+            for (String arg : args) {
+                array.add(arg);
+            }
+            body.add("args", array);
+        }
+        if (cwd != null) {
+            body.addProperty("cwd", cwd);
+        }
+        if (title != null) {
+            body.addProperty("title", title);
+        }
+        return body.toString();
+    }
+
+    @Override
+    public void removePty(String ptyId) throws OpencodeException {
+        request("DELETE", "/pty/" + ptyId, "{}");
+    }
+
+    @Override
+    public Map<String, Object> readSessionTerminal(String sessionId) throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/experimental/session/" + sessionId + "/terminal/read",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public Map<String, Object> persistentPtySnapshot(String ptyId) throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/experimental/persistent-pty/" + ptyId + "/snapshot",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> checkPlugins() throws OpencodeException {
+        HttpResponse<String> response = send("POST", "/plugin/check", "{}", ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "plugin updates");
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> updatePlugins(java.util.List<String> targets)
+            throws OpencodeException {
+        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+        com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+        if (targets != null) {
+            for (String target : targets) {
+                array.add(target);
+            }
+        }
+        body.add("targets", array);
+        HttpResponse<String> response = send("POST", "/plugin/update", body.toString(), ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "updated plugins");
+    }
+
+    @Override
+    public Map<String, Object> sessionTerminal(String sessionId) throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/experimental/session/" + sessionId + "/terminal",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public Map<String, Object> createSessionTerminal(String sessionId, String command,
+            java.util.List<String> args, String cwd, String title) throws OpencodeException {
+        HttpResponse<String> response = send("POST", "/experimental/session/" + sessionId + "/terminal",
+                commandBody(command, args, cwd, title), ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public Map<String, Object> getSessionContext(String sessionId) throws OpencodeException {
+        // v2 adoption 2026-09-25: per-session context usage; same envelope
+        // handling as getSessionStatus (data object, absent data = empty)
+        HttpResponse<String> response = send("GET", "/session/" + sessionId + "/context",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectMap(response.body());
+    }
+
+    @Override
+    public void commitSessionRevert(String sessionId) throws OpencodeException {
+        request("POST", "/session/" + sessionId + "/revert/commit", "{}");
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listWorktrees(String projectID) throws OpencodeException {
+        // v2 worktrees (slice 2, 2026-09-25): projectID is REQUIRED (live
+        // probe 2026-09-25: bare GET answers 400, a path answers 404)
+        HttpResponse<String> response = send("GET", "/worktree?projectID="
+                + java.net.URLEncoder.encode(projectID, StandardCharsets.UTF_8),
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "worktree list");
+    }
+
+    @Override
+    public java.util.List<Map<String, Object>> listForms(String sessionId) throws OpencodeException {
+        HttpResponse<String> response = send("GET", "/session/" + sessionId + "/form",
+                null, ClientTuning.REQUEST_TIMEOUT);
+        return objectList(response.body(), "form list");
+    }
+
+    @Override
+    public void replyForm(String sessionId, String formID, java.util.Map<String, Object> values)
+            throws OpencodeException {
+        // Form.Reply = {"answer": {...}} - the service owns the schema, the
+        // answer echoes values keyed by the form's own field keys
+        request("POST", "/session/" + sessionId + "/form/" + formID + "/reply",
+                GSON.toJson(java.util.Map.of("answer", values == null ? java.util.Map.of() : values)));
+    }
+
+    @Override
+    public void cancelForm(String sessionId, String formID) throws OpencodeException {
+        request("DELETE", "/session/" + sessionId + "/form/" + formID, null);
+    }
+
+    @Override
+    public void removeMcp(String name) throws OpencodeException {
+        request("DELETE", "/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8), null);
+    }
+
+    @Override
+    public void connectMcp(String name) throws OpencodeException {
+        request("POST", "/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/connect", "{}");
+    }
+
+    @Override
+    public void disconnectMcp(String name) throws OpencodeException {
+        request("POST", "/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/disconnect", "{}");
+    }
+
+    @Override
+    public Map<String, Object> createWorktree(String projectID, String from, String branch,
+            String directory, String name) throws OpencodeException {
+        JsonObject body = new JsonObject();
+        if (projectID != null) {
+            body.addProperty("projectID", projectID);
+        }
+        if (from != null) {
+            body.addProperty("from", from);
+        }
+        if (branch != null) {
+            body.addProperty("branch", branch);
+        }
+        if (directory != null) {
+            body.addProperty("directory", directory);
+        }
+        if (name != null) {
+            body.addProperty("name", name);
+        }
+        HttpResponse<String> response = request("POST", "/worktree", body.toString());
+        return objectMap(response.body());
+    }
+
+    @Override
+    public void refreshWorktrees(String projectID) throws OpencodeException {
+        // the body key is REQUIRED (live probe 2026-09-25: "Missing key at
+        // [projectID]" for an empty body)
+        JsonObject body = new JsonObject();
+        body.addProperty("projectID", projectID);
+        request("POST", "/worktree/refresh", body.toString());
+    }
+
+    /**
+     * Flattens a {@code {"data":[...]}} (or bare array) response body into
+     * string-keyed maps - the shared envelope handling for v2 LIST methods.
+     */
+    private static java.util.List<Map<String, Object>> objectList(String responseBody, String what)
+            throws OpencodeException {
+        java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
+        try {
+            JsonElement element = JsonParser.parseString(responseBody);
+            JsonArray data = element.isJsonObject() && element.getAsJsonObject().has("data")
+                    && element.getAsJsonObject().get("data").isJsonArray()
+                    ? element.getAsJsonObject().getAsJsonArray("data")
+                    : new JsonArray();
+            for (JsonElement item : data) {
+                if (item.isJsonObject()) {
+                    result.add(objectMap(item.toString()));
+                }
+            }
+        } catch (JsonParseException e) {
+            throw new OpencodeException("unreadable " + what + ": " + e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * Flattens a {@code {"data":{...}}} (or bare object) response body into a
+     * string-keyed map - the shared envelope handling for the v2 adoption
+     * methods.
+     */
+    private static Map<String, Object> objectMap(String responseBody) throws OpencodeException {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        try {
+            JsonElement element = JsonParser.parseString(responseBody);
+            if (element.isJsonObject()) {
+                JsonObject root = element.getAsJsonObject();
+                JsonObject data = root.has("data") && root.get("data").isJsonObject()
+                        ? root.getAsJsonObject("data")
+                        : root;
+                for (java.util.Map.Entry<String, JsonElement> entry : data.entrySet()) {
+                    result.put(entry.getKey(), GSON.fromJson(entry.getValue(), Object.class));
+                }
+            }
+        } catch (JsonParseException e) {
+            throw new OpencodeException("unreadable response body: " + e.getMessage());
+        }
+        return result;
+    }
+
+    @Override
     public void registerMcp(String name, McpServerConfig config) throws OpencodeException {
         // v2: PUT /api/experimental/mcp/:server (v1 POSTed the name in the body)
         request("PUT", "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8),
@@ -972,8 +1325,10 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 }
                 JsonObject project = item.getAsJsonObject();
                 // canonical is the project directory; v2 carries no per-project
-                // branch/remote here (just the vcs TYPE), so those stay null
-                out.add(new ProjectSummary(stringOf(project, "canonical"), null, null));
+                // branch/remote here (just the vcs TYPE), so those stay null.
+                // The id is the service project id (worktree.* requires it).
+                out.add(new ProjectSummary(stringOf(project, "canonical"), null, null,
+                        stringOf(project, "id")));
             }
             return out;
         } catch (JsonParseException e) {
