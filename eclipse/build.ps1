@@ -8,7 +8,7 @@ $IsWindowsOS = $env:OS -eq "Windows_NT" -or [System.Runtime.InteropServices.Runt
 $JavaBin = if ($IsWindowsOS) { "java.exe" } else { "java" }
 
 function Resolve-JavaHome {
-    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin" $JavaBin))) { return $env:JAVA_HOME.Trim() }
+    if ($env:JAVA_HOME -and (Test-Path (Join-Path (Join-Path $env:JAVA_HOME "bin") $JavaBin))) { return $env:JAVA_HOME.Trim() }
     $result = $null
 
     # Windows: registry first, then common install dirs

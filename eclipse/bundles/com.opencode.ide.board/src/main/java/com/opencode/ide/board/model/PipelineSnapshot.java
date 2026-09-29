@@ -28,4 +28,28 @@ public record PipelineSnapshot(List<StageColumn> columns) {
         }
         return new StageColumn(stage, List.of(), 0, 0);
     }
+
+    /**
+     * U-028 FR-001/FR-004: WIP is the plain count of tickets with status
+     * {@code in-progress} - a COUNT only. There is NO WIP-limit concept: no
+     * warning, no gating, no setting, no tool. Recomputed per snapshot.
+     */
+    public static int wipCount(List<TicketRow> rows) {
+        int wip = 0;
+        for (TicketRow row : rows) {
+            if ("in-progress".equals(row.status())) {
+                wip++;
+            }
+        }
+        return wip;
+    }
+
+    /** U-028 FR-002/FR-005: the board-wide WIP count across every column. */
+    public int wipTotal() {
+        int total = 0;
+        for (StageColumn column : columns) {
+            total += wipCount(column.rows());
+        }
+        return total;
+    }
 }

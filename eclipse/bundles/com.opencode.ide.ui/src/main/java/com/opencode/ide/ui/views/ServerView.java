@@ -36,6 +36,7 @@ import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.FileStatus;
 import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.McpServerInfo;
+import com.opencode.ide.client.model.MigrationStatus;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
@@ -49,6 +50,7 @@ import com.opencode.ide.ui.internal.ViewLoadSupport;
 import com.opencode.ide.ui.model.AgentSessions;
 import com.opencode.ide.ui.model.CwdCheck;
 import com.opencode.ide.ui.model.McpServerRows;
+import com.opencode.ide.ui.model.MigrationBanner;
 import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
@@ -65,7 +67,10 @@ import com.opencode.ide.ui.session.SessionBusyPoller;
  * appear under the agent that spawned them). Each agent definition row in
  * the Agents category additionally nests the server's live sessions that
  * currently run as that agent (matched by the session's {@code agent} field,
- * busy first) — double-clicking one opens its live transcript.
+ * busy first), with subagent sessions nested under their parent session's
+ * row within that tree as well (U-041: the same {@code parentID} layer the
+ * Sessions category serves) — double-clicking any of them opens its live
+ * transcript.
  *
  * <p>The primary root behaves exactly like the former single-root view
  * (including the live {@code /event} activity tracker); remote roots show
@@ -82,6 +87,14 @@ import com.opencode.ide.ui.session.SessionBusyPoller;
  * tree items are only materialized when their parent is expanded, and
  * child counts come from the already-loaded in-memory lists (no fetching
  * for collapsed roots).</p>
+ *
+ * <p>Server-level info surfaces (context menu, U-046 slice 2): "Saved
+ * permissions…" manages the remembered allow/deny rules
+ * ({@code /permission/saved}), "Integrations…" connects the auth-method
+ * catalog's key, command and OAuth methods ({@code /integration} connect
+ * flows, U-048), and the content description carries the v1-migration banner
+ * ({@code /experimental/migration/v1}: info while running, warning on error,
+ * hidden otherwise).</p>
  */
 public class ServerView extends ViewPart implements Refreshable {
 
@@ -211,9 +224,11 @@ public class ServerView extends ViewPart implements Refreshable {
      * the same session also appears in the Sessions category, and a JFace
      * tree maps each element to exactly one item — the two tree positions
      * must be distinct objects. The record's structural equals/hashCode let
-     * the viewer keep the row's expansion state across refreshes. Wrappers
-     * are leaves: subagent children stay reachable under the session's row
-     * in the Sessions category.
+     * the viewer keep the row's expansion state across refreshes. Subagent
+     * sessions nest under their parent session's wrapper (U-041) — the same
+     * {@code parentID} layer the Sessions category serves, so the agent's
+     * live tree shows the full spawn hierarchy; each child is a wrapper too
+     * and opens its transcript through the same double-click seam.
      */
     record AgentSessionNode(Agent agent, Session session) {
     }
@@ -421,6 +436,28 @@ public class ServerView extends ViewPart implements Refreshable {
         };
         mcpManage.setToolTipText("Connect, disconnect or remove this server's MCP servers (v2 experimental.mcp)");
         menu.add(mcpManage);
+        // U-046 slice 2 + U-048: remembered allow/deny rules (user-global)
+        // and the integrations catalog with its connect flows - server-level
+        // surfaces like the plugins/MCP entries above
+        org.eclipse.jface.action.Action savedPermissions =
+                new org.eclipse.jface.action.Action("Saved permissions\u2026") {
+                    @Override
+                    public void run() {
+                        showSavedPermissions();
+                    }
+                };
+        savedPermissions.setToolTipText(
+                "The remembered allow/deny permission rules (v2 GET /api/permission/saved)");
+        menu.add(savedPermissions);
+        org.eclipse.jface.action.Action integrations = new org.eclipse.jface.action.Action("Integrations\u2026") {
+            @Override
+            public void run() {
+                showIntegrations();
+            }
+        };
+        integrations.setToolTipText(
+                "Connect this server's auth-method integrations (v2 /api/integration - key, command and OAuth flows)");
+        menu.add(integrations);
         viewer.getControl().setMenu(menu.createContextMenu(viewer.getControl()));
         menu.addMenuListener(manager -> {
             ServerSelection target = selectedTarget();
@@ -437,6 +474,8 @@ public class ServerView extends ViewPart implements Refreshable {
             pluginsCheck.setEnabled(target.mcpDetails());
             pluginsUpdate.setEnabled(target.mcpDetails());
             mcpManage.setEnabled(target.mcpDetails());
+            savedPermissions.setEnabled(target.mcpDetails());
+            integrations.setEnabled(target.mcpDetails());
         });
         getSite().registerContextMenu(menu, viewer);
 
@@ -603,6 +642,35 @@ public class ServerView extends ViewPart implements Refreshable {
         new McpServersDialog(getSite().getShell(), owner.client, owner.mcpServers).open();
     }
 
+    /**
+     * U-046 slice 2: the remembered allow/deny rules (user-global, so the
+     * owning server only decides WHICH connection to ask). The dialog loads
+     * and mutates through {@link ViewLoadSupport}.
+     */
+    private void showSavedPermissions() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        new SavedPermissionsDialog(getSite().getShell(), owner.client).open();
+    }
+
+    /**
+     * U-048: the integrations dialog with the real connect flows (command,
+     * key and OAuth — per integration and method, each attempt polled,
+     * completable and abortable; every failure a notice, nothing fakes
+     * success). Unscoped on purpose: auth methods are user-global on the
+     * shared service; load failures degrade to the dialog's feedback line,
+     * never an error popup.
+     */
+    private void showIntegrations() {
+        ServerNode owner = selectedOwner();
+        if (owner == null || owner.client == null) {
+            return;
+        }
+        new IntegrationsDialog(getSite().getShell(), owner.client, owner.label).open();
+    }
+
     /** Read-only agent definition dialog: mode, description, model. */
     private void showAgentDetails(Agent agent) {
         StringBuilder sb = new StringBuilder();
@@ -661,9 +729,20 @@ public class ServerView extends ViewPart implements Refreshable {
             return;
         }
         try {
-            getSite().getPage().showView(
+            org.eclipse.ui.IWorkbenchPage page = getSite().getPage();
+            // T-009 follow-up: focus-first across BOTH variants (plain and
+            // the ~live auto-refresh one) - opening a live-watched session
+            // here must focus the existing view, never duplicate it (the
+            // same guard FleetView applies on its side). showView on an
+            // existing primary+secondary pair activates it.
+            String plain = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId);
+            String live = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId, true);
+            String target = page.findViewReference(
+                    com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID, live) != null
+                    ? live : plain;
+            page.showView(
                     com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID,
-                    com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId),
+                    target,
                     org.eclipse.ui.IWorkbenchPage.VIEW_ACTIVATE);
         } catch (org.eclipse.ui.PartInitException e) {
             UiActivator.getDefault().getLog().log(
@@ -796,6 +875,14 @@ public class ServerView extends ViewPart implements Refreshable {
 
     /** The scope the auxiliary lists were last queried with (shown in the description). */
     private volatile String lastScopeDir;
+
+    /**
+     * The v1-migration banner line of the last refresh (U-046 slice 2):
+     * {@code null} = nothing to show (completed, absent endpoint, or not yet
+     * answered). Delivered async by {@link #updateMigrationBanner} - the
+     * content description picks it up via {@link #migrationSuffix()}.
+     */
+    private volatile MigrationBanner.Line migrationLine;
 
     /** The primary root: exactly the former single-root load (unchanged behavior). */
     private ServerNode loadPrimaryNode() throws Exception {
@@ -974,6 +1061,60 @@ public class ServerView extends ViewPart implements Refreshable {
         viewer.setExpandedElements(expanded.toArray());
         updateContentDescription();
         updateProjectHeader();
+        updateMigrationBanner(nodes);
+    }
+
+    // ---------- v1 migration banner (U-046 slice 2) ----------
+
+    /**
+     * One {@code GET /experimental/migration/v1} pass per refresh across the
+     * loaded connections' clients (aggregated by {@link MigrationBanner#merge}):
+     * {@code running} shows the persistent info line, {@code error} the
+     * warning line, everything else nothing. Endpoint failures - including
+     * the 404 of older builds without the route - read as unknown and stay
+     * hidden; they never break the view.
+     */
+    private void updateMigrationBanner(List<ServerNode> nodes) {
+        List<OpencodeClient> clients = new ArrayList<>();
+        for (ServerNode node : nodes) {
+            if (node.client != null && !clients.contains(node.client)) {
+                clients.add(node.client);
+            }
+        }
+        if (clients.isEmpty()) {
+            migrationLine = null;
+            return;
+        }
+        ViewLoadSupport.load("Checking v1 migration status", () -> {
+            MigrationBanner.Line banner = null;
+            for (OpencodeClient client : clients) {
+                try {
+                    MigrationStatus status = client.getV1MigrationStatus();
+                    banner = MigrationBanner.merge(banner,
+                            MigrationBanner.of(status == null ? null : status.status()));
+                } catch (Exception e) {
+                    // absent on older builds (404) or transiently unreadable:
+                    // unknown stays hidden - never an error surface here
+                }
+            }
+            return banner;
+        }, banner -> {
+            migrationLine = banner;
+            if (viewer != null && !viewer.getControl().isDisposed()) {
+                updateContentDescription();
+            }
+        }, error -> {
+            migrationLine = null; // loader-side catch-all: unknown/hidden
+        });
+    }
+
+    /** The migration part of the description line; empty while no banner is showing. */
+    private String migrationSuffix() {
+        MigrationBanner.Line line = migrationLine;
+        if (line == null) {
+            return "";
+        }
+        return line.warning() ? "  |  \u26a0 " + line.text() : "  |  " + line.text();
     }
 
     // ---------- live updates (driven by /event SSE via core) ----------
@@ -1257,7 +1398,7 @@ public class ServerView extends ViewPart implements Refreshable {
             setContentDescription((primary.healthy ? "Connected" : "Unreachable") + ": " + primary.url
                     + "  •  live  •  " + primary.agents.size() + " agents, " + primary.sessions.size() + " sessions"
                     + (working > 0 ? "  •  " + working + " working" : "")
-                    + projectVcsSuffix() + scopeSuffix());
+                    + projectVcsSuffix() + scopeSuffix() + migrationSuffix());
             return;
         }
         long up = nodes.stream().filter(n -> n.healthy).count();
@@ -1279,6 +1420,7 @@ public class ServerView extends ViewPart implements Refreshable {
         }
         sb.append(projectVcsSuffix());
         sb.append(scopeSuffix());
+        sb.append(migrationSuffix());
         setContentDescription(sb.toString());
     }
 
@@ -1386,6 +1528,7 @@ public class ServerView extends ViewPart implements Refreshable {
         viewer.setInput(null);
         setContentDescription("Error: " + ViewLoadSupport.message(e));
         projectVcs = ProjectVcs.UNKNOWN;
+        migrationLine = null;
         setTitleToolTip("");
         UiActivator.getDefault().getLog().log(
                 new Status(Status.ERROR, UiActivator.PLUGIN_ID, "Failed to load opencode server", e));
@@ -1648,6 +1791,19 @@ public class ServerView extends ViewPart implements Refreshable {
                         .map(session -> new AgentSessionNode(agent, session))
                         .toArray();
             }
+            if (parent instanceof AgentSessionNode nested) {
+                // U-041: subagents nest under their parent session's row
+                // inside the Agents category too — the same parentID layer
+                // the Sessions category serves, wrapped so every tree
+                // position stays a distinct element
+                ServerNode owner = AgentSessions.serverOfAgent(roots, nested.agent(), node -> node.agents);
+                if (owner == null) {
+                    return new Object[0];
+                }
+                return ServerLabels.childrenOf(owner.sessions, nested.session().id()).stream()
+                        .map(child -> new AgentSessionNode(nested.agent(), child))
+                        .toArray();
+            }
             if (parent instanceof Session session) {
                 ServerNode owner = ownerOf(session);
                 return owner != null ? ServerLabels.childrenOf(owner.sessions, session.id()).toArray() : new Object[0];
@@ -1669,6 +1825,18 @@ public class ServerView extends ViewPart implements Refreshable {
                 return category.server;
             }
             if (element instanceof AgentSessionNode nested) {
+                // a subagent row hangs under its parent session's wrapper
+                // (when that session is loaded); top-level rows hang off the
+                // agent definition row
+                if (nested.session().parentID() != null) {
+                    ServerNode owner = AgentSessions.serverOfAgent(roots, nested.agent(),
+                            node -> node.agents);
+                    Session parentSession = owner == null ? null
+                            : ServerLabels.parentSession(owner.sessions, nested.session());
+                    if (parentSession != null) {
+                        return new AgentSessionNode(nested.agent(), parentSession);
+                    }
+                }
                 return nested.agent();
             }
             if (element instanceof Agent agent) {
@@ -1748,6 +1916,11 @@ public class ServerView extends ViewPart implements Refreshable {
             if (parent instanceof Agent agent) {
                 ServerNode owner = AgentSessions.serverOfAgent(roots, agent, node -> node.agents);
                 return owner != null && AgentSessions.hasSessions(owner.sessions, agent);
+            }
+            if (parent instanceof AgentSessionNode nested) {
+                ServerNode owner = AgentSessions.serverOfAgent(roots, nested.agent(), node -> node.agents);
+                return owner != null
+                        && ServerLabels.hasSessionChildren(owner.sessions, nested.session().id());
             }
             if (parent instanceof Session session) {
                 ServerNode owner = ownerOf(session);

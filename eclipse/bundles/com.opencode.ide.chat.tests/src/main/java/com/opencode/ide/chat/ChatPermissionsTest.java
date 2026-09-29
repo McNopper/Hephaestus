@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,20 +14,11 @@ import org.junit.Test;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.opencode.ide.client.ChatRequest;
-import com.opencode.ide.client.McpServerConfig;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.activity.PermissionRequest;
-import com.opencode.ide.client.model.Agent;
-import com.opencode.ide.client.model.ChatEntry;
-import com.opencode.ide.client.model.ConfigInfo;
-import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.OpencodeEvent;
-import com.opencode.ide.client.model.ProviderList;
-import com.opencode.ide.client.model.Session;
-import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.chat.internal.ChatServerConnection;
 import com.opencode.ide.chat.internal.ChatSessionController;
 
@@ -414,73 +404,8 @@ public class ChatPermissionsTest {
         }
     }
 
-    private static final class FakeClient implements OpencodeClient {
+    private static final class FakeClient extends ChatFakeClientBase {
         final List<String> permissionAnswers = new ArrayList<>();
-
-        @Override
-        public HealthStatus getHealth() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<Agent> getAgents() {
-            return List.of();
-        }
-
-        @Override
-        public ProviderList getProviders() {
-            return new ProviderList(List.of(), Map.of());
-        }
-
-        @Override
-        public ConfigInfo getConfig() {
-            return null;
-        }
-
-        @Override
-        public List<Session> getSessions() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Map<String, SessionStatus> getSessionStatus() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Session createSession(String title, Path directory) {
-            return new Session("ses_1", null, title, null, null, null, null, null, null, null, null);
-        }
-
-        @Override
-        public void registerMcp(String name, McpServerConfig config) {
-            // not needed here
-        }
-
-        @Override
-        public List<ChatEntry> getMessages(String sessionId) {
-            return List.of();
-        }
-
-        @Override
-        public ChatEntry sendMessage(ChatRequest request) {
-            return null;
-        }
-
-        @Override
-        public void abortSession(String sessionId) {
-            // not needed here
-        }
-
-        @Override
-        public ChatEntry runCommand(String sessionId, String command, List<String> arguments) {
-            return null;
-        }
-
-        @Override
-        public void log(String service, String level, String message, Map<String, Object> extra) {
-            // not needed here
-        }
 
         @Override
         public boolean respondToPermission(String sessionId, String permissionId, String response,

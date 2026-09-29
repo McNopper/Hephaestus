@@ -7,7 +7,8 @@ import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
 /**
- * Owns the single {@link ChatWebServer} serving the bundled chat web assets.
+ * Owns the single {@link ChatWebServer} serving the bundled chat web assets
+ * and the plugin's dialog settings (chat-view continuity persistence, U-039).
  * Started lazily on first use; stopped with the bundle.
  */
 public class ChatActivator extends AbstractUIPlugin {
@@ -26,6 +27,7 @@ public class ChatActivator extends AbstractUIPlugin {
     @Override
     public void stop(BundleContext context) throws Exception {
         try {
+            persistDialogSettings(); // U-039: chat continuity settings survive restarts
             ChatWebServer server = webServer;
             if (server != null) {
                 server.stop();
@@ -39,6 +41,11 @@ public class ChatActivator extends AbstractUIPlugin {
 
     public static ChatActivator getDefault() {
         return instance;
+    }
+
+    /** Persists the dialog settings now (best-effort; the protected variant is not view-callable). */
+    public void persistDialogSettings() {
+        saveDialogSettings();
     }
 
     /** URL for a web resource (starts the server on first use). */

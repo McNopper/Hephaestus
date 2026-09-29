@@ -27,7 +27,9 @@ import com.opencode.ide.chat.internal.ChatPage;
 import com.opencode.ide.chat.internal.ChatServerConnection;
 import com.opencode.ide.chat.internal.ChatSessionController;
 import com.opencode.ide.chat.internal.ChatSelectorState;
+import com.opencode.ide.chat.internal.ChatViewSettings;
 import com.opencode.ide.chat.internal.CommandComposer;
+import com.opencode.ide.chat.internal.FileReferenceToken;
 import com.opencode.ide.chat.internal.SelectorGuard;
 import com.opencode.ide.client.ChatCapabilities;
 import com.opencode.ide.client.OpencodeClient;
@@ -74,6 +76,43 @@ import com.opencode.ide.core.OpencodePreferences;
  * from the opencode git snapshot, with a plain warning when the project is
  * not a git repo. Enablement follows the server state - see
  * {@link ChatSessionController#undoLastTurn}/{@link ChatSessionController#redoReverted}.</p>
+ *
+ * <p>U-047 TUI parity commands: {@code /init} runs a guided AGENTS.md setup
+ * (a canned prompt into the session), {@code /help} lists every built-in
+ * slash command (derived from {@link ChatSessionController#BUILT_IN_COMMANDS},
+ * so the list cannot drift), {@code /thinking} toggles reasoning visibility,
+ * and {@code /share} / {@code /unshare} surface the v2 verdict (no share
+ * endpoint exists - see
+ * {@link ChatSessionController#shareNotAvailable(boolean)}). U-012 + its
+ * U-047 remainder: typing a token starting with {@code @} in the composer
+ * opens the page's autocomplete - ALIAS reference roots (the server's
+ * reference catalog, fetched once and cached) above the fuzzy-matched FILES
+ * (arrow keys/Enter/Esc/click; the picked {@code @path} or {@code @name}
+ * stays plain text). U-039: the last session and the last deliberately
+ * picked model are persisted and restored on the next workspace start (see
+ * {@link #restorePreviousSession()}).</p>
+ *
+ * <p>U-014 interactive asks: a {@code permission.asked} of the CURRENT
+ * session opens the in-chat permission dialog (once/always/reject, once per
+ * request id - {@link ChatPermissionDialog}, the same decision mapping as
+ * the T-004 banner row below the toolbar) and both surfaces persist the
+ * ask until answered (banner row plus a transcript notice - no silent
+ * hang). The session's open QUESTION forms render as answerable cards in
+ * the page ({@link ChatSessionController#refreshForms} polls while a send
+ * is in flight - a run blocked on a form never settles its POST - plus on
+ * resume and after each settle; Submit/Cancel go through
+ * {@link ChatSessionController#replyForm}/
+ * {@link ChatSessionController#cancelForm}).</p>
+ *
+ * <p>T-005 queue management: prompts parked with the toolbar's Send to
+ * Queue (the session inbox, v2 Alt+Enter) are MANAGEABLE - the composer
+ * queue row under the transcript lists every parked prompt with
+ * <b>Steer now</b> / <b>Deliver next</b> / <b>Cancel</b> buttons, wired
+ * through the page's {@code __javaInboxAction} bridge to
+ * {@link ChatSessionController#steerInbox}/
+ * {@link ChatSessionController#deliverInboxNext}/
+ * {@link ChatSessionController#cancelInbox}; the row re-reads the server
+ * after every action, so a failed action keeps the item and says why.</p>
  */
 public class ChatView extends ViewPart {
 
@@ -100,6 +139,8 @@ public class ChatView extends ViewPart {
     private Action abortAction;
     private Action undoAction;
     private Action redoAction;
+    /** Thinking toggle (toolbar) - synced when {@code /thinking} flips the state. */
+    private Action reasoningAction;
     private Combo agentCombo;
     private final ChatSelectorState selectors = new ChatSelectorState();
     private Combo modelCombo;
@@ -117,6 +158,36 @@ public class ChatView extends ViewPart {
     /** Escape dismissed the picker until the input text changes again. */
     private boolean pickerDismissed;
 
+    /**
+     * Current @-file proposals - the dropdown's FILE group (empty = no file
+     * rows; U-012). The keyboard selection spans the MERGED list (aliases
+     * first), see {@link #mergedProposalAt(int)}.
+     */
+    private List<String> fileMatches = List.of();
+
+    /**
+     * Current @-alias reference-root proposals - the dropdown's ALIAS group
+     * above the files (U-047); a pick inserts the alias NAME like a path.
+     */
+    private List<ChatSessionController.ReferenceProposal> fileAliases = List.of();
+
+    /** Highlighted row of the @-file dropdown. */
+    private int fileSelection;
+
+    /**
+     * Bumped by every {@link #hideFileCompletions()}: an @-file answer that
+     * comes back for an earlier generation (the dropdown closed meanwhile -
+     * a pick, Esc, or the token changing) is dropped instead of re-opening
+     * the closed dropdown.
+     */
+    private int fileQueryGeneration;
+
+    /** Escape dismissed the @-file dropdown until the query changes again. */
+    private boolean filePickerDismissed;
+
+    /** The @-token the dropdown was last shown for (dismiss-rearm logic). */
+    private String lastFileToken;
+
     /** Ambient services for the controller: background jobs, UI dispatch, logging, status. */
     private final ChatSessionController.Host host = new ChatSessionController.Host() {
         @Override
@@ -132,6 +203,13 @@ public class ChatView extends ViewPart {
         @Override
         public void runOnUi(Runnable task) {
             Display.getDefault().asyncExec(task);
+        }
+
+        @Override
+        public void schedulePoll(long delayMillis, Runnable task) {
+            // the U-014 form-poll tick: a UI timer, so the tick itself never
+            // blocks and the HTTP refresh runs as a normal background job
+            Display.getDefault().timerExec((int) Math.max(0, delayMillis), task);
         }
 
         @Override
@@ -204,6 +282,24 @@ public class ChatView extends ViewPart {
                 redoAction.setEnabled(canRedo);
             }
         }
+
+        @Override
+        public void sessionChanged(String sessionId) {
+            // U-039 continuity: remember the conversation so the next
+            // workspace start can restore it (null = cleared by New Session)
+            ChatViewSettings.storeLastSession(sessionId);
+        }
+
+        @Override
+        public void reasoningVisibilityChanged(boolean visible) {
+            // /thinking flipped the controller state (already pushed to the
+            // page): persist the preference and keep the toolbar toggle in
+            // sync, exactly as a manual toggle would
+            new OpencodePreferences().setShowReasoning(visible);
+            if (reasoningAction != null) {
+                reasoningAction.setChecked(visible);
+            }
+        }
     };
 
     /** The connection adapter over the core singleton (client + SSE events). */
@@ -245,6 +341,58 @@ public class ChatView extends ViewPart {
         controller = new ChatSessionController(connection, page, host);
         // the page's per-message Fork buttons fork the session at that message
         page.setForkHandler(messageId -> controller.forkAt(messageId));
+        // the page's composer queue row (session inbox) manages parked
+        // prompts: Steer now / Deliver next / Cancel (T-005 management surface)
+        page.setInboxHandler((action, messageId) -> {
+            if (controller == null) {
+                return;
+            }
+            if ("steer".equals(action)) {
+                controller.steerInbox(messageId);
+            } else if ("queue".equals(action)) {
+                controller.deliverInboxNext(messageId);
+            } else if ("cancel".equals(action)) {
+                controller.cancelInbox(messageId);
+            } else {
+                ChatLog.info("inbox action '" + action + "' ignored (unknown)");
+            }
+        });
+        // the page's @-dropdown (U-012 files + U-047 alias reference roots)
+        // asks Java for proposals (__javaFileQuery) and reports clicked rows
+        // (__javaFilePick)
+        page.setFileQueryHandler(query -> {
+            if (controller == null) {
+                return;
+            }
+            final int generation = fileQueryGeneration;
+            controller.findProposals(query, proposals -> {
+                if (generation != fileQueryGeneration) {
+                    return; // stale: the dropdown closed while the search ran
+                }
+                if (proposals.aliases().isEmpty() && proposals.paths().isEmpty()) {
+                    hideFileCompletions(); // nothing propose-able: close
+                    return;
+                }
+                fileAliases = proposals.aliases();
+                fileMatches = proposals.paths(); // the FILE group (the merged selection spans both)
+                fileSelection = 0;
+                page.setFileCompletions(proposals.aliases(), proposals.paths(), 0);
+            });
+        });
+        // the page's form cards (U-014) answer/cancel the session's open
+        // question forms through the controller (which re-reads the forms
+        // afterwards - a failed answer keeps the card)
+        page.setFormReplyHandler((formId, answers) -> {
+            if (controller != null) {
+                controller.replyForm(formId, answers);
+            }
+        });
+        page.setFormCancelHandler(formId -> {
+            if (controller != null) {
+                controller.cancelForm(formId);
+            }
+        });
+        page.setFilePickHandler(this::pickFileCompletion);
         composer = new CommandComposer(connection);
         ChatLog.info("chat view created (browser: " + page.browserType() + ", secondary id: "
                 + getViewSite().getSecondaryId() + ")");
@@ -269,6 +417,7 @@ public class ChatView extends ViewPart {
         modelGuard = wireGuardedCombo(modelCombo, text -> {
             selectors.selectModel(selectedModel());
             rememberSelectedModel();
+            ChatViewSettings.storeLastModel(selectors.model()); // U-039: last deliberate pick
             fillVariants();
         });
         variantCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
@@ -309,14 +458,16 @@ public class ChatView extends ViewPart {
         askLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         Button askOnce = new Button(askRow, SWT.PUSH);
         askOnce.setText("Allow once");
-        askOnce.addListener(SWT.Selection, e -> answerAsk("once", false, null));
+        askOnce.addListener(SWT.Selection, e -> answerAsk(
+                currentAsk, askClient, com.opencode.ide.chat.ChatPermissionDecision.ONCE, null));
         Button askAlways = new Button(askRow, SWT.PUSH);
         askAlways.setText("Allow always");
-        askAlways.addListener(SWT.Selection, e -> answerAsk("always", true, null));
+        askAlways.addListener(SWT.Selection, e -> answerAsk(
+                currentAsk, askClient, com.opencode.ide.chat.ChatPermissionDecision.ALWAYS, null));
         Button askReject = new Button(askRow, SWT.PUSH);
         askReject.setText("Reject\u2026");
         askReject.setToolTipText("Reject with optional feedback for the agent");
-        askReject.addListener(SWT.Selection, e -> rejectAskWithFeedback());
+        askReject.addListener(SWT.Selection, e -> rejectAskWithFeedback(currentAsk, askClient));
         askRowComposite = askRow;
         com.opencode.ide.chat.ChatPermissions.addSink(askSink);
         scheduleAskRecovery();
@@ -378,12 +529,24 @@ public class ChatView extends ViewPart {
         input.addModifyListener(e -> {
             pickerDismissed = false;
             updateCommandPicker();
+            updateFileCompletions();
         });
         input.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 boolean plainEnter = e.character == SWT.CR && (e.stateMask & SWT.SHIFT) == 0;
-                if (plainEnter && pickerHasMatches()) {
+                if ((e.keyCode == SWT.ARROW_DOWN || e.keyCode == SWT.ARROW_UP)
+                        && fileCompletionsOpen()) {
+                    e.doit = false;
+                    moveFileSelection(e.keyCode == SWT.ARROW_DOWN ? 1 : -1);
+                } else if (plainEnter && fileCompletionsOpen()) {
+                    e.doit = false;
+                    commitFileSelection();
+                } else if (e.character == SWT.ESC && fileCompletionsOpen()) {
+                    e.doit = false;
+                    filePickerDismissed = true;
+                    hideFileCompletions();
+                } else if (plainEnter && pickerHasMatches()) {
                     e.doit = false;
                     commitPickerSelection();
                 } else if (e.character == SWT.TAB && pickerHasMatches()) {
@@ -424,9 +587,13 @@ public class ChatView extends ViewPart {
         contributeActions();
         page.load();
         controller.subscribe();
+        // the persisted thinking preference is the controller's initial
+        // state too (/thinking flips it from there)
+        controller.setReasoningVisible(new OpencodePreferences().isShowReasoning());
         loadSelectors();
         host.runInBackground("Loading opencode commands", composer::loadCommands);
         maybeResumeFromSecondaryId();
+        restorePreviousSession();
     }
 
     /**
@@ -486,8 +653,9 @@ public class ChatView extends ViewPart {
         redoAction.setEnabled(false); // enabled once the server holds reverted messages
 
         // Thinking toggle: shows/hides the reasoning progress (live and
-        // history) - a persisted preference, re-applied when the page reloads
-        Action reasoningAction = new Action("Thinking", org.eclipse.jface.action.IAction.AS_CHECK_BOX) {
+        // history) - a persisted preference, re-applied when the page reloads.
+        // /thinking drives the same path (the host callback syncs this action)
+        reasoningAction = new Action("Thinking", org.eclipse.jface.action.IAction.AS_CHECK_BOX) {
             @Override
             public void run() {
                 boolean show = isChecked();
@@ -519,7 +687,8 @@ public class ChatView extends ViewPart {
                 queueCurrentInput();
             }
         };
-        queueSendAction.setToolTipText("Park this prompt in the session inbox - delivered after the current run (v2 Alt+Enter)");
+        queueSendAction.setToolTipText("Park this prompt in the session inbox - delivered after the current run (v2 Alt+Enter); "
+                + "the queue row lists parked prompts (steer / deliver / cancel)");
         toolBar.add(queueSendAction);
         toolBar.add(backgroundAction);
         toolBar.add(reasoningAction);
@@ -743,6 +912,56 @@ public class ChatView extends ViewPart {
         controller.resume(secondary); // already URL-decoded by the workbench
     }
 
+    // ---------- U-039: continuity across restarts ----------
+
+    /**
+     * Restores the last conversation after a restart (primary view only - a
+     * secondary-id view resumes ITS session, a fresh window is an explicit
+     * new chat): the stored model is preselected right away (an explicit pick
+     * survives the async catalog load by design), and the stored session is
+     * probed on a background job once the connection answers - an existing
+     * session resumes through the normal path (plus a small "Restored
+     * session …" notice), a vanished one degrades silently: the stored id is
+     * cleared and the view stays fresh.
+     */
+    private void restorePreviousSession() {
+        if (getViewSite().getSecondaryId() != null) {
+            return; // explicit resume or explicit new chat: continuity does not apply
+        }
+        String model = ChatViewSettings.lastModel();
+        if (model != null && model.indexOf('/') > 0) {
+            int slash = model.indexOf('/');
+            preselectModel(model.substring(0, slash), model.substring(slash + 1));
+        }
+        String sid = ChatViewSettings.lastSessionId();
+        if (sid == null || sid.isBlank()) {
+            return;
+        }
+        host.runInBackground("Restoring last chat session " + sid, () -> {
+            boolean exists;
+            try {
+                connection.getClient().getMessages(sid); // probe (blocks until connected)
+                exists = true;
+            } catch (OpencodeException e) {
+                exists = false;
+            }
+            if (!exists) {
+                ChatViewSettings.storeLastSession(null); // stale: never restore it again
+                ChatLog.info("restore: session " + sid + " no longer exists - starting fresh");
+                return;
+            }
+            Display.getDefault().asyncExec(() -> {
+                if (controller == null || controller.isSending()) {
+                    return;
+                }
+                controller.resume(sid);
+                if (page != null) {
+                    page.notice("Restored session " + sid + " (your last chat).");
+                }
+            });
+        });
+    }
+
     /** Opens a NEW chat window (fresh session) with an optional preselected model. */
     public static ChatView openNew(IWorkbenchPage page, String providerId, String modelId) {
         return open(page, "fresh-" + FRESH_COUNTER.incrementAndGet()
@@ -851,6 +1070,113 @@ public class ChatView extends ViewPart {
         input.setSelection(input.getText().length());
     }
 
+    // ---------- @-file autocomplete (U-012) ----------
+
+    /** @return true while the @-dropdown shows proposals (either group). */
+    private boolean fileCompletionsOpen() {
+        return !fileAliases.isEmpty() || !fileMatches.isEmpty();
+    }
+
+    /**
+     * Recomputes the @-file dropdown for the {@code @} token the caret is in:
+     * a token (re)opens the dropdown by handing its query to the page (which
+     * asks Java for the matches via {@code __javaFileQuery}); leaving the
+     * token hides it. Escape closes the dropdown until the query changes.
+     */
+    private void updateFileCompletions() {
+        if (input == null || input.isDisposed() || page == null || controller == null) {
+            return;
+        }
+        String token = FileReferenceToken.tokenAt(input.getText(), input.getCaretPosition());
+        if (token == null) {
+            filePickerDismissed = false; // outside any token: re-arm for the next one
+            lastFileToken = null;
+            hideFileCompletions();
+            return;
+        }
+        if (filePickerDismissed && token.equals(lastFileToken)) {
+            return; // Esc closed this token's dropdown until the query changes
+        }
+        filePickerDismissed = false;
+        lastFileToken = token;
+        page.showFileQuery(FileReferenceToken.queryOf(token)); // the page asks Java for matches
+    }
+
+    /** Hides the @-dropdown (idempotent); in-flight answers turn stale. */
+    private void hideFileCompletions() {
+        fileQueryGeneration++; // answers still in flight are dropped on arrival
+        fileAliases = List.of();
+        fileMatches = List.of();
+        fileSelection = 0;
+        if (page != null) {
+            page.hideFileCompletions();
+        }
+    }
+
+    /**
+     * The proposal value at the MERGED row {@code index} (aliases first, then
+     * files - the order the page renders and highlights): an alias's NAME or
+     * a file path; {@code null} when the index is out of range.
+     */
+    private String mergedProposalAt(int index) {
+        if (index < 0 || index >= fileAliases.size() + fileMatches.size()) {
+            return null;
+        }
+        return index < fileAliases.size()
+                ? fileAliases.get(index).name()
+                : fileMatches.get(index - fileAliases.size());
+    }
+
+    /** Moves the @-dropdown highlight by {@code delta}, clamped to the merged rows. */
+    private void moveFileSelection(int delta) {
+        int rows = fileAliases.size() + fileMatches.size();
+        if (rows == 0) {
+            return;
+        }
+        fileSelection = Math.max(0, Math.min(rows - 1, fileSelection + delta));
+        page.setFileCompletions(fileAliases, fileMatches, fileSelection);
+    }
+
+    /** Enter: commits the highlighted completion into the composer. */
+    private void commitFileSelection() {
+        String value = mergedProposalAt(fileSelection);
+        if (value != null) {
+            pickFileCompletion(value);
+        }
+    }
+
+    /**
+     * Replaces the {@code @} token the caret is in with {@code @path } (a
+     * picked completion - a file path or an alias reference name, via Enter
+     * in the input or a click on a dropdown row) and hides the dropdown. The
+     * hide runs LAST and bumps the query generation, so the re-query the
+     * setText modify event issues for the just-inserted {@code @path} lands
+     * stale and cannot re-open the closed dropdown. The reference stays
+     * plain text: the server/model resolves it, nothing is injected into
+     * the message.
+     */
+    private void pickFileCompletion(String path) {
+        if (input == null || input.isDisposed() || path == null || path.isBlank()) {
+            hideFileCompletions();
+            return;
+        }
+        String text = input.getText();
+        int caret = input.getCaretPosition();
+        int start = caret;
+        while (start > 0 && !Character.isWhitespace(text.charAt(start - 1))) {
+            start--;
+        }
+        int end = start;
+        while (end < text.length() && !Character.isWhitespace(text.charAt(end))) {
+            end++;
+        }
+        input.setText(FileReferenceToken.replaceToken(text, start, end, path));
+        // caret right after the inserted "@path "
+        input.setSelection(Math.min(input.getText().length(), start + path.length() + 2));
+        input.setFocus();
+        hideFileCompletions();
+    }
+
     // ---------- sending / pending queue ----------
 
     private void send() {
@@ -866,14 +1192,31 @@ public class ChatView extends ViewPart {
         String builtIn = ChatSessionController.builtInSlashCommand(text);
         if (builtIn != null) {
             input.setText(""); // fires the modify listener, hiding the picker
-            if ("undo".equals(builtIn)) {
-                controller.undoLastTurn();
-            } else {
-                controller.redoReverted();
-            }
+            dispatchBuiltInCommand(builtIn);
             return;
         }
         submitSelection(composer.resolve(text));
+    }
+
+    /** Runs one recognized built-in slash command (see ChatSessionController.BUILT_IN_COMMANDS). */
+    private void dispatchBuiltInCommand(String builtIn) {
+        if ("undo".equals(builtIn)) {
+            controller.undoLastTurn();
+        } else if ("redo".equals(builtIn)) {
+            controller.redoReverted();
+        } else if ("init".equals(builtIn)) {
+            controller.runInitCommand();
+        } else if ("help".equals(builtIn)) {
+            controller.showHelp();
+        } else if ("thinking".equals(builtIn)) {
+            controller.toggleThinking();
+        } else if ("share".equals(builtIn)) {
+            controller.shareNotAvailable(false);
+        } else if ("unshare".equals(builtIn)) {
+            controller.shareNotAvailable(true);
+        } else {
+            ChatLog.info("built-in command '" + builtIn + "' ignored (unknown)");
+        }
     }
 
     /**
@@ -982,13 +1325,26 @@ public class ChatView extends ViewPart {
         input.setFocus();
     }
 
-    // ---------- T-004 / T-005: ask banner + session actions ----------
+    // ---------- T-004 / T-005 / U-014: ask banner + dialog + session actions ----------
 
     private Composite askRowComposite;
     private org.eclipse.swt.widgets.Label askLabel;
     private volatile com.opencode.ide.client.activity.PermissionRequest currentAsk;
     private volatile com.opencode.ide.client.OpencodeClient askClient;
     private final java.util.Set<String> answeredAsks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * U-014 AC3: asks already noticed in the transcript - the pending-state
+     * notice fires once per ask id, not on every (re)surfacing.
+     */
+    private final java.util.Set<String> noticedAsks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * U-014 AC1: decides which asks additionally open the permission dialog
+     * (once per request id, current session only) - the banner always shows.
+     */
+    private final com.opencode.ide.chat.ChatPermissionDialogGate askDialogGate =
+            new com.opencode.ide.chat.ChatPermissionDialogGate();
+    /** The currently-open permission dialog (closed when its ask is answered elsewhere). */
+    private volatile ChatPermissionDialog openAskDialog;
 
     /** Coexisting ChatPermissions listener (the multiplexer) - never steals the fleet queue's feed. */
     private final com.opencode.ide.chat.ChatPermissionSink askSink = new com.opencode.ide.chat.ChatPermissionSink() {
@@ -1010,7 +1366,14 @@ public class ChatView extends ViewPart {
             if (requestId != null) {
                 answeredAsks.add(requestId);
             }
-            Display.getDefault().asyncExec(() -> hideAsk());
+            Display.getDefault().asyncExec(() -> {
+                hideAsk();
+                // an ask answered elsewhere (another client) closes its dialog
+                ChatPermissionDialog dialog = openAskDialog;
+                if (dialog != null && requestId != null && requestId.equals(dialog.requestId())) {
+                    dialog.close();
+                }
+            });
         }
     };
 
@@ -1023,6 +1386,44 @@ public class ChatView extends ViewPart {
         askClient = client;
         askLabel.setText(request.display() == null ? request.permission() : request.display());
         setAskRowVisible(true);
+        // U-014 AC3: one transcript notice per ask - the session is WAITING
+        // on the user, visible even if the banner scrolls out of sight
+        if (page != null && noticedAsks.add(request.permissionId())) {
+            page.notice("\uD83D\uDD12 Permission requested - the session waits for your answer.");
+        }
+        // U-014 AC1: the ask's own dialog (once per id, current session only)
+        String sid = controller == null ? null : controller.sessionId();
+        if (askDialogGate.offer(sid, request)) {
+            openAskDialogFor(request, client);
+        }
+    }
+
+    /**
+     * Opens the U-014 permission dialog for one ask. Runs on the UI thread
+     * inside the ask's asyncExec: {@code open()} blocks in SWT's standard
+     * modal nested event loop (deltas and other asyncExecs keep running),
+     * never on the SSE or job threads. The picked decision goes through the
+     * SAME answer path as the banner; dismissing the dialog without
+     * answering leaves the ask on the banner row - the pending state survives.
+     */
+    private void openAskDialogFor(com.opencode.ide.client.activity.PermissionRequest request,
+            com.opencode.ide.client.OpencodeClient client) {
+        ChatPermissionDialog dialog = new ChatPermissionDialog(getSite().getShell(), request);
+        openAskDialog = dialog;
+        int code;
+        try {
+            code = dialog.open();
+        } finally {
+            openAskDialog = null;
+        }
+        if (code == ChatPermissionDialog.ALLOW_ONCE) {
+            answerAsk(request, client, com.opencode.ide.chat.ChatPermissionDecision.ONCE, null);
+        } else if (code == ChatPermissionDialog.ALLOW_ALWAYS) {
+            answerAsk(request, client, com.opencode.ide.chat.ChatPermissionDecision.ALWAYS, null);
+        } else if (code == ChatPermissionDialog.REJECT) {
+            rejectAskWithFeedback(request, client);
+        }
+        // else: dismissed - the banner keeps the pending ask (no silent loss)
     }
 
     private void hideAsk() {
@@ -1038,22 +1439,34 @@ public class ChatView extends ViewPart {
         askRowComposite.getParent().layout();
     }
 
-    /** The single answer path (once/always/reject) with optional reject feedback (T-004). */
-    private void answerAsk(String decision, boolean remember, String feedback) {
-        com.opencode.ide.client.activity.PermissionRequest ask = currentAsk;
-        com.opencode.ide.client.OpencodeClient client = askClient;
-        if (ask == null || client == null) {
+    /**
+     * The single answer path (once/always/reject, banner AND dialog - U-014)
+     * with optional reject feedback (T-004): marks the ask answered, hides
+     * the banner when it still shows THIS ask, and POSTs
+     * {@code respondToPermission} off the UI thread through the decision's
+     * wire mapping ({@link com.opencode.ide.chat.ChatPermissionDecision}).
+     */
+    private void answerAsk(com.opencode.ide.client.activity.PermissionRequest ask,
+            com.opencode.ide.client.OpencodeClient client,
+            com.opencode.ide.chat.ChatPermissionDecision decision, String feedback) {
+        if (ask == null || client == null || decision == null) {
             return;
         }
         answeredAsks.add(ask.permissionId());
-        hideAsk();
+        if (ask == currentAsk) {
+            hideAsk(); // a NEWER ask may own the banner meanwhile - keep that one
+        }
+        final com.opencode.ide.client.activity.PermissionRequest request = ask;
+        final com.opencode.ide.client.OpencodeClient answerClient = client;
         com.opencode.ide.client.WorkerPools.submit("chat-permission-answer", () -> {
             String message;
             try {
-                message = client.respondToPermission(ask.sessionId(), ask.permissionId(), decision, remember, feedback)
-                        ? "answered '" + decision + "'" : "answer not accepted";
+                message = answerClient.respondToPermission(request.sessionId(), request.permissionId(),
+                        decision.response(), decision.remember(), feedback)
+                        ? "Permission answered '" + decision.response() + "'."
+                        : "\u26A0 Permission answer was not accepted.";
             } catch (Exception e) {
-                message = "answer failed: " + e.getMessage();
+                message = "\u26A0 Permission answer failed: " + e.getMessage();
             }
             String finalMessage = message;
             Display.getDefault().asyncExec(() -> {
@@ -1064,39 +1477,48 @@ public class ChatView extends ViewPart {
         });
     }
 
-    private void rejectAskWithFeedback() {
+    private void rejectAskWithFeedback(com.opencode.ide.client.activity.PermissionRequest ask,
+            com.opencode.ide.client.OpencodeClient client) {
         org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
                 getSite().getShell(), "Reject with feedback",
                 "Optional feedback for the agent (why the request is rejected):", "", null);
         if (dialog.open() == org.eclipse.jface.window.Window.OK) {
             String feedback = dialog.getValue();
-            answerAsk("reject", false, feedback == null || feedback.isBlank() ? null : feedback.trim());
+            answerAsk(ask, client, com.opencode.ide.chat.ChatPermissionDecision.REJECT,
+                    feedback == null || feedback.isBlank() ? null : feedback.trim());
         }
     }
 
     /**
      * Reconnect recovery (T-004): SSE events are not replayed, so pending
      * asks are re-read from GET /permission/request when the view appears.
+     * The re-read/filter/degrade logic lives in the SWT-free
+     * {@link com.opencode.ide.chat.ChatPermissionRecovery} (pinned by
+     * {@code ChatPermissionRecoveryTest}); this wrapper only moves it off the
+     * UI thread and bounces the surfaced asks onto it.
      */
     private void scheduleAskRecovery() {
-        com.opencode.ide.client.WorkerPools.submit("chat-ask-recovery", () -> {
-            try {
-                com.opencode.ide.core.OpencodeConnection connection =
-                        com.opencode.ide.core.OpencodeConnection.getInstance();
-                com.opencode.ide.client.OpencodeClient client = connection.getClient();
-                for (com.opencode.ide.client.activity.PermissionRequest request
-                        : client.listPermissionRequests(connection.getWorkingDirectory())) {
-                    String sid = controller == null ? null : controller.sessionId();
-                    if (request.pending() && !answeredAsks.contains(request.permissionId())
-                            && (sid == null || sid.equals(request.sessionId()))) {
-                        Display.getDefault().asyncExec(() -> showAsk(request, client));
-                    }
-                }
-            } catch (Exception ignored) {
-                // older server / not connected - the banner simply stays hidden
-            }
-        });
+        com.opencode.ide.client.WorkerPools.submit("chat-ask-recovery", askRecovery::recover);
     }
+
+    /**
+     * The recovery seam's view side: live client + working directory from
+     * the core connection, this view's session scope and answered ids, and a
+     * listener that surfaces the ask banner on the UI thread.
+     */
+    private final com.opencode.ide.chat.ChatPermissionRecovery askRecovery =
+            new com.opencode.ide.chat.ChatPermissionRecovery(
+                    () -> {
+                        try {
+                            return com.opencode.ide.core.OpencodeConnection.getInstance().getClient();
+                        } catch (OpencodeException e) {
+                            return null; // not connected - recovery degrades to a no-op
+                        }
+                    },
+                    () -> com.opencode.ide.core.OpencodeConnection.getInstance().getWorkingDirectory(),
+                    () -> controller == null ? null : controller.sessionId(),
+                    () -> answeredAsks,
+                    (request, client) -> Display.getDefault().asyncExec(() -> showAsk(request, client)));
 
     /** T-005: background the session's blocking tools (POST /session/:id/background). */
     private void backgroundSession() {
@@ -1130,6 +1552,9 @@ public class ChatView extends ViewPart {
         }
         input.setText("");
         controller.send(outgoingMessage(text), "queue");
+        // best-effort immediate row update: the send job re-reads the inbox
+        // when the parking POST settles, which is the authoritative refresh
+        controller.refreshInbox();
     }
 
     private ChatSessionController.OutgoingMessage outgoingMessage(String text) {

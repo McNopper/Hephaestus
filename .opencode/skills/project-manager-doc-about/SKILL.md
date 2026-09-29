@@ -30,7 +30,7 @@ the rule applies to any `*.md` file, not just skills or agents.
 
 ## Independence from the PM system
 
-This skill does **not** require tickets, sprints, or the task store (`task_*` tools). It is a plain
+This skill does **not** require tickets, waves, or the task store (`task_*` tools). It is a plain
 authoring standard you (or any agent) can apply to **any** Markdown file:
 
 - A **human** can invoke `project-manager-doc-about` directly to write a standalone document (a spec,
@@ -42,7 +42,7 @@ authoring standard you (or any agent) can apply to **any** Markdown file:
 
 The PM/ticket workflow is itself **optional** in Hephaestus: skills and agents can be used
 directly by a human (or by another agent) without ever creating a ticket. Use the PM system
-when you want tracked, multi-agent, sprint-based execution; skip it for ad-hoc work.
+when you want tracked, multi-agent, wave-based execution; skip it for ad-hoc work.
 
 ## The rule
 

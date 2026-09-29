@@ -87,4 +87,41 @@ public class TicketMarkdownTest {
         assertEquals(-1, doc.indexOf("c1\n")); // c1, c2 dropped (oldest)
         assertTrue(doc.indexOf("c3") < doc.indexOf("c12")); // chronological, newest last
     }
+
+    /** U-026 FR-002/FR-003/FR-004: the details surface carries the movement trace. */
+    @Test
+    public void journeySectionListsMovementsWithTimestampsAuthorsAndReasons() {
+        Task task = new Task();
+        task.stage = "requirements";
+        task.role = "pm";
+        task.history.add(new Task.HistoryEvent(Instant.parse("2026-09-29T06:33:53.929Z"),
+                "created (stage: requirements - entry)", null));
+        task.history.add(new Task.HistoryEvent(Instant.parse("2026-09-29T06:33:53.929Z"),
+                "advanced to system", "chat-session"));
+        task.history.add(new Task.HistoryEvent(Instant.parse("2026-09-29T07:00:00.000Z"),
+                "sent back to requirements: missing NFR", "reviewer"));
+
+        String doc = TicketMarkdown.document(task);
+
+        assertTrue(doc.contains("## Stage journey"));
+        assertTrue(doc.contains("**2/10** stages visited"));
+        assertTrue(doc.contains("[2026-09-29T06:33:53.929Z] chat-session · advanced requirements → system"));
+        assertTrue("the send-back is highlighted with its reason (AC-002)",
+                doc.contains("**[2026-09-29T07:00:00.000Z] reviewer · "
+                        + "⚠ sent back from system: missing NFR — back to requirements**"));
+    }
+
+    /** U-026: the progress is duplicated in the details (NFR-REDUND-001); empty journeys say so. */
+    @Test
+    public void journeySectionShowsProgressAndPlaceholderWhenNothingMoved() {
+        Task task = new Task();
+        task.stage = "design";
+        task.role = "developer";
+
+        String doc = TicketMarkdown.document(task);
+
+        assertTrue(doc.contains("## Stage journey"));
+        assertTrue(doc.contains("**1/10** stages visited"));
+        assertTrue(doc.contains("_(no movements)_"));
+    }
 }

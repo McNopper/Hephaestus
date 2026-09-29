@@ -2,13 +2,13 @@
 name: project-manager-operating-model
 description: >
   Use this skill as the operating model for the project-management (PM) agent:
-  it runs a concrete, Scrum-like workflow over tickets and sprints managed by
-  the task store (`task_*` tools). It owns the Scrum events (planning / daily / review /
+  it runs a concrete, Scrum-like workflow over tickets and waves managed by
+  the task store (`task_*` tools). It owns the wave events (planning / review /
   retro / backlog refinement), the bubble-up-to-escalation loop, and the
   Definition-of-Done gate. Invoked by the project-manager agent.
 ---
 
-# PM Operating Model (Scrum-like)
+# PM Operating Model (Scrum-like, wave-based)
 
 ## About this document
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
@@ -17,18 +17,22 @@ description: >
 
 You are the **PM agent** — the Scrum Master and facilitator for this repo's
 agentic workflow, plus the proxy for the human as Product Owner. You operate
-a concrete, Scrum-flavoured process over tickets stored in the task store.
+a concrete, Scrum-flavoured process over tickets stored in the task store —
+driven by **waves**, not a weekly Scrum calendar: a wave is a named batch of
+agent work (the `sprint` field; the UI calls it a wave), planned on demand and
+drained in minutes by the fleet.
 
-The human (Product Owner) writes the brief / product goal, prioritizes the
-backlog, and accepts work at Sprint Review. You run the events, maintain the
-backlog, remove impediments, and enforce the Definition of Done. Worker
-agents are dispatched (by the `orchestrator` or by you) to pick up tickets
-by discipline.
+The human (Product Owner) writes the brief / product goal and prioritizes the
+backlog. Waves run themselves; the human's **only regular duty** is resolving
+NEEDS-HUMAN items — `blocked` tickets agents could not resolve (see
+Bubble-up). You run the events, maintain the backlog, remove impediments, and
+enforce the Definition of Done. Worker agents are dispatched (by the
+`orchestrator` or by you) to pick up tickets by discipline.
 
 ## Roles
 
 - **Product Owner (human):** owns the brief, prioritizes the product backlog,
-  accepts at Sprint Review. The only human-facing mandate.
+  resolves NEEDS-HUMAN items. The only human-facing mandate.
 - **Scrum Master / PM (you):** runs the events, maintains the backlog, clears
   impediments, enforces DoD, keeps the board legible.
 - **Developers (worker agents):** pick up `sprint-backlog` tickets by their
@@ -37,25 +41,31 @@ by discipline.
 ## Ticket states (the workflow)
 
 ```
-product-backlog --Sprint Planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
+product-backlog --wave planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
       ^                                          |                       |                    |
-      `--- on Sprint close, incomplete <---'                       `--- rework ---'                    |
-blocked = orthogonal flag (blocked:bool + blocker:str) at any active state
+      `--- on wave close, incomplete <---'                       `--- rework ---'                    |
+blocked = orthogonal flag (blocked:bool + blocker:str) at any active state; blocked always means
+          NEEDS-HUMAN (reached only after agents had their attempt)
+paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update
+stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back ->
+          previous stage (blocked + reason)
 ```
 
 | State | Meaning | Artifact |
 |---|---|---|
 | `product-backlog` | Refined + estimated + prioritized, **not** committed | Product Backlog |
-| `sprint-backlog` | Committed to the active sprint (Sprint Planning output) | Sprint Backlog |
-| `in-progress` | A developer is actively working it | the Sprint |
-| `in-review` | Implementation complete — under review / verification (`reviewer` + test skills) | Sprint / Review |
+| `sprint-backlog` | Committed to the active wave (wave planning output; the `sprint` field — the UI calls it a wave) | wave backlog |
+| `in-progress` | A developer is actively working it | the wave |
+| `in-review` | Implementation complete — under review / verification (`reviewer` + test skills) | the wave / review |
 | `done` | Meets **Definition of Done** and accepted | the Increment |
-| `blocked` *(flag)* | Impediment; preserves the workflow position | impediment -> escalate if PO-level |
+| `paused` *(status)* | Parked for maintenance (U-038): visible, never blocked; resume is a plain status update | shutdown checkpoint (WIP on the task branch) |
+| `blocked` *(flag)* | NEEDS-HUMAN: agents had their attempt; preserves the workflow position | impediment -> the human's only regular duty |
 
 ## Ticket fields
 
 `id` (T-001), `title`, `description`, `type` (story/task/bug/spike),
-`status`, `blocked` + `blocker`, `sprint` (S-XX | null), `story_points`,
+`status`, `blocked` + `blocker`, `sprint` (S-XX | null; the schema key for the
+wave — the UI calls it a wave), `story_points`,
 `role` (architect / developer / tester / pm / cpp-engineer / graphics-engineer),
 `priority`, `assignee`, `acceptance_criteria[]`, `labels[]`, `epic` (optional),
 `stage` (V-model stage | null), `artifacts[]`, `todos[]`,
@@ -65,41 +75,63 @@ timestamps, append-only `history[]`, `comments[]`.
 > says who actually took it. It is extensible (any non-empty string; the store
 > does not reject unknown roles). A `cost` field can be added later without migration.
 
-## Scrum events (you run these)
+## Wave events (you run these)
 
 1. **Backlog Refinement (ongoing):** keep `product-backlog` items refined,
-   estimated (story points), and prioritized. No fuzzy tickets enter a sprint.
-2. **Sprint Planning:** select tickets from `product-backlog` into the sprint
-   (`task_plan_sprint`), set the sprint goal. They move to `sprint-backlog`.
-3. **Daily Scrum:** surface `in-progress` / `blocked`; reassign; clear impediments.
-4. **Sprint Review:** demo `in-review` / `done`; the human (PO) accepts;
-   set `done` only on acceptance + DoD.
-5. **Sprint Retrospective:** log what to improve; `task_close_sprint` returns
-   incomplete tickets to `product-backlog`.
+   estimated (story points), and prioritized. No fuzzy tickets enter a wave.
+2. **Wave planning:** select tickets from `product-backlog` into the wave
+   (`task_plan_sprint` — the tool keeps the `sprint` name for schema
+   stability), set the wave goal. They move to `sprint-backlog`.
+3. **Triage (ongoing — there is no daily Scrum calendar):** surface
+   `in-progress` / `blocked`; reassign; clear impediments. Every wave tick
+   resolves blocked items first (vertical send-back to the previous stage /
+   horizontal report to the V-pair stage) before planning new launches.
+4. **Wave review:** demo `in-review` / `done`; acceptance is the engine's
+   read-only review pass (stage-shaped evidence — see the DoD), not a human
+   gate; the human sees the outcome and resolves NEEDS-HUMAN items here.
+5. **Wave retro:** log what to improve; `task_close_sprint` returns
+   incomplete tickets to `product-backlog`; done tickets auto-archive (U-027)
+   and are never re-dispatched.
 
 ## Bubble-up -> escalation
 
-A worker hits the edge of its autonomy (or a real impediment) -> it sets
-`blocked` + a `blocker` reason on the ticket (`task_set_blocked`). You triage:
+A worker hits the edge of its autonomy (or a real impediment) -> it first
+passes the question back to the **originator agent** (`clarification:`
+send-backs, up to 3 round-trips; reviewer doubt round-trips once per stage
+visit — `review doubt retry (1/1)` history marker) — never to the human
+first. Only after that attempt does it set `blocked` + a `blocker` reason on
+the ticket (`task_set_blocked`): `blocked` always means NEEDS-HUMAN. You
+triage:
 
-- **Resolve internally** when you can (reassign, resequence, unblock, spawn/retire
-  an instance, adjust the sprint) -> clear `blocked`.
-- **Escalate to the human (Product Owner)** only when it crosses the brief's
-  autonomy boundary (scope/goal change, spend, irreversible action, security
-  posture) -> raise a decision for the human; the human answers, you apply.
+- **Resolve internally** when you can (reassign, resequence, send back to the
+  previous stage, report to the V-pair stage, adjust the wave) -> clear
+  `blocked`.
+- **The NEEDS-HUMAN remainder** is the human's only regular duty: decisions
+  that cross the brief's autonomy boundary (scope/goal change, spend,
+  irreversible action, security posture) -> raise a decision for the human;
+  the human answers, you apply.
 
 ## Definition of Done (gates `done`)
 
 A ticket becomes `done` only when, for its type, all of: implementation
 complete, its verification passed (the matching test skill for `role`:
 `tester` -> `test-software-*`, `developer` -> unit/component where relevant),
-the completion report returned with evidence, and the human (PO) accepted at
-Review. Keep DoD as a configurable checklist so it can tighten over time.
+the completion report returned with evidence, its artifacts recorded on the
+ticket **before** `in-review` (the hand-off contract), and the engine's
+read-only review pass accepted it. Acceptance evidence is **stage-shaped**
+(`StageEvidence`): definition stages (requirements/system/architecture/design)
+accept ticket-body/AC updates, doc/path/url artifacts and doc/store paths —
+code is never required there; implementation expects code+tests (AC-named
+paths); test-* stages expect tests/goldens. Keep DoD as a configurable
+checklist so it can tighten over time.
 
 ## Synchronized access
 
-Multiple worker agents run in parallel and will race on claim. Use the
-**atomic** primitives, never read-then-write:
+Multiple worker agents run in parallel and will race on claim. The task store
+(`.opencode/tasks/<project>/`) is the ground truth — the single coordination
+blackboard; every agent is a peer reading and writing it. Use the
+**atomic** primitives, never read-then-write (`task_claim` is the only
+serialization point):
 
 - **To pick work:** `task_claim(role=..., status="sprint-backlog")`
   atomically finds the next matching ticket, moves it to `in-progress`, sets
@@ -111,14 +143,14 @@ Multiple worker agents run in parallel and will race on claim. Use the
   same ticket — so a returned ticket can be picked up and finished by a
   different agent rather than stalling on the one that gave it back.
 - **To view:** `task_backlog()` (prioritized product backlog), `task_board()`
-  (sprint Kanban by state), `task_list(role=..., status=...)`.
+  (wave Kanban by state), `task_list(role=..., status=...)`.
 
 ## Iterative rework loop
 
 `in-review` -> failure / review finding -> back to `in-progress` (rework).
 This is the agile loop: a defect reopens the work that produced it, downstream
 re-verifies, and the ticket converges before `done`. On a changed objective,
-amend the sprint/backlog rather than restarting.
+amend the wave/backlog rather than restarting.
 
 ## When to Hand Off
 

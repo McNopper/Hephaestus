@@ -44,11 +44,20 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.context.SessionViewIds;
+import com.opencode.ide.ui.console.ShellTasksConsole;
 import com.opencode.ide.ui.internal.Refreshable;
 import com.opencode.ide.ui.internal.UiActivator;
 import com.opencode.ide.ui.internal.ViewLoadSupport;
+import com.opencode.ide.ui.model.SessionSections;
+import com.opencode.ide.ui.model.SessionSections.Section;
+import com.opencode.ide.ui.model.SessionShells;
+import com.opencode.ide.ui.model.SessionSubagents;
+import com.opencode.ide.ui.model.SkillRows;
+import com.opencode.ide.ui.session.EnvironmentDialog;
 import com.opencode.ide.ui.session.SessionDetailsController;
 import com.opencode.ide.ui.session.SessionEventFilter;
+import com.opencode.ide.ui.session.SessionImportPreview;
 import com.opencode.ide.ui.session.SessionTranscript;
 import com.opencode.ide.ui.session.SessionTranscriptFiles;
 import com.opencode.ide.ui.session.ServiceText;
@@ -61,8 +70,9 @@ import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
  * Session details: the message history of ONE session (header aggregates +
  * one row per message, with reasoning and tool calls as children). The
  * session is carried in the view's <b>secondary id</b>
- * ({@code SessionDetailsView:some-session-id}), so several sessions can be
- * open at once; opened without a secondary id it shows a notice.
+ * ({@code SessionDetailsView:some-session-id}, optionally suffixed
+ * {@code ~live} to open live-watching), so several sessions can be open at
+ * once; opened without a secondary id it shows a notice.
  *
  * <p>Loading mirrors ServerView/ProvidersView: the (blocking)
  * {@link SessionDetailsController#load()} runs in a system job via
@@ -71,14 +81,15 @@ import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
  * 5s while the view is open.</p>
  *
  * <p>Openers that cannot see this bundle's classes (the board bundle's
- * Fleet view opens this view by plain id, U-015 "Watch live") can still arm
- * Auto Refresh: they set the one-shot {@link #AUTO_REFRESH_HINT_PROPERTY}
- * system property to the session id right before {@code showView}; because
- * {@code showView} runs {@link #createPartControl} synchronously on the same
- * UI thread, the hand-off is race-free. A matching session opens with Auto
- * Refresh checked (the 5s insurance on top of the always-on SSE reloads);
- * the user can toggle it off once the watched job settles. The hint is
- * always consumed, so it can never leak into an unrelated view.</p>
+ * Fleet view opens this view by plain id, U-015 "Watch live") pass the
+ * live-watch parameter through the secondary id: an id built by
+ * {@code SessionViewIds.secondaryId(sessionId, true)} ends in the
+ * live-watch segment, and {@link #createPartControl} parses it back into
+ * the explicit (session, auto-refresh) pair. A view opened that way starts
+ * with Auto Refresh checked (the 5s insurance on top of the always-on SSE
+ * reloads); the user can toggle it off once the watched job settles. The
+ * parameter lives in the view's OWN secondary id, so it can never reach an
+ * unrelated view.</p>
  *
  * <p>Live updates: the view subscribes to the primary connection's
  * {@code /event} SSE fan-out and reloads (debounced, see
@@ -97,6 +108,12 @@ import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
  * in the chat, resumed with its history; the original session is untouched.
  * (Share/Unshare is gone: opencode v2 has no session share endpoint.)</p>
  *
+ * <p>U-046 slice 2 adds "Attach skill" (toolbar + context: pick one of the
+ * session's skills, then the EXPERIMENTAL {@code POST .../session/{id}/skill};
+ * success is the notice "skill attached") and "Suggest title" (one transient
+ * {@code POST .../generate} completion offered PREFILLED in the rename
+ * dialog — the session is never renamed without the user accepting).</p>
+ *
  * <p>The context menu also opens one message or the whole transcript in a
  * read-only workbench text editor (Batch C): tier-0 view-only, formatted by
  * the SWT-free {@link SessionTranscript}, written to a delete-on-exit temp
@@ -106,22 +123,31 @@ import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
  * read-only editor surface. The editor shows a snapshot — edits change only
  * the delete-on-exit temp copy, never the session — and it does not
  * follow live updates.</p>
+ *
+ * <p>U-041: the tree opens with two live sections above the transcript —
+ * the session's SUBAGENT children ({@code parentID} nesting, each row opens
+ * its own details view) and its SHELL TASKS (transcript-derived, refreshed
+ * by the {@code session.shell.*} events; each row shows status + command,
+ * opens its output in a real Eclipse console via
+ * {@link ShellTasksConsole}, and can be removed with a confirm). The same
+ * surface serves chat sessions and fleet worker sessions — both are ordinary
+ * sessions of their server.</p>
+ *
+ * <p>U-048: every successful load marks the session viewed
+ * ({@code POST .../session/{id}/view} — the read marker behind the server's
+ * unread/idle badges; fire-and-forget, a server without the route stays
+ * silent). The two-phase revert is explicit: "Revert to here…" stages the
+ * boundary (and restores the touched working-tree files — the server's
+ * default), "Undo revert" clears the stage and puts the files back, and
+ * only "Commit revert…" cuts the message history — each behind a confirm
+ * that states the phase truth. The session environment is edited in a
+ * dialog that says the PUT REPLACES the whole map, and "Import session…"
+ * walks a deliberate pick -&gt; preview -&gt; import flow over the export
+ * format.</p>
  */
 public class SessionDetailsView extends ViewPart implements Refreshable {
 
     public static final String ID = "com.opencode.ide.ui.views.SessionDetailsView";
-
-    /**
-     * System-property key of the one-shot live-watch hand-off: an opener in
-     * a bundle that cannot depend on this one (the Fleet view) sets it to
-     * the session id it is about to open, immediately before
-     * {@code showView}; {@link #createPartControl} consumes any value on the
-     * same UI-thread call stack (see
-     * {@link #applyAutoRefreshHint(String)}). The key is mirrored as a plain
-     * literal in that bundle — keep both spellings in sync.
-     */
-    public static final String AUTO_REFRESH_HINT_PROPERTY =
-            com.opencode.ide.core.context.SessionViewIds.AUTO_REFRESH_HINT_PROPERTY;
 
     /**
      * The workbench's built-in default text editor, opened by id (registry
@@ -157,7 +183,10 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private SessionDetails currentSnapshot;
     private Action forkAction;
     private Action summarizeAction;
-    /** The Auto Refresh toolbar toggle (field so the live-watch hint can check it). */
+    /** U-046 slice 2: attach a skill / suggest a title (both need a session). */
+    private Action attachSkillAction;
+    private Action suggestTitleAction;
+    /** The Auto Refresh toolbar toggle (field so a live-watch open can check it). */
     private Action autoRefreshAction;
 
     /** Tree child node carrying the (collapsed, dimmed) reasoning of a message. */
@@ -166,7 +195,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
     @Override
     public void createPartControl(Composite parent) {
-        String sessionId = sanitize(getViewSite().getSecondaryId());
+        com.opencode.ide.core.context.SessionViewIds.Parsed input =
+                com.opencode.ide.core.context.SessionViewIds.parse(getViewSite().getSecondaryId());
+        String sessionId = input.sessionId();
 
         Composite outer = new Composite(parent, SWT.NONE);
         GridLayout layout = new GridLayout(1, false);
@@ -210,44 +241,29 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         } else {
             controller = new SessionDetailsController(sessionId, this::supplyClient);
             registerEventListener();
-            applyAutoRefreshHint(sessionId);
+            armAutoRefresh(input.autoRefresh());
             refresh();
         }
     }
 
     /**
-     * Consumes the one-shot {@link #AUTO_REFRESH_HINT_PROPERTY} hand-off
-     * (U-015 "Watch live"): when the property names THIS session, Auto
-     * Refresh arms (toggle checked, 5s timer running) so a running fleet
-     * worker can be watched live; the always-on SSE reloads are unaffected.
-     * Any value is consumed — a stale hint must never switch an unrelated
-     * view into auto-refreshing. Both the setter (before {@code showView})
-     * and this consumer run on the UI thread inside one call stack, so the
-     * hand-off needs no synchronization.
+     * Arms Auto Refresh for a view opened with the live-watch segment in
+     * its secondary id (U-015 "Watch live"): toggle checked, 5s timer
+     * running, so a running fleet worker can be watched live; the always-on
+     * SSE reloads are unaffected. The user can toggle it off once the
+     * watched job settles. The parameter is this view's OWN secondary id
+     * (parsed by {@link #createPartControl} via
+     * {@code SessionViewIds.parse}), never shared global state, so it
+     * cannot arm an unrelated view.
      */
-    private void applyAutoRefreshHint(String sessionId) {
-        String hint = System.getProperty(AUTO_REFRESH_HINT_PROPERTY);
-        if (hint == null) {
-            return;
-        }
-        System.clearProperty(AUTO_REFRESH_HINT_PROPERTY);
-        if (!sessionId.equals(hint)) {
+    private void armAutoRefresh(boolean requested) {
+        if (!requested) {
             return;
         }
         if (autoRefreshAction != null) {
             autoRefreshAction.setChecked(true);
         }
         setAutoRefresh(true);
-    }
-
-    /**
-     * The session id behind the secondary id - the ONE decoding
-     * ({@link com.opencode.ide.core.context.SessionViewIds}, T-009: the
-     * former per-view sanitizers produced different ids for the same
-     * session and opened duplicate views).
-     */
-    private static String sanitize(String secondaryId) {
-        return com.opencode.ide.core.context.SessionViewIds.sessionId(secondaryId);
     }
 
     private OpencodeClient supplyClient() {
@@ -262,6 +278,11 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
         return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
                 "com.opencode.ide.core", "icons/actions/" + name + ".png");
+    }
+
+    /** Toolbar icon from THIS bundle's own icon set (e.g. the skill icon). */
+    private static org.eclipse.jface.resource.ImageDescriptor localIcon(String path) {
+        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(UiActivator.PLUGIN_ID, path);
     }
 
     private void contributeActions() {
@@ -300,11 +321,31 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         };
         summarizeAction.setToolTipText("Compact the session history into a summary");
         summarizeAction.setImageDescriptor(icon("summarize"));
+        attachSkillAction = new Action("Attach skill") {
+            @Override
+            public void run() {
+                chooseAndAttachSkill();
+            }
+        };
+        attachSkillAction.setToolTipText(
+                "Attach a skill to this session (experimental v2 POST .../session/{id}/skill)");
+        attachSkillAction.setImageDescriptor(localIcon(UiActivator.ICON_SKILL));
+        suggestTitleAction = new Action("Suggest title") {
+            @Override
+            public void run() {
+                suggestTitle();
+            }
+        };
+        suggestTitleAction.setToolTipText(
+                "Suggest a title with a one-shot LLM call (v2 POST .../generate) - offered in the rename dialog");
+        suggestTitleAction.setImageDescriptor(icon("thinking"));
         IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
         toolBar.add(refreshAction);
         toolBar.add(autoRefreshAction);
         toolBar.add(forkAction);
         toolBar.add(summarizeAction);
+        toolBar.add(attachSkillAction);
+        toolBar.add(suggestTitleAction);
     }
 
     private void setLifecycleActionsEnabled(boolean enabled) {
@@ -313,6 +354,12 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         }
         if (summarizeAction != null) {
             summarizeAction.setEnabled(enabled);
+        }
+        if (attachSkillAction != null) {
+            attachSkillAction.setEnabled(enabled);
+        }
+        if (suggestTitleAction != null) {
+            suggestTitleAction.setEnabled(enabled);
         }
     }
 
@@ -352,6 +399,72 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         statusLineMessage(what + " failed");
         UiActivator.getDefault().getLog().log(
                 new Status(Status.ERROR, UiActivator.PLUGIN_ID, what + " failed: " + detail));
+    }
+
+    // ---------- U-046 slice 2: attach skill / suggest title ----------
+
+    /**
+     * "Attach skill": loads the session's skills off the UI thread, offers the
+     * picker, then attaches the chosen id. Nothing happens without a pick.
+     */
+    private void chooseAndAttachSkill() {
+        if (controller == null) {
+            return;
+        }
+        ViewLoadSupport.load("Loading skills", controller::skills,
+                skills -> {
+                    if (viewDisposed || viewer == null || viewer.getControl().isDisposed()) {
+                        return;
+                    }
+                    List<SkillRows.Row> rows = SkillRows.rows(skills);
+                    if (rows.isEmpty()) {
+                        showStatus("No skills available for this session");
+                        return;
+                    }
+                    SkillPickerDialog dialog = new SkillPickerDialog(getSite().getShell(), rows);
+                    if (dialog.open() == org.eclipse.jface.window.Window.OK && dialog.selectedSkillId() != null) {
+                        attachSkill(dialog.selectedSkillId());
+                    }
+                },
+                error -> showActionError("Loading skills", ViewLoadSupport.message(error)));
+    }
+
+    /** Attaches one skill id; failure is a notice, success reads "skill attached". */
+    private void attachSkill(String skillId) {
+        runLifecycleAction("Attaching skill", () -> controller.attachSkill(skillId),
+                result -> showStatus("skill attached"));
+    }
+
+    /**
+     * "Suggest title": one transient generate completion on the CURRENT
+     * session; the suggestion lands PREFILLED in the rename dialog - nothing
+     * is renamed until the user accepts it there.
+     */
+    private void suggestTitle() {
+        if (controller == null) {
+            return;
+        }
+        runLifecycleAction("Suggesting title", controller::suggestTitle,
+                result -> promptForTitle(result.detail()));
+    }
+
+    /**
+     * The rename dialog (also the acceptance step for a suggested title):
+     * pre-filled with the current title or the suggestion; OK renames via the
+     * controller. Never auto-renames.
+     */
+    private void promptForTitle(String initial) {
+        if (viewDisposed || viewer == null || viewer.getControl().isDisposed() || controller == null) {
+            return;
+        }
+        org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
+                getSite().getShell(), "Rename session", "Session title:",
+                initial == null ? "" : initial, null);
+        if (dialog.open() == org.eclipse.jface.window.Window.OK) {
+            String title = dialog.getValue();
+            runLifecycleAction("Renaming session", () -> controller.rename(title),
+                    result -> showStatus("Session renamed: " + title));
+        }
     }
 
     /** Read-only document dialog (session log, session stats, terminal screen). */
@@ -397,6 +510,77 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         manager.addMenuListener(menu -> {
             MessageRow row = selectedMessageRow();
             boolean canFork = row != null && row.id() != null && !row.id().isBlank();
+            SessionSubagents.Row subagent = selectedElement() instanceof SessionSubagents.Row candidate
+                    ? candidate : null;
+            SessionShells.Row shell = selectedElement() instanceof SessionShells.Row candidate
+                    ? candidate : null;
+            if (subagent != null) {
+                Action openDetails = new Action("Open session details") {
+                    @Override
+                    public void run() {
+                        openSessionDetails(subagent.sessionId());
+                    }
+                };
+                openDetails.setToolTipText(
+                        "Open this subagent's own Session Details view (its transcript and actuals)");
+                menu.add(openDetails);
+                Action openChat = new Action("Open in chat") {
+                    @Override
+                    public void run() {
+                        if (openForkInChat(subagent.sessionId())) {
+                            showStatus("Opened subagent in chat");
+                        }
+                    }
+                };
+                openChat.setToolTipText("Resume this subagent in a chat view (secondary id = session id)");
+                menu.add(openChat);
+                menu.add(new Separator());
+            }
+            if (shell != null) {
+                Action showOutput = new Action("Show output\u2026") {
+                    @Override
+                    public void run() {
+                        showTextDialog("Shell " + shell.shellId(),
+                                "$ " + shell.command() + "\n\n"
+                                        + (shell.outputTail() == null ? "(no output captured)"
+                                                : shell.outputTail()));
+                    }
+                };
+                showOutput.setToolTipText("The task's captured output tail (from the session transcript)");
+                showOutput.setEnabled(shell.outputTail() != null);
+                menu.add(showOutput);
+                Action openConsole = new Action("Open in Console") {
+                    @Override
+                    public void run() {
+                        openShellInConsole(shell);
+                    }
+                };
+                openConsole.setToolTipText(
+                        "Open this task's output in an Eclipse console (live tail, refreshed with the view)");
+                menu.add(openConsole);
+                Action removeShell = new Action("Remove shell task\u2026") {
+                    @Override
+                    public void run() {
+                        confirmAndRun("Remove shell task",
+                                "Remove the shell task " + shell.shellId() + " from the server?\n"
+                                        + "\n"
+                                        + "$ " + shell.command() + "\n"
+                                        + "\n"
+                                        + "The captured output file is deleted; the session transcript\n"
+                                        + "keeps its shell message.",
+                                "Remove",
+                                () -> runLifecycleAction("Removing shell task",
+                                        () -> controller.removeShellTask(shell.shellId()),
+                                        result -> {
+                                            showStatus(result.detail());
+                                            refresh();
+                                        }));
+                    }
+                };
+                removeShell.setToolTipText("Reap the finished task (v2 DELETE /api/shell/{id})");
+                menu.add(removeShell);
+                menu.add(new Separator());
+            }
             Action forkAtMessage = new Action("Fork at this message") {
                 @Override
                 public void run() {
@@ -421,19 +605,32 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
                     if (snapshot == null) {
                         return;
                     }
-                    org.eclipse.jface.dialogs.InputDialog dialog = new org.eclipse.jface.dialogs.InputDialog(
-                            getSite().getShell(), "Rename session", "Session title:",
-                            snapshot.title() == null ? "" : snapshot.title(), null);
-                    if (dialog.open() == org.eclipse.jface.window.Window.OK) {
-                        String title = dialog.getValue();
-                        runLifecycleAction("Renaming session", () -> controller.rename(title),
-                                result -> showStatus("Session renamed: " + title));
-                    }
+                    promptForTitle(snapshot.title() == null ? "" : snapshot.title());
                 }
             };
             renameSession.setToolTipText("Rename this session (v2 PATCH /api/session/{id})");
             renameSession.setEnabled(currentSnapshot != null && currentSnapshot.sessionId() != null);
             menu.add(renameSession);
+            Action suggestTitle = new Action("Suggest title") {
+                @Override
+                public void run() {
+                    SessionDetailsView.this.suggestTitle();
+                }
+            };
+            suggestTitle.setToolTipText(
+                    "Suggest a title with a one-shot LLM call (v2 POST .../generate); nothing is renamed until you accept");
+            suggestTitle.setEnabled(currentSnapshot != null && currentSnapshot.sessionId() != null);
+            menu.add(suggestTitle);
+            Action attachSkill = new Action("Attach skill\u2026") {
+                @Override
+                public void run() {
+                    chooseAndAttachSkill();
+                }
+            };
+            attachSkill.setToolTipText(
+                    "Attach a skill to this session (experimental v2 POST .../session/{id}/skill)");
+            attachSkill.setEnabled(currentSnapshot != null && currentSnapshot.sessionId() != null);
+            menu.add(attachSkill);
             Action sendToBackground = new Action("Send to background") {
                 @Override
                 public void run() {
@@ -466,46 +663,71 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             runShell.setToolTipText("Run a shell command in this session's context (v2 POST .../shell)");
             runShell.setEnabled(currentSnapshot != null);
             menu.add(runShell);
-            Action snapshotAtMessage = new Action("Snapshot at this message") {
+            Action revertAtMessage = new Action("Revert to here\u2026") {
                 @Override
                 public void run() {
                     MessageRow selected = selectedMessageRow();
                     if (selected == null || selected.id() == null || selected.id().isBlank()) {
                         return;
                     }
-                    runLifecycleAction("Staging snapshot", () -> controller.stageSnapshot(selected.id()),
-                            result -> showStatus(result.detail()));
+                    confirmAndRun("Revert to here",
+                            "Stage a revert of this session to BEFORE the selected message?\n"
+                                    + "\n"
+                                    + "Phase 1 of 2 (stage): the boundary is recorded and the working-tree\n"
+                                    + "files the later messages touched are restored immediately (the v2\n"
+                                    + "default; the client verb cannot stage without files).\n"
+                                    + "The transcript is NOT cut yet - nothing is final until you commit.",
+                            "Stage revert",
+                            () -> runLifecycleAction("Staging revert",
+                                    () -> controller.stageRevert(selected.id()),
+                                    result -> showStatus(result.detail())));
                 }
             };
-            snapshotAtMessage.setToolTipText("Remember the session state at the selected message (v2 revert/stage)");
-            snapshotAtMessage.setEnabled(canFork);
-            menu.add(snapshotAtMessage);
-            Action restoreSnapshot = new Action("Restore snapshot") {
+            revertAtMessage.setToolTipText(
+                    "Stage the two-phase revert at the selected message (v2 revert/stage; files restored by default)");
+            revertAtMessage.setEnabled(canFork);
+            menu.add(revertAtMessage);
+            Action undoRevert = new Action("Undo revert\u2026") {
                 @Override
                 public void run() {
                     if (currentSnapshot == null) {
                         return;
                     }
-                    runLifecycleAction("Restoring snapshot", controller::restoreSnapshot,
-                            result -> showStatus(result.detail()));
+                    confirmAndRun("Undo revert",
+                            "Undo the staged revert?\n"
+                                    + "\n"
+                                    + "The working-tree files are put back from the snapshot taken at\n"
+                                    + "staging time and the staged boundary is cleared. The transcript was\n"
+                                    + "never cut, so nothing else changes. (A no-op when nothing is staged.)",
+                            "Undo revert",
+                            () -> runLifecycleAction("Undoing revert", controller::undoRevert,
+                                    result -> showStatus(result.detail())));
                 }
             };
-            restoreSnapshot.setToolTipText("Restore the staged snapshot (v2 revert/commit)");
-            restoreSnapshot.setEnabled(currentSnapshot != null);
-            menu.add(restoreSnapshot);
-            Action discardSnapshot = new Action("Discard snapshot") {
+            undoRevert.setToolTipText("Restore the staged files and clear the staged revert (v2 DELETE .../revert)");
+            undoRevert.setEnabled(currentSnapshot != null);
+            menu.add(undoRevert);
+            Action commitRevert = new Action("Commit revert\u2026") {
                 @Override
                 public void run() {
                     if (currentSnapshot == null) {
                         return;
                     }
-                    runLifecycleAction("Discarding snapshot", controller::discardSnapshot,
-                            result -> showStatus(result.detail()));
+                    confirmAndRun("Commit revert",
+                            "Cut this session's message history back to the staged boundary?\n"
+                                    + "\n"
+                                    + "Phase 2 of 2 (commit): the messages after the boundary are removed\n"
+                                    + "from the session. This is IRREVERSIBLE - undo is no longer possible\n"
+                                    + "afterwards. Nothing happens when no revert is staged.",
+                            "Commit revert",
+                            () -> runLifecycleAction("Committing revert", controller::commitRevert,
+                                    result -> showStatus(result.detail())));
                 }
             };
-            discardSnapshot.setToolTipText("Discard the staged snapshot (v2 revert/clear)");
-            discardSnapshot.setEnabled(currentSnapshot != null);
-            menu.add(discardSnapshot);
+            commitRevert.setToolTipText(
+                    "Commit the staged revert: cut the history to the boundary (irreversible; v2 revert/commit)");
+            commitRevert.setEnabled(currentSnapshot != null);
+            menu.add(commitRevert);
             menu.add(new Separator());
             Action moveSession = new Action("Move to directory...") {
                 @Override
@@ -672,6 +894,26 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             forms.setToolTipText("Open and answer the session's forms (v2 session.form.*)");
             forms.setEnabled(currentSnapshot != null);
             menu.add(forms);
+            Action environment = new Action("Environment\u2026") {
+                @Override
+                public void run() {
+                    editEnvironment();
+                }
+            };
+            environment.setToolTipText(
+                    "Replace the session's environment variables (v2 PUT .../environment - full replace, no read route)");
+            environment.setEnabled(currentSnapshot != null);
+            menu.add(environment);
+            Action importSession = new Action("Import session\u2026") {
+                @Override
+                public void run() {
+                    importSessionFromFile();
+                }
+            };
+            importSession.setToolTipText(
+                    "Import a session from an exported session JSON (pick, preview, then v2 POST .../session/import)");
+            importSession.setEnabled(currentSnapshot != null);
+            menu.add(importSession);
             Action copyText = new Action("Copy message text") {
                 @Override
                 public void run() {
@@ -717,14 +959,151 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     }
 
     private MessageRow selectedMessageRow() {
+        Object element = selectedElement();
+        return element instanceof MessageRow row ? row : null;
+    }
+
+    /** The tree's first selected element (message, subagent or shell row). */
+    private Object selectedElement() {
         if (viewer == null || viewer.getControl().isDisposed()) {
             return null;
         }
         Object selection = viewer.getStructuredSelection();
-        Object first = (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
+        return (selection instanceof org.eclipse.jface.viewers.IStructuredSelection structured)
                 ? structured.getFirstElement()
                 : null;
-        return first instanceof MessageRow row ? row : null;
+    }
+
+    /**
+     * One confirmed action: the dialog states the whole truth (what phase
+     * runs, what it changes) and the confirm button names the phase; OK is
+     * the only path to the action. Cancel and a disposed view run nothing.
+     */
+    private void confirmAndRun(String title, String message, String confirmLabel, Runnable action) {
+        if (viewDisposed || viewer == null || viewer.getControl().isDisposed()) {
+            return;
+        }
+        org.eclipse.jface.dialogs.MessageDialog dialog = new org.eclipse.jface.dialogs.MessageDialog(
+                getSite().getShell(), title, null, message,
+                org.eclipse.jface.dialogs.MessageDialog.QUESTION,
+                new String[] { confirmLabel, "Cancel" }, 0);
+        if (dialog.open() == 0) {
+            action.run();
+        }
+    }
+
+    /**
+     * U-041: opens one session's details view by the shared
+     * {@link SessionViewIds} seam (secondary id = encoded session id) — the
+     * same open ServerView uses, so a subagent row and a Server-view row
+     * focus the SAME view instance instead of duplicating it.
+     */
+    private void openSessionDetails(String sessionId) {
+        if (sessionId == null || sessionId.isBlank() || viewDisposed) {
+            return;
+        }
+        try {
+            getSite().getPage().showView(SessionViewIds.SESSION_DETAILS_VIEW_ID,
+                    SessionViewIds.secondaryId(sessionId), IWorkbenchPage.VIEW_ACTIVATE);
+        } catch (PartInitException e) {
+            showStatus("Opening session details failed");
+            UiActivator.getDefault().getLog().log(
+                    new Status(Status.ERROR, UiActivator.PLUGIN_ID,
+                            "Failed to open session details for " + sessionId, e));
+        }
+    }
+
+    /**
+     * U-041: opens one shell task's console. The current output tail loads
+     * off the UI thread ({@code GET /api/shell/{id}/output}); the console
+     * then shows it and stays live through {@link #refreshShellConsoles}.
+     */
+    private void openShellInConsole(SessionShells.Row shell) {
+        if (controller == null || shell == null || shell.shellId() == null) {
+            return;
+        }
+        ViewLoadSupport.load("Reading shell output", () -> controller.shellOutput(shell.shellId()),
+                output -> {
+                    if (viewDisposed || viewer == null || viewer.getControl().isDisposed()) {
+                        return;
+                    }
+                    String text = output == null
+                            ? (shell.outputTail() == null ? "(no output captured)" : shell.outputTail())
+                            : output;
+                    ShellTasksConsole.open(shell.shellId(), shell.command(), text);
+                },
+                error -> showActionError("Reading shell output", ViewLoadSupport.message(error)));
+    }
+
+    /** U-048: the full-replace environment dialog; OK writes the edited map. */
+    private void editEnvironment() {
+        if (controller == null || viewDisposed || viewer.getControl().isDisposed()) {
+            return;
+        }
+        EnvironmentDialog dialog = new EnvironmentDialog(getSite().getShell(), controller.sessionId());
+        if (dialog.open() == org.eclipse.jface.window.Window.OK && dialog.answer() != null) {
+            runLifecycleAction("Replacing session environment",
+                    () -> controller.replaceEnvironment(dialog.answer()),
+                    result -> showStatus(result.detail()));
+        }
+    }
+
+    /**
+     * U-048: the deliberate import flow — pick an exported session JSON
+     * (the format "Export transcript…" writes), preview it (title + message
+     * count), then import into the connection's directory (this session's
+     * own directory; unscoped when unknown). Reading and parsing happen off
+     * the UI thread; a session-id conflict (the export's session already
+     * exists) and every other server failure surface as a notice, never as
+     * fake success.
+     */
+    private void importSessionFromFile() {
+        if (controller == null || viewDisposed || viewer.getControl().isDisposed()) {
+            return;
+        }
+        org.eclipse.swt.widgets.FileDialog dialog = new org.eclipse.swt.widgets.FileDialog(
+                getSite().getShell(), org.eclipse.swt.SWT.OPEN);
+        dialog.setText("Import session - pick an exported session JSON");
+        dialog.setFilterExtensions(new String[] { "*.json", "*.*" });
+        String source = dialog.open();
+        if (source == null) {
+            return;
+        }
+        // one background job reads the file, parses the preview and resolves
+        // the import directory (both IO); the dialog chain stays on the UI thread
+        ViewLoadSupport.load("Reading the export", () -> new ImportCandidate(
+                SessionImportPreview.parse(java.nio.file.Files.readString(java.nio.file.Path.of(source))),
+                controller.directory(), source),
+                candidate -> {
+                    if (viewDisposed || viewer.getControl().isDisposed()) {
+                        return;
+                    }
+                    confirmAndImport(candidate);
+                },
+                error -> showActionError("Reading the export", ViewLoadSupport.message(error)));
+    }
+
+    /** The preview confirmation; OK runs the import into the resolved directory. */
+    private void confirmAndImport(ImportCandidate candidate) {
+        confirmAndRun("Import session",
+                "Import this session into the current connection?\n"
+                        + "\n"
+                        + "Title:    " + candidate.preview().title() + "\n"
+                        + "Messages: " + candidate.preview().messageCount() + "\n"
+                        + "Source:   " + candidate.source() + "\n"
+                        + "\n"
+                        + "The service re-creates the session (including its cost/token actuals)\n"
+                        + "in " + (candidate.directory() == null ? "the server's default location"
+                                : candidate.directory()) + ".",
+                "Import",
+                () -> runLifecycleAction("Importing session",
+                        () -> controller.importSession(candidate.preview().info(),
+                                candidate.preview().messages(), candidate.directory()),
+                        result -> showStatus("Imported as session " + result.detail())));
+    }
+
+    /** The background-read import bundle (preview + resolved target directory). */
+    private record ImportCandidate(SessionImportPreview.Preview preview, String directory, String source) {
     }
 
     /**
@@ -887,8 +1266,91 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             setContentDescription(snapshot.errorNote());
             return;
         }
-        viewer.setInput(snapshot.rows()); // a List, never a bare element (dev rule)
+        viewer.setInput(snapshot.roots()); // a List, never a bare element (dev rule)
+        expandSections(snapshot);           // the live sections open, messages stay collapsed
         setContentDescription(snapshot.rows().size() + " messages");
+        markSessionViewed();                // U-048: the unread/idle read marker
+        refreshShellConsoles(snapshot);     // U-041: keep open consoles' tails live
+    }
+
+    /**
+     * Opens this snapshot's section roots (subagents, shell tasks) — the
+     * ticket's point is that they are VISIBLE nested under the parent
+     * session; the message rows keep their collapsed-by-default children.
+     */
+    private void expandSections(SessionDetails snapshot) {
+        List<Object> sections = new ArrayList<>();
+        for (Object root : SessionSections.roots(snapshot.subagents(), snapshot.shellTasks())) {
+            if (root instanceof Section section) {
+                sections.add(section);
+            }
+        }
+        if (!sections.isEmpty()) {
+            viewer.setExpandedElements(sections.toArray());
+        }
+    }
+
+    /**
+     * U-048: fire-and-forget read marker. A plain one-shot system job (NOT
+     * {@link ViewLoadSupport} — its 3-attempt retry would hammer a server
+     * without the route on every refresh); failures are swallowed on purpose:
+     * the marker is bookkeeping, never worth error noise.
+     */
+    private void markSessionViewed() {
+        if (controller == null || viewDisposed) {
+            return;
+        }
+        org.eclipse.core.runtime.jobs.Job job = org.eclipse.core.runtime.jobs.Job.create(
+                "Marking session viewed", monitor -> {
+                    controller.markViewed(); // never throws; result ignored by design
+                    return Status.OK_STATUS;
+                });
+        job.setSystem(true);
+        job.schedule();
+    }
+
+    /**
+     * U-041: pushes fresh output tails into the shell consoles this view
+     * opened (any task of THIS snapshot with an open console). Runs on the
+     * load cadence — auto-refresh timer and debounced SSE reloads — which is
+     * what keeps a running task's console live.
+     */
+    private void refreshShellConsoles(SessionDetails snapshot) {
+        if (controller == null || viewDisposed || viewer.getControl().isDisposed()) {
+            return;
+        }
+        List<SessionShells.Row> open = new ArrayList<>();
+        for (SessionShells.Row row : snapshot.shellTasks()) {
+            if (ShellTasksConsole.isOpen(row.shellId())) {
+                open.add(row);
+            }
+        }
+        if (open.isEmpty()) {
+            return;
+        }
+        ViewLoadSupport.load("Refreshing shell output", () -> {
+            java.util.Map<String, String> outputs = new java.util.LinkedHashMap<>();
+            for (SessionShells.Row row : open) {
+                String output = controller.shellOutput(row.shellId());
+                if (output != null) {
+                    outputs.put(row.shellId(), output);
+                }
+            }
+            return outputs;
+        }, outputs -> {
+            if (viewDisposed || viewer.getControl().isDisposed()) {
+                return;
+            }
+            for (SessionShells.Row row : open) {
+                String output = outputs.get(row.shellId());
+                if (output != null) {
+                    ShellTasksConsole.refresh(row.shellId(), row.command(), output,
+                            row.detailLabel());
+                }
+            }
+        }, error -> {
+            // the next refresh retries; an open console keeps its last tail
+        });
     }
 
     private void showError(Throwable e) {
@@ -929,10 +1391,20 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         return "tool: " + tool.name() + " \u2014 " + toolState(tool);
     }
 
-    /** Message column: role (bold for user) + first-line preview; tool/reasoning children styled. */
+    /** Message column: role (bold for user) + first-line preview; section/subagent/shell rows styled. */
     private final class MessageLabelProvider extends ColumnLabelProvider {
         @Override
         public String getText(Object element) {
+            if (element instanceof Section section) {
+                return section.label();
+            }
+            if (element instanceof SessionSubagents.Row subagent) {
+                return "subagent: " + subagent.title();
+            }
+            if (element instanceof SessionShells.Row shell) {
+                String preview = preview(shell.command(), PREVIEW_LENGTH);
+                return preview.isEmpty() ? "shell" : "shell: " + preview;
+            }
             if (element instanceof MessageRow row) {
                 String preview = preview(row.text(), PREVIEW_LENGTH);
                 return preview.isEmpty() ? roleOf(row) : roleOf(row) + ": " + preview;
@@ -948,6 +1420,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         @Override
         public Font getFont(Object element) {
+            if (element instanceof Section) {
+                return JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT);
+            }
             if (element instanceof MessageRow row && "user".equals(row.role())) {
                 return JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT);
             }
@@ -956,6 +1431,20 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         @Override
         public Color getForeground(Object element) {
+            if (element instanceof Section) {
+                return systemColor(SWT.COLOR_DARK_GRAY);
+            }
+            if (element instanceof SessionSubagents.Row subagent && "busy".equals(subagent.status())) {
+                return systemColor(SWT.COLOR_BLUE);
+            }
+            if (element instanceof SessionShells.Row shell) {
+                return switch (shell.status() == null ? "" : shell.status()) {
+                    case "running" -> systemColor(SWT.COLOR_BLUE);
+                    case "timeout", "killed" -> systemColor(SWT.COLOR_RED);
+                    case "exited" -> systemColor(SWT.COLOR_DARK_GRAY);
+                    default -> null;
+                };
+            }
             if (element instanceof ReasoningLine) {
                 return systemColor(SWT.COLOR_DARK_GRAY);
             }
@@ -972,6 +1461,14 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         @Override
         public String getToolTipText(Object element) {
+            if (element instanceof SessionSubagents.Row subagent) {
+                return subagent.detailLabel();
+            }
+            if (element instanceof SessionShells.Row shell) {
+                return shell.outputTail() == null || shell.outputTail().isBlank()
+                        ? shell.command()
+                        : shell.command() + "\n---\n" + shell.outputTail();
+            }
             if (element instanceof MessageRow row) {
                 return row.text() == null || row.text().isBlank() ? null : row.text().strip();
             }
@@ -985,10 +1482,16 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         }
     }
 
-    /** Details column: agent • model • time for messages; dimmed preview for reasoning. */
+    /** Details column: agent • model • time for messages; status/actuals for the U-041 rows. */
     private final class DetailLabelProvider extends ColumnLabelProvider {
         @Override
         public String getText(Object element) {
+            if (element instanceof SessionSubagents.Row subagent) {
+                return subagent.detailLabel();
+            }
+            if (element instanceof SessionShells.Row shell) {
+                return shell.detailLabel();
+            }
             if (element instanceof MessageRow row) {
                 List<String> parts = new ArrayList<>();
                 if (row.agent() != null && !row.agent().isBlank()) {
@@ -1030,7 +1533,11 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
         return display.isDisposed() ? null : display.getSystemColor(swtColor);
     }
 
-    /** Message rows as roots; reasoning + tool calls as (collapsed by default) children. */
+    /**
+     * Section roots (subagents, shell tasks) with their nested rows; message
+     * rows as roots; reasoning + tool calls as (collapsed by default)
+     * children of their message.
+     */
     private static final class DetailsContentProvider implements ITreeContentProvider {
         @Override
         public Object[] getElements(Object input) {
@@ -1045,6 +1552,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         @Override
         public Object[] getChildren(Object parent) {
+            if (parent instanceof Section section) {
+                return section.children().toArray();
+            }
             if (parent instanceof MessageRow row) {
                 List<Object> children = new ArrayList<>();
                 if (row.reasoning() != null && !row.reasoning().isBlank()) {
@@ -1063,6 +1573,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
         @Override
         public boolean hasChildren(Object parent) {
+            if (parent instanceof Section section) {
+                return !section.children().isEmpty();
+            }
             if (parent instanceof MessageRow row) {
                 return (row.reasoning() != null && !row.reasoning().isBlank()) || !row.tools().isEmpty();
             }

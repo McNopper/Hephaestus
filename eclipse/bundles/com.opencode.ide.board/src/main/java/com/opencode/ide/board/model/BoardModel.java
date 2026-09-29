@@ -26,7 +26,7 @@ import com.opencode.ide.tasks.VStages;
  * unreadable store — a snapshot with an {@code error} comes back instead of an
  * exception.
  *
- * <p>Two layouts: {@link BoardMode#FLAT} (the five status columns) and
+ * <p>Two layouts: {@link BoardMode#FLAT} (the six status columns (paused included)) and
  * {@link BoardMode#PIPELINE} (the ten V-model stage columns plus a trailing
  * untracked group — tickets land in their {@link TicketRow#effectiveStage()},
  * legacy tickets by role fallback). The {@code blockedOnly} filter applies in
@@ -215,6 +215,13 @@ public final class BoardModel {
             }
             Map<String, com.opencode.ide.tasks.StageReadiness.Readiness> readiness =
                     com.opencode.ide.tasks.StageReadiness.evaluate(sprintTasks);
+            // U-026: per-ticket stage journeys parsed from the SAME store
+            // read (the tasks above carry their history) - O(history size),
+            // no extra I/O (NFR-PERF-001), a read-only projection (FR-007)
+            Map<String, StageJourney> journeys = new LinkedHashMap<>();
+            for (Task t : sprintTasks) {
+                journeys.put(t.id, StageJourney.of(t));
+            }
             Map<String, List<TicketRow>> columns = new LinkedHashMap<>();
             List<TicketRow> allRows = new ArrayList<>();
             int total = 0;
@@ -243,7 +250,8 @@ public final class BoardModel {
             String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
             PipelineSnapshot pipeline = mode == BoardMode.PIPELINE ? pipelineOf(allRows) : null;
             Map<String, List<TicketRow>> epicLanes = mode == BoardMode.EPIC ? epicLanesOf(allRows) : Map.of();
-            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness, epicLanes);
+            return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness,
+                    epicLanes, journeys);
         } catch (RuntimeException e) {
             return BoardSnapshot.empty("Task store unreadable: " + e.getMessage());
         }
@@ -331,6 +339,16 @@ public final class BoardModel {
      *
      * @return {@code null} on success, a human-readable failure message otherwise.
      */
+    /** O-002: scaffold a fresh task-store project (no hand-editing of .opencode/tasks). */
+    public void newProject(String name) {
+        store.newProject(name, "board");
+    }
+
+    /** O-002: clear THIS project's tickets + wave history (other projects untouched). */
+    public java.util.Map<String, Object> resetProject() {
+        return store.resetProject(project, "board");
+    }
+
     public String setStatus(String id, String status) {
         try {
             store.update(project, id, Map.of("status", status));

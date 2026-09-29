@@ -203,27 +203,42 @@ public class TaskFleetWatchdogTest {
      * for the human, not worker silence) must not be stall-killed - the run
      * dies only if nobody ever answers, at the budget.
      */
+    /** One pending permission ask wired into the given queue (the shared fixture). */
+    private static void offerPendingAsk(PermissionQueue queue) {
+        queue.offer(new com.opencode.ide.client.activity.PermissionRequest(
+                "ses_1", "per_1", "bash", List.of("git push"), "git push",
+                com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
+    }
+
+    /** A fleet with the permission bridge and the short stall window both ask-tests share. */
+    private TaskFleet bridgedFleet(PermissionQueue queue, FleetPermissionBridge bridge) {
+        return new TaskFleet(
+                new FleetRunner(client, worktrees, () -> { }, bridge::sessionStarted),
+                store, new RoleAgents(), null, bridge)
+                .withStallTimeout(Duration.ofMillis(100)); // the pending ask pauses the clock
+    }
+
+    /** The shared outcome: the run is budget-killed and the abort names the unanswered ask. */
+    private static void assertUnansweredAskBudgetKill(FleetJob job) {
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("timeout"));
+        assertTrue("the abort names the unanswered ask", job.detail().contains("never answered"));
+    }
+
     @Test
     public void permissionWaitIsNotAStall() {
         String id = sprintTicket("developer");
         client.sessionType = "idle"; // idle and silent - would stall in seconds...
         PermissionQueue queue = new PermissionQueue(null);
         FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
-        client.blockOnSend = () -> queue.offer(new com.opencode.ide.client.activity.PermissionRequest(
-                "ses_1", "per_1", "bash", List.of("git push"), "git push",
-                com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
-        TaskFleet fleet = new TaskFleet(
-                new FleetRunner(client, worktrees, () -> { }, bridge::sessionStarted),
-                store, new RoleAgents(), null, bridge)
-                .withStallTimeout(Duration.ofMillis(100)); // ...but the pending ask pauses the clock
+        client.blockOnSend = () -> offerPendingAsk(queue);
+        TaskFleet fleet = bridgedFleet(queue, bridge);
 
         // the budget is the backstop for an unanswered ask (F1) - no need to
         // wait the full default window to see it fire
         FleetJob job = fleet.launch(PROJECT, id, REPO, Duration.ofMillis(600));
 
-        assertEquals(FleetJob.State.FAILED, job.state());
-        assertTrue(job.detail(), job.detail().contains("timeout"));
-        assertTrue("the abort names the unanswered ask", job.detail().contains("never answered"));
+        assertUnansweredAskBudgetKill(job);
     }
 
     /**
@@ -478,5 +493,149 @@ public class TaskFleetWatchdogTest {
         assertTrue("the snapshot names the tool call: " + job.detail(),
                 job.detail().contains("bash [running]"));
         assertTrue(job.detail(), job.detail().contains("Now I run the build."));
+    }
+
+    // ---------- U-048: session/wait long-poll adoption ----------
+
+    /**
+     * U-048 (a): a settled long-poll answer skips the poll sleep and the
+     * run settles through the COMPLETION CHECKS - the wait is a wake-up,
+     * not a source of truth. The scripted wait blocks past one poll tick
+     * (the sleep-skip's honesty guard), settles the session server-side
+     * and answers true; the next probe's reply evidence completes the run
+     * with (almost) no poll sleeps in between. The requested window is
+     * tuning-bounded: never past the next abort-decision point, at most
+     * FleetTuning.WAIT_POLL_TICKS poll intervals.
+     */
+    @Test
+    public void waitTrueShortCircuitsThePollSleepAndSettlesViaCompletionChecks() {
+        String id = sprintTicket("developer");
+        client.sessionType = "busy"; // active run: the wait is attempted
+        client.replyOnSend = "done"; // the prompt resolves; completion via reply evidence
+        client.onWait = () -> {
+            try { // block >= one poll tick so the wake-up earns the sleep-skip
+                Thread.sleep(1_100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            client.completeSession("ses_1", "done"); // the session settles server-side
+        };
+        client.waitAnswer = true;
+        AtomicInteger sleeps = new AtomicInteger();
+        FleetRunner runner = new FleetRunner(client, worktrees, sleeps::incrementAndGet);
+        TaskFleet fleet = new TaskFleet(runner, store, new RoleAgents());
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertTrue("the long-poll was used", client.waitCalls.contains("ses_1"));
+        assertTrue("the wait window is tuning-bounded (30 poll ticks max)",
+                client.waitTimeouts.get(0) > 0 && client.waitTimeouts.get(0) <= 30_000);
+        assertTrue("wait-true skipped the sleep-and-repoll cycle (sleeps=" + sleeps.get() + ")",
+                sleeps.get() <= 1);
+    }
+
+    /**
+     * U-048 (b): a wait that answers false (older build without the
+     * route, busy service) is pure degradation - the poll loop runs
+     * unchanged and the no-progress budget stops a busy-silent session
+     * exactly as before (B-008: busy is not progress).
+     */
+    @Test
+    public void waitFalseFallsBackToThePlainPollLoop() {
+        String id = sprintTicket("pm");
+        client.waitAnswer = false; // every wait degrades
+        TaskFleet fleet = fleet();
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("timeout"));
+        assertTrue(job.detail(), job.detail().contains("without observed progress"));
+        assertTrue("the wait was attempted before falling back", client.waitCalls.contains("ses_1"));
+        Task after = store.get(PROJECT, id);
+        assertTrue(after.blocked);
+        assertTrue("no merge must be attempted", worktrees.mergedTaskIds.isEmpty());
+    }
+
+    /**
+     * U-048 (c): a pending permission ask PAUSES the wait - a wait in
+     * flight would suspend the stall clock's per-iteration resets and
+     * change the ask's stall semantics - and the ask keeps its established
+     * behavior: never stall-killed while pending, stopped by the
+     * no-progress budget naming the unanswered ask (F1).
+     */
+    @Test
+    public void pendingPermissionAskPausesTheWait() {
+        String id = sprintTicket("developer");
+        client.sessionType = "idle"; // idle and silent - would stall in seconds...
+        client.waitAnswer = true; // ...and a scripted wait must never be consulted
+        PermissionQueue queue = new PermissionQueue(null);
+        FleetPermissionBridge bridge = new FleetPermissionBridge(queue);
+        // the ask is queued at session creation - BEFORE any prompt can
+        // start - so every watchdog iteration sees it pending: no race with
+        // the prompt thread's first move
+        client.onSessionCreated = () -> offerPendingAsk(queue);
+        TaskFleet fleet = bridgedFleet(queue, bridge);
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, Duration.ofMillis(600));
+
+        assertUnansweredAskBudgetKill(job);
+        assertTrue("a pending ask pauses the long-poll entirely", client.waitCalls.isEmpty());
+    }
+
+    /**
+     * U-048 (d): a wait that THROWS (the interface default on clients
+     * without the route, a transport failure) degrades to polling and
+     * never kills the run - the launch still completes.
+     */
+    @Test
+    public void waitExceptionDegradesToPollingAndNeverKillsTheRun() {
+        String id = sprintTicket("developer");
+        client.failWaitCalls = 3; // the first three waits throw, then degrade
+        client.blockOnSend = () -> {
+            try { // keep the prompt in flight past one queued-branch poll
+                  // sleep (1s) so the watchdog reliably reaches the wait
+                Thread.sleep(2_500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        sessionCompletes(); // idle + assistant reply once the generation ends
+        TaskFleet fleet = fleet();
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertTrue("the failing waits were attempted and swallowed (calls=" + client.waitCalls.size() + ")",
+                client.waitCalls.size() >= 3);
+    }
+
+    /**
+     * U-048: the wait answer is NOT a source of truth - a wait that claims
+     * settled on every call while the session stays BUSY and static never
+     * completes the run; only the completion checks (probe evidence)
+     * settle it, and the no-progress budget stops it as before.
+     */
+    @Test
+    public void waitTrueAloneDoesNotSettleTheRun() {
+        String id = sprintTicket("pm");
+        client.sessionType = "busy"; // busy and static: no completion evidence ever
+        client.waitAnswer = true; // the wait claims settled on every call
+        client.onWait = () -> {
+            try { // block >= one poll tick: the sleep-skip path is exercised
+                Thread.sleep(1_100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        TaskFleet fleet = fleet();
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.FAILED, job.state());
+        assertTrue(job.detail(), job.detail().contains("timeout"));
+        assertTrue(job.detail(), job.detail().contains("without observed progress"));
+        assertTrue("the wait was consulted and overruled by the probe", client.waitCalls.contains("ses_1"));
     }
 }

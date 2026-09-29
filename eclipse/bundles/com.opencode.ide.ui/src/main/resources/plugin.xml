@@ -49,6 +49,16 @@
           id="com.opencode.ide.ui.preferences.connection"
           name="OpenCode"
           class="com.opencode.ide.ui.preferences.ConnectionPreferencePage"/>
+    <page
+          id="com.opencode.ide.ui.preferences.attention"
+          name="Attention"
+          category="com.opencode.ide.ui.preferences.connection"
+          class="com.opencode.ide.ui.attention.AttentionPreferencePage"/>
+  </extension>
+
+  <extension point="org.eclipse.core.runtime.preferences">
+    <initializer
+          class="com.opencode.ide.ui.attention.AttentionPreferenceInitializer"/>
   </extension>
 
   <extension point="org.eclipse.ui.commands">
@@ -78,6 +88,7 @@
 
   <extension point="org.eclipse.ui.startup">
     <startup class="com.opencode.ide.ui.internal.AgentToolsStartup"/>
+    <startup class="com.opencode.ide.ui.attention.AttentionStartup"/>
   </extension>
 
   <extension point="org.eclipse.ui.bindings">

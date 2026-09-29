@@ -22,9 +22,9 @@ import com.opencode.ide.tasks.VStages;
  * ticket to in-review dispatches a second, read-only REVIEW session under
  * the reviewer agent; the FAKE reviewer path is the fake client's reply to
  * that session ({@code VERDICT: ...}), and the tests assert the engine
- * applies it through the store: PASS → done + advance into the next
- * stage's wave backlog, FAIL → send-back blocked with the reviewer's
- * reasons (the human-escalation signal), UNCLEAR → stays in-review with a
+ * applies it through the store: PASS â†’ done + advance into the next
+ * stage's wave backlog, FAIL â†’ send-back blocked with the reviewer's
+ * reasons (the human-escalation signal), UNCLEAR â†’ stays in-review with a
  * comment. The review run's actuals land on the ticket like any run, so
  * the wave budget absorbs the reviewer's cost.
  */
@@ -35,24 +35,6 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         return fleet.withAutonomousAcceptance();
     }
 
-    private String stagedTicket(String stage) {
-        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
-                "Stage work", "Do the thing.", "task", VStages.roleOf(stage), "high", 3,
-                List.of("ac one", "ac two"), List.of(), null, "V");
-        var t = store.create(PROJECT, spec, stage);
-        return t.id;
-    }
-
-    /**
-     * The worker session completes plainly ("done"); the merge hook then
-     * swaps the reply so the NEXT send — the review session — answers with
-     * the given verdict text (the fake reviewer path).
-     */
-    private void workerCompletesAndReviewReplies(String verdictReply) {
-        client.replyOnSend = "done";
-        client.sessionType = "idle";
-        worktrees.onMergeBack = () -> client.replyOnSend = verdictReply;
-    }
 
     @Test
     public void acceptedReviewMarksDoneAndAdvancesToTheNextStageBacklog() {
@@ -136,8 +118,15 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
                         && c.text().contains("no goals captured")));
     }
 
+    /**
+     * B-007 FR-009 (the deliberately changed first outcome): a staged
+     * ticket's UNCLEAR review routes the doubt to the originator for one
+     * retry - recorded as a comment plus the retry marker - instead of
+     * waiting in in-review. Recursing doubt escalates to blocked; see
+     * {@link ReviewDoubtRoutingTest}.
+     */
     @Test
-    public void unclearReviewLeavesTheTicketInReviewWithAComment() {
+    public void unclearReviewRoutesTheDoubtInsteadOfWaitingInReview() {
         String id = stagedTicket("design");
         workerCompletesAndReviewReplies(
                 "cannot reach the verification gate.\nVERDICT: UNCLEAR - verification gate unreachable");
@@ -145,11 +134,11 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         fleet.launch(PROJECT, id, REPO, TIMEOUT);
 
         Task after = store.get(PROJECT, id);
-        assertEquals("doubt stays in-review — the sampled human surface", "in-review", after.status);
+        assertEquals("doubt returns to the stage backlog (retry 1/1)", "product-backlog", after.status);
         assertEquals("design", after.stage);
         assertFalse(after.blocked);
         assertTrue(after.comments.stream()
-                .anyMatch(c -> "reviewer".equals(c.by()) && c.text().startsWith("review: UNCLEAR")
+                .anyMatch(c -> "reviewer".equals(c.by())
                         && c.text().contains("verification gate unreachable")));
     }
 
@@ -184,16 +173,25 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
                 .anyMatch(c -> "reviewer".equals(c.by()) && c.text().startsWith("review: PASS")));
     }
 
+    /**
+     * B-007: never auto-advance on a malformed review - and the doubt
+     * routes to the originator (retry) rather than parking in in-review.
+     * The unstaged human surface lives in
+     * {@link ReviewDoubtRoutingTest#anUnstagedTicketKeepsTheHumanSurface}.
+     */
     @Test
-    public void reviewReplyWithoutAVerdictLineStaysInReview() {
+    public void reviewReplyWithoutAVerdictLineNeverAdvances() {
         String id = stagedTicket("implementation");
         workerCompletesAndReviewReplies("looks fine to me"); // no VERDICT line
 
         fleet.launch(PROJECT, id, REPO, TIMEOUT);
 
         Task after = store.get(PROJECT, id);
-        assertEquals("never auto-advance on a malformed review", "in-review", after.status);
-        assertEquals("implementation", after.stage);
+        assertFalse("never auto-advance on a malformed review",
+                "test-implementation".equals(after.stage));
+        assertEquals("the doubt routes to the originator's own stage", "implementation", after.stage);
+        assertEquals("product-backlog", after.status);
+        assertFalse(after.blocked);
         assertTrue(after.comments.stream()
                 .anyMatch(c -> c.text().contains("no parseable verdict")));
     }

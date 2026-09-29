@@ -64,7 +64,7 @@ to the correct skill/agent that owns execution.
 | Estimating cost of a plan / manifest | `project-manager-estimate-costs` |
 | Traceability across definition->verification | `project-manager-audit-traceability` |
 | Third-party license audit / compatibility with the project license | `code-licenses` |
-| Sprint / ticket / backlog workflow | `project-manager-operating-model` + `project-manager` agent |
+| Wave / ticket / backlog workflow | `project-manager-operating-model` + `project-manager` agent |
 
 ## Default Output
 

@@ -38,10 +38,14 @@ public final class SessionEventFilter {
             // message.part.updated): the text/reasoning deltas and the tool
             // lifecycle - these arrive in bursts, so callers must coalesce.
             // Title/metadata (v1 session.updated, gone): session.renamed.
+            // U-041: the shell lifecycle (session.shell.started/ended) upserts
+            // the session's shell messages - the shell-task section's live
+            // refresh signal.
             case "session.idle",
                     "session.execution.succeeded", "session.execution.failed",
                     "session.execution.interrupted",
                     "session.renamed",
+                    "session.shell.started", "session.shell.ended",
                     "session.text.ended",
                     "session.text.delta", "session.reasoning.delta",
                     "session.tool.called", "session.tool.input.started",

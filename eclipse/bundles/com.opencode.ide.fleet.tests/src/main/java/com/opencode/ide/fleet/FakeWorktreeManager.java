@@ -63,6 +63,30 @@ final class FakeWorktreeManager implements WorktreeManager {
      */
     final List<String> uncommittedFiles = new java.util.ArrayList<>();
 
+    /** B-007: the settle-check allowance seen by each {@code mergeBack} call (the 3-arg seam). */
+    final List<Boolean> mergeAllowEmptyFlags = new ArrayList<>();
+
+    /**
+     * B-007 FR-006 seam: models the real manager's contract - an
+     * empty-branch refusal (the settle check) becomes a clean merge when
+     * the caller verified store-side stage evidence ({@code allowEmptyDiff}).
+     */
+    @Override
+    public MergeResult mergeBack(Path repoRoot, String taskId, boolean allowEmptyDiff) {
+        mergeAllowEmptyFlags.add(allowEmptyDiff);
+        MergeResult saved = nextMergeResult;
+        if (allowEmptyDiff && !saved.merged()
+                && com.opencode.ide.tasks.StageEvidence.isSettleRefusal(saved.output())) {
+            nextMergeResult = new MergeResult(true, List.of(),
+                    "merged: empty branch accepted (store-side stage evidence)");
+        }
+        try {
+            return mergeBack(repoRoot, taskId);
+        } finally {
+            nextMergeResult = saved;
+        }
+    }
+
     @Override
     public MergeResult mergeBack(Path repoRoot, String taskId) {
         if (mergeBackFailure != null) {

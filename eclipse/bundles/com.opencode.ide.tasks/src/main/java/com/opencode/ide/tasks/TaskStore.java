@@ -597,6 +597,211 @@ public final class TaskStore {
         return fallback;
     }
 
+    /** B-007 FR-009/010: originator retries per stage visit before doubt escalates to a human. */
+    public static final int REVIEW_DOUBT_RETRY_LIMIT = 1;
+
+    /**
+     * B-007 doubt round-trip (FR-009..FR-012): reviewer doubt - or a
+     * heuristic checkpoint refusal (FR-011) - routes back to the ORIGINATOR
+     * instead of blocking for a human. The ticket returns to its own stage's
+     * backlog (same mechanics as {@link #advance}, without the stage move:
+     * product backlog, assignee cleared) with the doubt recorded as an
+     * attributable comment and a {@code review doubt retry (n/N)} history
+     * marker. Exactly {@link #REVIEW_DOUBT_RETRY_LIMIT} retry per stage visit
+     * (C-004: a visit ends at the next stage transition - {@code advanced
+     * to}, {@code sent back to}, {@code reported to}, {@code stage N
+     * passed}, a direct stage update, or ticket creation); a doubt that
+     * recurs inside the same visit escalates the ticket to blocked -
+     * {@code blocked} is the needs-a-human signal and is reached only after
+     * the originator had its attempt (U-023 round-trip doctrine).
+     *
+     * @param reason the reviewer's doubt or the checkpoint's refusal reason
+     * @return the ticket after the routing (product-backlog retry, or blocked)
+     * @throws Invalid when the ticket has no (valid) stored stage or the
+     *                 reason is blank
+     */
+    public Task routeReviewDoubt(String project, String id, String reason, String by) {
+        if (reason == null || reason.isBlank()) {
+            throw new Invalid("reason must be a non-empty string");
+        }
+        Task current = get(project, id);
+        if (current.stage == null || !VStages.isValid(current.stage)) {
+            throw new Invalid("ticket has no stage; set one first");
+        }
+        long consumed = doubtRetriesInVisit(current);
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            if (consumed >= REVIEW_DOUBT_RETRY_LIMIT) {
+                t.blocked = true;
+                t.blocker = "review doubt unresolved after " + REVIEW_DOUBT_RETRY_LIMIT
+                        + " originator retries: " + reason;
+                t.updatedAt = now();
+                t.comments.add(new Task.Comment(now(), by,
+                        "review doubt escalated to NEEDS-HUMAN (stage " + t.stage + "): " + reason));
+                t.history("review doubt escalated to NEEDS-HUMAN: " + reason, by);
+                data.changed.add(id);
+                return t;
+            }
+            t.status = "product-backlog";
+            t.assignee = null;
+            t.updatedAt = now();
+            t.comments.add(new Task.Comment(now(), by,
+                    "review doubt retry (" + (consumed + 1) + "/" + REVIEW_DOUBT_RETRY_LIMIT
+                            + ") for stage " + t.stage + " - routed to the originator: " + reason));
+            t.history("review doubt retry (" + (consumed + 1) + "/" + REVIEW_DOUBT_RETRY_LIMIT
+                    + ") for stage " + t.stage + ": " + reason, by);
+            data.changed.add(id);
+            return t;
+        });
+    }
+
+    /**
+     * Doubt retries already consumed in the ticket's CURRENT stage visit
+     * (FR-010 bookkeeping, Q-003): history markers since the most recent
+     * stage transition - or since creation when the stage never moved.
+     */
+    private static long doubtRetriesInVisit(Task t) {
+        long doubts = 0;
+        for (int i = t.history.size() - 1; i >= 0; i--) {
+            String action = t.history.get(i).action();
+            if (isStageTransition(action)) {
+                break;
+            }
+            if (action.startsWith("review doubt")) {
+                doubts++;
+            }
+        }
+        return doubts;
+    }
+
+    /** Stage-visit boundary events (Q-003): any recorded move that resets the doubt budget. */
+    private static boolean isStageTransition(String action) {
+        return action.startsWith("advanced to ")
+                || action.startsWith("sent back to ")
+                || action.startsWith("reported to ")
+                || (action.startsWith("stage ") && action.contains(" passed: "))
+                || action.startsWith("updated:stage")
+                || action.startsWith("created");
+    }
+
+    /**
+     * B-007 FR-006: store-side stage evidence - ticket writes attributable
+     * to a run window (comments, recorded artifacts, history) after
+     * {@code since}. Definition-leg runs legitimately deliver through the
+     * {@code task_*} tools into the MAIN store instead of worktree edits;
+     * those writes ARE produced work and the settle check must count them
+     * (the caller passes the result down as the merge's empty-branch
+     * allowance). The window starts after the engine's own pre-claim writes,
+     * so bookkeeping never masquerades as evidence (C-002: inspected from
+     * store state, no side channel).
+     */
+    public boolean hasStoreSideWrites(String project, String id, java.time.Instant since) {
+        Task t = get(project, id);
+        if (since == null) {
+            return false;
+        }
+        for (Task.Comment c : t.comments) {
+            if (c.ts() != null && c.ts().isAfter(since)) {
+                return true;
+            }
+        }
+        for (Task.Artifact a : t.artifacts) {
+            if (a.ts() != null && a.ts().isAfter(since)) {
+                return true;
+            }
+        }
+        for (Task.HistoryEvent e : t.history) {
+            if (e.ts() != null && e.ts().isAfter(since)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * O-002: creates a NEW task-store project - the scaffold a user would
+     * otherwise hand-write under {@code .opencode/tasks/} (the directory plus
+     * the store's own {@code _meta.json} shape: id seq, counter, sprints).
+     * Only this project is created; every other project keeps its history,
+     * actuals and fleet ownership bindings untouched.
+     *
+     * @throws Invalid when the project already exists (pick another name)
+     */
+    public void newProject(String project, String by) {
+        String name = sanitizeProject(project);
+        Path dir = root.resolve(name);
+        if (Files.isDirectory(dir)) {
+            throw new Invalid("project '" + name + "' already exists");
+        }
+        try {
+            Files.createDirectories(dir);
+            writeAtomic(dir.resolve("_meta.json"), "{\"seq\":{},\"counter\":0,\"sprints\":{}}");
+        } catch (java.io.IOException e) {
+            throw new UncheckedIo("task store I/O failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * O-002: resets a project - every ticket of THIS project (live and
+     * archived) and its wave history are removed, so a user repurposing the
+     * repo never hand-deletes store files. The confirmation dialog lists
+     * what is lost BEFORE this runs. Cross-project safety is STRUCTURAL:
+     * only files under {@code <root>/<project>/} are touched - other
+     * projects keep their tickets/actuals and the fleet's {@code
+     * <id>.project} ownership bindings stay intact. The id counters survive
+     * the reset on purpose: ids are never reused (the crash-recovery rule).
+     *
+     * @return what was lost ({@code project}, {@code tickets_removed},
+     *         {@code archived_removed}, {@code sprints_cleared})
+     * @throws Invalid when the project does not exist
+     */
+    public java.util.Map<String, Object> resetProject(String project, String by) {
+        String name = sanitizeProject(project);
+        Path dir = root.resolve(name);
+        if (!Files.isDirectory(dir)) {
+            throw new Invalid("project '" + name + "' does not exist");
+        }
+        int tickets = 0;
+        int archived = 0;
+        try {
+            try (var stream = Files.list(dir)) {
+                for (Path file : stream.filter(Files::isRegularFile).sorted().toList()) {
+                    String fileName = file.getFileName().toString();
+                    if (fileName.endsWith(".md") && !fileName.startsWith("_")) {
+                        Files.deleteIfExists(file);
+                        tickets++;
+                    }
+                }
+            }
+            Path archive = dir.resolve("_archive");
+            if (Files.isDirectory(archive)) {
+                try (var stream = Files.list(archive)) {
+                    for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                        Files.deleteIfExists(file);
+                        archived++;
+                    }
+                }
+                Files.deleteIfExists(archive);
+            }
+            // wave history is part of what is lost; the id seq is NOT reset
+            Path meta = dir.resolve("_meta.json");
+            JsonObject doc = Files.isRegularFile(meta)
+                    ? JsonParser.parseString(Files.readString(meta, StandardCharsets.UTF_8)).getAsJsonObject()
+                    : new JsonObject();
+            doc.remove("sprints");
+            doc.add("sprints", new JsonObject());
+            writeAtomic(meta, GSON.toJson(doc));
+        } catch (java.io.IOException e) {
+            throw new UncheckedIo("task store I/O failed: " + e.getMessage(), e);
+        }
+        java.util.Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("project", name);
+        report.put("tickets_removed", tickets);
+        report.put("archived_removed", archived);
+        report.put("sprints_cleared", true);
+        return report;
+    }
+
     /**
      * U-038: park a ticket for maintenance - status {@code paused} (visible,
      * never blocked and never NEEDS-HUMAN), the reason in history. Resume is
@@ -811,7 +1016,7 @@ public final class TaskStore {
         return out;
     }
 
-    /** Sprint Kanban grouped by status; all five columns always present. */
+    /** Wave Kanban grouped by status; all six status columns always present (paused = parked for maintenance). */
     public Map<String, List<Task>> board(String project, String sprint) {
         Map<String, List<Task>> out = new LinkedHashMap<>();
         for (String s : Task.VALID_STATUSES) {

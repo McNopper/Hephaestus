@@ -249,6 +249,9 @@ const script = readFileSync(join(webDir, "chat.js"), "utf8");
 check("chat.js is the real app script", script.includes("__appendUser") && script.includes("extractMath"));
 
 const chatEl = new El("div");
+const inboxEl = new El("div");
+const fileEl = new El("div");
+const formsEl = new El("div");
 const bodyEl = new El("body");
 const reports = [];
 const ctx = {
@@ -259,7 +262,10 @@ const ctx = {
   markdownit: require(join(webDir, "markdown-it.min.js")),
   document: {
     body: bodyEl,
-    getElementById: (id) => (id === "chat" ? chatEl : null),
+    getElementById: (id) => (id === "chat" ? chatEl
+      : id === "inbox" ? inboxEl
+      : id === "file-complete" ? fileEl
+      : id === "forms" ? formsEl : null),
     createElement: (tag) => new El(tag),
     createTextNode: (text) => ({ nodeType: 3, textContent: String(text), children: [] })
   },
@@ -884,6 +890,261 @@ exec('window.__setAssistantText("{\\"mid\\":\\"msg_auth\\",\\"text\\":\\"instant
 check("an authoritative render without streaming clears the indicator",
   !chatEl.querySelector(".msg.assistant.waiting")
     && !!chatEl.querySelector('.msg.assistant[data-mid="msg_auth"]'));
+
+// ---------------- session inbox row (T-005 management surface) ----------------
+// The host's "Send to Queue" parks prompts in the SERVER's session inbox;
+// __setInboxItems renders them as the composer queue row (one line per
+// pending prompt + Steer now / Deliver next / Cancel), and the buttons hand
+// the action verb + server message id to Java via __javaInboxAction. The
+// row lives outside #chat: transcript wipes never eat it.
+exec("window.__clear()");
+const inboxActions = [];
+ctx.__javaInboxAction = (action, id) => inboxActions.push(action + ":" + id);
+const inboxItemsJson = JSON.stringify([
+  { id: "msg_q1", text: "run the tests next" },
+  { id: "msg_q2", text: "<script>alert(1)</script>" }
+]);
+const ri = exec("window.__setInboxItems(" + JSON.stringify(inboxItemsJson) + ")");
+check("__setInboxItems returns true", ri === true);
+check("the inbox row renders one line per queued prompt",
+  inboxEl.querySelectorAll(".inbox-item").length === 2,
+  "items=" + inboxEl.querySelectorAll(".inbox-item").length);
+check("the queued prompt text is rendered", textOf(inboxEl).includes("run the tests next"));
+check("hostile prompt text cannot inject markup",
+  inboxEl.querySelectorAll("script").length === 0
+    && textOf(inboxEl).includes("<script>alert(1)</script>"));
+const q1 = inboxEl.querySelector('.inbox-item[data-inboxid="msg_q1"]');
+const inboxBtns = q1 ? q1.querySelectorAll(".inbox-btn") : [];
+check("each queued prompt carries the three decided actions",
+  inboxBtns.length === 3
+    && inboxBtns.map(b => b.textContent).join("|") === "Steer now|Deliver next|Cancel",
+  inboxBtns.map(b => b.textContent).join("|"));
+if (q1 && inboxBtns.every(b => b._listeners && typeof b._listeners.click === "function")) {
+  inboxBtns.forEach(b => b._listeners.click());
+}
+check("the actions hand (verb, server message id) to Java",
+  inboxActions.length === 3 && inboxActions[0] === "steer:msg_q1"
+    && inboxActions[1] === "queue:msg_q1" && inboxActions[2] === "cancel:msg_q1",
+  inboxActions.join(", "));
+check("inbox actions are reported to Java",
+  reports.some(r => r.startsWith("inbox steer requested for msg_q1")));
+exec('window.__setMessages("[]")');
+exec('window.__clear()');
+check("transcript wipes leave the inbox row alone",
+  inboxEl.querySelectorAll(".inbox-item").length === 2);
+const re = exec('window.__setInboxItems("[]")');
+check("__setInboxItems([]) empties the row", re === true
+  && inboxEl.querySelectorAll(".inbox-item").length === 0);
+check("the emptied row is reported",
+  reports.some(r => r.startsWith("inbox row rendered (0 queued)")));
+
+// ---------------- @-file autocomplete (U-012) ----------------
+// The host detects the @-token in its composer and hands the query to the
+// page (__setFileQuery); the page asks Java for matches (__javaFileQuery)
+// and renders the answer (__setFileCompletions, `selected` highlights the
+// keyboard row). A row click hands the picked path back (__javaFilePick).
+// Rows are textContent-only - a hostile path can never inject markup.
+
+// /thinking persistence first (U-047): the visibility preference is a body
+// class, so history renders (__setMessages - what a resume does) must NOT
+// reset it; the controller re-applies it, but the page must not clobber it.
+// The __setMessages here wipes the transcript, which is why this sits at the
+// END of the suite (nothing below depends on earlier bubbles).
+exec('window.__setReasoningVisible("{\\"visible\\":false}")');
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "assistant", id: "msg_th1", text: "hidden thinking answer", reasoning: "secret", meta: "" }
+])) + ")");
+check("a history render keeps reasoning hidden (the /thinking preference survives across messages)",
+  exec('document.body.classList.contains("hide-reasoning")') === true
+    && !!chatEl.querySelector('.msg.assistant[data-mid="msg_th1"]'));
+exec('window.__setReasoningVisible("{\\"visible\\":true}")');
+
+const fileQueries = [];
+ctx.__javaFileQuery = (query) => fileQueries.push(String(query));
+const filePicks = [];
+ctx.__javaFilePick = (path) => filePicks.push(String(path));
+
+const rq = exec('window.__setFileQuery("{\\"query\\":\\"char\\"}")');
+check("__setFileQuery returns true", rq === true);
+check("__setFileQuery asks Java for the matches (the bridge verb)",
+  fileQueries.length === 1 && fileQueries[0] === "char",
+  JSON.stringify(fileQueries));
+check("the dropdown shows a searching row while waiting",
+  fileEl.querySelectorAll(".file-complete-title").length === 1
+    && textOf(fileEl).includes("Searching @char…"));
+const rfc = exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { aliases: [], paths: ["src/ChatPage.java", "web/char<b>alert</b>.js", "docs/character.md"], selected: 0 })) + ")");
+check("__setFileCompletions returns true", rfc === true);
+check("the completions render one row per match",
+  fileEl.querySelectorAll(".file-complete-item").length === 3,
+  "rows=" + fileEl.querySelectorAll(".file-complete-item").length);
+check("hostile path text cannot inject markup",
+  fileEl.querySelectorAll("b").length === 0
+    && textOf(fileEl).includes("web/char<b>alert</b>.js"));
+check("the first row is the selected (keyboard) row",
+  fileEl.querySelectorAll(".file-complete-item.selected").length === 1
+    && fileEl.querySelector(".file-complete-item").classList.contains("selected"));
+exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { aliases: [], paths: ["src/ChatPage.java", "web/chat.js", "docs/character.md"], selected: 2 })) + ")");
+check("a re-render moves the selected row (arrow keys travel through the host)",
+  fileEl.querySelectorAll(".file-complete-item.selected").length === 1
+    && !fileEl.querySelector(".file-complete-item").classList.contains("selected")
+    && fileEl.querySelectorAll(".file-complete-item")[2].classList.contains("selected"));
+const fileRows = fileEl.querySelectorAll(".file-complete-item");
+if (fileRows.length > 0 && fileRows[0]._listeners && typeof fileRows[0]._listeners.click === "function") {
+  fileRows[0]._listeners.click();
+}
+check("clicking a row hands the picked path to Java (the bridge verb)",
+  filePicks.length === 1 && filePicks[0] === "src/ChatPage.java",
+  JSON.stringify(filePicks));
+check("picks and queries are reported to Java",
+  reports.some(r => r.startsWith("file query: @char"))
+    && reports.some(r => r.startsWith("file completion picked: src/ChatPage.java")));
+const rempty = exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { paths: [], selected: 0 })) + ')');
+check("__setFileCompletions([]) closes the dropdown",
+  rempty === true && fileEl.children.length === 0);
+exec('window.__setFileQuery("{\\"query\\":\\"x\\"}")');
+const rh = exec("window.__hideFileCompletions()");
+check("__hideFileCompletions closes an open dropdown", rh === true && fileEl.children.length === 0);
+check("transcript wipes leave the dropdown row alone (it lives outside #chat)",
+  (() => { exec("window.__clear()"); return fileEl !== null; })());
+
+// ---------------- @-alias reference roots (U-047) ----------------
+// __setFileCompletions carries an aliases group ABOVE the files (the
+// server's reference catalog - possibly empty, then files only, no error);
+// the `selected` index spans BOTH groups (aliases first); clicking an alias
+// row hands its NAME to __javaFilePick - the host inserts "@<name> " as
+// plain text exactly like a picked path.
+exec('window.__setFileQuery("{\\"query\\":\\"re\\"}")');
+check("an alias query reaches Java through the same verb",
+  fileQueries.length === 3 && fileQueries[2] === "re", JSON.stringify(fileQueries));
+const ralias = exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { aliases: [{ id: "ref_1", name: "repo-map" }, { id: "ref_2", name: "<script>alert(1)</script>" }],
+    paths: ["src/RepoMap.cpp"], selected: 1 })) + ")");
+check("__setFileCompletions with aliases returns true", ralias === true);
+const allItems = fileEl.querySelectorAll(".file-complete-item");
+check("alias rows render ABOVE the file rows",
+  allItems.length === 3 && allItems[0].classList.contains("file-complete-alias")
+    && allItems[1].classList.contains("file-complete-alias")
+    && !allItems[2].classList.contains("file-complete-alias"),
+  "items=" + allItems.length);
+check("group headers separate the aliases from the files",
+  textOf(fileEl).includes("aliases:") && textOf(fileEl).includes("files:"));
+check("a hostile alias name cannot inject markup",
+  fileEl.querySelectorAll("script").length === 0
+    && textOf(fileEl).includes("<script>alert(1)</script>"));
+check("the merged selection spans both groups (selected=1 -> the second alias)",
+  allItems.filter(i => i.classList.contains("selected")).length === 1
+    && allItems[1].classList.contains("selected"));
+const aliasRow = fileEl.querySelector(".file-complete-item.file-complete-alias");
+if (aliasRow && aliasRow._listeners && typeof aliasRow._listeners.click === "function") {
+  aliasRow._listeners.click();
+}
+check("clicking an alias hands its NAME (not the id) to the pick verb",
+  filePicks.length === 2 && filePicks[1] === "repo-map", JSON.stringify(filePicks));
+check("the alias pick is reported to Java",
+  reports.some(r => r.startsWith("alias completion picked: repo-map")));
+const raliasOnly = exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { aliases: [{ id: "ref_1", name: "repo-map" }], paths: [], selected: 0 })) + ")");
+check("an alias-only answer keeps the dropdown open (no files matched)",
+  raliasOnly === true && fileEl.querySelectorAll(".file-complete-item").length === 1);
+const rbothEmpty = exec('window.__setFileCompletions(' + JSON.stringify(JSON.stringify(
+  { aliases: [], paths: [], selected: 0 })) + ")");
+check("both groups empty closes the dropdown", rbothEmpty === true && fileEl.children.length === 0);
+exec("window.__hideFileCompletions()");
+
+// ---------------- question forms (U-014) ----------------
+// The session's open question forms render as answerable cards: title,
+// leniently-rendered fields (the service owns the schema - a union of
+// String/Number/Integer/Boolean/Multiselect/External field objects), Submit
+// + Cancel. Submit hands (formId, answer JSON keyed by the form's own field
+// keys) to __javaFormReply; Cancel hands the id to __javaFormCancel. The
+// cards live outside #chat (transcript wipes never eat them) and persist
+// until the host re-pushes without them - no silent hang.
+const formReplies = [];
+const formCancels = [];
+ctx.__javaFormReply = (id, json) => formReplies.push({ id: id, json: json });
+ctx.__javaFormCancel = (id) => formCancels.push(id);
+const formErrBefore = reports.filter(r => r.startsWith("JS ERROR")).length;
+const rforms = exec('window.__setForms(' + JSON.stringify(JSON.stringify([
+  { id: "frm_1", title: "Which <b>target</b>?", fields: [
+      { type: "string", key: "name", label: "Target name" },
+      { type: "boolean", key: "clean", label: "Clean first?" },
+      { type: "number", key: "jobs", label: "Parallel jobs" },
+      { type: "multiselect", key: "configs", label: "Configs",
+        options: [{ label: "Debug", value: "debug" }, { label: "Release", value: "release" }] },
+      { string: { key: "wrapped", label: "Union-wrapped field" } }
+    ] },
+  { id: "frm_2", title: "Second question", fields: [] }
+])) + ")");
+check("__setForms returns true", rforms === true);
+check("one card per open form renders", formsEl.querySelectorAll(".form-card").length === 2,
+  "cards=" + formsEl.querySelectorAll(".form-card").length);
+const formCard = formsEl.querySelector('.form-card[data-formid="frm_1"]');
+check("the form title renders as text (hostile markup inert)",
+  !!formCard && textOf(formCard).includes("Which <b>target</b>?")
+    && formCard.querySelectorAll("b").length === 0);
+check("field labels render (flat and union-wrapped)",
+  !!formCard && textOf(formCard).includes("Target name")
+    && textOf(formCard).includes("Clean first?")
+    && textOf(formCard).includes("Union-wrapped field"));
+const nameInput = formCard ? formCard.querySelector('[data-key="name"]') : null;
+const cleanInput = formCard ? formCard.querySelector('[data-key="clean"]') : null;
+const jobsInput = formCard ? formCard.querySelector('[data-key="jobs"]') : null;
+const wrappedInput = formCard ? formCard.querySelector('[data-key="wrapped"]') : null;
+const configInputs = formCard ? formCard.querySelectorAll('[data-key="configs"]') : [];
+check("inputs render per field type",
+  !!nameInput && nameInput.type === "text"
+    && !!cleanInput && cleanInput.type === "checkbox"
+    && !!jobsInput && jobsInput.type === "number"
+    && configInputs.length === 2 && configInputs[0].type === "checkbox"
+    && !!wrappedInput && wrappedInput.type === "text",
+  "name=" + (nameInput && nameInput.type) + " clean=" + (cleanInput && cleanInput.type)
+    + " jobs=" + (jobsInput && jobsInput.type)
+    + " configs=" + configInputs.length + " wrapped=" + (wrappedInput && wrappedInput.type));
+if (nameInput) nameInput.value = "app";
+if (cleanInput) cleanInput.checked = true;
+if (jobsInput) jobsInput.value = "8";
+if (wrappedInput) wrappedInput.value = "extra";
+if (configInputs.length === 2) configInputs[0].checked = true;
+const submitBtn = formCard ? formCard.querySelector(".form-submit") : null;
+if (submitBtn && submitBtn._listeners && typeof submitBtn._listeners.click === "function") {
+  submitBtn._listeners.click();
+}
+check("Submit hands (formId, answer JSON keyed by the form's fields) to Java",
+  formReplies.length === 1 && formReplies[0].id === "frm_1" && (() => {
+    const a = JSON.parse(formReplies[0].json);
+    return a.name === "app" && a.clean === true && a.jobs === 8
+      && Array.isArray(a.configs) && a.configs.length === 1 && a.configs[0] === "debug"
+      && a.wrapped === "extra";
+  })(), formReplies.length === 1 ? formReplies[0].json : "no reply");
+check("the card disarms after submitting (no double submit)",
+  !!submitBtn && submitBtn.disabled === true && textOf(formCard).includes("sending"));
+check("the answer is reported to Java",
+  reports.some(r => r.startsWith("form answer submitted (frm_1)")));
+const card2 = formsEl.querySelector('.form-card[data-formid="frm_2"]');
+const cancelBtn = card2 ? card2.querySelector(".form-cancel") : null;
+if (cancelBtn && cancelBtn._listeners && typeof cancelBtn._listeners.click === "function") {
+  cancelBtn._listeners.click();
+}
+check("Cancel hands the form id to Java",
+  formCancels.length === 1 && formCancels[0] === "frm_2", JSON.stringify(formCancels));
+check("the cancel is reported to Java",
+  reports.some(r => r.startsWith("form cancel requested (frm_2)")));
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "user", id: "", text: "meanwhile", reasoning: "", meta: "" }
+])) + ")");
+check("transcript wipes leave the form cards alone (pending state persists)",
+  formsEl.querySelectorAll(".form-card").length === 2);
+const rformsEmpty = exec('window.__setForms(' + JSON.stringify(JSON.stringify([])) + ')');
+check("__setForms([]) removes the cards",
+  rformsEmpty === true && formsEl.querySelectorAll(".form-card").length === 0
+    && formsEl.children.length === 0);
+check("the emptied form area is reported",
+  reports.some(r => r.startsWith("form cards rendered (0 open)")));
+check("no JS errors while rendering forms",
+  reports.filter(r => r.startsWith("JS ERROR")).length === formErrBefore);
 
 // ---------------- failures must be loud ----------------
 const errBefore = reports.length;

@@ -6,9 +6,13 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.opencode.ide.chat.ChatPermissionAdapter;
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.client.DefaultModels;
@@ -28,8 +32,13 @@ import com.opencode.ide.client.model.VcsInfo;
  * {@code session.reasoning.delta} events for the current session into live
  * bubble updates, aborts in-flight
  * replies ({@link #abort()}), forks the session at any history message or
- * from a queued request ({@link #forkAt}/{@link #forkQueued}), undoes and
- * redoes exchanges through the server's revert/unrevert endpoints
+ * from a queued request ({@link #forkAt}/{@link #forkQueued}), manages the
+ * server-side session inbox of parked prompts ({@link #refreshInbox}/
+ * {@link #steerInbox}/{@link #deliverInboxNext}/{@link #cancelInbox}),
+ * surfaces and answers the session's open question forms (U-014:
+ * {@link #refreshForms} polling while a send is in flight, on resume and
+ * after each settle; {@link #replyForm}/{@link #cancelForm}), undoes
+ * and redoes exchanges through the server's revert/unrevert endpoints
  * ({@link #undoLastTurn()}/{@link #redoReverted()}), and reports everything
  * through the {@link Renderer} (the browser page) and {@link Host} (the
  * owning view) callbacks.
@@ -43,6 +52,29 @@ public final class ChatSessionController {
      */
     public record ToolLine(String name, String state) {
     }
+
+    /**
+     * One built-in slash command this chat handles locally (opencode TUI
+     * parity): its {@code name} (without the leading slash) and a one-line
+     * description. {@link #BUILT_IN_COMMANDS} is the single registry both
+     * {@link #builtInSlashCommand(String)} and the {@code /help} notice
+     * derive from, so recognition and documentation can never drift.
+     */
+    public record BuiltInCommand(String name, String description) {
+    }
+
+    /**
+     * The built-in slash commands handled locally, never sent to the server
+     * as custom commands (opencode TUI parity: the TUI handles these itself).
+     */
+    public static final List<BuiltInCommand> BUILT_IN_COMMANDS = List.of(
+            new BuiltInCommand("help", "list the built-in slash commands"),
+            new BuiltInCommand("init", "guided setup: create or update AGENTS.md for this repository"),
+            new BuiltInCommand("thinking", "toggle the visibility of thinking/reasoning blocks"),
+            new BuiltInCommand("undo", "undo the last exchange (message and replies; files from the git snapshot)"),
+            new BuiltInCommand("redo", "redo the undone exchange"),
+            new BuiltInCommand("share", "share the session as a link (not implemented for v2 sessions yet)"),
+            new BuiltInCommand("unshare", "remove the shared session link (not implemented for v2 sessions yet)"));
 
     /** Rendering surface driven by the controller (implemented by {@link ChatPage}). */
     public interface Renderer {
@@ -67,6 +99,34 @@ public final class ChatSessionController {
         void notice(String text);
 
         void clear();
+
+        /**
+         * Replaces the composer queue row (the session inbox's parked
+         * prompts, T-005 management surface); an empty list hides the row.
+         * Default no-op so renderers (and test fakes) without the row stay
+         * compiling.
+         */
+        default void setInboxItems(List<InboxEntry> items) {
+        }
+
+        /**
+         * Replaces the open question forms (U-014): one answerable card per
+         * form the server lists for the current session (fields passed
+         * through verbatim - the page renders the field union leniently); an
+         * empty list hides the area. Default no-op so renderers (and test
+         * fakes) without forms stay compiling.
+         */
+        default void setForms(List<FormCard> forms) {
+        }
+
+        /**
+         * Pushes the reasoning-visibility preference into the page
+         * ({@code /thinking} and the toolbar toggle; re-applied after every
+         * history render so the preference survives across messages). Default
+         * no-op so renderers without the concept stay compiling.
+         */
+        default void setReasoningVisible(boolean visible) {
+        }
     }
 
     /** Ambient services the controller needs from its host view. */
@@ -77,6 +137,16 @@ public final class ChatSessionController {
 
         /** Dispatches {@code task} to the UI thread. */
         void runOnUi(Runnable task);
+
+        /**
+         * Schedules {@code task} on the UI thread after {@code delayMillis}
+         * (the U-014 form-poll tick; the controller re-arms it while a
+         * submission is in flight). Default no-op so hosts (and existing test
+         * fakes) without a timer stay compiling - the poll then simply does
+         * not re-arm, the deterministic refreshes keep working.
+         */
+        default void schedulePoll(long delayMillis, Runnable task) {
+        }
 
         /** Info-level bundle log. */
         void info(String message);
@@ -115,6 +185,25 @@ public final class ChatSessionController {
          */
         default void undoRedoChanged(boolean canUndo, boolean canRedo) {
         }
+
+        /**
+         * The current session id changed (session created on first send,
+         * resumed, or dropped by New Session - {@code null} then). U-039
+         * continuity: the host persists the id so the next workspace start
+         * can offer to restore the conversation. Default no-op so hosts
+         * (and existing test fakes) without persistence stay compiling.
+         */
+        default void sessionChanged(String sessionId) {
+        }
+
+        /**
+         * The reasoning-visibility preference changed through the
+         * {@code /thinking} command (the controller already pushed it to the
+         * renderer); the host persists it and syncs its own toggle control.
+         * Default no-op so existing test fakes stay compiling.
+         */
+        default void reasoningVisibilityChanged(boolean visible) {
+        }
     }
 
     /** One prompt to send: the typed text plus the current agent/model/variant pick. */
@@ -125,6 +214,53 @@ public final class ChatSessionController {
             String variant,
             String system,
             String text) {
+    }
+
+    /**
+     * One prompt parked in the session's server-side inbox (the v2 Alt+Enter
+     * queue, fed by {@link #send(OutgoingMessage, String)} with {@code
+     * "queue"}): the server message id - the path parameter of the
+     * PATCH/DELETE manage verbs - plus the display text for the queue row.
+     */
+    public record InboxEntry(String id, String text) {
+    }
+
+    /**
+     * One open question form of the current session (U-014): the form id -
+     * the path parameter of the reply/cancel verbs - the display title, and
+     * the fields passed through VERBATIM (the service owns the field schema,
+     * a union of String/Number/Integer/Boolean/Multiselect/External field
+     * objects; the page renders whatever discriminator/label/options keys
+     * they carry).
+     */
+    public record FormCard(String id, String title, List<Map<String, Object>> fields) {
+
+        /** Compact constructor: {@code null} fields become empty (nothing renderable). */
+        public FormCard {
+            fields = fields == null ? List.of() : List.copyOf(fields);
+        }
+    }
+
+    /**
+     * One {@code @}-alias reference root proposal (the U-047 remainder of
+     * U-012): the catalog id plus the name a pick inserts into the composer
+     * as {@code @<name> } plain text.
+     */
+    public record ReferenceProposal(String id, String name) {
+    }
+
+    /**
+     * The {@code @}-dropdown's answer (U-047): alias reference roots ABOVE
+     * the file matches - the two groups the page renders (and the host's
+     * keyboard selection spans) as one merged list, aliases first.
+     */
+    public record ReferenceProposals(List<ReferenceProposal> aliases, List<String> paths) {
+
+        /** Compact constructor: {@code null} groups become empty. */
+        public ReferenceProposals {
+            aliases = aliases == null ? List.of() : List.copyOf(aliases);
+            paths = paths == null ? List.of() : List.copyOf(paths);
+        }
     }
 
     /** Receives the agents/models fetched for the selector combos. */
@@ -221,6 +357,38 @@ public final class ChatSessionController {
      */
     private volatile boolean historyHasUserMessage;
     private volatile boolean serverHasReverted;
+    /**
+     * Whether thinking/reasoning blocks are visible ({@code /thinking} and
+     * the toolbar toggle flip it); pushed to the renderer on change and
+     * re-applied after every history render so the preference survives
+     * across messages.
+     */
+    private volatile boolean reasoningVisible = true;
+    /** One-shot title for the NEXT created session ({@code /init}); null = default. */
+    private volatile String pendingSessionTitle;
+    /** Proposal cap of the {@code @}-file autocomplete (U-012). */
+    private static final int MAX_FILE_PROPOSALS = 8;
+    /**
+     * Delay between form-poll ticks while a submission is in flight (U-014):
+     * a run blocked on an unanswered form never settles its POST, so the
+     * forms are re-read on a timer until it does. Env:
+     * {@code CHAT_FORM_POLL_MS} (2 s) - same env-knob discipline as the
+     * late-reply budgets; the delay itself is invisible to the tests (their
+     * {@link Host#schedulePoll} fake runs the tick on demand).
+     */
+    private static final long FORM_POLL_DELAY_MS =
+            envDuration("CHAT_FORM_POLL_MS", Duration.ofSeconds(2)).toMillis();
+    /**
+     * Form ids already noticed in the transcript (U-014 AC3): the pending
+     * state notice fires ONCE per form, not on every poll tick.
+     */
+    private final java.util.Set<String> noticedForms = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * The {@code @}-alias reference catalog (U-047), fetched once per view
+     * lifetime and cached - the dropdown re-filters locally per keystroke.
+     * Volatile: written on a background job, read by later ones.
+     */
+    private volatile List<ReferenceProposal> referenceCatalog;
 
     public ChatSessionController(ChatServerConnection connection, Renderer renderer, Host host) {
         this(connection, renderer, host, LATE_REPLY_POLL_DEFAULT, LATE_REPLY_CAP_DEFAULT, ABORT_SETTLE_DEFAULT);
@@ -379,9 +547,12 @@ public final class ChatSessionController {
         historyHasUserMessage = false;
         serverHasReverted = false;
         renderer.clear();
+        renderer.setInboxItems(List.of()); // the parked prompts belonged to the old session
+        renderer.setForms(List.of()); // so did its open question forms (U-014)
         host.statusChanged("New session (created on first message)");
         renderer.notice("Fresh session - your next message starts a new conversation.");
         fireUndoRedoChanged();
+        host.sessionChanged(null); // U-039: an abandoned session is not restored on restart
     }
 
     /** Resumes {@code sid}: loads its history into the transcript. */
@@ -394,6 +565,7 @@ public final class ChatSessionController {
         }
         sessionId = sid;
         serverHasReverted = false; // the resumed session's reverted state is unknown here
+        host.sessionChanged(sid);
         host.runInBackground("Loading chat history " + sid, () -> {
             try {
                 List<ChatEntry> entries = connection.getClient().getMessages(sid);
@@ -401,6 +573,7 @@ public final class ChatSessionController {
                 List<Map<String, Object>> rows = historyRows(entries);
                 host.runOnUi(() -> {
                     renderer.setMessages(rows);
+                    renderer.setReasoningVisible(reasoningVisible); // the preference survives across messages
                     renderer.notice("Resumed session " + sid + " - continuing the conversation.");
                     fireUndoRedoChanged();
                 });
@@ -408,6 +581,8 @@ public final class ChatSessionController {
                 host.runOnUi(() -> host.statusChanged("Error loading history: " + e.getMessage()));
             }
         });
+        refreshInbox(); // the resumed session may hold parked prompts (T-005)
+        refreshForms(); // ... and open question forms (U-014)
     }
 
     /** Maps served history entries into the renderer's transcript rows. */
@@ -486,6 +661,9 @@ public final class ChatSessionController {
             host.info("send: begin (" + message.text().length() + " chars)");
             renderer.appendUser(message.text());
             host.runInBackground("Sending opencode chat message", () -> runSendJob(message, delivery));
+            // the run may block on an unanswered form mid-flight (U-014): a
+            // POST that never settles must still surface the form card
+            host.schedulePoll(FORM_POLL_DELAY_MS, this::pollFormsTick);
         } catch (Throwable t) {
             host.error("send failed unexpectedly", t);
             sending = false;
@@ -536,6 +714,12 @@ public final class ChatSessionController {
             if (!handedOff) {
                 finishSend();
             }
+            // the composer queue row follows the server inbox: a parked
+            // prompt (delivery=queue) surfaces, a delivered one leaves
+            refreshInbox();
+            // the same for open question forms (U-014): a form the settled
+            // run raised surfaces, an answered one leaves
+            refreshForms();
         }
     }
 
@@ -561,6 +745,8 @@ public final class ChatSessionController {
             renderer.appendUser(echoText(selection, command, arguments));
             host.runInBackground("Running opencode command " + command,
                     () -> runCommandJob(command, arguments));
+            // a command run may block on an unanswered form too (U-014)
+            host.schedulePoll(FORM_POLL_DELAY_MS, this::pollFormsTick);
         } catch (Throwable t) {
             host.error("command failed unexpectedly", t);
             sending = false;
@@ -590,6 +776,8 @@ public final class ChatSessionController {
             if (!handedOff) {
                 finishSend();
             }
+            // open question forms of the settled command run (U-014)
+            refreshForms();
         }
     }
 
@@ -701,6 +889,299 @@ public final class ChatSessionController {
         }
     }
 
+    // ---------- session inbox (T-005 management surface) ----------
+
+    /**
+     * Re-reads the session's server-side inbox and renders it as the
+     * composer queue row ({@link Renderer#setInboxItems}). The row only ever
+     * shows what the server holds - parked prompts appear, delivered or
+     * cancelled ones disappear. Refreshed after every send settles, on
+     * resume, and after each manage action below.
+     */
+    public void refreshInbox() {
+        String sid = sessionId;
+        if (sid == null) {
+            return; // nothing can be parked before the first message
+        }
+        host.runInBackground("Refreshing session inbox " + sid, () -> {
+            try {
+                List<InboxEntry> entries = readInbox(sid);
+                host.runOnUi(() -> renderer.setInboxItems(entries));
+            } catch (OpencodeException e) {
+                // older server / transient failure: the row stays as it was
+                host.error("inbox refresh failed for session " + sid, e);
+            }
+        });
+    }
+
+    /**
+     * Delivers one queued prompt NOW (v2's {@code steer} semantics): the
+     * PATCH moves it out of the inbox and interrupts the active run.
+     */
+    public void steerInbox(String messageId) {
+        updateInbox(messageId, "steer", "steer the queued prompt");
+    }
+
+    /**
+     * Delivers one queued prompt AFTER the active run (v2's {@code queue}
+     * semantics): the PATCH keeps it parked for delivery on run completion.
+     */
+    public void deliverInboxNext(String messageId) {
+        updateInbox(messageId, "queue", "schedule the queued prompt");
+    }
+
+    /**
+     * Cancels one queued prompt ({@code DELETE /session/:id/inbox/:msgID}).
+     * All three manage verbs re-read the inbox afterwards: on failure the
+     * server still lists the item, so the row keeps it and a notice says
+     * what went wrong - a parked prompt is never lost silently.
+     */
+    public void cancelInbox(String messageId) {
+        String sid = sessionId;
+        if (sid == null || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        host.runInBackground("Cancelling queued prompt " + messageId, () -> {
+            try {
+                connection.getClient().cancelInboxItem(sid, messageId);
+                host.info("inbox: " + messageId + " cancelled");
+            } catch (OpencodeException e) {
+                host.error("inbox cancel failed for " + messageId, e);
+                host.runOnUi(() -> renderer.notice(
+                        "\u26A0 Could not cancel the queued prompt: " + e.getMessage()));
+            } finally {
+                refreshInbox();
+            }
+        });
+    }
+
+    private void updateInbox(String messageId, String delivery, String what) {
+        String sid = sessionId;
+        if (sid == null || messageId == null || messageId.isBlank()) {
+            return;
+        }
+        host.runInBackground("Updating queued prompt " + messageId, () -> {
+            try {
+                connection.getClient().updateInboxItem(sid, messageId, delivery);
+                host.info("inbox: " + messageId + " delivery=" + delivery);
+            } catch (OpencodeException e) {
+                host.error("inbox update failed for " + messageId, e);
+                host.runOnUi(() -> renderer.notice(
+                        "\u26A0 Could not " + what + ": " + e.getMessage()));
+            } finally {
+                refreshInbox();
+            }
+        });
+    }
+
+    /**
+     * Maps the raw server inbox JSON to renderable entries. Lenient on
+     * purpose (the shape is the service's): the id is the flat {@code id}
+     * or the wrapped {@code info.id}; the text is the flat {@code text} or
+     * the concatenated {@code text} parts of a message-shaped item. Items
+     * without a usable id are skipped - they cannot be steered or cancelled.
+     */
+    private List<InboxEntry> readInbox(String sid) throws OpencodeException {
+        List<InboxEntry> entries = new ArrayList<>();
+        for (JsonObject item : connection.getClient().listInbox(sid)) {
+            if (item == null) {
+                continue;
+            }
+            String id = inboxId(item);
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            entries.add(new InboxEntry(id, inboxText(item)));
+        }
+        return entries;
+    }
+
+    /** The id of an inbox item: flat {@code id}, or the wrapped {@code info.id}. */
+    private static String inboxId(JsonObject item) {
+        String id = jsonString(item, "id");
+        if (id != null && !id.isBlank()) {
+            return id;
+        }
+        JsonElement info = item.get("info");
+        return info != null && info.isJsonObject() ? jsonString(info.getAsJsonObject(), "id") : null;
+    }
+
+    /** The display text of an inbox item (see {@link #readInbox}). */
+    private static String inboxText(JsonObject item) {
+        String text = jsonString(item, "text");
+        if (text != null && !text.isBlank()) {
+            return text;
+        }
+        JsonElement parts = item.get("parts");
+        if (parts != null && parts.isJsonArray()) {
+            StringBuilder joined = new StringBuilder();
+            for (JsonElement part : parts.getAsJsonArray()) {
+                if (part.isJsonObject() && "text".equals(jsonString(part.getAsJsonObject(), "type"))) {
+                    String chunk = jsonString(part.getAsJsonObject(), "text");
+                    if (chunk != null && !chunk.isEmpty()) {
+                        joined.append(chunk);
+                    }
+                }
+            }
+            if (joined.length() > 0) {
+                return joined.toString();
+            }
+        }
+        return "(queued prompt)";
+    }
+
+    /** @return the string member, or {@code null} when absent/not a string. */
+    private static String jsonString(JsonObject object, String member) {
+        JsonElement value = object.get(member);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+                ? value.getAsString() : null;
+    }
+
+    // ---------- question prompts / forms (U-014) ----------
+
+    /**
+     * Re-reads the session's open question forms and renders them as
+     * answerable cards ({@link Renderer#setForms}). Refreshed on resume,
+     * after every send/command settles, after every answer/cancel below, and
+     * by the in-flight poll tick ({@link #pollFormsTick}) - a run blocked on
+     * an unanswered form never settles its POST, so the tick is what surfaces
+     * the card mid-run. A form without a usable id is skipped (it cannot be
+     * answered or cancelled); a failed read degrades silently (older server,
+     * transient failure - the cards stay as they were).
+     */
+    public void refreshForms() {
+        String sid = sessionId;
+        if (sid == null) {
+            return; // no session yet - nothing can have asked a question
+        }
+        host.runInBackground("Refreshing chat forms " + sid, () -> {
+            try {
+                List<FormCard> cards = formCardsOf(connection.getClient().listForms(sid));
+                boolean fresh = false;
+                for (FormCard card : cards) {
+                    fresh |= noticedForms.add(card.id()); // one notice per form id
+                }
+                boolean noticed = fresh;
+                host.runOnUi(() -> {
+                    renderer.setForms(cards);
+                    if (noticed) {
+                        renderer.notice("\u2753 The session asked a question - answer the form below"
+                                + " (the run waits for you).");
+                    }
+                });
+            } catch (OpencodeException e) {
+                // older server / transient failure: the cards stay as they were
+                host.error("form refresh failed for session " + sid, e);
+            }
+        });
+    }
+
+    /**
+     * Maps the raw server form maps to renderable cards. Lenient on purpose
+     * (the service owns the schema): the id is required - it is the path
+     * parameter of the reply/cancel verbs - the title falls back to
+     * "Question", and the fields pass through VERBATIM for the page's lenient
+     * field rendering.
+     */
+    private static List<FormCard> formCardsOf(List<Map<String, Object>> rawForms) {
+        List<FormCard> cards = new ArrayList<>();
+        if (rawForms == null) {
+            return cards;
+        }
+        for (Map<String, Object> raw : rawForms) {
+            if (raw == null) {
+                continue;
+            }
+            String id = mapString(raw, "id");
+            if (id == null) {
+                continue; // no id - the form can never be answered or cancelled
+            }
+            String title = mapString(raw, "title");
+            List<Map<String, Object>> fields = new ArrayList<>();
+            Object rawFields = raw.get("fields");
+            if (rawFields instanceof List<?> list) {
+                for (Object field : list) {
+                    if (field instanceof Map<?, ?> map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> fieldMap = (Map<String, Object>) map;
+                        fields.add(fieldMap);
+                    }
+                }
+            }
+            cards.add(new FormCard(id, title == null ? "Question" : title, fields));
+        }
+        return cards;
+    }
+
+    /** @return the member as a non-blank string, or {@code null}. */
+    private static String mapString(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        return value instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    /**
+     * Answers one open form ({@code POST /session/:id/form/:formID/reply},
+     * U-014): {@code values} echoes the card's inputs keyed by the form's own
+     * field keys. Runs on a background job and re-reads the forms afterwards
+     * - a failed answer keeps the card and says why (no silent hang).
+     */
+    public void replyForm(String formId, Map<String, Object> values) {
+        String sid = sessionId;
+        if (sid == null || formId == null || formId.isBlank()) {
+            return;
+        }
+        Map<String, Object> answer = values == null ? Map.of() : values;
+        host.runInBackground("Answering chat form " + formId, () -> {
+            try {
+                connection.getClient().replyForm(sid, formId, answer);
+                host.info("form: " + formId + " answered");
+            } catch (OpencodeException e) {
+                host.error("form reply failed for " + formId, e);
+                host.runOnUi(() -> renderer.notice("\u26A0 Could not answer the form: " + e.getMessage()));
+            } finally {
+                refreshForms();
+            }
+        });
+    }
+
+    /**
+     * Cancels one open form ({@code DELETE /session/:id/form/:formID},
+     * U-014) - same re-read-and-keep-on-failure semantics as the answer path.
+     */
+    public void cancelForm(String formId) {
+        String sid = sessionId;
+        if (sid == null || formId == null || formId.isBlank()) {
+            return;
+        }
+        host.runInBackground("Cancelling chat form " + formId, () -> {
+            try {
+                connection.getClient().cancelForm(sid, formId);
+                host.info("form: " + formId + " cancelled");
+            } catch (OpencodeException e) {
+                host.error("form cancel failed for " + formId, e);
+                host.runOnUi(() -> renderer.notice("\u26A0 Could not cancel the form: " + e.getMessage()));
+            } finally {
+                refreshForms();
+            }
+        });
+    }
+
+    /**
+     * One form-poll tick (U-014): while a submission is in flight its POST
+     * may be BLOCKED on an unanswered form (the run waits for the answer), so
+     * the settle path can never surface the card - the tick re-reads the
+     * forms periodically instead. It re-arms itself through
+     * {@link Host#schedulePoll} and stops once the run settled (the settle
+     * refresh owns the final state).
+     */
+    private void pollFormsTick() {
+        if (!sending) {
+            return; // nothing in flight - the settle/resume refreshes own the state
+        }
+        refreshForms();
+        host.schedulePoll(FORM_POLL_DELAY_MS, this::pollFormsTick);
+    }
+
     // ---------- forking (opencode TUI parity) ----------
 
     /**
@@ -810,17 +1291,28 @@ public final class ChatSessionController {
     /** Creates the session on first use and reports its id as the view status. */
     private String ensureSession() throws OpencodeException {
         String sid = sessionId;
+        // /init's guided setup names its session (U-047 TUI parity); the
+        // pending title is one-shot - consumed by THIS send whether or not a
+        // session is created, so it can never leak into a later one
+        String title = pendingSessionTitle;
+        pendingSessionTitle = null;
         if (sid == null) {
             // scope the session to the project: v2 takes the location in the
             // POST body; without it the shared service lands the session in
             // the user's home dir (wrong agents/config/permissions)
             String dir = connection.workingDirectory();
-            Session session = connection.getClient().createSession("Eclipse Chat",
+            if (title == null || title.isBlank()) {
+                title = "Eclipse Chat";
+            }
+            Session session = connection.getClient().createSession(title,
                     dir == null || dir.isBlank() ? null : java.nio.file.Path.of(dir));
             sid = session.id();
             sessionId = sid;
             String finalSid = sid;
-            host.runOnUi(() -> host.statusChanged("Session " + finalSid));
+            host.runOnUi(() -> {
+                host.statusChanged("Session " + finalSid);
+                host.sessionChanged(finalSid); // U-039 continuity
+            });
         }
         return sid;
     }
@@ -851,8 +1343,10 @@ public final class ChatSessionController {
             String reasoning = (reply != null) ? reply.reasoning() : "";
             String meta = metaFor(reply);
             List<ToolLine> tools = toolLinesOf(reply);
-            host.runOnUi(() ->
-                    renderer.setAssistantText(mid, finalText, reasoning, meta, tools));
+            host.runOnUi(() -> {
+                renderer.setAssistantText(mid, finalText, reasoning, meta, tools);
+                renderer.setReasoningVisible(reasoningVisible); // the preference survives across messages
+            });
         }
     }
 
@@ -1090,24 +1584,320 @@ public final class ChatSessionController {
      * Recognizes the built-in slash commands this chat handles locally
      * instead of sending them to the server: {@code /undo} and {@code /redo}
      * (opencode TUI parity - the TUI handles these itself, they are not
-     * custom commands). An exact match wins only: {@code /undo now} or
+     * custom commands) plus {@code /init}, {@code /help}, {@code /thinking},
+     * {@code /share} and {@code /unshare} (U-047 TUI parity). An exact match
+     * against {@link #BUILT_IN_COMMANDS} wins only: {@code /undo now} or
      * {@code /undone} are ordinary input.
      *
-     * @return {@code "undo"} or {@code "redo"} for an exact (case-insensitive,
-     *         whitespace-trimmed) match, {@code null} for anything else
+     * @return the command name (e.g. {@code "undo"}) for an exact
+     *         (case-insensitive, whitespace-trimmed) match, {@code null} for
+     *         anything else
      */
     public static String builtInSlashCommand(String text) {
         if (text == null) {
             return null;
         }
         String trimmed = text.strip();
-        if ("/undo".equalsIgnoreCase(trimmed)) {
-            return "undo";
+        if (!trimmed.startsWith("/")) {
+            return null;
         }
-        if ("/redo".equalsIgnoreCase(trimmed)) {
-            return "redo";
+        String name = trimmed.substring(1);
+        for (BuiltInCommand command : BUILT_IN_COMMANDS) {
+            if (command.name().equalsIgnoreCase(name)) {
+                return command.name();
+            }
         }
         return null;
+    }
+
+    // ---------- built-in commands: /init, /help, /thinking, /share (U-047) ----------
+
+    /**
+     * The fixed prompt {@code /init} sends to the current session: a guided
+     * AGENTS.md setup (the model inspects the repository, then creates or
+     * updates the file). A canned prompt exactly like a custom command - no
+     * new server verb involved.
+     */
+    static final String INIT_PROMPT = """
+            Please set up AGENTS.md for this repository:
+
+            1. Inspect the repository first: its structure, build system, test \
+            entry points and any existing documentation (README, CONTRIBUTING, \
+            existing AGENTS.md).
+            2. If AGENTS.md already exists, review it against what you found and \
+            update anything stale; keep what is still accurate.
+            3. If it does not exist, create it covering: what the project is, how \
+            to build it, how to run the tests, the code layout, and the \
+            conventions a coding agent must follow in this repository.
+            4. Keep it concise and factual - only commands and conventions you \
+            verified against the repository files, nothing invented.""";
+
+    /**
+     * {@code /init}: sends {@link #INIT_PROMPT} to the current session (a
+     * fresh one is created titled "Initialize AGENTS.md") through the normal
+     * send path - the model then creates/updates AGENTS.md with its tools.
+     * Refused while a reply streams (same rule as every local command).
+     */
+    public void runInitCommand() {
+        if (sending) {
+            renderer.notice("\u26A0 A reply is still streaming - abort it before running /init.");
+            return;
+        }
+        pendingSessionTitle = "Initialize AGENTS.md";
+        renderer.notice("\u2318 /init: asking the model to create or update AGENTS.md"
+                + " for this repository\u2026");
+        send(new OutgoingMessage(null, null, null, null, null, INIT_PROMPT));
+    }
+
+    /**
+     * {@code /help}: renders the built-in slash commands with one-liners.
+     * Derived from {@link #BUILT_IN_COMMANDS} - the same registry
+     * {@link #builtInSlashCommand(String)} recognizes - so the list can
+     * never drift from what is actually handled.
+     */
+    public void showHelp() {
+        StringBuilder help = new StringBuilder("Built-in slash commands:");
+        for (BuiltInCommand command : BUILT_IN_COMMANDS) {
+            help.append("\n/").append(command.name()).append(" - ").append(command.description());
+        }
+        help.append("\nAnything else starting with / runs the project's custom commands"
+                + " (.opencode/command/, offered by the picker as you type).");
+        renderer.notice(help.toString());
+    }
+
+    // ---------- /thinking (reasoning visibility) ----------
+
+    /** @return whether thinking/reasoning blocks are currently visible. */
+    public boolean isReasoningVisible() {
+        return reasoningVisible;
+    }
+
+    /**
+     * Sets the reasoning-visibility preference and pushes it to the renderer
+     * (the toolbar toggle's path; the controller re-applies it after every
+     * history render).
+     */
+    public void setReasoningVisible(boolean visible) {
+        reasoningVisible = visible;
+        renderer.setReasoningVisible(visible);
+    }
+
+    /**
+     * {@code /thinking}: flips the visibility of thinking/reasoning blocks
+     * (live and history; the page hides them via a CSS class, so toggling
+     * back is complete without re-rendering), pushes the new value to the
+     * page and tells the host so it persists the preference and syncs its
+     * toggle control.
+     */
+    public void toggleThinking() {
+        boolean next = !reasoningVisible;
+        setReasoningVisible(next);
+        renderer.notice(next
+                ? "\u2699 Thinking visible - reasoning blocks are shown (toggle with /thinking)."
+                : "\u2699 Thinking hidden - reasoning blocks are collapsed (toggle with /thinking).");
+        host.reasoningVisibilityChanged(next);
+    }
+
+    // ---------- /share + /unshare (v2 verdict: no server API) ----------
+
+    /**
+     * {@code /share} / {@code /unshare}: sharing is NOT implemented for v2
+     * sessions. Investigated against opencode v2.0.19: the server OpenAPI
+     * has no share route, and the TUI's own handlers are stubs that report
+     * "Sharing is not implemented for V2 sessions yet" (a legacy
+     * {@code share} config field and a v1 {@code share_url} storage column
+     * exist, but nothing serves them). So the commands surface that verdict
+     * as a notice instead of faking a link.
+     *
+     * @param unshare {@code true} for {@code /unshare}, {@code false} for
+     *            {@code /share}
+     */
+    public void shareNotAvailable(boolean unshare) {
+        String what = unshare ? "Unsharing" : "Sharing";
+        renderer.notice("\u26A0 " + what + " is not implemented for V2 sessions yet - the opencode"
+                + " v2 server API has no share endpoint (the TUI's /" + (unshare ? "unshare" : "share")
+                + " reports the same), so no share link can be created or removed here.");
+    }
+
+    // ---------- @-references: files (U-012) + alias roots (U-047) ----------
+
+    /**
+     * Queries the server's file-find surface for the {@code @}-file
+     * autocomplete ({@code GET /fs/find}, scoped to the connection's working
+     * directory) and filters the answer: case-insensitive matches in the
+     * file NAME, prefix matches ranked first, capped at
+     * {@value #MAX_FILE_PROPOSALS} entries. A blank query short-circuits to
+     * an empty list (nothing propose-able), a failed search degrades to
+     * empty - the dropdown just closes.
+     *
+     * @param query the text after the {@code @} (no leading slash handling;
+     *            may be empty)
+     * @param callback receives the capped matches on the UI thread
+     */
+    public void findFiles(String query, Consumer<List<String>> callback) {
+        if (query == null || query.isBlank()) {
+            host.runOnUi(() -> callback.accept(List.of()));
+            return;
+        }
+        host.runInBackground("Searching files " + query, () -> {
+            List<String> result = fileMatchesNow(query);
+            host.runOnUi(() -> callback.accept(result));
+        });
+    }
+
+    /**
+     * Queries the {@code @}-dropdown's TWO proposal groups (U-047): alias
+     * reference roots ({@code GET /api/reference}, fetched once per view and
+     * cached, filtered locally) ABOVE the file matches of
+     * {@link #findFiles}. Either half degrades to empty on its own failure -
+     * the dropdown then shows the other group; an EMPTY catalog answers
+     * files only (this repo's reference catalog is currently empty, the
+     * alias group simply never renders). A blank query short-circuits to
+     * both-empty, exactly like the file-only autocomplete before it.
+     *
+     * @param query the text after the {@code @} (may be empty)
+     * @param callback receives the two groups on the UI thread
+     */
+    public void findProposals(String query, Consumer<ReferenceProposals> callback) {
+        if (query == null || query.isBlank()) {
+            host.runOnUi(() -> callback.accept(new ReferenceProposals(List.of(), List.of())));
+            return;
+        }
+        host.runInBackground("Searching references and files " + query, () -> {
+            List<ReferenceProposal> aliases = referenceMatchesNow(query);
+            List<String> paths = fileMatchesNow(query);
+            host.runOnUi(() -> callback.accept(new ReferenceProposals(aliases, paths)));
+        });
+    }
+
+    /** The scoped file search + fuzzy filter, degrading to empty on failure. */
+    private List<String> fileMatchesNow(String query) {
+        try {
+            return filterFileMatches(
+                    connection.getClient().findFiles(query, connection.workingDirectory()), query);
+        } catch (OpencodeException e) {
+            host.error("file search failed for @" + query, e);
+            return List.of();
+        }
+    }
+
+    /**
+     * The alias half of the dropdown: the cached catalog (loaded on first
+     * use), fuzzy-filtered by the query. A failed catalog read degrades to
+     * empty AND is not cached - the next query retries, files still answer.
+     */
+    private List<ReferenceProposal> referenceMatchesNow(String query) {
+        try {
+            List<ReferenceProposal> catalog = referenceCatalog;
+            if (catalog == null) {
+                catalog = referencesOf(connection.getClient().listReferences());
+                referenceCatalog = catalog;
+            }
+            return filterReferenceMatches(catalog, query);
+        } catch (OpencodeException e) {
+            host.error("reference catalog failed for @" + query, e);
+            return List.of(); // alias roots degrade silently - files still answer
+        }
+    }
+
+    /**
+     * Maps the raw reference catalog ({@code GET /api/reference}, the
+     * service's Reference.Info maps) to proposals, leniently: the name is
+     * the display and insert value, falling back to the id; entries with
+     * neither are skipped (nothing to propose or insert).
+     */
+    public static List<ReferenceProposal> referencesOf(List<Map<String, Object>> catalog) {
+        List<ReferenceProposal> proposals = new ArrayList<>();
+        if (catalog == null) {
+            return proposals;
+        }
+        for (Map<String, Object> raw : catalog) {
+            if (raw == null) {
+                continue;
+            }
+            String id = mapString(raw, "id");
+            String name = mapString(raw, "name");
+            if (name == null) {
+                name = id; // a nameless entry is proposed by its id
+            }
+            if (id == null) {
+                id = name;
+            }
+            if (id == null) {
+                continue; // neither id nor name - unusable
+            }
+            proposals.add(new ReferenceProposal(id, name));
+        }
+        return proposals;
+    }
+
+    /**
+     * The fuzzy filter over the reference catalog: case-insensitive substring
+     * match on the proposal's NAME (its insert value), name-prefix matches
+     * ranked first, capped at {@value #MAX_FILE_PROPOSALS} - the same rules
+     * {@link #filterFileMatches} applies to file names.
+     */
+    public static List<ReferenceProposal> filterReferenceMatches(List<ReferenceProposal> catalog,
+            String query) {
+        if (catalog == null || catalog.isEmpty()) {
+            return List.of();
+        }
+        String needle = query.toLowerCase(Locale.ROOT);
+        List<ReferenceProposal> prefixed = new ArrayList<>();
+        List<ReferenceProposal> contained = new ArrayList<>();
+        for (ReferenceProposal proposal : catalog) {
+            if (proposal == null || proposal.name() == null || proposal.name().isBlank()) {
+                continue;
+            }
+            String name = proposal.name().toLowerCase(Locale.ROOT);
+            if (name.startsWith(needle)) {
+                prefixed.add(proposal);
+            } else if (name.contains(needle)) {
+                contained.add(proposal);
+            }
+        }
+        List<ReferenceProposal> matches = new ArrayList<>(prefixed.size() + contained.size());
+        matches.addAll(prefixed);
+        matches.addAll(contained);
+        return matches.size() > MAX_FILE_PROPOSALS
+                ? List.copyOf(matches.subList(0, MAX_FILE_PROPOSALS)) : List.copyOf(matches);
+    }
+
+    /**
+     * The fuzzy filter over the served paths: case-insensitive substring
+     * match on the file name (the segment after the last separator),
+     * name-prefix matches ranked before name-suffix/substring ones, capped
+     * at {@value #MAX_FILE_PROPOSALS}.
+     */
+    public static List<String> filterFileMatches(List<String> paths, String query) {
+        if (paths == null || paths.isEmpty()) {
+            return List.of();
+        }
+        String needle = query.toLowerCase(Locale.ROOT);
+        List<String> prefixed = new ArrayList<>();
+        List<String> contained = new ArrayList<>();
+        for (String path : paths) {
+            if (path == null || path.isBlank()) {
+                continue;
+            }
+            String name = fileNameOf(path).toLowerCase(Locale.ROOT);
+            if (name.startsWith(needle)) {
+                prefixed.add(path);
+            } else if (name.contains(needle)) {
+                contained.add(path);
+            }
+        }
+        List<String> matches = new ArrayList<>(prefixed.size() + contained.size());
+        matches.addAll(prefixed);
+        matches.addAll(contained);
+        return matches.size() > MAX_FILE_PROPOSALS
+                ? List.copyOf(matches.subList(0, MAX_FILE_PROPOSALS)) : List.copyOf(matches);
+    }
+
+    /** The segment after the last {@code /} or {@code \} of a path. */
+    private static String fileNameOf(String path) {
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        return slash < 0 || slash == path.length() - 1 ? path : path.substring(slash + 1);
     }
 
     /** @return true while a revert is possible (a session with a user message exists). */
@@ -1227,6 +2017,7 @@ public final class ChatSessionController {
         List<Map<String, Object>> rows = historyRows(entries);
         host.runOnUi(() -> {
             renderer.setMessages(rows);
+            renderer.setReasoningVisible(reasoningVisible); // the preference survives across messages
             renderer.notice(notice);
             fireUndoRedoChanged();
         });

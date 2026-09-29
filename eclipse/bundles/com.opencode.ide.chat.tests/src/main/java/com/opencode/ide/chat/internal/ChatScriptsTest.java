@@ -58,7 +58,8 @@ public class ChatScriptsTest {
                 ChatScripts.appendReasoning("msg_1", "ponder"),
                 ChatScripts.setAssistantText("msg_1", "text", "", "openai/gpt",
                         List.of(new ChatSessionController.ToolLine("read", "completed"))),
-                ChatScripts.setMessages(List.of(Map.of("role", "user", "text", "hi"))));
+                ChatScripts.setMessages(List.of(Map.of("role", "user", "text", "hi"))),
+                ChatScripts.setInboxItems(List.of(new ChatSessionController.InboxEntry("m", "t"))));
         for (String script : scripts) {
             String argument = argumentOf(script);
             assertFalse("must not pass a JS object/array literal: " + script, argument.startsWith("{"));
@@ -123,12 +124,112 @@ public class ChatScriptsTest {
     }
 
     @Test
+    public void inboxRowPassesEntriesAsAJsonStringLiteral() {
+        String script = ChatScripts.setInboxItems(List.of(
+                new ChatSessionController.InboxEntry("msg_q", "run the tests")));
+        String json = GSON.fromJson(argumentOf(script), String.class);
+        List<Map<String, String>> items =
+                GSON.fromJson(json, new TypeToken<List<Map<String, String>>>() { }.getType());
+        assertEquals(1, items.size());
+        assertEquals("msg_q", items.get(0).get("id"));
+        assertEquals("run the tests", items.get(0).get("text"));
+        // null (no inbox read yet) must not become the literal null
+        assertEquals(List.of(), GSON.fromJson(
+                GSON.fromJson(argumentOf(ChatScripts.setInboxItems(null)), String.class),
+                new TypeToken<List<Map<String, String>>>() { }.getType()));
+    }
+
+    @Test
     public void noticeAndThemeTakePlainStringArguments() {
         assertEquals("window.__setNotice(\"Connected.\")", ChatScripts.setNotice("Connected."));
         assertEquals("window.__setTheme(\"dark\")", ChatScripts.setTheme("dark"));
         assertEquals("window.__setReasoningVisible(\"{\\\"visible\\\":false}\")",
                 ChatScripts.setReasoningVisible(false));
+        assertEquals("window.__hideFileCompletions()", ChatScripts.hideFileCompletions());
         assertEquals("window.__clear()", ChatScripts.clear());
+    }
+
+    // ---------- @-file autocomplete (U-012) ----------
+
+    @Test
+    public void fileQueryCarriesTheQueryAsAJsonStringLiteral() {
+        Map<String, Object> payload = payloadOf(ChatScripts.setFileQuery("char"));
+        assertEquals("char", payload.get("query"));
+        // an absent query must not become the literal null
+        assertEquals("", payloadOf(ChatScripts.setFileQuery(null)).get("query"));
+    }
+
+    @Test
+    public void fileCompletionsCarryPathsAndTheSelectedRow() {
+        Map<String, Object> payload = payloadOf(ChatScripts.setFileCompletions(
+                List.of(),
+                List.of("src/Main.cpp", "web/char<b>x</b>.js"), 1));
+        assertEquals(List.of(), payload.get("aliases"));
+        assertEquals(List.of("src/Main.cpp", "web/char<b>x</b>.js"), payload.get("paths"));
+        assertEquals(1.0, payload.get("selected"));
+        // a null list must not become the literal null; a negative row clamps to 0
+        assertEquals(List.of(), payloadOf(ChatScripts.setFileCompletions(null, null, -3)).get("paths"));
+        assertEquals(List.of(), payloadOf(ChatScripts.setFileCompletions(null, null, -3)).get("aliases"));
+        assertEquals(0.0, payloadOf(ChatScripts.setFileCompletions(null, null, -3)).get("selected"));
+    }
+
+    @Test
+    public void fileCompletionsCarryTheAliasGroupAboveTheFiles() {
+        Map<String, Object> payload = payloadOf(ChatScripts.setFileCompletions(
+                List.of(new ChatSessionController.ReferenceProposal("ref_1", "repo-map")),
+                List.of("src/RepoMap.cpp"), 0));
+        assertEquals(List.of(Map.of("id", "ref_1", "name", "repo-map")), payload.get("aliases"));
+        assertEquals(List.of("src/RepoMap.cpp"), payload.get("paths"));
+        assertEquals(0.0, payload.get("selected"));
+    }
+
+    @Test
+    public void aHostileFilePathSurvivesTheDoubleEncoding() {
+        String hostile = "web/char\"; alert(1); \\\\ <b>.js\n\t";
+        Map<String, Object> payload = payloadOf(ChatScripts.setFileCompletions(
+                null, List.of(hostile), 0));
+        assertEquals(List.of(hostile), payload.get("paths"));
+    }
+
+    @Test
+    public void aHostileAliasNameSurvivesTheDoubleEncoding() {
+        String hostile = "repo\"; alert(1); \\\\ <b>map\n\t";
+        Map<String, Object> payload = payloadOf(ChatScripts.setFileCompletions(
+                List.of(new ChatSessionController.ReferenceProposal("ref_x", hostile)),
+                List.of(), 0));
+        assertEquals(List.of(Map.of("id", "ref_x", "name", hostile)), payload.get("aliases"));
+    }
+
+    // ---------- question forms (U-014) ----------
+
+    @Test
+    public void formCardsPassIdTitleAndRawFieldsAsAJsonStringLiteral() {
+        Map<String, Object> field = Map.of("type", "string", "key", "target", "label", "Target");
+        String script = ChatScripts.setForms(List.of(new ChatSessionController.FormCard(
+                "frm_1", "Pick a target", List.of(field))));
+        String json = GSON.fromJson(argumentOf(script), String.class);
+        List<Map<String, Object>> cards =
+                GSON.fromJson(json, new TypeToken<List<Map<String, Object>>>() { }.getType());
+        assertEquals(1, cards.size());
+        assertEquals("frm_1", cards.get(0).get("id"));
+        assertEquals("Pick a target", cards.get(0).get("title"));
+        assertEquals(List.of(field), cards.get(0).get("fields"));
+        // null (no form read yet) must not become the literal null
+        assertEquals(List.of(), GSON.fromJson(
+                GSON.fromJson(argumentOf(ChatScripts.setForms(null)), String.class),
+                new TypeToken<List<Map<String, Object>>>() { }.getType()));
+    }
+
+    @Test
+    public void parseFormAnswersIsLenientAndNeverThrows() {
+        assertEquals(Map.of("target", "app", "jobs", 8.0, "clean", true),
+                ChatScripts.parseFormAnswers("{\"target\":\"app\",\"jobs\":8,\"clean\":true}"));
+        assertEquals(Map.of(), ChatScripts.parseFormAnswers(null));
+        assertEquals(Map.of(), ChatScripts.parseFormAnswers(""));
+        assertEquals(Map.of(), ChatScripts.parseFormAnswers("   "));
+        assertEquals(Map.of(), ChatScripts.parseFormAnswers("not json at all"));
+        // whatever the page sends travels as-is - the service validates the schema
+        assertEquals(Map.of("answer", Map.of()), ChatScripts.parseFormAnswers("{\"answer\":{}}"));
     }
 
     @Test

@@ -185,3 +185,117 @@ linked at definition-stage entry. T-006 verified live (Defender exclusions:
 git spawns ~22 ms). Squashed to one commit on top of v0.1.0 for push; the
 sliced review trail is on wip/slices-v2-adoption. Remaining v2 rows stay in
 the adoption matrix as 'adopt next'.
+
+## H9 - Stage-aware acceptance and the wave hardening pass - 2026-09-29
+
+- **B-007 stage-aware acceptance** (the big one): `StageEvidence` beside
+  `VStages` is the single per-stage evidence matrix all three checkpoints
+  consult (FR-005) - definition legs accept ticket/doc/store work and never
+  trip the merge gate (the U-026 false rejection is regression-pinned),
+  implementation keeps the AC-path rule, test-* stages expect tests/goldens.
+  Store-side deliveries count as produced work (the settle check gained the
+  `allowEmptyDiff` allowance), reviewer doubt round-trips to the ORIGINATOR
+  (`review doubt retry (1/1)`, one per stage visit) before anything blocks,
+  and the review prompt quotes the matrix row. Paired tests: StageEvidenceTest
+  (one row per V stage), ReviewDoubtTest, StageAwareAcceptanceTest,
+  ReviewDoubtRoutingTest, plus the git-level empty-branch allowance case.
+- **Board polish pack (U-028)**: nine directional chevron connectors along
+  the V reading order (derived from VStageLayout) and WIP counts - per
+  column and board-wide on the readiness badge - strictly a count, no
+  WIP-limit concept (BoardPolishPackTest).
+- **O-002 project actions**: New project / Reset project on the Board store
+  row (scaffold + explicit-confirm wipe of ONE project; ProjectActionsTest) -
+  no more hand-deleting task-store files.
+- **U-034 auto-deploy**: Eclipse-facing merge-backs trigger the reactor
+  build + dropins refresh asynchronously (AutoDeploy + auto-deploy.ps1);
+  red builds never deploy and surface as NEEDS-HUMAN; the user is told
+  "restart Eclipse" only when jars landed.
+- **U-045/B-005 shutdown + launcher hardening**: the `fleet_shutdown` tool
+  and `eclipse/fleet-stop.ps1` complete U-038's one-action surfaces; both
+  stdio launchers stage their jars into versioned dirs (the B-005 class of
+  build-vs-running-server corruption is gone on the living processes).
+- **U-026** requirements leg delivered (docs/requirements/U-026-v-flow-visibility.md)
+  and the chain advanced to `system`; **U-030** coherence pass aligned 11
+  skill/agent files with wave terminology and the autonomy contract.
+- **Review leg run over the 17-ticket in-review queue**: 13 accepted
+  (B-006, B-008, B-011, B-012, B-013, T-001, U-010, U-016..U-020, U-022 -
+  the U-022 store record's conflict markers repaired), 4 sent back blocked
+  with precise gaps (T-004/T-005/T-009/U-009). Store truth-up also closed
+  verified-landed work (U-011, B-004, U-015) and retired U-024 (the daemon
+  is gone).
+
+## H10 - The autonomous feature-completion round - 2026-09-29 (afternoon)
+
+Four parallel workers on disjoint file lanes, gated centrally, one amend:
+
+- **Board polish complete**: equal column growth on resize (U-033 - root cause:
+  style-only GridData never set grabExcess), refresh-on-activate via a 5s rate
+  gate + visible freshness stamp (U-035), the Board Shutdown button wired
+  through a new FleetLauncher seam to the public TaskFleet.shutdownForMaintenance
+  (U-045's last surface; engine-less shutdown parks the gate directly).
+- **U-046 slice 2 - the v2.0.19 surface gets its UI**: Saved-permissions manager
+  (list + remove), read-only Integrations view, v1-migration banner,
+  Attach-skill in Session Details (SkillInfo gained the id; the attach body is
+  {"skill": id} per the official spec - the OpenAPI's "id" member is a msg_
+  anchor, caught before shipping a 400), and Suggest-title via generateOnSession
+  (prefills Rename; never auto-renames).
+- **U-047 TUI parity - chat side**: /init /help /thinking (the /help list derives
+  from the same registry recognition uses - it cannot drift), @-file fuzzy
+  references in the composer (U-012; existing client fs/find, no content
+  injection), chat continuity across restart (U-039: last session + model in
+  DialogSettings, primary-view restore, silent degrade), and /share + /unshare as
+  honest not-implemented notices - the v2 TUI itself toasts "Sharing is not
+  implemented for V2 sessions yet" (verified against its source).
+- **Attention parity**: jface NotificationPopup (the org.eclipse.ui.notification
+  package does not exist in the 2026-06 target - verified, not guessed) +
+  Display.beep, off by default like the TUI; permission asks, session errors and
+  completed sessions classified from the live event stream via the existing
+  public OpencodeConnection seam; IStartup-registered, zero edits to existing
+  views. QUESTION kind reserved until a form-ask SSE type is confirmed.
+
+Also this round: deploy of the morning commit to C:\eclipse-cpp, six tickets
+claimed and closed in the store, and the roadmap now reflects the true
+remainders (U-043 deliberately deferred - it changes core store semantics).
+
+## H11 - The full-surface round (quota-split) - 2026-09-29 (afternoon)
+
+Five parallel workers landed wave 1, then the shared model quota died mid-wave-2;
+the orchestrator (this session's model) completed the remaining four lanes and the
+gate caught what unverified worker output hides (7 test bugs, all fixed in-review):
+
+- **U-048 - the v2 surface remainder is complete**: integration connect flows
+  (command/key/oauth with attempt polling + abort in the Integrations dialog),
+  the fleet watchdog long-polls session/wait (deadline-aware window, anti-spin,
+  pause-while-asks-pending, poll fallback; 204 = settled), Session Details marks
+  viewed, two-phase revert/undo/commit actions, environment full-replace dialog,
+  session import with preview. waitForSession verb + 10 integration/env/import
+  verbs (16 component tests).
+- **U-041 - subagents and console/shell tasks for every session**: nested under
+  their parent in the Server view AND Session Details AND the Fleet tree; shell
+  tasks carry status/exit and their output tail opens in an Eclipse console
+  (Session Details) or an in-board dialog (the board bundle has no ui dep).
+- **U-040 - the Fleet view is a tree**: engine -> wave -> job (ticket badges in
+  the Board's U-005/U-006 language) -> session -> subagents -> shells, live
+  activity per node, tokens/cost rolled up, level-appropriate actions, peer
+  engines as a named first-class root.
+- **U-026 - V-flow visibility**: per-card stage progress (visited/10), the
+  stage-journey trace in ticket details (advance/send-back/pass with reasons),
+  the wave digest. Caught a real defect: TicketRow.stageDepth() NPE'd on
+  role-untrackable tickets (List.of().indexOf(null)) - one such ticket crashed
+  the entire board refresh; fixed null-safely with a regression test.
+- **U-014 - chat prompts**: evaluation first (banner path existed); the in-chat
+  permission dialog (one per request, current session only), answerable
+  question-form cards polled while a send is in flight (no form-ask SSE type
+  exists), pending-state notices. @alias reference roots merged into the
+  @-dropdown (empty catalogs degrade).
+- **O-001 - repo-driven self-configuration remainder**: the OpenCode repo
+  nature + the Board's "Adopt repo..." action (root .project writer, nested-
+  project refusal with the auto-discovery explanation, pruned scan).
+- **T-003 root-caused (upstream)**: v2 renames the per-server off-switch to
+  `disabled` and silently drops the legacy `enabled` key (normalize.ts +
+  mcp/index.ts citations in docs/new-machine-setup.md); our opencode.json now
+  spells "disabled": true for fleet. Also landed: the mojibake repair sweep
+  (AGENTS.md carried QUINTUPLE damage; TaskStore.java's comment triangles
+  forensically reversed with round-trip proof), the PTY-host finding (no TM
+  Terminal in the target; no stdin REST route - parked), and a build.ps1
+  3-arg Join-Path fix (PS 5.1 broke with JAVA_HOME set).

@@ -46,6 +46,10 @@ tier's concrete model from the authoritative tier→model mapping in
   several-hundred-line single file is NORMAL work, not a stop condition.
   Stopping to report analysis instead of creating the acceptance-criteria
   files is a FAILED run, not caution.
+- Stuck, unclear, or missing an input? pass the question back to the
+  **originator agent** (`clarification:` send-back, up to 3 round-trips) —
+  never to the human first. Only after that attempt does `blocked` apply, and
+  it always means needs-a-human.
 - Stay within scope; flag cross-file/architectural impacts back to the
   `orchestrator`.
 - Commit only with explicit per-case permission; never push without explicit

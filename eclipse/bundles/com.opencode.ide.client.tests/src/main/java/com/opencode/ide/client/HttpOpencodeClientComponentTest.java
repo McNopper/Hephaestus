@@ -154,6 +154,15 @@ public class HttpOpencodeClientComponentTest {
      */
     private static final List<String> messageBodies = Collections.synchronizedList(new ArrayList<>());
     private static final AtomicInteger messageGets = new AtomicInteger();
+    /**
+     * Settable status/body the stub serves on the experimental wait route -
+     * the harness fields the U-048 {@code waitForSession} test drives (204
+     * settled, 404/503 fallbacks). Same semantics as the shared
+     * {@code StubHttpComponentTest} overrides, scoped to the wait route so
+     * the other experimental legs keep their fixed answers.
+     */
+    private static final AtomicInteger statusOverride = new AtomicInteger(200);
+    private static final AtomicReference<String> bodyOverride = new AtomicReference<>();
 
     @BeforeClass
     public static void startStub() throws IOException {
@@ -293,6 +302,20 @@ public class HttpOpencodeClientComponentTest {
         server.createContext("/api/experimental/session", exchange -> {
             recordExchange(exchange);
             String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/wait")) {
+                // the U-048 long-poll leg: the status/body overrides drive
+                // the settled (204) and failure (404/503) answers; an empty
+                // override body serves no-content, like the shared harness
+                String waitBody = bodyOverride.get();
+                if (waitBody == null || waitBody.isEmpty()) {
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(statusOverride.get(), -1);
+                    exchange.close();
+                } else {
+                    respond(exchange, statusOverride.get(), waitBody);
+                }
+                return;
+            }
             if (path.endsWith("/export")) {
                 respond(exchange, 200, "the export document");
                 return;
@@ -381,6 +404,8 @@ public class HttpOpencodeClientComponentTest {
         infoBody.set(INFO_BODY);
         promptAck.set(PROMPT_ACK);
         serveMessages(COMPLETED_TURN);
+        statusOverride.set(200);
+        bodyOverride.set(null);
     }
 
     @AfterClass
@@ -822,6 +847,24 @@ public class HttpOpencodeClientComponentTest {
     @Test
     public void abortDoesNotTreatAuthorizationFailureAsSuccess() {
         org.junit.Assert.assertThrows(OpencodeException.class, () -> client.abortSession("ses_denied"));
+    }
+
+    @Test
+    public void waitForSessionSettlesOn204AndDegradesToFalseOnFailures() throws Exception {
+        // 204 no content: the long-poll answered "settled"
+        statusOverride.set(204);
+        bodyOverride.set("");
+        assertTrue(client.waitForSession("ses_wait", java.time.Duration.ofSeconds(1)));
+        assertEquals("POST", lastMethod.get());
+        assertEquals("/api/experimental/session/ses_wait/wait", lastPath.get());
+
+        // 404 (older build without the experimental route) and 503 (busy)
+        // both degrade to false - the watchdog falls back to its poll loop
+        statusOverride.set(404);
+        bodyOverride.set("{\"error\":\"no route\"}");
+        assertFalse(client.waitForSession("ses_wait", java.time.Duration.ofSeconds(1)));
+        statusOverride.set(503);
+        assertFalse(client.waitForSession("ses_wait", java.time.Duration.ofSeconds(1)));
     }
 
     @Test

@@ -32,13 +32,13 @@ breaks. This skill keeps every ticket claimable and verifiable.
 | `description` | The what + why; enough context that a worker needs no further lookup. |
 | `type` | `story` (user value), `task` (internal), `bug`, `spike` (research). |
 | `role` | The **discipline that owns it** — see the role map below. This decides who claims it. |
-| `priority` | `low`/`medium`/`high`/`critical`; drives claim order within a sprint. |
+| `priority` | `low`/`medium`/`high`/`critical`; drives claim order within a wave. |
 | `story_points` | Relative size (Fibonacci-ish: 1/2/3/5/8/13). Estimate, don't overthink; later `project-manager-estimate-costs` can feed a `cost` field. |
 | `model` | Optional fleet model override (`provider/model[#variant]`). The cost lever of decomposition: a small, well-specified ticket can run on a cheap model — pin one when the work is mechanical; leave null (server default) when it needs the strong default. |
 | `acceptance_criteria` | Concrete, checkable bullets ("Given … When … Then …"). Verification passes only when all are met. |
 | `labels` | Free tags for filtering (e.g. `vulkan`, `regression`). |
 | `epic` | Parent ticket id for traceability (definition ticket id on a verification ticket, or vice-versa). Optional but strongly recommended for linking. |
-| `sprint` | Leave null — the PM commits it at Sprint Planning (`task_plan_sprint`). |
+| `sprint` | Leave null — the PM commits it at wave planning (`task_plan_sprint`; the UI calls it a wave). |
 
 ## Role map (who owns / claims the ticket)
 
@@ -71,7 +71,11 @@ role from the known set above when one fits.
 
 A ticket becomes `done` only when: implementation complete, its verification passed
 (the matching `test-software-*` for `tester`, relevant tests for `developer`),
-a completion report with evidence returned, and the human (PO) accepted at Review.
+a completion report with evidence returned, and the engine's read-only review pass
+accepted it against **stage-shaped** evidence (`StageEvidence`): definition stages
+accept ticket-body/AC updates and doc/path/url artifacts — code is never required
+there; implementation expects code+tests at the AC-named paths; test-* stages expect
+tests/goldens.
 
 ## Anti-patterns
 

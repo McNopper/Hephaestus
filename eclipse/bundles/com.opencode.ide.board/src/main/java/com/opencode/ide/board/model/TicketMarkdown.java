@@ -9,7 +9,8 @@ import com.opencode.ide.tasks.Task;
  * view (rendered by the chat web component, so tables, math and mermaid
  * diagrams stored in tickets render as diagrams).
  *
- * <p>Sections: description, acceptance criteria, todos, artifacts, comments.
+ * <p>Sections: description, stage journey (U-026: progress + movement
+ * trace), acceptance criteria, todos, artifacts, comments.
  * Checkmark items are plain literal {@code [x]}/{@code [ ]} text (the renderer
  * has no task-list plugin) — honest for a read-only, agent-owned store.
  * Comments render as top-level markdown so a diagram stored in a comment
@@ -25,6 +26,8 @@ public final class TicketMarkdown {
         StringBuilder sb = new StringBuilder();
         sb.append(safe(task.description == null || task.description.isBlank()
                 ? "_no description_" : task.description.trim()));
+
+        journeySection(sb, task);
 
         section(sb, "Acceptance criteria", task.acceptanceCriteria.isEmpty());
         for (String item : task.acceptanceCriteria) {
@@ -60,6 +63,32 @@ public final class TicketMarkdown {
                     .append(safe(c.text())).append('\n');
         }
         return sb.toString();
+    }
+
+    /**
+     * U-026 FR-002/FR-003/FR-004: the stage-journey section — the progress
+     * ({@code **4/10** stages visited}, the same parser the card progress
+     * uses — NFR-REDUND-001: one source, two depths) followed by the
+     * movement trace, one line per transition with timestamp, author,
+     * direction and reason. Send-back lines render bold so the feedback
+     * loop is unmissable (AC-002).
+     */
+    private static void journeySection(StringBuilder sb, Task task) {
+        StageJourney journey = StageJourney.of(task);
+        sb.append("\n## Stage journey\n");
+        sb.append("**").append(journey.progressLabel()).append("** stages visited \u2014 ")
+                .append("distinct V stages entered; the current stage counts once entered\n\n");
+        if (journey.movements().isEmpty()) {
+            sb.append("_(no movements)_\n");
+            return;
+        }
+        for (StageJourney.Movement movement : journey.movements()) {
+            if (movement.kind() == StageJourney.Kind.SEND_BACK) {
+                sb.append("- **").append(movement.line()).append("**\n");
+            } else {
+                sb.append("- ").append(movement.line()).append('\n');
+            }
+        }
     }
 
     private static void section(StringBuilder sb, String title, boolean empty) {

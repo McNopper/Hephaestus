@@ -74,6 +74,15 @@ public final class ChatScripts {
         return call("__setMessages", rows);
     }
 
+    /**
+     * {@code window.__setInboxItems("[…]")} - replaces the composer queue row
+     * (the session inbox's parked prompts, T-005 management surface); an
+     * empty array hides the row.
+     */
+    public static String setInboxItems(List<ChatSessionController.InboxEntry> items) {
+        return call("__setInboxItems", items == null ? List.of() : items);
+    }
+
     /** {@code window.__setNotice("...")} - centered status line. */
     public static String setNotice(String text) {
         return "window.__setNotice(" + GSON.toJson(nullToEmpty(text)) + ")";
@@ -91,6 +100,73 @@ public final class ChatScripts {
      */
     public static String setReasoningVisible(boolean visible) {
         return call("__setReasoningVisible", Map.of("visible", visible));
+    }
+
+    // ---------- @-file autocomplete (U-012) ----------
+
+    /**
+     * {@code window.__setFileQuery("{...}")} - opens the {@code @}-file
+     * dropdown for a query (the text after the {@code @}); the page shows a
+     * searching row and asks Java for matches via {@code __javaFileQuery}.
+     */
+    public static String setFileQuery(String query) {
+        return call("__setFileQuery", Map.of("query", nullToEmpty(query)));
+    }
+
+    /**
+     * {@code window.__setFileCompletions("{...}")} - renders the
+     * {@code @}-dropdown's two groups (U-047): alias reference roots
+     * ({@code aliases}, rendered above) plus the file matches ({@code
+     * paths}, already fuzzy-filtered and capped by the controller), with row
+     * {@code selected} highlighted across BOTH groups (aliases first - the
+     * host's keyboard selection spans the merged list); both lists empty
+     * closes the dropdown.
+     */
+    public static String setFileCompletions(List<ChatSessionController.ReferenceProposal> aliases,
+            List<String> paths, int selected) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("aliases", aliases == null ? List.of() : aliases);
+        payload.put("paths", paths == null ? List.of() : paths);
+        payload.put("selected", Math.max(selected, 0));
+        return call("__setFileCompletions", payload);
+    }
+
+    /** {@code window.__hideFileCompletions()} - closes the {@code @}-file dropdown. */
+    public static String hideFileCompletions() {
+        return "window.__hideFileCompletions()";
+    }
+
+    // ---------- question forms (U-014) ----------
+
+    /**
+     * {@code window.__setForms("[…]")} - replaces the open question forms:
+     * one answerable card per form ({@code id} - the reply/cancel path
+     * parameter, {@code title}, and the fields VERBATIM - the page renders
+     * the service's field union leniently); an empty array hides the area.
+     */
+    public static String setForms(List<ChatSessionController.FormCard> forms) {
+        return call("__setForms", forms == null ? List.of() : forms);
+    }
+
+    /**
+     * Parses a form-answer payload handed UP by the page
+     * ({@code __javaFormReply(formId, answersJson)}): the JSON string the
+     * card's Submit button built, {@code {<fieldKey>: value}} with value
+     * string | number | boolean | string[]. Lenient on purpose - an
+     * unparseable or empty answer degrades to an empty map (the server
+     * validates the real schema), never throws.
+     */
+    public static Map<String, Object> parseFormAnswers(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> answers = GSON.fromJson(json,
+                    new com.google.gson.reflect.TypeToken<Map<String, Object>>() { }.getType());
+            return answers == null ? Map.of() : answers;
+        } catch (Exception e) {
+            return Map.of(); // the card's own build went wrong - answer nothing
+        }
     }
 
     /** {@code window.__clear()} - empties the transcript. */

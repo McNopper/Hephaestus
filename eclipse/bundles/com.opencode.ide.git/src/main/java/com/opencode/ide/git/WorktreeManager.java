@@ -43,6 +43,20 @@ public interface WorktreeManager {
      */
     MergeResult mergeBack(Path repoRoot, String taskId);
 
+    /**
+     * B-007 FR-006: {@link #mergeBack(Path, String)} with a settle-check
+     * allowance. When {@code allowEmptyDiff}, a zero-commit branch merges
+     * cleanly instead of being refused as "worker produced no changes" - the
+     * CALLER consulted the stage-evidence matrix and verified store-side
+     * stage evidence for the run (definition-leg work delivered through the
+     * {@code task_*} tools lands in the main store, not the worktree). The
+     * git layer stays policy-free: it is told the decision, it never makes
+     * it. Default ignores the flag and delegates (fakes unchanged).
+     */
+    default MergeResult mergeBack(Path repoRoot, String taskId, boolean allowEmptyDiff) {
+        return mergeBack(repoRoot, taskId);
+    }
+
     /** Reports branch existence, dirty file count and short HEAD sha of the task's worktree. */
     WorktreeStatus status(Path repoRoot, String taskId);
 

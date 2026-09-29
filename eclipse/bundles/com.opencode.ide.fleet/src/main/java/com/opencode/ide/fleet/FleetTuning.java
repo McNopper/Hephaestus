@@ -36,6 +36,19 @@ public final class FleetTuning {
     public static final long STATUS_POLL_MILLIS = integer(
             "FLEET_POLL_MS", 1000);
 
+    /**
+     * U-048: how many poll intervals ONE session long-poll may span. Where
+     * the watchdog would sleep-and-poll an active run, it first calls the
+     * experimental session/wait route; 30 means one blocking wait replaces
+     * up to 30 probe sleeps (30s at the default 1s cadence) - a fraction of
+     * the 5-minute stall window, so every stall/budget decision point stays
+     * dense. The window additionally never reaches past the next
+     * abort-decision point (stall, budget, hard cap - see
+     * {@code TaskFleet.waitWindowNanos}). Env: FLEET_WAIT_POLL_TICKS.
+     */
+    public static final int WAIT_POLL_TICKS = integer(
+            "FLEET_WAIT_POLL_TICKS", 30);
+
     /** Session idle+silent for this long is aborted. Env: FLEET_STALL_TIMEOUT_MS. */
     public static final Duration STALL_TIMEOUT = duration(
             "FLEET_STALL_TIMEOUT_MS", Duration.ofMinutes(5));

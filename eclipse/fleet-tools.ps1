@@ -107,8 +107,36 @@ $jobsJar = Find-PlatformJar "org.eclipse.core.jobs"
 $commonJar = Find-PlatformJar "org.eclipse.equinox.common"
 $osgiJar = Find-PlatformJar "org.eclipse.osgi"
 
-$cp = ($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName, $toolsJar.FullName,
-       $gsonJar.FullName, $jobsJar.FullName, $commonJar.FullName, $osgiJar.FullName) -join [IO.Path]::PathSeparator
+# 3b) B-005 jar staging: run the server off a private COPY of the resolved
+#     jars (versioned dir, refreshed on every start) so a reactor rebuild
+#     that replaces target/ jars underneath a RUNNING server can never rot
+#     its classpath (NoClassDefFoundError mid-run, live 2026-09-19). The
+#     versioned dir also keeps concurrent servers from locking each other's
+#     copies on Windows; old versions are pruned best-effort.
+function Stage-Jars([string[]]$jars, [string]$name) {
+    $stageRoot = Join-Path (Split-Path -Parent $here) ".git/opencode-fleet/lib"
+    try {
+        $stage = Join-Path $stageRoot "$name/$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    } catch {
+        $stage = Join-Path ([IO.Path]::GetTempPath()) "opencode-tools-lib/$name/$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    }
+    $staged = @()
+    foreach ($jar in $jars) {
+        $copy = Join-Path $stage (Split-Path -Leaf $jar)
+        Copy-Item -LiteralPath $jar -Destination $copy -Force
+        $staged += $copy
+    }
+    $sibling = Split-Path -Parent $stage
+    Get-ChildItem $sibling -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    return $staged
+}
+
+$cp = (Stage-Jars @($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName,
+       $toolsJar.FullName, $gsonJar.FullName, $jobsJar.FullName, $commonJar.FullName, $osgiJar.FullName) "fleet-tools") -join [IO.Path]::PathSeparator
 & $java -cp $cp "-Dfile.encoding=UTF-8" com.opencode.ide.fleet.FleetStdioMain --root $Root
 # Propagate the JVM's exit code: opencode must see a crashed MCP server as a failure.
 exit $LASTEXITCODE

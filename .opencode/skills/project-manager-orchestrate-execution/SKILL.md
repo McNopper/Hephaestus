@@ -4,8 +4,8 @@ description: >
   Use this skill on demand to plan and orchestrate execution of a Hephaestus
   plan: decompose into tickets, map work to disciplines, drive the agile loop
   (sprint-backlog -> in-progress -> in-review -> done with rework), and bubble
-  up blockers to the human. opencode workflow utility; pairs with the project-manager agent
-  and the task store (`task_*` tools).
+  up blockers to their resolution (NEEDS-HUMAN last). opencode workflow utility;
+  pairs with the project-manager agent and the task store (`task_*` tools).
 ---
 
 # Plan Orchestration Skill
@@ -78,6 +78,9 @@ by the matching `software-*` / `test-software-*` skills and agents.
 3. Prefer small, independently verifiable tickets.
 4. Keep low-tier (cheap) work ahead of high-tier (expensive) work.
 5. The loop converges by rework, not by restarting.
+6. **Strict reuse:** a capability comes from the FIRST tier that has it —
+   opencode v2 (a fleet is just many opencode agents), then Eclipse, then own
+   code only for steering. Never instruct building what a host already provides.
 
 ## Decomposition -> tickets
 
@@ -110,17 +113,43 @@ sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept-->
 
 - Agent claims via `task_claim(role=...)`. Two agents never get the same ticket.
 - On finish, ticket moves to `in-review`; the matching test skill verifies.
+  (Tickets record their artifacts **before** `in-review` — the hand-off contract.)
+- After a run settles, the engine dispatches a **read-only REVIEW session**
+  whose verdict drives done+advance / send-back; acceptance evidence is
+  **stage-shaped** (`StageEvidence`): definition stages accept ticket-body/AC
+  updates and doc/path/url artifacts — code never required; implementation
+  expects code+tests (AC-named paths); test-* stages expect tests/goldens.
+  Reviewer doubt round-trips to the **originator** (one retry per stage visit,
+  `review doubt retry (1/1)` history marker) before anything is blocked.
 - Review finding -> back to `in-progress` (rework). Converge, don't restart.
 - A returned/unclaimed ticket can be released (`task_release`) and picked
   up by a **different** agent.
-- `done` only on Definition-of-Done + PO acceptance.
+- `done` only on Definition-of-Done + the review pass's acceptance.
+
+## The V-pipeline (async, not a gate)
+
+A ticket with a `stage` visits **ALL ten V stages** (requirements → system →
+architecture → design → implementation → test-implementation → test-design →
+test-architecture → test-system → test-requirements). A stage where nothing
+applies passes with a recorded rationale (`task_pass_stage` → history
+"stage N passed: reason") instead of a full dispatch — every stage is visited;
+not every stage does work. Stages run **concurrently** (no phase gates, no
+ordering enforcement): `task_advance` moves the ticket to the next stage's
+backlog, `task_send_back` to the previous one (blocked with reason), and
+`reportHorizontal` to the V-pair stage.
 
 ## Bubble-up -> escalation
 
 When an agent cannot proceed:
-1. It sets `blocked` + `blocker` on the ticket (`task_set_blocked`).
-2. You triage: resolve internally (reassign, resequence) or **escalate to the
-   human** for scope/goal/spend/security decisions.
+1. It passes the question back to the **originator agent** first
+   (`clarification:` send-back, up to 3 round-trips) — never to the human first.
+2. Only after that attempt does it set `blocked` + `blocker` on the ticket
+   (`task_set_blocked`) — `blocked` always means NEEDS-HUMAN.
+3. Resolution-first pumping: every wave tick resolves blocked items first
+   (vertical `task_send_back` to the previous stage / horizontal report to the
+   V-pair stage) before planning new launches; only the remainder escalates to
+   **the human** (scope/goal/spend/security decisions — the human's only
+   regular duty).
 
 ## Default Output
 
@@ -132,8 +161,8 @@ When an agent cannot proceed:
 |---|---|---|---|---|
 
 ## Execution Order
-- Wave 1 (cheap / low-tier): ...
-- Wave 2 (heavy / high-tier): ...
+- Batch 1 (cheap / low-tier): ...
+- Batch 2 (heavy / high-tier): ...
 
 ## Escalation Policy
 - What you will resolve vs escalate.
@@ -141,5 +170,5 @@ When an agent cannot proceed:
 
 ## Notes / Hand Off
 
-- Use `project-manager-operating-model` for the running Scrum events and DoD.
+- Use `project-manager-operating-model` for the running wave events and DoD.
 - Use `project-manager-route-request` when the next step is ambiguous.

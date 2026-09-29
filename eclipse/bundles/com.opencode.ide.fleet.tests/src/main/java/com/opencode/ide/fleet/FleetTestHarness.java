@@ -8,6 +8,7 @@ import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
 import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.tasks.VStages;
 
 /**
  * The shared fleet end-to-end fixture (2026-09-23 CPD findings: six test
@@ -51,5 +52,32 @@ public abstract class FleetTestHarness {
     /** Hook for fleet variants (e.g. {@link TaskFleet#withAutonomousAcceptance()}). */
     protected TaskFleet build(TaskFleet fleet) {
         return fleet;
+    }
+
+    /**
+     * A staged ticket of the given V stage (shared by the acceptance-suite
+     * tests: CPD found these helpers copy-pasted per class once already).
+     * Without explicit criteria the ticket carries the classic two
+     * ({@code ac one}, {@code ac two}) the review-prompt assertions expect.
+     */
+    protected String stagedTicket(String stage, String... criteria) {
+        java.util.List<String> acs = criteria == null || criteria.length == 0
+                ? java.util.List.of("ac one", "ac two")
+                : java.util.List.of(criteria);
+        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
+                "Stage work", "Do the thing.", "task", VStages.roleOf(stage), "high", 3,
+                acs, java.util.List.of(), null, "T");
+        return store.create(PROJECT, spec, stage).id;
+    }
+
+    /**
+     * The worker session completes plainly ("done"); the merge hook then
+     * swaps the reply so the NEXT send - the review session - answers with
+     * the given verdict text (the fake reviewer path).
+     */
+    protected void workerCompletesAndReviewReplies(String verdictReply) {
+        client.replyOnSend = "done";
+        client.sessionType = "idle";
+        worktrees.onMergeBack = () -> client.replyOnSend = verdictReply;
     }
 }

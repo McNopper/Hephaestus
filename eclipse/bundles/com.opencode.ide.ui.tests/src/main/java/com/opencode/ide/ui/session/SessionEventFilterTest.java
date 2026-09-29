@@ -83,6 +83,25 @@ public class SessionEventFilterTest {
         assertTrue(SessionEventFilter.shouldRefreshFor(OWN, sessionEvent("session.tool.failed", OWN)));
     }
 
+    /**
+     * U-041: the shell lifecycle upserts the session's shell messages (the
+     * v2.0.19 projector subscribes session.shell.started/ended into the
+     * transcript), so both must refresh the view — that is what keeps the
+     * shell-task section and open consoles live.
+     */
+    @Test
+    public void shellLifecycleForOwnSessionTriggers() {
+        assertTrue(SessionEventFilter.shouldRefreshFor(OWN,
+                sessionEvent("session.shell.started", OWN)));
+        assertTrue(SessionEventFilter.shouldRefreshFor(OWN,
+                sessionEvent("session.shell.ended", OWN)));
+        assertFalse("another session's shell run does not refresh this view",
+                SessionEventFilter.shouldRefreshFor(OWN, sessionEvent("session.shell.started", OTHER)));
+        // the Shell service's own events carry no sessionID at all - not ours to match
+        assertFalse(SessionEventFilter.shouldRefreshFor(OWN,
+                event("{\"type\":\"shell.created\",\"data\":{\"info\":{\"id\":\"sh_1\"}}}")));
+    }
+
     @Test
     public void realWorldDeltaFrameCarriesItsIdsFlat() {
         // the verified v2 payload: {sessionID, assistantMessageID, ordinal, delta}

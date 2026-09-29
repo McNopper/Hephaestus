@@ -13,14 +13,18 @@ import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.FileNode;
 import com.opencode.ide.client.model.FileStatus;
 import com.opencode.ide.client.model.HealthStatus;
+import com.opencode.ide.client.model.IntegrationInfo;
 import com.opencode.ide.client.model.McpServerInfo;
+import com.opencode.ide.client.model.MigrationStatus;
 import com.opencode.ide.client.model.OauthStart;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProjectSummary;
 import com.opencode.ide.client.model.ProviderAuth;
 import com.opencode.ide.client.model.ProviderList;
+import com.opencode.ide.client.model.SavedPermission;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.SkillInfo;
 import com.opencode.ide.client.model.VcsInfo;
@@ -354,6 +358,19 @@ public interface OpencodeClient {
         throw new UnsupportedOperationException("cancelForm");
     }
 
+    /**
+     * {@code POST /api/experimental/session/{sessionID}/wait} - long-poll
+     * until the session settles (204, no content). Returns {@code false}
+     * when the route is absent or the call fails (older builds, busy
+     * service) so callers fall back to their poll loop.
+     *
+     * @param timeout the HTTP deadline for one wait call - the wire has no
+     *                timeout parameter, the caller bounds the long-poll
+     */
+    default boolean waitForSession(String sessionId, java.time.Duration timeout) throws OpencodeException {
+        throw new UnsupportedOperationException("waitForSession");
+    }
+
     /** v2 MCP management: remove a configured server (experimental.mcp.remove). */
     default void removeMcp(String name) throws OpencodeException {
         throw new UnsupportedOperationException("removeMcp");
@@ -404,6 +421,22 @@ public interface OpencodeClient {
     /** {@code GET /api/skill?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
     default List<SkillInfo> getSkills(String directory) throws OpencodeException {
         return getSkills();
+    }
+
+    /**
+     * {@code GET /api/skill} under its list-verb name. v2.0.19 live probe:
+     * {@code {location, data:[{id, name, description, ...}]}} - data items
+     * carry the full skill body, of which {@link SkillInfo} models the display
+     * fields (unknown fields are ignored by the mapping). Delegates to
+     * {@link #getSkills()} - the same endpoint and record.
+     */
+    default List<SkillInfo> listSkills() throws OpencodeException {
+        return getSkills();
+    }
+
+    /** Scoped variant of {@link #listSkills()} (see {@link #getAgents(String)}). */
+    default List<SkillInfo> listSkills(String directory) throws OpencodeException {
+        return getSkills(directory);
     }
 
     /** {@code GET /api/session/:id/message} - the message history of a session. */
@@ -760,6 +793,228 @@ public interface OpencodeClient {
     default boolean startProviderOauth(String providerId) throws OpencodeException {
         OauthStart started = beginProviderOauth(providerId);
         return started != null && started.url() != null && !started.url().isBlank();
+    }
+
+    // ---------- U-046 first slice: shell config, migration, saved permissions, integrations, generate, view ----------
+
+    /**
+     * {@code GET /api/config/shell} - the acceptable shell executables.
+     * v2.0.19 live probe: a BARE JSON array of {@code {path, name,
+     * acceptable}} objects - no {@code {location, data}} envelope. Default
+     * throws so test fakes stay minimal.
+     */
+    default List<ShellExecutable> getShellConfig() throws OpencodeException {
+        throw new UnsupportedOperationException("getShellConfig");
+    }
+
+    /**
+     * {@code GET /api/experimental/migration/v1} - the v1-to-v2 storage
+     * migration status. v2.0.19 live probe:
+     * {@code {status: "completed" | "required" | "running" | "error", ...}} -
+     * {@code running} may carry progress fields, which are tolerated
+     * (ignored), not modelled.
+     */
+    default MigrationStatus getV1MigrationStatus() throws OpencodeException {
+        throw new UnsupportedOperationException("getV1MigrationStatus");
+    }
+
+    /**
+     * {@code GET /api/permission/saved} - the remembered allow/deny rules
+     * (the persisted counterpart of an {@code always} permission decision).
+     * v2.0.19 live probe: a {@code {data:[...]}} envelope whose items carry an
+     * {@code id} plus fields {@link SavedPermission} does not pin. Not
+     * location-scoped - remembered rules are user-global.
+     */
+    default List<SavedPermission> listSavedPermissions() throws OpencodeException {
+        throw new UnsupportedOperationException("listSavedPermissions");
+    }
+
+    /** {@code DELETE /api/permission/saved/{id}} - forget one remembered rule. */
+    default void deleteSavedPermission(String id) throws OpencodeException {
+        throw new UnsupportedOperationException("deleteSavedPermission");
+    }
+
+    /**
+     * {@code GET /api/integration} - the typed integration catalog. v2.0.19
+     * live probe: {@code {location, data:[{id, name, methods:[{type:"key"
+     * |"env", names:[...]}], connections:[]}]}} ({@code connections} not
+     * modelled - empty in probes). Default throws so test fakes stay minimal.
+     */
+    default List<IntegrationInfo> listIntegrations() throws OpencodeException {
+        throw new UnsupportedOperationException("listIntegrations");
+    }
+
+    /** Scoped variant (see {@link #getAgents(String)}): auth methods resolve per project config. */
+    default List<IntegrationInfo> listIntegrations(String directory) throws OpencodeException {
+        return listIntegrations();
+    }
+
+    /**
+     * {@code POST /api/session/{id}/generate} - ONE transient LLM completion
+     * (body {@code {prompt}}, answer {@code {data:{text}}}; v2.0.19 live
+     * probe). Never mutates the session history: unlike {@link #sendMessage}
+     * nothing is queued or polled - the POST blocks until the text is back.
+     *
+     * @return the completion text, or {@code null} when the answer carries none
+     */
+    default String generateOnSession(String sessionId, String prompt) throws OpencodeException {
+        throw new UnsupportedOperationException("generateOnSession");
+    }
+
+    /**
+     * {@code POST /api/session/{id}/view} - mark a session viewed (read-marker
+     * bookkeeping for the server's unread tracking). v2.0.19 live probe: body
+     * {@code {idle: <epoch-millis>}}; the server answers 2xx with no content,
+     * which is tolerated.
+     */
+    default void markSessionViewed(String sessionId, long idleMillis) throws OpencodeException {
+        throw new UnsupportedOperationException("markSessionViewed");
+    }
+
+    /**
+     * EXPERIMENTAL {@code POST /api/experimental/session/{id}/skill} -
+     * activate ("attach") a skill on a session: the server appends a
+     * {@code skill} message to the history and resumes execution. The request
+     * shape follows the v2.0.19 spec (opencode v2 API reference "Activate
+     * skill", operationId {@code v2.session.skill}, research-verified
+     * 2026-09-29): the body is {@code {skill: <skill id>}} - {@code skill} is
+     * the REQUIRED member; the optional {@code id} member of that schema is a
+     * {@code msg_} message anchor, NOT the skill id. Answers 204 no-content;
+     * an unknown skill answers 404 {@code SkillNotFoundError}. Route pinned
+     * under the {@code /experimental} prefix at the 2.0.19 pin - later
+     * builds' published spec lists it without the prefix, so re-probe on
+     * server upgrade. Default throws so test fakes stay minimal.
+     */
+    default void attachSkill(String sessionId, String skillId) throws OpencodeException {
+        throw new UnsupportedOperationException("attachSkill");
+    }
+
+    /**
+     * {@link #attachSkill(String, String)} with the documented {@code resume}
+     * flag: {@code false} appends the skill message WITHOUT resuming the
+     * session ({@code true} resumes - the server default, the flag is then
+     * omitted from the body).
+     */
+    default void attachSkill(String sessionId, String skillId, boolean resume) throws OpencodeException {
+        throw new UnsupportedOperationException("attachSkill");
+    }
+
+    // ---------- U-048 client verbs: integration connect flows, session environment, session import ----------
+
+    /**
+     * {@code POST /api/integration/{id}/connect/command} - start a
+     * command-line connect attempt (body {@code {methodID, label?}}:
+     * {@code methodID} required, {@code label} omitted when {@code null}).
+     * The answer is the started attempt as a LENIENT map - the
+     * {@code Integration.Attempt*} wire shapes stay unmodelled (slice-1
+     * precedent); its {@code attemptID} is the handle for polling and
+     * aborting.
+     */
+    default Map<String, Object> startIntegrationCommand(String integrationId, String methodId, String label)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("startIntegrationCommand");
+    }
+
+    /**
+     * {@code POST /api/integration/{id}/connect/key} - connect with a static
+     * key/token (body {@code {key, label?}}: {@code key} required,
+     * {@code label} omitted when {@code null}). The answer is the created
+     * connection as a lenient map.
+     */
+    default Map<String, Object> startIntegrationKey(String integrationId, String key, String label)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("startIntegrationKey");
+    }
+
+    /**
+     * {@code POST /api/integration/{id}/connect/oauth} - start an OAuth
+     * attempt (body {@code {methodID, label?}}). The generic verb under
+     * {@link #beginProviderOauth(String)}'s convenience flow, which picks
+     * the first OAuth method itself; the answer is the started attempt
+     * ({@code attemptID}, {@code url}, {@code instructions}, {@code mode})
+     * as a lenient map.
+     */
+    default Map<String, Object> startIntegrationOauth(String integrationId, String methodId, String label)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("startIntegrationOauth");
+    }
+
+    /**
+     * {@code GET /api/integration/{id}/connect/command/{attemptID}} - a
+     * command attempt's current status (poll use), as a lenient map.
+     */
+    default Map<String, Object> integrationCommandAttempt(String integrationId, String attemptId)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("integrationCommandAttempt");
+    }
+
+    /**
+     * {@code GET /api/integration/{id}/connect/oauth/{attemptID}} - an OAuth
+     * attempt's current status (poll use), as a lenient map.
+     */
+    default Map<String, Object> integrationOauthAttempt(String integrationId, String attemptId)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("integrationOauthAttempt");
+    }
+
+    /**
+     * {@code POST /api/integration/{id}/connect/oauth/{attemptID}/complete} -
+     * finish an OAuth attempt (body {@code {code?}}; a {@code null} code
+     * sends an empty object - some flows complete without one). The answer
+     * is the created connection as a lenient map.
+     */
+    default Map<String, Object> completeIntegrationOauth(String integrationId, String attemptId, String code)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("completeIntegrationOauth");
+    }
+
+    /**
+     * {@code DELETE /api/integration/{id}/connect/command/{attemptID}} -
+     * abort a command attempt. 404/409 are tolerated as already-gone
+     * (expired, completed or aborted elsewhere) - the outcome the caller
+     * wanted.
+     */
+    default void abortIntegrationCommandAttempt(String integrationId, String attemptId)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("abortIntegrationCommandAttempt");
+    }
+
+    /**
+     * {@code DELETE /api/integration/{id}/connect/oauth/{attemptID}} - abort
+     * an OAuth attempt; 404/409 tolerated as already-gone (see
+     * {@link #abortIntegrationCommandAttempt(String, String)}).
+     */
+    default void abortIntegrationOauthAttempt(String integrationId, String attemptId)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("abortIntegrationOauthAttempt");
+    }
+
+    /**
+     * {@code PUT /api/session/{sessionID}/environment} - FULL-REPLACE the
+     * session's environment variables (body {@code {variables: {...}}}; a
+     * {@code null} or empty map CLEARS the environment - the required
+     * {@code variables} member is always sent). There is NO GET counterpart
+     * on the wire: callers must source the current values elsewhere before
+     * calling, because anything omitted here is removed.
+     */
+    default void replaceSessionEnvironment(String sessionId, Map<String, String> variables)
+            throws OpencodeException {
+        throw new UnsupportedOperationException("replaceSessionEnvironment");
+    }
+
+    /**
+     * EXPERIMENTAL {@code POST /api/experimental/session/import} - import a
+     * session from caller-assembled {@code info} and {@code messages} (the
+     * counterpart of {@link #exportSession(String)}; body
+     * {@code {info, messages, location?}}, required {@code [info, messages]}).
+     * {@code location.directory} scopes the import the same way
+     * {@link #createSession(String, Path)}'s location BODY does and is
+     * omitted when the directory is {@code null}. The imported session
+     * comes back as a lenient map.
+     */
+    default Map<String, Object> importSession(Map<String, Object> info, List<Map<String, Object>> messages,
+            String directoryOrNull) throws OpencodeException {
+        throw new UnsupportedOperationException("importSession");
     }
 
     /**

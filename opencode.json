@@ -6,18 +6,16 @@
     "servers": {
       "tasks": {
         "type": "local",
-        "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"],
-        "enabled": true
+        "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"]
       },
       "fleet": {
         "type": "local",
         "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
-        "enabled": false
+        "disabled": true
       },
       "graphics": {
         "type": "local",
-        "command": ["python", "mcp/graphics/server.py"],
-        "enabled": true
+        "command": ["python", "mcp/graphics/server.py"]
       }
     }
   }

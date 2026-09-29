@@ -59,6 +59,12 @@ of throwing silently inside `browser.execute()`.
 | `__flushStream(mid)` | plain string | Test/diagnostic hook: executes `mid`'s pending progressive tick right now, so checks can drive the throttle deterministically. Returns `false` when nothing is pending (no-op). Hosts never need to call it. |
 | `__setAssistantText(json)` | `{"mid": string, "text": string, "reasoning"?: string, "meta"?: string, "tools"?: [{"name": string, "state": string}, …]}` | Final authoritative render of the assistant bubble: markdown body (replacing streamed raw text), optional collapsible `reasoning` block, optional `meta` model label, optional compact tool-call lines (`tool: name — state`, state-colored: running pulses, completed dimmed, error red) above the body. Tool names are escaped — hostile input renders inert. |
 | `__setMessages(json)` | JSON string of an array `[{"role":"user"\|"assistant","id":string,"text":string,"reasoning":string,"meta":string,"tools":[…]}, …]` | Replaces the whole transcript (history/resume load; `tools` optional per entry, same rendering as above). |
+| `__setInboxItems(json)` | JSON string of an array `[{"id":string,"text":string}, …]` | Replaces the **composer queue row** (T-005 management surface): the prompts parked in the session's server-side inbox (the host's *Send to Queue*, v2 Alt+Enter). One line per pending prompt, each with **Steer now** / **Deliver next** / **Cancel** buttons that call `__javaInboxAction`. The row is pinned below the transcript (outside `#chat`, so transcript wipes never eat it) and hidden while empty. Prompt text is set via `textContent` — hostile input cannot inject markup. |
+| `__setReasoningVisible(json)` | `{"visible": boolean}` | Toggles the visibility of thinking/reasoning blocks (live and history): a `body.hide-reasoning` class hides them — content stays in the DOM, so toggling back needs no re-render. The host's `/thinking` command and its toolbar toggle drive this; the host re-applies the value after every history render so the preference survives across messages. |
+| `__setFileQuery(json)` | `{"query": string}` | Opens the **@-autocomplete** row (U-012): the host detected an `@`-token in its composer and hands over the text after the `@`. The page shows a searching row and asks Java for matches via `__javaFileQuery`. |
+| `__setFileCompletions(json)` | `{"aliases": [{"id": string, "name": string}, …], "paths": string[], "selected": number}` | Renders the @-autocomplete's two groups (U-012 + U-047): **alias reference roots** (the server's reference catalog — possibly empty, then files only, no error) ABOVE the fuzzy-matched files, with group headers when both are present. Row `selected` is highlighted across BOTH groups (aliases first — the host owns keyboard navigation, its input has the focus). Both lists empty closes the row. Rows render via `textContent` only. |
+| `__hideFileCompletions()` | none | Closes the @-autocomplete row (token left, Esc, picked or submitted). |
+| `__setForms(json)` | JSON string of an array `[{"id": string, "title": string, "fields": […raw field objects…]}, …]` | Replaces the **question forms** area (U-014): one answerable card per form the session's run raised — title, leniently-rendered fields, **Submit**/**Cancel**. The service owns the field schema (a union of String/Number/Integer/Boolean/Multiselect/External field objects), so fields render by whatever discriminator/label/options keys they carry (union wrappers like `{"string": {...}}` are unwrapped; booleans → checkbox, multiselect → one checkbox per option, number/integer → number input, everything else → text input). The cards live outside `#chat` (transcript wipes never eat them) and persist until the host re-pushes without them — an unanswered ask is always visible. All content is `textContent`-only. |
 | `__stopStream(json)` | `{"mid": string}` | Removes the streaming cursor from the bubble (host calls this when the send completed, failed or was aborted) and finalizes the accumulated text through the FULL render pipeline (mermaid pass included), so a still-throttled tail chunk never leaves the bubble partial. Idempotent. |
 | `__clear()` | none | Empties the transcript. |
 
@@ -84,8 +90,14 @@ page tolerates them being absent, e.g. in a plain browser):
 
 | Global | Meaning |
 |---|---|
-| `__javaReport(message: string)` | Progress/diagnostics channel. The page reports: `page-ready` on load (authoritative readiness signal — hosts flush queued renders on it), render confirmations (`user bubble rendered: …`, `assistant bubble rendered (N chars, meta=…)`, `notice rendered: …`, `history rendered (N entries)`, `theme set: …`, `mermaid initialised`, `mermaid blocks found: …`, `mermaid diagram rendered`, `code copied (N chars)` / `copy unavailable (N chars)` — lengths only, never code content), and failures: `JS ERROR in <fn>: <message>` from guarded bridge calls, `JS ERROR: …` from `window.onerror`, `JS REJECTION: …` from unhandled promise rejections, plus `KaTeX failed: …`, `mermaid … FAILED`, `highlight failed (…)` and `external link (no Java bridge): <url>`. |
+| `__javaReport(message: string)` | Progress/diagnostics channel. The page reports: `page-ready` on load (authoritative readiness signal — hosts flush queued renders on it), render confirmations (`user bubble rendered: …`, `assistant bubble rendered (N chars, meta=…)`, `notice rendered: …`, `history rendered (N entries)`, `inbox row rendered (N queued)`, `theme set: …`, `mermaid initialised`, `mermaid blocks found: …`, `mermaid diagram rendered`, `code copied (N chars)` / `copy unavailable (N chars)` — lengths only, never code content), and failures: `JS ERROR in <fn>: <message>` from guarded bridge calls, `JS ERROR: …` from `window.onerror`, `JS REJECTION: …` from unhandled promise rejections, plus `KaTeX failed: …`, `mermaid … FAILED`, `highlight failed (…)` and `external link (no Java bridge): <url>`. |
 | `__javaOpenExternal(url: string)` | A non-hash link was clicked. The page never navigates itself (that would destroy the transcript); the host must open the URL externally (OS browser). |
+| `__javaForkAt(messageId: string)` | A message's hover **⑂ Fork here** button was clicked; the host forks the session at that server message id. |
+| `__javaInboxAction(action: "steer"\|"queue"\|"cancel", messageId: string)` | A queued prompt's **Steer now** / **Deliver next** / **Cancel** button was clicked. The host applies the verb server-side (`steer` = deliver now interrupting the active run, `queue` = deliver after it, `cancel` = remove) and re-pushes the inbox list; on failure the item stays and the host shows a notice. |
+| `__javaFileQuery(query: string)` | The @-autocomplete row wants the matches for `query` (fired when the host opens it via `__setFileQuery`). The host runs the server-side file search AND fetches the reference catalog (cached after the first read), fuzzy-filters both, caps the lists and answers with `__setFileCompletions`. |
+| `__javaFilePick(value: string)` | A completion row was clicked — a file PATH or an alias reference NAME; the host replaces the `@`-token in its composer input with `@value ` (the reference stays plain text in the message — the server/model resolves it). |
+| `__javaFormReply(formId: string, answersJson: string)` | A question-form card's **Submit** button was clicked (U-014). `answersJson` is the answer map keyed by the form's own field keys (`{<fieldKey>: string \| number \| boolean \| string[]}`); the host POSTs it through the session's form-reply verb and re-reads the forms — on failure the card stays and the host shows a notice. |
+| `__javaFormCancel(formId: string)` | A question-form card's **Cancel** button was clicked (U-014); the host cancels the form server-side and re-reads the forms. |
 
 ## Rendering rules (these rules ARE the contract)
 
@@ -139,6 +151,30 @@ page tolerates them being absent, e.g. in a plain browser):
   `navigator.clipboard` with an `execCommand`/textarea fallback and a brief
   "Copied" confirmation; the exposed `window.__copyCode(button)` hook drives
   the same path in tests. Reports go through `__javaReport` with lengths only.
+- **Composer queue row (session inbox):** prompts parked in the server-side
+  session inbox render below the transcript with Steer now / Deliver next /
+  Cancel per item. The row shows exactly what the host pushed via
+  `__setInboxItems` (the host re-reads the server after every action, so a
+  failed action keeps the item); button clicks hand `(action, messageId)` to
+  `__javaInboxAction`. Prompt text is `textContent`-only — never markup.
+- **@-autocomplete (files + alias roots):** the host (whose composer input
+  owns the caret) opens the row with `__setFileQuery`, the page fetches the
+  proposals through `__javaFileQuery`, and `__setFileCompletions` renders
+  them — ALIAS reference roots above the FILES (group headers separate the
+  two; the `selected` row is the host's keyboard highlight and spans both
+  groups). Clicks hand the picked value to `__javaFilePick` (a path or an
+  alias name); the host replaces the `@`-token with `@value ` as plain
+  text — nothing is ever injected into the message content. Rows render via
+  `textContent`-only.
+- **Question forms (U-014):** the forms the session's run raised render as
+  answerable cards below the transcript (outside `#chat`, so transcript
+  wipes never eat them) and persist until replied/cancelled — no silent
+  hang. Fields render leniently from the service's union schema; Submit
+  builds the answer map (`{<fieldKey>: value}`, string | number | boolean |
+  string[] per field type) and hands it to `__javaFormReply`, Cancel hands
+  the form id to `__javaFormCancel`; the card disarms on click (no double
+  submit) and the host re-pushes the authoritative list after every action
+  (a failed action keeps the card). All content is `textContent`-only.
 
 ## Running the checks
 
@@ -150,9 +186,10 @@ node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render
 node bridge-check.mjs     # executes chat.js in a VM with a DOM shim (move-semantics
                           # appendChild, innerHTML serialization of appended trees)
                           # and drives the bridge exactly as a host would
-                          # (126 checks, incl. tool lines, copy-code, block-level
-                          # progressive streaming, the thinking indicator and the
-                          # stream-done stop path)
+                          # (194 checks, incl. tool lines, copy-code, block-level
+                          # progressive streaming, the thinking indicator, the
+                          # stream-done stop path, the session-inbox queue row,
+                          # the @-alias autocomplete groups and the U-014 form cards)
 node mermaid-check.mjs    # renders real diagrams in headless Edge (8 checks;
                           # SKIPs when Edge/puppeteer-core are absent)
 ```

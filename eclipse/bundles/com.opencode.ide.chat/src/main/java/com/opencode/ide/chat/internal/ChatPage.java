@@ -41,6 +41,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
     private final BrowserFunction reportFunction;
     private final BrowserFunction openExternalFunction;
     private final BrowserFunction forkAtFunction;
+    private final BrowserFunction inboxActionFunction;
+    private final BrowserFunction fileQueryFunction;
+    private final BrowserFunction filePickFunction;
+    private final BrowserFunction formReplyFunction;
+    private final BrowserFunction formCancelFunction;
     private boolean pageReady;
     /** Whether reasoning progress is visible; re-applied on page reload (user toggle). */
     private boolean reasoningVisible = true;
@@ -49,6 +54,34 @@ public final class ChatPage implements ChatSessionController.Renderer {
      * buttons ({@code __javaForkAt(mid)}); registered by the owning view.
      */
     private volatile Consumer<String> forkHandler;
+    /**
+     * Receives queued-prompt management requests from the page's composer
+     * queue row ({@code __javaInboxAction(action, messageId)} with action
+     * {@code steer|queue|cancel}); registered by the owning view.
+     */
+    private volatile java.util.function.BiConsumer<String, String> inboxHandler;
+    /**
+     * Receives file-search requests from the page's {@code @}-file dropdown
+     * ({@code __javaFileQuery(query)}, U-012); registered by the owning view.
+     */
+    private volatile Consumer<String> fileQueryHandler;
+    /**
+     * Receives pick notifications from the page's {@code @}-file dropdown
+     * ({@code __javaFilePick(path)} - a row was clicked); registered by the
+     * owning view, which replaces the {@code @} token in its composer.
+     */
+    private volatile Consumer<String> filePickHandler;
+    /**
+     * Receives form answers from the page's question-form cards (U-014:
+     * {@code __javaFormReply(formId, answersJson)}); registered by the
+     * owning view, which POSTs the reply through the controller.
+     */
+    private volatile java.util.function.BiConsumer<String, Map<String, Object>> formReplyHandler;
+    /**
+     * Receives cancel requests from the page's question-form cards (U-014:
+     * {@code __javaFormCancel(formId)}); registered by the owning view.
+     */
+    private volatile Consumer<String> formCancelHandler;
     private final List<String> pendingJs = new ArrayList<>();
 
     private ChatPage(Browser browser) {
@@ -76,6 +109,84 @@ public final class ChatPage implements ChatSessionController.Renderer {
                     Consumer<String> handler = forkHandler;
                     if (handler != null && !messageId.isBlank()) {
                         handler.accept(messageId); // Browser calls run on the UI thread
+                    }
+                }
+                return null;
+            }
+        };
+        // JS -> Java inbox bridge: a queued prompt's Steer now / Deliver next /
+        // Cancel button calls __javaInboxAction(action, messageId) - the view
+        // steers, schedules or cancels that server-side parked prompt
+        this.inboxActionFunction = new BrowserFunction(browser, "__javaInboxAction") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 1 && arguments[0] instanceof String action
+                        && arguments[1] instanceof String messageId) {
+                    java.util.function.BiConsumer<String, String> handler = inboxHandler;
+                    if (handler != null && !messageId.isBlank()) {
+                        handler.accept(action, messageId); // Browser calls run on the UI thread
+                    }
+                }
+                return null;
+            }
+        };
+        // JS -> Java file-search bridge (U-012): the @-file dropdown asks for
+        // the matches of a query (__javaFileQuery) - the view runs the
+        // server-side file search and pushes the list back via
+        // __setFileCompletions
+        this.fileQueryFunction = new BrowserFunction(browser, "__javaFileQuery") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 0 && arguments[0] instanceof String query) {
+                    Consumer<String> handler = fileQueryHandler;
+                    if (handler != null) {
+                        handler.accept(query); // Browser calls run on the UI thread
+                    }
+                }
+                return null;
+            }
+        };
+        // JS -> Java file-pick bridge (U-012): a clicked completion row hands
+        // the picked path to the view (__javaFilePick), which replaces the @
+        // token in its composer input
+        this.filePickFunction = new BrowserFunction(browser, "__javaFilePick") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 0 && arguments[0] instanceof String path) {
+                    Consumer<String> handler = filePickHandler;
+                    if (handler != null && !path.isBlank()) {
+                        handler.accept(path); // Browser calls run on the UI thread
+                    }
+                }
+                return null;
+            }
+        };
+        // JS -> Java form-reply bridge (U-014): a question-form card's Submit
+        // button calls __javaFormReply(formId, answersJson) - the answers
+        // travel as a JSON string (the card builds the map; the service owns
+        // the field schema), parsed leniently here
+        this.formReplyFunction = new BrowserFunction(browser, "__javaFormReply") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 1 && arguments[0] instanceof String formId
+                        && arguments[1] instanceof String answersJson && !formId.isBlank()) {
+                    java.util.function.BiConsumer<String, Map<String, Object>> handler = formReplyHandler;
+                    if (handler != null) {
+                        handler.accept(formId, ChatScripts.parseFormAnswers(answersJson));
+                    }
+                }
+                return null;
+            }
+        };
+        // JS -> Java form-cancel bridge (U-014): a question-form card's
+        // Cancel button calls __javaFormCancel(formId)
+        this.formCancelFunction = new BrowserFunction(browser, "__javaFormCancel") {
+            @Override
+            public Object function(Object[] arguments) {
+                if (arguments.length > 0 && arguments[0] instanceof String formId) {
+                    Consumer<String> handler = formCancelHandler;
+                    if (handler != null && !formId.isBlank()) {
+                        handler.accept(formId); // Browser calls run on the UI thread
                     }
                 }
                 return null;
@@ -145,6 +256,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
         try {
             reportFunction.dispose();
             forkAtFunction.dispose();
+            inboxActionFunction.dispose();
+            fileQueryFunction.dispose();
+            filePickFunction.dispose();
+            formReplyFunction.dispose();
+            formCancelFunction.dispose();
             openExternalFunction.dispose();
         } catch (SWTException e) {
             // browser torn down concurrently - nothing left to release
@@ -157,6 +273,51 @@ public final class ChatPage implements ChatSessionController.Renderer {
      */
     public void setForkHandler(Consumer<String> handler) {
         this.forkHandler = handler;
+    }
+
+    /**
+     * Registers the handler for the composer queue row's action buttons
+     * ({@code __javaInboxAction(action, messageId)}, action
+     * {@code steer|queue|cancel}); {@code null} disables inbox management.
+     */
+    public void setInboxHandler(java.util.function.BiConsumer<String, String> handler) {
+        this.inboxHandler = handler;
+    }
+
+    /**
+     * Registers the handler for the {@code @}-file dropdown's search requests
+     * ({@code __javaFileQuery(query)}, U-012); {@code null} disables the
+     * dropdown's data path.
+     */
+    public void setFileQueryHandler(Consumer<String> handler) {
+        this.fileQueryHandler = handler;
+    }
+
+    /**
+     * Registers the handler for picked {@code @}-file completions
+     * ({@code __javaFilePick(path)}, U-012); {@code null} disables
+     * click-to-pick.
+     */
+    public void setFilePickHandler(Consumer<String> handler) {
+        this.filePickHandler = handler;
+    }
+
+    /**
+     * Registers the handler for answered question forms (U-014:
+     * {@code __javaFormReply(formId, answersJson)}, the answers already
+     * parsed into a map keyed by the form's field keys); {@code null}
+     * disables answering.
+     */
+    public void setFormReplyHandler(java.util.function.BiConsumer<String, Map<String, Object>> handler) {
+        this.formReplyHandler = handler;
+    }
+
+    /**
+     * Registers the handler for cancelled question forms (U-014:
+     * {@code __javaFormCancel(formId)}); {@code null} disables cancelling.
+     */
+    public void setFormCancelHandler(Consumer<String> handler) {
+        this.formCancelHandler = handler;
     }
 
     // ---------- rendering (ChatSessionController.Renderer) ----------
@@ -195,6 +356,16 @@ public final class ChatPage implements ChatSessionController.Renderer {
     @Override
     public void setMessages(List<Map<String, Object>> rows) {
         executeJs(ChatScripts.setMessages(rows));
+    }
+
+    @Override
+    public void setInboxItems(List<ChatSessionController.InboxEntry> items) {
+        executeJs(ChatScripts.setInboxItems(items));
+    }
+
+    @Override
+    public void setForms(List<ChatSessionController.FormCard> forms) {
+        executeJs(ChatScripts.setForms(forms));
     }
 
     @Override
@@ -300,11 +471,40 @@ public final class ChatPage implements ChatSessionController.Renderer {
      * Toggles whether thinking/reasoning progress is visible in the page (a
      * CSS class hides the blocks - content is untouched, so toggling back is
      * complete without re-rendering). Stored here so a page reload (navigation
-     * backstop) re-applies the state after readiness.
+     * backstop) re-applies the state after readiness. Also the
+     * {@link ChatSessionController.Renderer} hook the controller pushes
+     * through ({@code /thinking} and the re-apply after history renders).
      */
     public void setReasoningVisible(boolean visible) {
         reasoningVisible = visible;
         executeJs(ChatScripts.setReasoningVisible(visible));
+    }
+
+    // ---------- @-file autocomplete (U-012) ----------
+
+    /**
+     * Opens the page's {@code @}-file dropdown for {@code query} (the text
+     * after the {@code @}); the page asks for the matches through
+     * {@code __javaFileQuery}, which the registered
+     * {@link #setFileQueryHandler(Consumer)} handler serves.
+     */
+    public void showFileQuery(String query) {
+        executeJs(ChatScripts.setFileQuery(query));
+    }
+
+    /**
+     * Renders the {@code @}-dropdown's two groups (U-047): alias reference
+     * roots above the file matches, highlighting merged row {@code selected}
+     * (aliases first).
+     */
+    public void setFileCompletions(List<ChatSessionController.ReferenceProposal> aliases,
+            List<String> paths, int selected) {
+        executeJs(ChatScripts.setFileCompletions(aliases, paths, selected));
+    }
+
+    /** Closes the {@code @}-file dropdown (token gone, Esc, picked, submitted). */
+    public void hideFileCompletions() {
+        executeJs(ChatScripts.hideFileCompletions());
     }
 
     /** Queues JS until the page is ready, then executes (never drops a render call). */

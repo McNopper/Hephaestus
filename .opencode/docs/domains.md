@@ -20,7 +20,7 @@ match its folder name (opencode requirement). Name regex: `^[a-z0-9]+(-[a-z0-9]+
 |---|---|---|---|
 | `software-` | Definition (what / how) | the left side of the work | `software-requirements`, `software-system`, `software-architecture`, `software-design`, `software-implementation` |
 | `test-software-` | Verification | the right side, per level | `test-software-implementation`, `-design`, `-architecture`, `-system`, `-requirements` |
-| `project-manager-` | Project management | tickets, sprints, routing, costing (estimates + live actuals), traceability, doc standards | `project-manager-operating-model`, `project-manager-orchestrate-execution`, `project-manager-route-request`, `project-manager-audit-traceability`, `project-manager-estimate-costs`, `project-manager-gather-intelligence`, `project-manager-create-ticket`, `project-manager-doc-about` |
+| `project-manager-` | Project management | tickets, waves (schema key `sprint`), routing, costing (estimates + live actuals), traceability, doc standards | `project-manager-operating-model`, `project-manager-orchestrate-execution`, `project-manager-route-request`, `project-manager-audit-traceability`, `project-manager-estimate-costs`, `project-manager-gather-intelligence`, `project-manager-create-ticket`, `project-manager-doc-about` |
 | `cpp-` | C++ execution utility | methodology for the `cpp-tools` agent | `cpp-tools` |
 | `graphics-` | Graphics utility (thin) | methodology; heavy work is `mcp.graphics` | `graphics-render-comparison` |
 | `code-` | Code analysis | package/namespace dependency map; emits Mermaid block diagram; third-party license audit → compatibility table + remediation; probe-don't-read repository orientation map | `code-dependency`, `code-licenses`, `code-repo-map` |

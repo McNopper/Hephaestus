@@ -51,6 +51,7 @@ public class UiActivator extends AbstractUIPlugin {
     public void stop(BundleContext context) throws Exception {
         try {
             AgentToolsConsole.uninstall();
+            com.opencode.ide.ui.attention.AttentionNotifications.uninstall();
             ProviderIcons.disposeAll();
             ProviderLogos.disposeAll();
             images.values().forEach(Image::dispose);

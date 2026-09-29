@@ -99,7 +99,7 @@ never rebuild the TUI's interface inside Eclipse.
 | **Session move / switch** | `session.move`, `session.agent`, `session.model` | `moveSession` / `switchSessionAgent` / `switchSessionModel` + Session Details actions |
 | **Compaction** | `session.compact` | `compactSession` + "Compact context" |
 | **Session export/log/stats** | `experimental.session.export/log/stats` | `exportSession` / `sessionLog` / `sessionStats` + Export / Log / Stats actions |
-| **PTY (capability + read-only surface)** | `pty.*`, `experimental/session/{id}/terminal*`, `experimental/persistent-pty/*` | `listPtys` / `createPty` / `removePty` / `readSessionTerminal` / `sessionTerminal` / `createSessionTerminal` / `persistentPtySnapshot` + the "Terminal..." screen pane (no emulator on our side) |
+| **PTY (capability + read-only surface)** | `pty.*`, `experimental/session/{id}/terminal*`, `experimental/persistent-pty/*` | `listPtys` / `createPty` / `removePty` / `readSessionTerminal` / `sessionTerminal` / `createSessionTerminal` / `persistentPtySnapshot` + the "Terminal..." screen pane (no emulator on our side). Note: interactive input has **no REST route** - `PUT /api/pty/{id}` is title/resize only; stdin rides the WebSocket `GET /api/pty/{id}/connect` stream (and `org.eclipse.tm.terminal` is absent from the 2026-06 target, so the interactive host is parked on target-platform work) |
 | **References, websearch** | `reference.list`, `websearch.*` | `listReferences` / `listWebsearchProviders` / `websearch` |
 | **Project update, location** | `project.update`, `location.get/reload` | `updateProject` / `getLocation` / `reloadLocation` |
 | **Credentials** | `credential.*` | `renameCredential` / `activateCredential` / `removeCredential` (no list endpoint exists in the contract; the OAuth connect flows were already in) |
@@ -128,6 +128,12 @@ formatting behind the dialogs is unit-tested (`ServiceTextTest`).
 - A capability audit MUST include our own layers — six parallel client
   methods were once added and removed again as duplicates of the existing
   surface. The policy applies to us first.
+- **MCP recovery recipe** (live-proven 2026-09-29): a server stuck at
+  `status: failed` / "Connection closed" is revived without a restart by
+  `POST /api/experimental/mcp/{name}/connect?location[directory]=<repo>`
+  ("overriding a disabled configuration until restart"). Location scoping
+  is the **deepObject** query `location[directory]` - a bare `?directory=`
+  is silently ignored and resolves to the home location.
 
 ### Not for us
 
@@ -140,3 +146,40 @@ formatting behind the dialogs is unit-tested (`ServiceTextTest`).
 Everything in the matrix is either landed or tracked in "Adopt next"; the
 justified exceptions are closed questions with reasons. The strict policy and
 the panel review above are the audit trail.
+
+## Current contract cross-check (live v2.0.19, 138 operations)
+
+The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
+every wave and diff it against this matrix. The current surface adds classes
+the matrix above predates; each needs its tier decision before it lands:
+
+| New since the matrix | Operations | Decision |
+|---|---|---|
+| **Integrations** (GitHub/GitLab connect: command/key/oauth + attempts, wellknown) | `integration/*` (8) | **Adopted** - catalog + real connect flows in the Server view's Integrations dialog (command: start + poll + abort; key: masked entry; oauth: poll -> open URL -> complete/paste-code; failures are notices, never faked); the old "PR/CI is a non-goal (gh + Actions)" is superseded |
+| **Skills API** (list + per-session skill attach) | `GET /skill`, `POST .../session/{id}/skill` | **Adopted** - client verbs + Session Details *Attach skill*; `GET` returns full skill bodies (heavy: paginate/prefetch); the attach POST is experimental and appends a `skill` message to history. **Body is `{"skill": "<id>"}`** - the schema's `id` member is a `^msg_` message anchor, so `{"id": ...}` 400s (missing required property `skill`); route is under `/experimental` on 2.0.19 (later builds publish it without the prefix - re-probe on upgrade); resumes unless `"resume": false`; 404 = SkillNotFoundError |
+| **Session wait** | `POST .../session/{id}/wait` | **Adopted** - `waitForSession` verb + the fleet watchdog long-polls it with a deadline-aware window (30 poll ticks cap, stall/budget/cap deadlines shrink it, anti-spin guard, pause-while-asks-pending); any failure falls back to the poll loop. Wire truth: 204 on settle, no body, route under `/experimental` on 2.0.19 |
+| **Saved permissions** (remembered allow/deny) | `permission/saved*` (3) | **Adopted** - client verbs + the Server view's *Saved permissions...* manager (list + remove with confirm); the TUI's "remember this choice" |
+| `session/generate` (context-conditioned LLM call, **no history mutation**) | `POST .../session/{id}/generate` | **Adopted** - powers Session Details *Suggest title* (prefills Rename; never auto-renames) |
+| `session/synthetic` (automation input; `steer`\|`queue`; `msg_` id = idempotency key, 409 on dup) | `POST .../session/{id}/synthetic` | **Adopted** - the chat's queue/steer inbox (T-005) delivers through it |
+| `session/view` (read-marker for unread/idle badges) | `POST .../session/{id}/view` | **Adopted** - Session Details marks the session viewed on open/refresh (feeds the unread/idle badges) |
+| Session import (transcript restore/move; parents before children), `revert/stage` + `revert/commit` + `DELETE .../revert` (two-phase undo with preview), `environment` (PUT = **full replace** of the variable map) | `experimental/session/import`, `.../revert/*`, `.../environment` | **Adopted** - Session Details: *Revert to here* / *Undo revert* / *Commit revert* (the two-phase truth in the confirm dialogs; never auto-commits), the environment dialog states the full-replace semantics (no GET route exists), import is a pick-export -> preview -> import flow. Note: `revert/stage` RESTORES working-tree files by default (`files:false` stages only) |
+| `config/shell` (shell-executable discovery: `{path, name, acceptable}`) | `GET /api/config/shell` | **Adopt-lite** - feeds a terminal/shell picker; pure read |
+| `experimental/migration/v1` (v1→v2 session-history migration status; auto-runs at server boot) | `GET` | **Adopted (banner)** - the Server view shows it while running/error (completed/404 hidden), polled once on refresh ("migrating session history…") |
+| `pair` (client/device pairing: 5-min single-use code, redeemed at the **unauthenticated** `GET /auth/connect/{code}` for a session token) | `POST /api/pair` | **Evaluate** - useful for multi-client onboarding; the pairing code IS a credential, handle it as one |
+| `rpc/{rpcID}/{method}` (the plugin RPC bridge; methods are whatever plugins register) | `POST` | **Evaluate** - only valuable when users install RPC-defining plugins |
+| `debug/location` (per-directory service cache: `GET` lists, `DELETE` **evicts** live caches) | `GET`/`DELETE` | **Evaluate** - diagnostics only; the DELETE has real side effects despite the name |
+
+TUI-feature parity floor ("same or more than the official TUI"):
+
+| TUI feature | State here |
+|---|---|
+| `@` file references + `@alias` reference roots | landed (U-012 + U-047): composer fuzzy dropdown over `fs/find` merges the reference catalog (`GET /api/reference`) as an alias group above the files; picks stay plain text (no content injection); empty catalog degrades to files-only |
+| `!` bash inline, `/compact` `/export` `/models` `/new` `/sessions` `/connect` `/details` `/undo` `/redo` | adopted (U-010, Wave A) |
+| `/editor` `/themes` keybinds command palette | host tier: Eclipse editor/themes/keybindings (strict reuse) |
+| `/share` `/unshare` | not implementable on v2.0.19: the TUI's own `/share` toasts "Sharing is not implemented for V2 sessions yet" (verified in the v2.0.19 TUI source) and no server route exists; the chat shows the same honest notice - revisit when the server grows a route |
+| `/init` (AGENTS.md wizard), `/help`, `/thinking` (reasoning display) | landed (U-047): `/init` guided prompt + session title, `/help` derived from the command registry (cannot drift), `/thinking` persisted and re-applied on every render |
+| Attention (desktop notifications + sounds on question/permission/error/done) | landed (U-047 + U-014): jface `NotificationPopup` + `Display.beep`, off by default (preference page), fed from the live event stream - permission asks, session errors, completions; question prompts are answerable IN the chat (form cards, pull-based polling while a send is in flight - there is no form-ask SSE type, so the QUESTION popup kind stays unmapped). Note: `org.eclipse.ui.notification` does NOT exist in the 2026-06 target; the real bundle is `org.eclipse.jface.notifications` (0.8) |
+| Queue/steer inbox, subagent nesting, session todos | inbox landed (T-005: Steer now / Deliver next / Cancel); subagent nesting landed (U-041: Server view + Session Details + the Fleet tree, parentID layer, per-session shell tasks with output tails); session todos (U-013) tracked - no v2 endpoint exists |
+| ACP (`opencode acp` in other editors) | not applicable here - Eclipse is the native host; relevant if Hephaestus agents must be embeddable elsewhere |
+| Policies, Zen mode | unevaluated (new config surfaces) |
+| LSP | host tier: Eclipse LSP (strict reuse) |

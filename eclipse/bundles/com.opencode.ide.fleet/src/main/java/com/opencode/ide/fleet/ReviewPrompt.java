@@ -53,6 +53,10 @@ public final class ReviewPrompt {
         if (ticket.stage != null) {
             out.append("Stage: ").append(ticket.stage).append('\n');
         }
+        // B-007 NFR-CONSIST-001 (Q-004): the judging model sees the same
+        // contract the gates enforce - the per-stage evidence matrix row
+        out.append("Expected evidence for this stage (B-007 matrix): ")
+                .append(com.opencode.ide.tasks.StageEvidence.describe(ticket.stage)).append('\n');
         PromptSections.appendTicketBody(out, ticket, storeLocation);
         out.append('\n');
         out.append("Recorded artifacts:\n");

@@ -461,7 +461,9 @@ public final class TaskToolProvider implements ToolProvider {
                 })));
         out.add(new McpTool("task_backlog", "Prioritized product backlog for a project.",
                 schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
-        out.add(new McpTool("task_board", "Sprint Kanban grouped by status (all five columns always present).",
+        out.add(new McpTool("task_board",
+                "Wave Kanban grouped by status (all six status columns always present; "
+                        + "paused = parked for maintenance).",
                 schema(new String[]{"project"}, obj -> {
                     obj.add("project", strP());
                     obj.add("sprint", strP());

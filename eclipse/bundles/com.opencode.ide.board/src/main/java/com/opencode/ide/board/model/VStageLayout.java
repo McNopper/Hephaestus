@@ -111,4 +111,51 @@ public final class VStageLayout {
     public static List<String> verificationLeg() {
         return List.copyOf(VStages.STAGES.subList(VStages.STAGES.size() / 2, VStages.STAGES.size()));
     }
+
+    /** One chevron connector along the V reading order (U-028 FR-006..FR-010). */
+    public record Connector(String from, String to, String glyph) {
+    }
+
+    /**
+     * U-028 FR-006..FR-010: the NINE directional connectors along the
+     * canonical reading order 1 -&gt; 10 - DOWN the definition leg (1-&gt;2
+     * ... 4-&gt;5), the 5-&gt;6 VERTEX TURN across the bottom level, and UP
+     * the verification leg (6-&gt;7 ... 9-&gt;10). Pure decoration derived
+     * from {@link VStages#STAGES}, so the chain can never drift from the
+     * ladder; it renders on an empty board just the same.
+     */
+    public static List<Connector> connectors() {
+        List<Connector> out = new ArrayList<>(VStages.STAGES.size() - 1);
+        for (int i = 0; i + 1 < VStages.STAGES.size(); i++) {
+            String from = VStages.STAGES.get(i);
+            String to = VStages.STAGES.get(i + 1);
+            out.add(new Connector(from, to, connectorGlyph(from)));
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * The connector LEAVING a stage: {@code ↓} down the definition leg,
+     * {@code →} the vertex turn, {@code ↑} up the verification leg;
+     * {@code null} at the V tip (nothing follows stage 10), for unknown ids
+     * and for the untracked group. Escaped literals on purpose - the source
+     * stays pure ASCII.
+     */
+    public static String connectorGlyph(String stage) {
+        if (stage == null) {
+            return null;
+        }
+        int index = VStages.STAGES.indexOf(stage);
+        if (index < 0 || index + 1 >= VStages.STAGES.size()) {
+            return null;
+        }
+        int half = VStages.STAGES.size() / 2;
+        if (index < half - 1) {
+            return "\u2193";
+        }
+        if (index == half - 1) {
+            return "\u2192";
+        }
+        return "\u2191";
+    }
 }

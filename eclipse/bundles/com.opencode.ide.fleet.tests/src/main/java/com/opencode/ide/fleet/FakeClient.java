@@ -70,6 +70,38 @@ final class FakeClient implements OpencodeClient {
     /** Optional hook, invoked inside sendMessage (blocks the send while it runs). */
     volatile Runnable blockOnSend;
 
+    /**
+     * U-048: every waitForSession call (the watchdog's long-poll wake-up),
+     * in call order - pins that the wait was attempted (or paused).
+     */
+    final java.util.List<String> waitCalls = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** The HTTP deadline of each waitForSession call, millis, in call order. */
+    final java.util.List<Long> waitTimeouts = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** The scripted waitForSession answer (default false: degrade to polling). */
+    volatile boolean waitAnswer;
+    /** Optional hook, invoked inside waitForSession BEFORE the scripted answer. */
+    volatile Runnable onWait;
+    /**
+     * When > 0, the FIRST n waitForSession calls THROW - a wait failure
+     * must never kill the run (bounded so a fast-spinning watchdog does
+     * not flood the log with one warning per poll iteration).
+     */
+    volatile int failWaitCalls;
+
+    @Override
+    public boolean waitForSession(String sessionId, java.time.Duration timeout) {
+        waitCalls.add(sessionId);
+        waitTimeouts.add(timeout.toMillis());
+        if (onWait != null) {
+            onWait.run();
+        }
+        if (failWaitCalls > 0) {
+            failWaitCalls--;
+            throw new IllegalStateException("wait boom");
+        }
+        return waitAnswer;
+    }
+
     private int sessionCounter;
     private int messageCounter;
 

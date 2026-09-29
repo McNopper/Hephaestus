@@ -296,6 +296,30 @@ public class FleetRunner {
     }
 
     /**
+     * U-048: one BOUNDED long-poll on the experimental session-wait route
+     * ({@code POST /api/experimental/session/:id/wait}) - the call blocks
+     * server-side while the session executes and answers 204 once it
+     * settles. Purely a wake-up for the {@link TaskFleet} watchdog: the
+     * caller re-verifies through its own completion checks (the wait is not
+     * a source of truth). Never throws - a missing route (older builds), a
+     * busy service or a transport failure degrades to {@code false} so the
+     * watchdog falls back to its poll loop; when in doubt, poll.
+     *
+     * @param timeout the HTTP deadline for one wait call - the wire has no
+     *                timeout parameter, so the caller bounds the long-poll
+     * @return whether the session reported settled
+     */
+    public boolean waitForSession(String sessionId, Duration timeout) {
+        try {
+            return client.waitForSession(sessionId, timeout);
+        } catch (OpencodeException | RuntimeException e) {
+            LOG.log(Level.WARNING, "waiting on session " + sessionId
+                    + " failed; falling back to polling: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
      * The session's full message history — the review verdict and the review
      * run's actuals both come from the last assistant reply; delegates to
      * the client.
@@ -479,6 +503,15 @@ public class FleetRunner {
      *         {@link WorktreeManager})
      */
     public FleetJob mergeBack(FleetJob job) {
+        return mergeBack(job, false);
+    }
+
+    /**
+     * B-007 FR-006: {@link #mergeBack(FleetJob)} with the settle-check
+     * allowance for runs whose stage evidence landed store-side (see
+     * {@link WorktreeManager#mergeBack(Path, String, boolean)}).
+     */
+    public FleetJob mergeBack(FleetJob job, boolean allowEmptyBranch) {
         if (job.state() != FleetJob.State.COMPLETED) {
             throw new IllegalStateException("mergeBack requires a COMPLETED job, got " + job.state());
         }
@@ -486,7 +519,7 @@ public class FleetRunner {
         if (task == null) {
             throw new IllegalStateException("unknown task " + job.taskId());
         }
-        MergeResult result = worktrees.mergeBack(task.baseWorktree(), job.taskId());
+        MergeResult result = worktrees.mergeBack(task.baseWorktree(), job.taskId(), allowEmptyBranch);
         tasks.remove(job.taskId());
         if (result.merged()) {
             return withState(job, FleetJob.State.MERGED, null);

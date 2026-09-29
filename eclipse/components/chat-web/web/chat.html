@@ -18,7 +18,10 @@
   /* only #chat scrolls - without overflow:hidden here the document scrolls too
      and the view shows two vertical scroll bars */
   html, body { height: 100%; margin: 0; overflow: hidden; }
+  /* column layout: transcript on top, the composer queue row (session
+     inbox) pinned below it - right above the host's input row */
   body {
+    display: flex; flex-direction: column;
     font-family: "Segoe UI", system-ui, sans-serif;
     font-size: 13px;
     background: var(--bg, #ffffff);
@@ -36,7 +39,8 @@
     --bubble-ai-bg: #f3f3f3;
     --border: #d0d0d0; --code-bg: #f5f5f5; --muted: #777777;
   }
-  #chat { padding: 10px 12px 16px 12px; overflow-y: auto; overflow-x: hidden; height: 100%; }
+  #chat { padding: 10px 12px 16px 12px; overflow-y: auto; overflow-x: hidden;
+          flex: 1 1 auto; min-height: 0; }
   .msg { margin: 8px 0; display: flex; position: relative; }
   .msg.user { justify-content: flex-end; }
   /* fork-at-message (TUI parity): hover button on every message that has a
@@ -71,7 +75,9 @@
   .bubble .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; margin: 0.5em 0; }
   .bubble .katex { font-size: 1.05em; }
   .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  .notice { font-size: 12px; color: var(--muted); margin: 6px 4px; text-align: center; }
+  .notice { font-size: 12px; color: var(--muted); margin: 6px 4px; text-align: center;
+             /* /help and friends render multi-line command lists */
+             white-space: pre-line; }
   /* streaming: only the trailing in-progress block stays raw text under the
      cursor (completed blocks are rendered markdown above it) */
   .stream-raw { white-space: pre-wrap; overflow-wrap: anywhere;
@@ -120,10 +126,73 @@
               border-radius: 4px; opacity: 0.7; }
   pre:hover .copy-btn, .copy-btn:focus { opacity: 1; }
   .copy-btn.copied { color: #3fb950; border-color: #3fb950; opacity: 1; }
+  /* composer queue row (T-005 management surface): prompts parked in the
+     session inbox (the host's "Send to Queue", v2 Alt+Enter) with per-item
+     Steer now / Deliver next / Cancel; lives outside #chat so transcript
+     wipes never eat it, hidden while empty */
+  #inbox { flex: 0 0 auto; max-height: 30%; overflow-y: auto;
+           padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #inbox:empty { display: none; }
+  .inbox-title { font-size: 11px; color: var(--muted); margin: 2px 0 4px 0; }
+  .inbox-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .inbox-text { flex: 1 1 auto; white-space: pre-wrap; overflow-wrap: anywhere;
+                font-size: 12px; padding: 3px 8px; border-left: 2px solid var(--border); }
+  .inbox-btn { flex: 0 0 auto; padding: 1px 8px; font: inherit; font-size: 11px;
+               cursor: pointer; color: var(--fg); background: var(--bg);
+               border: 1px solid var(--border); border-radius: 4px; }
+  .inbox-btn:hover { border-color: var(--fg); }
+  .inbox-btn.inbox-cancel:hover { border-color: #e5554f; color: #e5554f; }
+  /* question forms (U-014): answerable cards for the forms the session's
+     run raised - title, leniently-rendered fields, Submit/Cancel. Lives
+     outside #chat (transcript wipes never eat it) and persists until
+     replied/cancelled, so an unanswered ask is always visible (no silent
+     hang); hidden while empty. All content is textContent-only. */
+  #forms { flex: 0 0 auto; max-height: 45%; overflow-y: auto;
+           padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #forms:empty { display: none; }
+  .form-card { border: 1px solid var(--border); border-radius: 8px;
+               background: var(--bubble-ai-bg); padding: 8px 10px; margin: 6px 0; }
+  .form-title { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+  .form-field { margin: 6px 0; }
+  .form-label { display: block; font-size: 12px; margin-bottom: 2px;
+                overflow-wrap: anywhere; }
+  .form-input { font: inherit; font-size: 12px; padding: 2px 6px;
+                color: var(--fg); background: var(--bg);
+                border: 1px solid var(--border); border-radius: 4px; }
+  .form-option { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .form-btn { padding: 1px 12px; font: inherit; font-size: 12px; cursor: pointer;
+              color: var(--fg); background: var(--bg);
+              border: 1px solid var(--border); border-radius: 4px; }
+  .form-btn:hover { border-color: var(--fg); }
+  .form-btn:disabled { opacity: 0.6; cursor: default; }
+  .form-status { font-size: 11px; color: var(--muted); }
+  /* @-file autocomplete (U-012): proposals for the @-token the host's
+     composer caret is in, pinned right above the host's input row (next to
+     the inbox row); hidden while empty. Rows are textContent-only - a
+     hostile path can never inject markup. */
+  #file-complete { flex: 0 0 auto; max-height: 30%; overflow-y: auto;
+                   padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #file-complete:empty { display: none; }
+  .file-complete-title { font-size: 11px; color: var(--muted); margin: 2px 0 4px 0; }
+  .file-complete-item { font-family: Consolas, "Courier New", monospace; font-size: 12px;
+                        padding: 2px 8px; border-left: 2px solid var(--border);
+                        cursor: pointer; overflow-wrap: anywhere; }
+  .file-complete-item:hover { border-left-color: var(--fg); }
+  .file-complete-item.selected { border-left-color: var(--bubble-user-bg);
+                                 color: var(--fg); font-weight: 600; }
+  /* @-alias reference roots (U-047): the alias group renders ABOVE the
+     files; group headers separate the two, and alias rows drop the
+     monospace file styling so names read as references, not paths */
+  .file-complete-group { font-size: 11px; color: var(--muted); margin: 4px 0 2px 0; }
+  .file-complete-item.file-complete-alias { font-family: inherit; font-style: italic; }
 </style>
 </head>
 <body>
 <div id="chat"></div>
+<div id="forms"></div>
+<div id="file-complete"></div>
+<div id="inbox"></div>
 <script src="chat.js"></script>
 </body>
 </html>

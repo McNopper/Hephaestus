@@ -15,6 +15,7 @@ import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.tasks.StageEvidence;
 import com.opencode.ide.tasks.VStages;
 
 /**
@@ -84,9 +85,6 @@ public final class TaskFleet {
      * ({@link RoleAgents} maps it to the reviewer agent).
      */
     public static final String REVIEWER = "reviewer";
-    /** Path-like strings inside acceptance criteria (e.g. {@code src/Foo.java}) - the AC-path gate's expected set. */
-    private static final java.util.regex.Pattern AC_PATH =
-            java.util.regex.Pattern.compile("[\\w/.-]+\\.\\w{1,5}");
 
     private final FleetRunner runner;
     private final TaskStore store;
@@ -106,6 +104,14 @@ public final class TaskFleet {
      * TaskFleetLauncher) turns it on.
      */
     private boolean reviewOnSettle;
+    /** U-034: notified after a successful merge with the merged file set (auto-deploy). */
+    private MergeObserver mergeObserver;
+
+    /** U-034: the post-merge callback (auto-deploy's input). */
+    @FunctionalInterface
+    public interface MergeObserver {
+        void merged(String project, String ticketId, List<String> changedFiles);
+    }
 
     /** @param stallTimeout the watchdog's no-progress threshold; returns this for chaining */
     public TaskFleet withStallTimeout(Duration stallTimeout) {
@@ -127,6 +133,20 @@ public final class TaskFleet {
      */
     public TaskFleet withAutonomousAcceptance() {
         this.reviewOnSettle = true;
+        return this;
+    }
+
+    /**
+     * U-034: observes every successful merge with the merged file set -
+     * the auto-deploy trigger ({@link AutoDeploy#mergeObserver}) decides
+     * whether an Eclipse-facing change needs a build+deploy. Best-effort:
+     * an observer failure is logged and never touches the (already
+     * successful) launch.
+     *
+     * @return this for chaining
+     */
+    public TaskFleet withMergeObserver(MergeObserver observer) {
+        this.mergeObserver = observer;
         return this;
     }
 
@@ -273,6 +293,10 @@ public final class TaskFleet {
         if (unclaimed != null) {
             return unclaimed;
         }
+        // B-007 FR-006: the run window opens AFTER the engine's own claim
+        // writes - only later store writes can be the run's store-side
+        // stage evidence
+        java.time.Instant claimedAt = java.time.Instant.now();
         // cost lever: the ticket's model field, unless this run overrides it
         String model = modelOverride != null && !modelOverride.isBlank() ? modelOverride : ticket.model;
         FleetTask task = new FleetTask(
@@ -289,7 +313,7 @@ public final class TaskFleet {
             if (job.state() != FleetJob.State.COMPLETED) {
                 return blocked(job, project, taskId, "fleet: " + job.detail());
             }
-            FleetJob merged = mergeAndRecord(project, taskId, job, baseWorktree);
+            FleetJob merged = mergeAndRecord(project, taskId, job, baseWorktree, claimedAt);
             if (reviewOnSettle && merged.state() == FleetJob.State.MERGED) {
                 // U-021: acceptance is the first automated gate — the settle
                 // path does not end at in-review, the reviewer session
@@ -434,24 +458,50 @@ public final class TaskFleet {
      * @return the final job: {@code MERGED} on success, or the FAILED job
      *         with the ticket already blocked
      */
-    private FleetJob mergeAndRecord(String project, String taskId, FleetJob job, Path baseWorktree) {
+    private FleetJob mergeAndRecord(String project, String taskId, FleetJob job, Path baseWorktree,
+            java.time.Instant claimedAt) {
+        // U-034: the worker's changed files, probed AT MOST ONCE - the merge
+        // gate uses them conditionally (B-007 rows keep the no-probe
+        // shortcuts), the auto-deploy observer needs them only when wired
+        ChangedFiles probe = new ChangedFiles(runner, baseWorktree, taskId);
         // worker-reliability gate BEFORE the merge: refuses analysis-only
         // runs with an actionable message while main is still clean
-        FleetJob refused = enforceAcPaths(project, taskId, job, baseWorktree);
+        // (B-007: expectations come from the per-stage evidence matrix)
+        FleetJob refused = enforceAcPaths(project, taskId, job, probe);
         if (refused != null) {
             return refused;
         }
-        // merge-back rides the RepoGate (repo-root-keyed, shared by all
-        // engines in this process) - the old per-instance mergeLock is
-        // gone: it only serialized THIS engine while the Board and a
-        // chat session each built their own
-        job = runner.mergeBack(job);
+        List<String> mergedFiles = List.of();
+        if (mergeObserver != null) {
+            try {
+                mergedFiles = probe.get();
+            } catch (RuntimeException e) {
+                LOG.fine(() -> "merge file capture of " + taskId + " failed: " + e.getMessage());
+            }
+        }
+        Task evidenceTicket = store.get(project, taskId);
+        // B-007 FR-006: the settle check counts store-side stage evidence -
+        // a definition-leg run that delivered through the task_* tools has
+        // an empty branch BY DESIGN and must never be refused as "no changes"
+        StageEvidence.Leg leg = StageEvidence.legOf(evidenceTicket.stage);
+        boolean storeEvidence = leg == StageEvidence.Leg.DEFINITION
+                && store.hasStoreSideWrites(project, taskId, claimedAt);
+        job = runner.mergeBack(job, storeEvidence);
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge returned state=" + job.state());
         jobsByTask.put(taskId, job);
         if (job.state() != FleetJob.State.MERGED) {
+            // B-007 FR-011: the settle check's heuristic refusal routes to
+            // the originator retry on the definition leg - blocked is
+            // reserved for exhausted retries and genuine merge failures
+            if (leg == StageEvidence.Leg.DEFINITION
+                    && StageEvidence.isSettleRefusal(job.detail())) {
+                return refuseHeuristically(project, taskId, job, job.detail(), leg);
+            }
             // runner detail is "merge conflicts: <files>"
             return blocked(job, project, taskId, job.detail());
         }
+        // (the merge itself rides the RepoGate - repo-root-keyed, shared by
+        // every engine in this process, Board and chat included)
 
         Task merged = store.get(project, taskId);
         // Only lift the fleet's OWN in-progress marking. The agent may already
@@ -470,6 +520,13 @@ public final class TaskFleet {
         }
         recordTelemetry(project, taskId, job);
         reapMergedWorktree(baseWorktree, taskId);
+        if (mergeObserver != null) {
+            try {
+                mergeObserver.merged(project, taskId, mergedFiles);
+            } catch (RuntimeException e) {
+                LOG.log(Level.WARNING, "merge observer of ticket " + taskId + " failed; ignored", e);
+            }
+        }
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": launch complete, state=" + job.state());
         return job;
     }
@@ -585,10 +642,7 @@ public final class TaskFleet {
     private void applyVerdict(String project, String taskId, ReviewVerdict verdict) {
         Task ticket = store.get(project, taskId);
         if (verdict == null) {
-            store.addComment(project, taskId,
-                    "review: UNCLEAR - the review reply carried no parseable verdict"
-                            + "; the ticket waits in in-review for a human accept",
-                    REVIEWER);
+            applyDoubt(project, taskId, ticket, "the review reply carried no parseable verdict");
             return;
         }
         switch (verdict.decision()) {
@@ -626,8 +680,24 @@ public final class TaskFleet {
                     store.setBlocked(project, taskId, "review failed: " + reason, REVIEWER);
                 }
             }
-            case UNCLEAR -> store.addComment(project, taskId,
-                    "review: UNCLEAR" + reasonSuffix(verdict.reasonOrDefault())
+            case UNCLEAR -> applyDoubt(project, taskId, ticket, verdict.reasonOrDefault());
+        }
+    }
+
+    /**
+     * B-007 FR-009/FR-010: reviewer doubt round-trips to the ORIGINATOR -
+     * one retry per stage visit ({@link TaskStore#routeReviewDoubt} records
+     * it and returns the ticket to its own stage's backlog), and only a
+     * recursing doubt escalates to blocked. An UNSTAGED ticket has no stage
+     * to retry in and keeps the U-021 behavior: the doubt as a comment, the
+     * ticket waits in in-review for a human accept.
+     */
+    private void applyDoubt(String project, String taskId, Task ticket, String reason) {
+        if (ticket.stage != null && VStages.isValid(ticket.stage)) {
+            store.routeReviewDoubt(project, taskId, reason, REVIEWER);
+        } else {
+            store.addComment(project, taskId,
+                    "review: UNCLEAR" + reasonSuffix(reason)
                             + "; the ticket waits in in-review for a human accept",
                     REVIEWER);
         }
@@ -683,78 +753,95 @@ public final class TaskFleet {
     }
 
     /**
-     * Worker-reliability gate (2026-09-14): the executor-tier worker
-     * sometimes "completes" with an assistant reply but produces no file
-     * changes; the zero-commit guard only catches the fully-empty case.
-     * When the ticket's acceptance criteria NAME file paths, the merge
-     * additionally requires at least one of those paths among the branch's
-     * changed files (committed plus pending) and refuses analysis-only
-     * runs with an actionable message BEFORE main is touched. Behavioral
-     * criteria without path-like strings skip the gate; an
-     * unreadable diff fails verification and preserves the worktree,
-     * and an entirely empty diff defers to the zero-commit guard's own
-     * message. Matching is exact or path-segment suffix: an AC naming
-     * {@code Foo.java} is satisfied by {@code src/Foo.java}.
+     * Worker-reliability gate (2026-09-14, B-007 stage-aware): the
+     * executor-tier worker sometimes "completes" with an assistant reply but
+     * produces no file changes; the settle check only catches the
+     * fully-empty case. What counts as evidence is the PER-STAGE MATRIX
+     * ({@link StageEvidence}, FR-005 single source): definition-leg runs
+     * deliver docs/ticket/store work and never trip this gate (FR-002/007),
+     * implementation and unstaged tickets keep the AC-path rule (one
+     * acceptance-criterion-named path must appear among the branch's
+     * changed files, exact or path-segment suffix), and the verification
+     * leg expects test/golden-shaped paths (FR-004). An unreadable diff
+     * fails verification and preserves the worktree; an entirely empty diff
+     * defers to the settle check's own message (FR-006 owns that case).
      *
      * @return {@code null} to proceed to the merge; otherwise the FAILED
-     *         job with the ticket already blocked + released (worktree
-     *         kept for post-mortem)
+     *         job with the ticket already routed (definition leg) or
+     *         blocked + released (other legs; worktree kept for post-mortem)
      */
-    private FleetJob enforceAcPaths(String project, String taskId, FleetJob job, Path baseWorktree) {
-        List<String> expected = acPaths(store.get(project, taskId).acceptanceCriteria);
-        if (expected.isEmpty()) {
+    private FleetJob enforceAcPaths(String project, String taskId, FleetJob job, ChangedFiles probe) {
+        Task ticket = store.get(project, taskId);
+        StageEvidence.Leg leg = StageEvidence.legOf(ticket.stage);
+        List<String> expected = StageEvidence.acPathsOf(ticket.acceptanceCriteria);
+        if (expected.isEmpty() && leg != StageEvidence.Leg.VERIFICATION) {
             return null;
         }
         List<String> changed;
         try {
-            changed = runner.changedFiles(baseWorktree, taskId);
+            changed = probe.get();
         } catch (RuntimeException e) {
             String detail = "cannot verify acceptance-criterion paths: " + e.getMessage();
             LOG.log(Level.WARNING, "fleet AC-path probe of ticket " + taskId + " failed", e);
             return blocked(withState(job, FleetJob.State.FAILED, detail), project, taskId, detail);
         }
         if (changed.isEmpty()) {
-            return null; // nothing at all: the runner's zero-commit guard owns that refusal
+            return null; // nothing at all: the settle check owns that case (B-007 FR-006)
         }
-        boolean anyAcPath = changed.stream()
-                .anyMatch(file -> expected.stream()
-                        .anyMatch(path -> file.equals(path) || file.endsWith("/" + path)));
-        if (anyAcPath) {
+        String detail = StageEvidence.mergeGateVerdict(ticket.stage, expected, changed);
+        if (detail == null) {
             return null;
         }
-        String detail = "analysis-only run: no acceptance-criterion path in the diff (expected one of: "
-                + String.join(", ", expected) + ", got: " + String.join(", ", changed) + ")";
         LOG.log(Level.WARNING, "fleet merge of ticket " + taskId + " refused: " + detail);
         com.opencode.ide.client.ClientLog.info("fleet " + taskId + ": merge refused: " + detail);
-        return blocked(withState(job, FleetJob.State.FAILED, detail), project, taskId, detail);
+        return refuseHeuristically(project, taskId, job, detail, leg);
     }
 
-    /** Path-like strings named by the ticket's acceptance criteria, first-seen order, deduplicated. */
-    private static List<String> acPaths(List<String> acceptanceCriteria) {
-        java.util.Set<String> paths = new java.util.LinkedHashSet<>();
-        for (String criterion : acceptanceCriteria) {
-            if (criterion == null) {
-                continue;
-            }
-            java.util.regex.Matcher m = AC_PATH.matcher(criterion);
-            while (m.find()) {
-                String candidate = m.group();
-                // B-010 (2026-09-25): prose like "e.g." / "i.e." is path-shaped
-                // enough to match - an abbreviation is NEVER a path. Drop
-                // trailing-dot tokens and the common abbreviations outright.
-                if (candidate.endsWith(".")
-                        || PROSE_ABBREVIATIONS.contains(candidate.toLowerCase(java.util.Locale.ROOT))) {
-                    continue;
-                }
-                paths.add(candidate);
-            }
+    /**
+     * B-007 FR-011: a heuristic checkpoint refusal (merge gate, settle
+     * check) never leaves the ticket blocked as its first outcome on the
+     * DEFINITION leg - it routes into the originator-retry path exactly
+     * like reviewer doubt ({@link TaskStore#routeReviewDoubt}: one retry
+     * per stage visit, then blocked). Every other leg keeps the established
+     * contract: blocked with the reason, worktree kept for post-mortem. A
+     * probe failure is infrastructure trouble, not a heuristic verdict, and
+     * stays blocked on every leg.
+     */
+    private FleetJob refuseHeuristically(String project, String taskId, FleetJob job,
+            String detail, StageEvidence.Leg leg) {
+        FleetJob failed = withState(job, FleetJob.State.FAILED, detail);
+        if (leg == StageEvidence.Leg.DEFINITION) {
+            store.routeReviewDoubt(project, taskId, detail, ASSIGNEE);
+            return failed;
         }
-        return List.copyOf(paths);
+        return blocked(failed, project, taskId, detail);
     }
 
-    /** Words that look path-shaped to the regex but are prose, never files (B-010). */
-    private static final java.util.Set<String> PROSE_ABBREVIATIONS = java.util.Set.of(
-            "e.g.", "i.e.", "etc.", "vs.", "cf.", "e.g", "i.e", "etc", "vs", "cf");
+    /**
+     * U-034: the worker's changed files, probed AT MOST ONCE - the merge
+     * gate needs them only for the rows that check paths (B-007 keeps the
+     * no-probe shortcuts), and the auto-deploy observer needs them only
+     * when one is wired. Lazy memo over the runner probe.
+     */
+    private static final class ChangedFiles {
+        private final FleetRunner runner;
+        private final Path base;
+        private final String taskId;
+        private List<String> value;
+
+        ChangedFiles(FleetRunner runner, Path base, String taskId) {
+            this.runner = runner;
+            this.base = base;
+            this.taskId = taskId;
+        }
+
+        List<String> get() {
+            if (value == null) {
+                value = runner.changedFiles(base, taskId);
+            }
+            return value;
+        }
+    }
 
     /**
      * U-038 graceful shutdown for maintenance - the ordered teardown: (1)
@@ -884,6 +971,19 @@ public final class TaskFleet {
      * starvation backstop). A session with no activity for
      * {@link #stallTimeout} is aborted ({@code POST /session/:id/interrupt})
      * and fails cleanly.</p>
+     *
+     * <p><b>U-048 long-poll</b>: where the loop would sleep and re-poll an
+     * ACTIVE run (busy session or prompt POST in flight), it first tries
+     * {@link FleetRunner#waitForSession} - the experimental session/wait
+     * route - with a window bounded by the next abort-decision point (see
+     * {@link #waitWindowNanos}). A settled answer skips the sleep and goes
+     * straight back to the completion checks (the wait is a wake-up, NOT a
+     * source of truth - the probe remains authoritative); any failure
+     * degrades to the plain poll loop, and a pending permission ask pauses
+     * the wait so the ask's stall-clock pause keeps its per-iteration
+     * cadence. The stall clock, the permission pause, the budget-timeout
+     * abort and the progress-aware budget all behave exactly as without the
+     * wait.</p>
      *
      * <p>Every abort carries a diagnostic snapshot (last assistant text + age,
      * last tool call + age, pending request state) into the FAILED detail -
@@ -1051,8 +1151,75 @@ public final class TaskFleet {
                                         activity == null ? null : activity.lastTool())
                                 + " | " + diagnostic(job, submission, activity, lastAssistantChange, lastToolChange));
             }
+            // U-048 (session/wait adoption): where the loop would sleep and
+            // re-poll an ACTIVE run, first try the long-poll wake-up. The
+            // window is bounded by the NEXT abort-decision point (stall,
+            // budget, hard cap - see waitWindowNanos), so no check fires
+            // later than its scheduled window, and at its widest it spans
+            // FleetTuning.WAIT_POLL_TICKS poll intervals (30s at the default
+            // 1s cadence - a fraction of the 5-minute stall window).
+            // 204/settled -> skip the sleep and go straight to the settle
+            // path: the wait is a WAKE-UP, not a source of truth - the
+            // completion checks above re-verify on the very next probe.
+            // Anything else (no route on older builds, busy service,
+            // transport failure, an exception - see FleetRunner.waitForSession)
+            // degrades to the plain poll sleep below, exactly as before.
+            // A PENDING PERMISSION ASK pauses the wait: the ask pauses the
+            // stall clock on every iteration, and a wait in flight would
+            // suspend those resets (the stall semantics would change) - so
+            // while an ask is pending the loop keeps its plain poll cadence.
+            if (!permissionWait && runActive(activity, promptInFlight)) {
+                long waitStart = System.nanoTime();
+                long windowNanos = waitWindowNanos(waitStart, stallNanos, lastStallReset,
+                        budgetNanos, lastProgress, hardCapNanos, started);
+                if (windowNanos > 0 && runner.waitForSession(job.sessionId(), Duration.ofNanos(windowNanos))) {
+                    // Only a wait that actually BLOCKED (at least one poll
+                    // tick) earns the sleep-skip: an already-idle session
+                    // answers 204 instantly, and skipping the sleep there
+                    // would spin the probe loop (F-005 inter-step boundary,
+                    // dead prompt POST). A wake-up mid-window keeps the
+                    // settle latency within one poll tick of the poll loop.
+                    if (System.nanoTime() - waitStart >= pollNanos()) {
+                        continue;
+                    }
+                }
+            }
             runner.pauseBetweenProbes();
         }
+    }
+
+    /**
+     * U-048: whether the run is EXECUTING server-side, i.e. the session-wait
+     * long-poll has something to wait for - the busy flag, or a prompt POST
+     * still in flight (the busy-only status map misses one long generation:
+     * live-proven 2026-09-13, a healthy streaming session was absent from
+     * the map). An idle session with the POST resolved has nothing to wait
+     * for: the completion checks own that case.
+     */
+    private static boolean runActive(FleetRunner.Activity activity, boolean promptInFlight) {
+        return (activity != null && activity.busy()) || promptInFlight;
+    }
+
+    /** The live poll tick in nanos - the same knob the probe sleeper reads. */
+    private static long pollNanos() {
+        return Math.max(100, com.opencode.ide.client.RuntimeTuning.pollMillis()) * 1_000_000L;
+    }
+
+    /**
+     * U-048: one long-poll window - never past the next abort-decision
+     * point, so a wait in flight delays no stall/budget/hard-cap check by
+     * more than one poll tick (the window shrinks as a deadline nears); at
+     * its widest it spans {@link FleetTuning#WAIT_POLL_TICKS} poll
+     * intervals, which also keeps it a fraction of the stall window.
+     */
+    private static long waitWindowNanos(long now, long stallNanos, long lastStallReset,
+            long budgetNanos, long lastProgress, long hardCapNanos, long started) {
+        long toStall = lastStallReset + stallNanos - now;
+        long toBudget = lastProgress + budgetNanos - now;
+        long toHardCap = started + hardCapNanos - now;
+        long window = Math.min(FleetTuning.WAIT_POLL_TICKS * pollNanos(),
+                Math.min(toStall, Math.min(toBudget, toHardCap)));
+        return Math.max(0, window);
     }
 
     /**

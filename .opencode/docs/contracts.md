@@ -18,13 +18,13 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `title` | string | active verb, states outcome |
 | `description` | string | what + why |
 | `type` | `story`/`task`/`bug`/`spike` | |
-| `status` | enum | `product-backlog` → `sprint-backlog` → `in-progress` → `in-review` → `done` |
-| `blocked` + `blocker` | bool + string | **orthogonal** flag, any active state |
-| `sprint` | `S-NN` / null | set by `task_plan_sprint`; null in backlog |
+| `status` | enum | `product-backlog` → `sprint-backlog` → `in-progress` → `in-review` → `done`, plus `paused` (U-038: parked for maintenance — visible, never blocked and never NEEDS-HUMAN; resume is a plain status update back to `in-progress`) |
+| `blocked` + `blocker` | bool + string | **orthogonal** flag, any active state; `blocked` always means needs-a-human |
+| `sprint` | `S-NN` / null | set by `task_plan_sprint`; null in backlog (the `sprint` field; the UI calls it a **wave** — a named batch of agent work, planned on demand and drained in minutes by the fleet; no weekly cadence, no time-box) |
 | `story_points` | int | relative size; `project-manager-estimate-costs` can later feed a `cost` field |
 | `priority` | `low`/`medium`/`high`/`critical` | drives self-claim order |
 | `role` | enum (extensible) | `architect`/`developer`/`tester`/`pm`/`cpp-engineer`/`graphics-engineer` → who claims it |
-| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. `task_advance` moves a finished ticket to the next stage's backlog (role follows the new stage); `task_send_back` returns it to the previous stage, blocked with the reason. |
+| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. The V is an **async pipeline**, not a phase gate: `task_advance` moves a finished ticket to the next stage's backlog (role follows the new stage); `task_send_back` returns it to the previous stage, blocked with the reason; a stage where nothing applies is a **pass-through** (U-029) — the ticket visits it and advances with a `stage N passed: reason` history marker instead of a full dispatch (the V tip can never pass). |
 | `assignee` | string | set by `task_claim` |
 | `acceptance_criteria` | string[] | GIVEN/WHEN/THEN; verification must satisfy all |
 | `labels` | string[] | free tags |
@@ -40,11 +40,19 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 One **file per ticket** — `<repo>/.opencode/tasks/<project>/T-NNN.md` — Markdown with a
 frontmatter block (scalars + one-line JSON lists) and tool-owned body sections
 (`## Todos`, `## Artifacts`, `## Comments`, `## History`); the free-form description is the
-body. A `_meta.json` sidecar holds the per-prefix id counters and sprint metadata
-(goal/status/timestamps); the board is derived from the tickets. The files are
+body. A `_meta.json` sidecar holds the per-prefix id counters and `sprint` metadata
+(goal/status/timestamps; the `sprints` map — the UI calls it wave history); the board is
+derived from the tickets. The files are
 **version-controlled** (`.gitattributes` pins LF; the codec tolerates CRLF/BOM on read) so
 task changes ride the normal git/Maven workflow — the seam the future
 `opencode-tasks:sync`/`plan` mojos build on.
+
+Store actions beyond the `task_*` tools: `newProject` scaffolds one project (directory +
+`_meta.json` shape) and `resetProject` wipes one project's tickets (live + archived) and wave
+history — **only that project**: other projects' reservations and fleet ownership bindings are
+untouched, and ticket ids survive a reset (never reused). `routeReviewDoubt` is the store's
+review-doubt route (see the review contract below). These are store-level actions (the Board's
+New/Reset project actions and the fleet's doubt routing), not `task_*` MCP tools.
 
 ### Tool surface (`pm_*` → `task_*`)
 
@@ -52,11 +60,15 @@ task changes ride the normal git/Maven workflow — the seam the future
 `task_clear_blocked`, `task_claim`, `task_release`, `task_add_comment`,
 `task_add_artifact`, `task_add_todo`, `task_toggle_todo`, `task_remove_todo`,
 `task_backlog`, `task_board`, `task_plan_sprint`, `task_close_sprint`,
-`task_traceability`. Served by the **`eclipse-build` MCP endpoint** when the Eclipse
-harness runs (plus the C++ tool pack) and by the **`tasks` stdio launcher**
-(`eclipse/tasks-tools.ps1`, configured in `opencode.json`) for TUI-only sessions — one tool
-surface, two transports. Note: opencode prefixes tools with the server name, so TUI
-sessions see them as `tasks_task_*`; in-Eclipse agents as `eclipse-build_task_*`.
+`task_traceability`, `task_doctor`. Served by the **`eclipse-build` MCP endpoint** when the Eclipse
+harness runs (plus the C++ tool pack) and by the stdio launchers for TUI-only sessions —
+`eclipse/tasks-tools.ps1` (the `tasks` pack) and its sibling `eclipse/fleet-tools.ps1` (the
+`fleet` pack), both configured in `opencode.json` — one tool surface, two transports. Each
+launcher stages a private copy of its resolved jars at start (B-005 staging), so a reactor
+rebuild can never rot a running server. Note: opencode prefixes tools with the server name, so
+TUI sessions see them as `tasks_task_*`; in-Eclipse agents as `eclipse-build_task_*`. There is
+no detached fleet daemon: the former V-006 runtime (TCP core + proxy + pidfile + launcher) is
+retired — the automatic fleet pump lives in Eclipse (JobManager).
 
 Plus the H6 readiness/stage pack: `task_readiness` (per-ticket READY / WAIT_UPSTREAM /
 STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board), `task_advance`,
@@ -74,6 +86,26 @@ STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board), `task_advanc
 
 **Rule:** a worker records its artifact with `task_add_artifact` *before* moving the ticket
 to `in-review`, so the next agent needs no questions.
+
+## Review contract (auto-acceptance + stage-shaped evidence)
+
+The reviewer pass **auto-accepts** (U-021) when the ticket carries the evidence its stage
+demands (the B-007 stage-shaped evidence matrix):
+
+- **definition stages** (`requirements`, `system`, `architecture`, `design`) accept
+  ticket-body / acceptance-criteria updates, recorded doc/path/url artifacts, and doc/store
+  paths in the diff — code changes are permitted but never the required output;
+- **`implementation`** expects code plus tests — at least one acceptance-criterion-named path
+  in the diff, with test changes alongside;
+- **test-\* stages** expect tests and, where used, golden/reference outputs.
+
+An unstaged ticket keeps the code-diff expectation as the default; a U-029 stage pass-through
+is never judged (a passed stage produced no run to judge).
+
+A review doubt never blocks first: it **round-trips to the originator** via the store's
+`routeReviewDoubt` — one retry per stage visit (history marker `review doubt retry (1/1)`) —
+and only a doubt recurring within the same stage visit escalates the ticket to `blocked`.
+`blocked` always means needs-a-human.
 
 ## Concurrency contract
 

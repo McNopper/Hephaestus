@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+   <extension
+         id="repoNature"
+         name="OpenCode Repo"
+         point="org.eclipse.core.resources.natures">
+      <runtime>
+         <run class="com.opencode.ide.core.OpenCodeRepoNature"/>
+      </runtime>
+   </extension>
+</plugin>

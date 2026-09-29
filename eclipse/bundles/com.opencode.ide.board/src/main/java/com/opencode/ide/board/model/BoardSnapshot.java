@@ -21,27 +21,32 @@ import com.opencode.ide.tasks.Task;
  * carries a {@link PipelineSnapshot} (all ten V stages plus the trailing
  * untracked group); in {@link BoardModel.BoardMode#FLAT} {@link #pipeline()}
  * is {@code null} and the flat columns are the authoritative grouping.</p>
+ *
+ * <p>U-026: the snapshot also carries the per-ticket {@link StageJourney}s
+ * (keyed by ticket id) parsed from the same store read — the card progress
+ * and the movement trace project from them; empty when unknown.</p>
  */
 public record BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
         int total, int blockedCount, String error, PipelineSnapshot pipeline,
         Map<String, StageReadiness.Readiness> readiness,
-        Map<String, List<TicketRow>> epicLanes) {
+        Map<String, List<TicketRow>> epicLanes,
+        Map<String, StageJourney> journeys) {
 
     /** FLAT-mode shape: no pipeline grouping. */
     public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
             int total, int blockedCount, String error) {
-        this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of());
+        this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of(), Map.of());
     }
 
     public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
             int total, int blockedCount, String error, PipelineSnapshot pipeline) {
-        this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of());
+        this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of(), Map.of());
     }
 
     public BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintGoal,
             int total, int blockedCount, String error, PipelineSnapshot pipeline,
             Map<String, StageReadiness.Readiness> readiness) {
-        this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of());
+        this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of(), Map.of());
     }
 
     /** An all-empty board carrying an error/notice message. */
@@ -79,6 +84,20 @@ public record BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintG
         return count(StageReadiness.Kind.BLOCKED);
     }
 
+    /**
+     * U-028 FR-002/FR-005: the board-wide WIP count (status in-progress) on
+     * a LAYOUT-INDEPENDENT surface - derived from the flat columns every
+     * mode fills, so it survives the hidden-status, epic-swimlane and V
+     * layouts alike; recomputed per snapshot. A plain count, never a limit.
+     */
+    public int wipCount() {
+        int wip = 0;
+        for (List<TicketRow> rows : columns.values()) {
+            wip += PipelineSnapshot.wipCount(rows);
+        }
+        return wip;
+    }
+
     private long count(StageReadiness.Kind kind) {
         return readiness.values().stream().filter(r -> r != null && r.kind() == kind).count();
     }
@@ -86,5 +105,10 @@ public record BoardSnapshot(Map<String, List<TicketRow>> columns, String sprintG
     /** The verdict for a ticket id; {@code null} when unknown. */
     public StageReadiness.Readiness readinessOf(String id) {
         return id == null ? null : readiness.get(id);
+    }
+
+    /** The stage journey for a ticket id (U-026); {@code null} when unknown. */
+    public StageJourney journeyOf(String id) {
+        return id == null ? null : journeys.get(id);
     }
 }

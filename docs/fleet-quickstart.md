@@ -22,7 +22,7 @@
 |---|---|---|
 | JDK 21+ | `java -version` | On PATH or via `JAVA_HOME`. The fleet bundles are JavaSE-21 (17+ covers only the `tasks` server). |
 | git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
-| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.0.10 (endpoint-verified against the v2 API — on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
+| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.0.19 (endpoint-verified against the v2 API — on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
 | pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
 | Built jars | see below | The stdio servers load jars from `eclipse/bundles/*/target/`. |
 
@@ -207,7 +207,11 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 By default the fleet engine lives in your session's `fleet` MCP server
 process — closing the session ends its runs (bookkeeping survives on the
 tickets). The **V-006 daemon is RETIRED** (2026-09-23): the pump lives in Eclipse and
-is off when Eclipse is closed, by design. (The section below is historical.)
+is off when Eclipse is closed, by design. To stop it deliberately: the
+`fleet_shutdown` chat tool, `eclipse/fleet-stop.ps1`, or the Board's
+*Shutdown...* button - parks admissions, checkpoints + pauses in-flight
+workers, and kills a spawned serve (never an attached shared service).
+(The section below is historical.)
 
 ```powershell
 # once per machine/repo (from the repo root):

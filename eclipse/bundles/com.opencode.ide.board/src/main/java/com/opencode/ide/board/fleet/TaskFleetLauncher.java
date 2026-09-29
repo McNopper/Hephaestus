@@ -3,6 +3,9 @@ package com.opencode.ide.board.fleet;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,6 +27,7 @@ import com.opencode.ide.fleet.FleetJob;
 import com.opencode.ide.fleet.FleetPermissionBridge;
 import com.opencode.ide.fleet.FleetRunner;
 import com.opencode.ide.fleet.FleetTuning;
+import com.opencode.ide.fleet.MaintenanceGate;
 import com.opencode.ide.fleet.PermissionQueue;
 import com.opencode.ide.fleet.RoleAgents;
 import com.opencode.ide.fleet.SseSessionEvents;
@@ -160,6 +164,30 @@ public final class TaskFleetLauncher implements FleetLauncher {
 
     /** The engine call used per launch; volatile so an injected test seam applies immediately. */
     private static volatile EngineLaunch engineLaunch = REAL_ENGINE_LAUNCH;
+
+    /**
+     * The graceful-shutdown engine call
+     * ({@link TaskFleet#shutdownForMaintenance(String, Path, String, String)});
+     * a swappable seam so tests can capture what the launcher hands to the
+     * fleet (see {@link #useEngineShutdownForTests}) — the U-045 mirror of
+     * {@link EngineLaunch}.
+     */
+    @FunctionalInterface
+    public interface EngineShutdown {
+
+        Map<String, Object> shutdown(TaskFleet fleet, String project, Path repoRoot,
+                String reason, String by);
+    }
+
+    /** The {@code by} recorded on paused tickets and history when the Board shuts down (U-045). */
+    public static final String SHUTDOWN_BY = "board-shutdown";
+
+    private static final EngineShutdown REAL_ENGINE_SHUTDOWN =
+            (fleet, project, repoRoot, reason, by)
+                    -> fleet.shutdownForMaintenance(project, repoRoot, reason, by);
+
+    /** The engine call used per shutdown; volatile so an injected test seam applies immediately. */
+    private static volatile EngineShutdown engineShutdown = REAL_ENGINE_SHUTDOWN;
 
     /**
      * @param clientSupplier    supplies the opencode client; may block (spawn) —
@@ -306,6 +334,104 @@ public final class TaskFleetLauncher implements FleetLauncher {
     }
 
     /**
+     * U-045: the Board's graceful shutdown for maintenance — the same
+     * ordered teardown the chat {@code fleet_shutdown} tool runs, against
+     * THIS launcher's cached engines: (1) PARK admissions via the
+     * maintenance gate ({@link TaskFleet#shutdownForMaintenance(String,
+     * Path, String, String)} engages it; every dispatch path then refuses
+     * with a clear 'maintenance' reason), (2) CHECKPOINT each in-flight
+     * worker — WIP committed to its task branch, ticket PAUSED — and
+     * (3) KILL a serve this Eclipse session spawned (an attached shared
+     * service keeps running), evicting the root's cached fleets so the next
+     * launch rebuilds on the fresh client. Spawns nothing: with no cached
+     * fleet (nothing was ever launched here) the gate still engages — the
+     * engine-less path mirrors {@code FleetControl}.
+     *
+     * <p>Runs on the caller's thread (the view schedules it off SWT);
+     * checkpointing is git + store work, never a server call.</p>
+     *
+     * @param project the store project to pause tickets in
+     * @param reason  the maintenance reason (recorded on the gate + tickets)
+     * @return the shutdown report (maintenance, checkpointed, paused,
+     *         in_flight_residue, serve_killed_pid)
+     */
+    public Map<String, Object> shutdownForMaintenance(String project, String reason) {
+        Path storeRoot = storeRootSupplier == null ? null : storeRootSupplier.get();
+        Path normalizedRoot = storeRoot == null ? null : storeRoot.toAbsolutePath().normalize();
+        Path repoRoot = repoRootOf(storeRoot);
+        String why = reason == null || reason.isBlank() ? "maintenance" : reason;
+        List<Object> checkpointed = new ArrayList<>();
+        List<Object> paused = new ArrayList<>();
+        List<Object> residue = new ArrayList<>();
+        boolean parked = false;
+        if (normalizedRoot != null) {
+            for (Map.Entry<CacheKey, TaskFleet> entry : FLEETS_BY_ROOT.entrySet()) {
+                if (!normalizedRoot.equals(entry.getKey().root())) {
+                    continue;
+                }
+                Map<String, Object> part =
+                        engineShutdown.shutdown(entry.getValue(), project, repoRoot, why, SHUTDOWN_BY);
+                parked = true;
+                checkpointed.addAll(asList(part.get("checkpointed")));
+                paused.addAll(asList(part.get("paused")));
+                residue.addAll(asList(part.get("in_flight_residue")));
+            }
+        }
+        if (!parked && repoRoot != null) {
+            try {
+                MaintenanceGate.engage(repoRoot, why);
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("cannot engage the maintenance gate: " + e.getMessage(), e);
+            }
+        }
+        long serveKilledPid = killSpawnedServe(normalizedRoot);
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("maintenance", why);
+        report.put("checkpointed", List.copyOf(checkpointed));
+        report.put("paused", List.copyOf(paused));
+        report.put("in_flight_residue", List.copyOf(residue));
+        report.put("serve_killed_pid", serveKilledPid);
+        return report;
+    }
+
+    /**
+     * Kills THIS session's spawned serve (never an attached shared
+     * service) and drops the root's cached fleets: they hold clients of
+     * the dead serve, and the next launch must rebuild on the fresh one —
+     * the board-side equivalent of {@code FleetControl}'s
+     * recycle-on-shutdown. Best-effort: the gate and checkpoints already
+     * happened, so a kill failure degrades to "serve outlives the
+     * shutdown" and never fails the report.
+     *
+     * @return the killed pid, or {@code 0} when this session spawned no serve
+     */
+    private static long killSpawnedServe(Path normalizedRoot) {
+        try {
+            OpencodeConnection connection = OpencodeConnection.getInstance();
+            Long pid = connection.getSpawnedProcessId();
+            if (pid == null) {
+                return 0L;
+            }
+            connection.refresh(); // stops the spawned serve; the next getClient() respawns
+            if (normalizedRoot != null) {
+                for (CacheKey key : FLEETS_BY_ROOT.keySet()) {
+                    if (normalizedRoot.equals(key.root())) {
+                        FLEETS_BY_ROOT.remove(key); // stale clients of the killed serve
+                    }
+                }
+            }
+            return pid;
+        } catch (RuntimeException | LinkageError e) {
+            return 0L;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> asList(Object value) {
+        return value instanceof List<?> list ? (List<Object>) list : List.of();
+    }
+
+    /**
      * The fleet for {@code storeRoot}, built from the CURRENT suppliers
      * generation. Per-root monitor (never the map), double-checked: waiting
      * for root A's spawn does not stall a creation for root B.
@@ -427,12 +553,18 @@ public final class TaskFleetLauncher implements FleetLauncher {
         engineLaunch = Objects.requireNonNull(override, "override");
     }
 
-    /** Test seam: clear the process-wide fleet cache, root locks, supplier state and engine seam (isolates launcher tests). */
+    /** Test seam: replaces the graceful-shutdown engine call ({@link #resetForTests()} restores the real one). */
+    public static void useEngineShutdownForTests(EngineShutdown override) {
+        engineShutdown = Objects.requireNonNull(override, "override");
+    }
+
+    /** Test seam: clear the process-wide fleet cache, root locks, supplier state and engine seams (isolates launcher tests). */
     public static void resetForTests() {
         FLEETS_BY_ROOT.clear();
         ROOT_LOCKS.clear();
         state = new SuppliersState(0, Suppliers.unset());
         engineLaunch = REAL_ENGINE_LAUNCH;
+        engineShutdown = REAL_ENGINE_SHUTDOWN;
     }
 
     /** Indirection so tests can substitute the observed registry if ever needed. */

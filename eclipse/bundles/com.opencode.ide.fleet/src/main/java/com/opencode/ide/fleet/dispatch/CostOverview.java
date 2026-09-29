@@ -225,14 +225,14 @@ public final class CostOverview {
         return project.formatSummary("Project");
     }
 
-    /** One sprint's one-liner ({@code Sprint S-01: ...} / {@code Backlog: ...}); {@code ""} when it has no runs. */
+    /** One sprint's one-liner ({@code Wave S-01: ...} / {@code Backlog: ...}); {@code ""} when it has no runs. */
     public String formatSprintSummary(String sprintId) {
         Totals totals = sprint(sprintId);
         if (totals == null) {
             return "";
         }
         String key = sprintKey(sprintId);
-        return totals.formatSummary(BACKLOG.equals(key) ? "Backlog" : "Sprint " + key);
+        return totals.formatSummary(BACKLOG.equals(key) ? "Backlog" : "Wave " + key);
     }
 
     /**

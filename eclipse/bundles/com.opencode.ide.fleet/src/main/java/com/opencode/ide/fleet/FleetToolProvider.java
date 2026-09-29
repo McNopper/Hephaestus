@@ -180,9 +180,26 @@ public final class FleetToolProvider implements ToolProvider {
                 return json(control.wavesStatus());
             case "fleet_waves_status":
                 return json(control.wavesStatus());
+            case "fleet_shutdown":
+                return shutdown(a);
             default:
                 throw new IllegalArgumentException("unknown tool: " + name);
         }
+    }
+
+    /**
+     * U-045: the ONE graceful shutdown action - parks admissions
+     * (maintenance gate + the auto/waves loops), checkpoints every in-flight
+     * worker to its task branch, PAUSES the tickets (visible, never
+     * blocked), kills the spawned serve and reports what stopped. A blank
+     * project parks every project in the store.
+     */
+    private McpToolResult shutdown(JsonObject a) {
+        String project = a.has("project") && !a.get("project").isJsonNull()
+                ? reqStr(a, "project") : "";
+        String reason = a.has("reason") && !a.get("reason").isJsonNull()
+                ? reqStr(a, "reason") : "maintenance";
+        return json(control.shutdownForMaintenance(project, reason));
     }
 
     private McpToolResult dispatchTicket(JsonObject a) {
@@ -556,6 +573,17 @@ public final class FleetToolProvider implements ToolProvider {
                         + "ticket blocked with no in-flight retry, the human's only regular duty. "
                         + "Clear a blocker (task_clear_blocked) and the loop resumes automatically.",
                 schema(new String[0], obj -> { })));
+        out.add(new McpTool("fleet_shutdown",
+                "U-045: the ONE graceful shutdown action for maintenance - parks admissions "
+                        + "(the maintenance gate engages; the auto/waves loops stop), checkpoints "
+                        + "every in-flight worker to its task branch and PAUSES its ticket (visible, "
+                        + "never blocked), kills the spawned opencode serve and reports what stopped. "
+                        + "Bring-up: task_clear_blocked where needed and update paused tickets back to "
+                        + "in-progress (the checkpoints survived).",
+                schema(new String[0], obj -> {
+                    obj.add("project", strP("task store project to pause tickets in; omit for every project"));
+                    obj.add("reason", strP("maintenance reason recorded on the gate and tickets, default 'maintenance'"));
+                })));
         out.add(new McpTool("fleet_dispatch",
                 "Launch the task fleet for one ticket (chat-first control of what the Board's "
                         + "Launch task button does): spawns a dedicated opencode server in the repo, "

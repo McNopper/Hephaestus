@@ -48,6 +48,28 @@ public class ReviewPromptTest {
                 prompt.contains("- git: opencode/U-9 — fleet branch merged back"));
     }
 
+    /** B-007 NFR-CONSIST-001: the reviewer sees the same evidence contract the gates enforce. */
+    @Test
+    public void promptQuotesTheStageEvidenceMatrixRow() {
+        String prompt = ReviewPrompt.forTicket(ticket()).project("demo").build();
+
+        assertTrue(prompt.contains("Expected evidence for this stage (B-007 matrix):"));
+        assertTrue(prompt.contains("implementation run: code plus tests are expected"));
+    }
+
+    /** B-007: an unstaged ticket gets the default matrix row, never a blank. */
+    @Test
+    public void unstagedTicketsGetTheDefaultMatrixRow() {
+        Task t = new Task();
+        t.id = "T-1";
+        t.title = "tiny";
+        t.role = "tester";
+
+        String prompt = ReviewPrompt.forTicket(t).project("p").build();
+
+        assertTrue(prompt.contains("unstaged ticket: code-diff evidence is expected"));
+    }
+
     @Test
     public void promptContainsTheReviewProtocol() {
         String prompt = ReviewPrompt.forTicket(ticket()).project("demo").build();

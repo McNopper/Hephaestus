@@ -85,4 +85,16 @@ public class TicketRowStageTest {
         assertEquals("", empty.label());
         assertNull(empty.effectiveStage());
     }
+
+    /**
+     * U-026 acceptance found this: the Javadoc promises {@code -1} for
+     * untracked rows, but {@code List.of(...).indexOf(null)} throws NPE —
+     * one role-untrackable ticket used to crash the whole board refresh.
+     */
+    @Test
+    public void stageDepthIsMinusOneForUntrackedRows() {
+        assertEquals(-1, row(null, "research").stageDepth());
+        assertEquals(-1, row(null, null).stageDepth());
+        assertEquals(3, row("design", "tester").stageDepth());
+    }
 }

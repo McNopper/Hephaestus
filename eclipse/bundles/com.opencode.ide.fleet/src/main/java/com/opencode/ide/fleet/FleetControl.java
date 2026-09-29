@@ -317,6 +317,73 @@ public final class FleetControl implements AutoCloseable {
     }
 
     /**
+     * U-038/U-045: the ONE graceful shutdown action (the
+     * {@code fleet_shutdown} tool, the Board's Shutdown button): (1) PARK
+     * admissions - the maintenance gate engages and the auto/waves loops
+     * stop, (2) CHECKPOINT every in-flight worker - WIP to its task branch,
+     * ticket PAUSED (visible, never blocked), (3) STOP the engine - the
+     * spawned {@code opencode serve} is killed so no orphan survives the
+     * shutdown, (4) REPORT what stopped and what was checkpointed. Bring-up
+     * is {@link MaintenanceGate#clear} plus a plain status update per paused
+     * ticket (the U-038 resume). Spawns nothing: an engine-less control
+     * still parks admissions via the gate.
+     *
+     * @param project the store project to pause tickets in; blank = every
+     *                project in the store
+     * @param reason  the maintenance reason (recorded on the gate + tickets)
+     * @return the shutdown report (maintenance, checkpointed, paused,
+     *         in_flight_residue, serve_killed_pid)
+     */
+    public Map<String, Object> shutdownForMaintenance(String project, String reason) {
+        stopAuto();
+        stopWaves();
+        Engine current;
+        synchronized (this) {
+            current = engine;
+        }
+        Map<String, Object> report = new java.util.LinkedHashMap<>();
+        String why = reason == null || reason.isBlank() ? "maintenance" : reason;
+        if (current == null) {
+            try {
+                MaintenanceGate.engage(repoRoot, why);
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("cannot engage the maintenance gate: " + e.getMessage(), e);
+            }
+            report.put("maintenance", why);
+            report.put("checkpointed", java.util.List.of());
+            report.put("paused", java.util.List.of());
+            report.put("in_flight_residue", java.util.List.of());
+        } else {
+            java.util.List<String> projects = project == null || project.isBlank()
+                    ? new TaskStore(storeRoot).projects()
+                    : java.util.List.of(project);
+            java.util.List<Object> checkpointed = new java.util.ArrayList<>();
+            java.util.List<Object> paused = new java.util.ArrayList<>();
+            java.util.List<Object> residue = new java.util.ArrayList<>();
+            for (String p : projects) {
+                Map<String, Object> part = current.fleet()
+                        .shutdownForMaintenance(p, repoRoot, why, "fleet_shutdown");
+                checkpointed.addAll(asList(part.get("checkpointed")));
+                paused.addAll(asList(part.get("paused")));
+                residue.addAll(asList(part.get("in_flight_residue")));
+            }
+            report.put("maintenance", why);
+            report.put("checkpointed", checkpointed);
+            report.put("paused", paused);
+            report.put("in_flight_residue", residue);
+        }
+        Long killed = recycleEngineIfIdle("maintenance shutdown");
+        report.put("serve_killed_pid", killed == null ? 0L : killed);
+        return report;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.List<Object> asList(Object value) {
+        return value instanceof java.util.List<?> list
+                ? (java.util.List<Object>) list : java.util.List.of();
+    }
+
+    /**
      * The recurring-waves state for the {@code fleet_waves_status} tool:
      * enabled/running, project, active wave, waves planned, stop reason,
      * budget vs. spend, and the NEEDS-HUMAN rows (blocked tickets with no
@@ -394,7 +461,13 @@ public final class FleetControl implements AutoCloseable {
                 // in-review gets a reviewer session whose verdict drives
                 // done+advance / send-back through the store — the V
                 // pipeline drives itself per stage
-                .withAutonomousAcceptance();
+                .withAutonomousAcceptance()
+                // U-034 auto-deploy: Eclipse-facing merge-backs trigger the
+                // reactor build + dropins refresh (async; red builds never
+                // deploy and surface as NEEDS-HUMAN)
+                .withMergeObserver(AutoDeploy.mergeObserver(new TaskStore(root), repoRootOf(root),
+                        com.opencode.ide.client.WorkerPools.executor("fleet-auto-deploy"),
+                        AutoDeploy.processRunner()));
         FleetRunner engineRunner = new FleetRunner(client, FleetGit.defaultManager());
         OpencodeEventStream events = client.getGlobalEvents(bridge::onEvent, connected -> { });
         events.start();

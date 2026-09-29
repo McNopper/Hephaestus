@@ -340,6 +340,19 @@ public class GitWorktreeManagerTest {
     }
 
     /**
+     * B-007 FR-006: with the caller's store-side evidence allowance the
+     * settle check accepts a zero-commit branch - definition-leg runs
+     * deliver through the task_* tools into the MAIN store and have an
+     * empty branch BY DESIGN.
+     */
+    @Test
+    public void storeSideEvidenceAllowanceAcceptsAnEmptyBranch() throws Exception {
+        manager.create(repo, "t1");
+        MergeResult result = manager.mergeBack(repo, "t1", true);
+        assertTrue(result.output(), result.merged());
+    }
+
+    /**
      * R2 (RepoGate): two concurrent main-tree mutations on ONE repo (a
      * commitAll racing a store sync - the pre-claim vs auto-sync case) must
      * serialize instead of intermittently losing git's index.lock race.

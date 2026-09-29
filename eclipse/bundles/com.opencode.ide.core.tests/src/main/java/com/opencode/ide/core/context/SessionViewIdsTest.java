@@ -1,6 +1,8 @@
 package com.opencode.ide.core.context;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
@@ -36,5 +38,32 @@ public class SessionViewIdsTest {
     public void legacyUnencodedFormsStillDecode() {
         // tolerant decode: a caller that stored a raw id reads it back
         assertEquals("ses_123", SessionViewIds.sessionId("ses_123"));
+    }
+
+    /** T-009: the explicit openDetails(sessionId, autoRefresh) hand-off. */
+    @Test
+    public void liveSegmentRoundTripsAndFlagsAutoRefresh() {
+        SessionViewIds.Parsed parsed = SessionViewIds.parse(SessionViewIds.secondaryId("ses_50%", true));
+        assertEquals("ses_50%", parsed.sessionId());
+        assertTrue(parsed.autoRefresh());
+
+        SessionViewIds.Parsed plain = SessionViewIds.parse(SessionViewIds.secondaryId("ses_1", false));
+        assertEquals("ses_1", plain.sessionId());
+        assertFalse(plain.autoRefresh());
+    }
+
+    @Test
+    public void tildeInASessionIdNeverReadsAsTheLiveSegment() {
+        // encoding percent-escapes '~', so the segment cannot occur inside an encoded id
+        SessionViewIds.Parsed parsed = SessionViewIds.parse(SessionViewIds.secondaryId("ses~tilde", false));
+        assertEquals("ses~tilde", parsed.sessionId());
+        assertFalse(parsed.autoRefresh());
+    }
+
+    @Test
+    public void liveSegmentSurvivesSpecialCharacters() {
+        SessionViewIds.Parsed parsed = SessionViewIds.parse(SessionViewIds.secondaryId("s\u00e4_50%~x", true));
+        assertEquals("s\u00e4_50%~x", parsed.sessionId());
+        assertTrue(parsed.autoRefresh());
     }
 }

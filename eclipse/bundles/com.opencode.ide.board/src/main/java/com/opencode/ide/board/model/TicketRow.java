@@ -57,7 +57,11 @@ public record TicketRow(String id, String title, String type, String role, int p
      * within-column sort key after priority.
      */
     public int stageDepth() {
-        return VStages.STAGES.indexOf(effectiveStage());
+        // null-safe by contract (-1 for untracked): List.of(...).indexOf(null)
+        // throws NPE, which used to crash the whole board refresh the moment
+        // one role-untrackable ticket existed (U-026 acceptance found it)
+        String effective = effectiveStage();
+        return effective == null ? -1 : VStages.STAGES.indexOf(effective);
     }
 
     /**

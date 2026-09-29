@@ -27,10 +27,10 @@ the measured baseline per role/task-type so future estimates stop guessing.
 
 ## Position
 
-Standalone, on-demand. Invoke after a fleet batch, at sprint close, or whenever the human
+Standalone, on-demand. Invoke after a fleet batch, at wave close, or whenever the human
 asks "what did this cost so far?". Never runs automatically.
 
-## The live surface (opencode v2, verified against a live 2.0.10 server + its `/openapi.json`)
+## The live surface (opencode v2; `/openapi.json` last cross-checked live on 2.0.19, 2026-09-29)
 
 Three v2 facts shape every query: **every path is prefixed `/api`**, the server **requires
 HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
@@ -108,7 +108,7 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 5. **Emit the baseline** — write a Markdown report (e.g.
    `.opencode/tasks/<project>/_reports/cost-baseline-<date>.md`) and attach it:
    `task_add_artifact(project, ticket_id="EP-…|none", kind="path", ref="<report>")`
-   when a sprint/epic owns the batch, else just report in-channel.
+   when a wave/epic owns the batch, else just report in-channel.
 6. **Calibrate** — hand the measured numbers to `project-manager-estimate-costs`: per-tier actuals
    replace rate-card guesses for the workload classes that have ≥3 samples. Flag the rest
    as still-guessed. Recommend de-escalations where a lower tier consistently sufficed.
@@ -126,7 +126,7 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 ## Hand-off map
 
 - Estimate needed before a run → `project-manager-estimate-costs` (this skill feeds it).
-- Sprint close / review numbers → the `project-manager` agent consumes the report.
+- Wave close / review numbers → the `project-manager` agent consumes the report.
 - Fleet telemetry automation (TaskFleet recording `fleet actuals:` comments on mergeBack)
   has landed (see ROADMAP "Standing"); this skill remains the manual path for ad-hoc
   queries and calibration.

@@ -238,13 +238,18 @@ public final class GitWorktreeManager implements WorktreeManager {
 
     @Override
     public MergeResult mergeBack(Path repoRoot, String taskId) {
+        return mergeBack(repoRoot, taskId, false);
+    }
+
+    @Override
+    public MergeResult mergeBack(Path repoRoot, String taskId, boolean allowEmptyDiff) {
         // R2: the merge mutates the shared main tree - serialized by the repo
         // gate (this ALSO closes the cross-engine hole the old per-instance
         // mergeLock left: Board and chat engines share this gate)
-        return com.opencode.ide.git.RepoGate.with(repoRoot, () -> mergeBackGuarded(repoRoot, taskId));
+        return com.opencode.ide.git.RepoGate.with(repoRoot, () -> mergeBackGuarded(repoRoot, taskId, allowEmptyDiff));
     }
 
-    private MergeResult mergeBackGuarded(Path repoRoot, String taskId) {
+    private MergeResult mergeBackGuarded(Path repoRoot, String taskId, boolean allowEmptyDiff) {
         requireTaskId(taskId);
         Path repo = repo(repoRoot);
         if (mergeInProgress(repo)) {
@@ -272,7 +277,11 @@ public final class GitWorktreeManager implements WorktreeManager {
             }
         }
         GitOutput ahead = run(repo, DEFAULT_TIMEOUT, "rev-list", "--count", "HEAD.." + branch);
-        if (ahead.exitCode() == 0 && "0".equals(ahead.stdout().trim())) {
+        // B-007 FR-006: an empty branch is "worker produced no changes" only
+        // when the caller has NOT verified store-side stage evidence
+        // (allowEmptyDiff) - definition-leg runs legitimately deliver
+        // through the task_* tools into the main store, not the worktree
+        if (ahead.exitCode() == 0 && "0".equals(ahead.stdout().trim()) && !allowEmptyDiff) {
             return new MergeResult(false, List.of(),
                     "worker produced no changes (no commits on " + branch
                             + " and no pending worktree edits) - the task may genuinely need no changes,"

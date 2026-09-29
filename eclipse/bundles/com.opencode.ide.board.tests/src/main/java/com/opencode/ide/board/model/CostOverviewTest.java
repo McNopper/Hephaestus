@@ -195,10 +195,10 @@ public class CostOverviewTest {
                 task("T2", "S-01", "fleet actuals: cost 0.03 USD"),
                 task("T3", "S-02", "fleet actuals: tokens 12000 (in 9000 / out 3000 / reasoning 0)")));
 
-        assertEquals("Sprint S-01: $1.23 \u00b7 30k in / 10k out tok \u00b7 2 runs",
+        assertEquals("Wave S-01: $1.23 \u00b7 30k in / 10k out tok \u00b7 2 runs",
                 overview.formatSprintSummary("S-01"));
         assertEquals("cost-less sprint omits the $ segment",
-                "Sprint S-02: 9k in / 3k out tok \u00b7 1 run",
+                "Wave S-02: 9k in / 3k out tok \u00b7 1 run",
                 overview.formatSprintSummary("S-02"));
         assertEquals("Project: $1.23 \u00b7 39k in / 13k out tok \u00b7 3 runs",
                 overview.formatSummary());
@@ -210,7 +210,7 @@ public class CostOverviewTest {
     @Test
     public void formattingKeepsTinyCostsPreciseAndCompactsTokens() {
         CostOverview tiny = CostOverview.of(List.of(task("T1", "S-03", COST_ONLY)));
-        assertEquals("Sprint S-03: $0.0123 \u00b7 1 run", tiny.formatSprintSummary("S-03"));
+        assertEquals("Wave S-03: $0.0123 \u00b7 1 run", tiny.formatSprintSummary("S-03"));
 
         assertEquals("$1.23", CostOverview.usd(1.23));
         assertEquals("$0.0123", CostOverview.usd(0.0123));

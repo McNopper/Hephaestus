@@ -6,18 +6,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.junit.AfterClass;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -29,7 +22,9 @@ import com.opencode.ide.client.model.ProviderAuth;
  * Component test for the H5 remainder of the client surface (file status and
  * content, provider auth, the event SSE stream): real {@code HttpOpencodeClient}
  * over real HTTP against a local stub server, verifying paths, methods, bodies
- * and parsing. No Eclipse, no opencode.
+ * and parsing. No Eclipse, no opencode. The stub harness is the shared
+ * {@link StubHttpComponentTest} base (its SSE hook serves the event frame);
+ * only the routing lives here.
  *
  * <p>Migrated to <b>opencode v2</b>: {@code GET /file/status} became
  * {@code GET /api/vcs/status}, and the two v1 event endpoints ({@code /event}
@@ -38,7 +33,7 @@ import com.opencode.ide.client.model.ProviderAuth;
  * payload under {@code data} and the owning worktree under
  * {@code location.directory}.</p>
  */
-public class HttpOpencodeClientH5bComponentTest {
+public class HttpOpencodeClientH5bComponentTest extends StubHttpComponentTest {
 
     /**
      * One v2 {@code /api/event} frame: {@code {id, created, type, location, data}}.
@@ -50,55 +45,10 @@ public class HttpOpencodeClientH5bComponentTest {
             + "\"data\":{\"sessionID\":\"ses_g1\",\"slug\":\"shiny-tiger\",\"projectID\":\"prj_1\","
             + "\"title\":\"Refactor the parser\"}}";
 
-    private static com.sun.net.httpserver.HttpServer server;
-    private static OpencodeClient client;
-
-    private static final AtomicReference<String> lastMethod = new AtomicReference<>();
-    private static final AtomicReference<String> lastPath = new AtomicReference<>();
-    private static final AtomicReference<String> lastQuery = new AtomicReference<>();
-    private static final AtomicReference<String> lastBody = new AtomicReference<>();
-    /** Settable body/status the stub serves instead of the built-in happy path. */
-    private static final AtomicReference<String> bodyOverride = new AtomicReference<>();
-    private static final AtomicInteger statusOverride = new AtomicInteger(200);
-
     @BeforeClass
     public static void startStub() throws IOException {
-        server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/", exchange -> {
-            String path = exchange.getRequestURI().getPath();
-            lastMethod.set(exchange.getRequestMethod());
-            lastPath.set(path);
-            lastQuery.set(exchange.getRequestURI().getRawQuery());
-            lastBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            if ("/api/event".equals(path)) {
-                byte[] sse = ("data: " + EVENT_JSON + "\n\n").getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-                exchange.sendResponseHeaders(200, sse.length);
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(sse);
-                }
-                return;
-            }
-            byte[] bytes = (bodyOverride.get() != null ? bodyOverride.get() : respond(path))
-                    .getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(statusOverride.get(), bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
-        });
-        server.start();
-        int port = server.getAddress().getPort();
-        client = new com.opencode.ide.client.internal.HttpOpencodeClient(
-                new ConnectionConfig(URI.create("http://127.0.0.1:" + port), null, null));
-    }
-
-    @Before
-    public void resetStub() {
-        bodyOverride.set(null);
-        statusOverride.set(200);
-        lastPath.set(null);
-        lastQuery.set(null);
+        sseEventJson = EVENT_JSON;
+        startStubServer(HttpOpencodeClientH5bComponentTest::respond);
     }
 
     private static String respond(String path) {
@@ -126,11 +76,6 @@ public class HttpOpencodeClientH5bComponentTest {
                 "{\"location\":{},\"data\":{\"attemptID\":\"att_1\",\"url\":\"https://auth.anthropic.com/oauth\",\"instructions\":\"open the url\",\"mode\":\"auto\",\"time\":{\"created\":1,\"expires\":2}}}";
             default -> "{}";
         };
-    }
-
-    @AfterClass
-    public static void stopStub() {
-        server.stop(0);
     }
 
     @Test

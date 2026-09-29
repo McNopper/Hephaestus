@@ -1026,5 +1026,389 @@ window.__linkClick = function (event) {
 };
 chatEl.addEventListener("click", window.__linkClick);
 
+// ---- session inbox (T-005 management surface) --------------------------------
+// Prompts parked in the SERVER's session inbox (the host's "Send to Queue",
+// v2 Alt+Enter) render as the composer queue row: one line per pending
+// prompt with Steer now / Deliver next / Cancel. The row lives OUTSIDE #chat,
+// so transcript wipes (__setMessages / __clear) never eat it; the host
+// re-pushes the full list after every server answer. Buttons hand the
+// action verb plus the server message id to Java (__javaInboxAction), which
+// steers / delivers / cancels the prompt server-side and refreshes the row.
+const inboxEl = document.getElementById("inbox");
+let inboxItems = [];
+
+const INBOX_ACTIONS = [
+  { action: "steer", label: "Steer now",
+    title: "Deliver this prompt now, steering the active run" },
+  { action: "queue", label: "Deliver next",
+    title: "Deliver this prompt after the active run finishes" },
+  { action: "cancel", label: "Cancel", title: "Remove this queued prompt" }
+];
+
+function renderInbox() {
+  if (!inboxEl) return;
+  inboxEl.innerHTML = "";
+  if (inboxItems.length === 0) return;
+  const title = document.createElement("div");
+  title.className = "inbox-title";
+  title.textContent = "Queued prompt" + (inboxItems.length > 1 ? "s" : "")
+      + " (session inbox - waiting for delivery):";
+  inboxEl.appendChild(title);
+  inboxItems.forEach(item => {
+    if (!item || typeof item !== "object") return;
+    const row = document.createElement("div");
+    row.className = "inbox-item";
+    row.dataset.inboxid = String(item.id || "");
+    const text = document.createElement("span");
+    text.className = "inbox-text";
+    // textContent only - a hostile prompt can never inject markup
+    text.textContent = String(item.text == null ? "" : item.text);
+    row.appendChild(text);
+    INBOX_ACTIONS.forEach(spec => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "inbox-btn" + (spec.action === "cancel" ? " inbox-cancel" : "");
+      btn.title = spec.title;
+      btn.textContent = spec.label;
+      btn.addEventListener("click", function (event) {
+        if (event && event.stopPropagation) event.stopPropagation();
+        const id = row.dataset.inboxid;
+        if (typeof window.__javaInboxAction === "function") {
+          window.__javaInboxAction(spec.action, id);
+          report("inbox " + spec.action + " requested for " + id);
+        } else {
+          report("inbox " + spec.action + " requested for " + id + " but no Java bridge");
+        }
+      });
+      row.appendChild(btn);
+    });
+    inboxEl.appendChild(row);
+  });
+}
+
+window.__setInboxItems = guard("__setInboxItems", function (json) {
+  const items = payload(json);
+  inboxItems = Array.isArray(items) ? items : [];
+  renderInbox();
+  report("inbox row rendered (" + inboxItems.length + " queued)");
+  return true;
+});
+
+// ---- question forms (U-014) --------------------------------------------------
+// The forms the session's run raised (v2 forms API) render as answerable
+// cards: title, leniently-rendered fields, Submit/Cancel. The SERVICE owns
+// the field schema - a union of String/Number/Integer/Boolean/Multiselect/
+// External field objects - so fields render by whatever discriminator,
+// label and options keys they carry (see normalizeFormField). Everything is
+// createElement/textContent only: hostile content can never inject markup.
+// The cards live OUTSIDE #chat (transcript wipes never eat them) and
+// persist until replied/cancelled - the host re-pushes the authoritative
+// list after every answer (a failed answer keeps the card), so an
+// unanswered ask is always visible (no silent hang).
+const formsEl = document.getElementById("forms");
+let formCards = [];
+
+/** Field type names the union wrapper detection knows (lenient superset). */
+const FORM_FIELD_TYPES = new Set(["string", "text", "number", "integer", "boolean",
+  "multiselect", "external"]);
+
+/**
+ * Lenient field normalization: unwraps a union wrapper ({"string": {...}} /
+ * {"multiselect": {...}} - one key that IS a type name wrapping the field
+ * properties), then reads whatever key/label/options keys the object
+ * carries, falling back to type "string", an index key and the key as label.
+ */
+function normalizeFormField(raw, index) {
+  let props = raw && typeof raw === "object" ? raw : {};
+  let type = null;
+  const keys = Object.keys(props);
+  if (keys.length === 1 && FORM_FIELD_TYPES.has(keys[0]) && props[keys[0]]
+      && typeof props[keys[0]] === "object") {
+    type = keys[0];
+    props = props[keys[0]];
+  }
+  if (!type) type = typeof props.type === "string" && props.type ? props.type : "string";
+  const key = (typeof props.key === "string" && props.key) ? props.key
+    : (typeof props.id === "string" && props.id) ? props.id
+    : (typeof props.name === "string" && props.name) ? props.name
+    : "field" + (index + 1);
+  const label = (typeof props.label === "string" && props.label) ? props.label
+    : (typeof props.title === "string" && props.title) ? props.title : key;
+  const options = Array.isArray(props.options) ? props.options
+    : Array.isArray(props.values) ? props.values
+    : Array.isArray(props.choices) ? props.choices : [];
+  return { type: type, key: key, label: label, options: options };
+}
+
+/** The wire value of an option entry (string | {value} | {id} | {name}). */
+function optionValue(option) {
+  if (option == null) return "";
+  if (typeof option === "object") {
+    if (option.value !== undefined && option.value !== null) return String(option.value);
+    if (option.id !== undefined && option.id !== null) return String(option.id);
+    if (option.name) return String(option.name);
+    return "";
+  }
+  return String(option);
+}
+
+/** The display label of an option entry (falls back to its value). */
+function optionLabel(option) {
+  if (option != null && typeof option === "object") {
+    if (option.label) return String(option.label);
+    if (option.title) return String(option.title);
+    if (option.name) return String(option.name);
+  }
+  return optionValue(option);
+}
+
+function renderForms() {
+  if (!formsEl) return;
+  formsEl.innerHTML = "";
+  formCards.forEach(form => {
+    if (!form || typeof form !== "object" || !form.id) return;
+    const card = document.createElement("div");
+    card.className = "form-card";
+    card.dataset.formid = String(form.id);
+    const title = document.createElement("div");
+    title.className = "form-title";
+    // textContent only - a hostile title can never inject markup
+    title.textContent = String(form.title == null || form.title === ""
+      ? "Question" : form.title);
+    card.appendChild(title);
+    const inputs = []; // {field, input} | {field, box} | {field, boxes}
+    (Array.isArray(form.fields) ? form.fields : []).forEach((raw, i) => {
+      const field = normalizeFormField(raw, i);
+      const row = document.createElement("div");
+      row.className = "form-field";
+      const label = document.createElement("label");
+      label.className = "form-label";
+      label.textContent = field.label;
+      row.appendChild(label);
+      if (field.type === "boolean") {
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.className = "form-input";
+        box.dataset.key = field.key;
+        row.appendChild(box);
+        inputs.push({ field: field, box: box });
+      } else if (field.type === "multiselect") {
+        const boxes = [];
+        field.options.forEach(option => {
+          const line = document.createElement("label");
+          line.className = "form-option";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.className = "form-input";
+          box.dataset.key = field.key;
+          box.dataset.value = optionValue(option);
+          line.appendChild(box);
+          const optLabel = document.createElement("span");
+          optLabel.textContent = optionLabel(option);
+          line.appendChild(optLabel);
+          row.appendChild(line);
+          boxes.push({ box: box, value: box.dataset.value });
+        });
+        inputs.push({ field: field, boxes: boxes });
+      } else {
+        const input = document.createElement("input");
+        input.type = (field.type === "number" || field.type === "integer") ? "number" : "text";
+        input.className = "form-input";
+        input.dataset.key = field.key;
+        row.appendChild(input);
+        inputs.push({ field: field, input: input });
+      }
+      card.appendChild(row);
+    });
+    const actions = document.createElement("div");
+    actions.className = "form-actions";
+    const status = document.createElement("span");
+    status.className = "form-status";
+    const submit = document.createElement("button");
+    submit.type = "button";
+    submit.className = "form-btn form-submit";
+    submit.textContent = "Submit";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "form-btn form-cancel";
+    cancel.textContent = "Cancel";
+    submit.addEventListener("click", function (event) {
+      if (event && event.stopPropagation) event.stopPropagation();
+      // the answer map echoes the form's own field keys (the service owns
+      // the schema): string | number | boolean | string[] per field type
+      const answers = {};
+      inputs.forEach(entry => {
+        const f = entry.field;
+        if (f.type === "boolean") {
+          answers[f.key] = !!entry.box.checked;
+        } else if (f.type === "multiselect") {
+          answers[f.key] = entry.boxes.filter(o => o.box.checked).map(o => o.value);
+        } else {
+          const raw = entry.input.value == null ? "" : String(entry.input.value);
+          if (f.type === "number" || f.type === "integer") {
+            const num = f.type === "integer" ? parseInt(raw, 10) : parseFloat(raw);
+            answers[f.key] = Number.isFinite(num) ? num : raw; // unparseable stays a string
+          } else {
+            answers[f.key] = raw;
+          }
+        }
+      });
+      submit.disabled = true;
+      cancel.disabled = true;
+      status.textContent = "sending\u2026";
+      if (typeof window.__javaFormReply === "function") {
+        window.__javaFormReply(String(form.id), JSON.stringify(answers));
+        report("form answer submitted (" + form.id + ")");
+      } else {
+        status.textContent = "no Java bridge";
+        report("form answer requested but no Java bridge");
+      }
+    });
+    cancel.addEventListener("click", function (event) {
+      if (event && event.stopPropagation) event.stopPropagation();
+      submit.disabled = true;
+      cancel.disabled = true;
+      status.textContent = "cancelling\u2026";
+      if (typeof window.__javaFormCancel === "function") {
+        window.__javaFormCancel(String(form.id));
+        report("form cancel requested (" + form.id + ")");
+      } else {
+        status.textContent = "no Java bridge";
+        report("form cancel requested but no Java bridge");
+      }
+    });
+    actions.appendChild(submit);
+    actions.appendChild(cancel);
+    actions.appendChild(status);
+    card.appendChild(actions);
+    formsEl.appendChild(card);
+  });
+}
+
+window.__setForms = guard("__setForms", function (json) {
+  const forms = payload(json);
+  formCards = Array.isArray(forms) ? forms : [];
+  renderForms();
+  report("form cards rendered (" + formCards.length + " open)");
+  return true;
+});
+
+// ---- @-autocomplete: files (U-012) + alias reference roots (U-047) ---------
+// The host's composer owns the caret; when the caret enters a token starting
+// with @, the host hands the query here (__setFileQuery) and this row lists
+// the proposals: ALIAS reference roots (the server's reference catalog -
+// the catalog may be empty, then only files render, no error) ABOVE the
+// fuzzy-matched files. The DATA comes from Java: the page asks
+// __javaFileQuery and the host answers with __setFileCompletions (both
+// groups already filtered and capped server-side). Keyboard navigation
+// (arrows/Enter/Esc) stays with the host (its input has focus - the
+// highlighted row travels back through the `selected` member, which spans
+// BOTH groups, aliases first); a row CLICK is handed back via
+// __javaFilePick (an alias hands its NAME, a file its path - the host
+// inserts "@<value> " as plain text either way). Rows are textContent-only:
+// a hostile path or alias name can never inject markup. The row lives
+// outside #chat, so transcript wipes never eat it.
+const fileEl = document.getElementById("file-complete");
+let fileComplete = { open: false, query: "", aliases: [], paths: [], selected: 0 };
+
+/** The merged proposal list the `selected` index spans: aliases first. */
+function fileCompleteRows() {
+  const rows = [];
+  (fileComplete.aliases || []).forEach(a => {
+    const name = a && typeof a === "object"
+      ? (a.name ? String(a.name) : (a.id ? String(a.id) : "")) : "";
+    if (name) rows.push({ kind: "alias", value: name });
+  });
+  (fileComplete.paths || []).forEach(p => {
+    rows.push({ kind: "file", value: String(p == null ? "" : p) });
+  });
+  return rows;
+}
+
+function renderFileCompletions() {
+  if (!fileEl) return;
+  fileEl.innerHTML = "";
+  if (!fileComplete.open) return;
+  const rows = fileCompleteRows();
+  const title = document.createElement("div");
+  title.className = "file-complete-title";
+  title.textContent = rows.length > 0
+    ? "@" + fileComplete.query + " - matching:"
+    : "Searching @" + fileComplete.query + "\u2026";
+  fileEl.appendChild(title);
+  const hasAliases = fileComplete.aliases.length > 0;
+  const hasFiles = fileComplete.paths.length > 0;
+  const showGroups = hasAliases && hasFiles; // one group needs no header
+  rows.forEach((row, i) => {
+    if (showGroups && row.kind === "alias" && i === 0) {
+      const header = document.createElement("div");
+      header.className = "file-complete-group";
+      header.textContent = "aliases:";
+      fileEl.appendChild(header);
+    }
+    if (showGroups && row.kind === "file" && (i === 0 || rows[i - 1].kind === "alias")) {
+      const header = document.createElement("div");
+      header.className = "file-complete-group";
+      header.textContent = "files:";
+      fileEl.appendChild(header);
+    }
+    const el = document.createElement("div");
+    el.className = "file-complete-item" + (row.kind === "alias" ? " file-complete-alias" : "")
+      + (i === fileComplete.selected ? " selected" : "");
+    // textContent only - a hostile path or alias name can never inject markup
+    el.textContent = row.value;
+    el.addEventListener("click", function (event) {
+      if (event && event.stopPropagation) event.stopPropagation();
+      if (typeof window.__javaFilePick === "function") {
+        window.__javaFilePick(row.value);
+        report(row.kind === "alias"
+          ? "alias completion picked: " + row.value
+          : "file completion picked: " + row.value);
+      } else {
+        report(row.kind + " completion picked: " + row.value + " but no Java bridge");
+      }
+    });
+    fileEl.appendChild(el);
+  });
+}
+
+window.__setFileQuery = guard("__setFileQuery", function (json) {
+  const p = payload(json);
+  fileComplete = { open: true, query: String(p.query == null ? "" : p.query),
+    aliases: [], paths: [], selected: 0 };
+  renderFileCompletions();
+  if (typeof window.__javaFileQuery === "function") {
+    window.__javaFileQuery(fileComplete.query);
+    report("file query: @" + fileComplete.query);
+  } else {
+    report("file query requested but no Java bridge");
+  }
+  return true;
+});
+
+window.__setFileCompletions = guard("__setFileCompletions", function (json) {
+  const p = payload(json);
+  const aliases = Array.isArray(p.aliases) ? p.aliases : [];
+  const paths = Array.isArray(p.paths) ? p.paths : [];
+  if (aliases.length === 0 && paths.length === 0) {
+    fileComplete.open = false; // nothing propose-able: close
+    renderFileCompletions();
+    return true;
+  }
+  fileComplete.aliases = aliases;
+  fileComplete.paths = paths;
+  fileComplete.selected = Math.max(0, Number(p.selected) || 0);
+  renderFileCompletions();
+  report("file completions rendered (" + aliases.length + " aliases, "
+    + paths.length + " matches)");
+  return true;
+});
+
+window.__hideFileCompletions = guard("__hideFileCompletions", function () {
+  fileComplete = { open: false, query: "", aliases: [], paths: [], selected: 0 };
+  renderFileCompletions();
+  return true;
+});
+
 // The page announces readiness to Java (authoritative signal - flushes queued renders).
 report("page-ready");

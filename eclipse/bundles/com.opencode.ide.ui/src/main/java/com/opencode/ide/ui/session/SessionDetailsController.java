@@ -5,8 +5,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Supplier;
 
+import com.google.gson.JsonArray;
 import com.opencode.ide.client.DefaultModels;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.model.ChatEntry;
@@ -15,6 +17,11 @@ import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.SkillInfo;
+import com.opencode.ide.ui.model.SessionSections;
+import com.opencode.ide.ui.model.SessionShells;
+import com.opencode.ide.ui.model.SessionSubagents;
 
 /**
  * SWT-free controller behind the Session Details view: loads the message
@@ -32,6 +39,14 @@ public final class SessionDetailsController {
 
     /** Shown as the error note when the session has no messages at all. */
     public static final String EMPTY_NOTE = "No messages in this session yet.";
+
+    /**
+     * The fixed prompt behind {@link #suggestTitle()} (U-046 slice 2): one
+     * transient {@code POST .../session/{id}/generate} completion that never
+     * mutates the session history.
+     */
+    public static final String TITLE_PROMPT =
+            "Suggest a concise title (at most six words) for this session based on its history. Reply with the title only.";
 
     private final String sessionId;
     private final Supplier<OpencodeClient> clientSupplier;
@@ -61,10 +76,59 @@ public final class SessionDetailsController {
             OpencodeClient client = clientSupplier.get();
             List<ChatEntry> messages = client.getMessages(sessionId);
             List<Session> sessions = client.getSessions();
-            return build(sessions, messages);
+            return build(sessions, messages, subagents(sessions, client), shellTasks(client));
         } catch (Exception e) {
-            return new SessionDetails(sessionId, null, null, null, null, List.of(), message(e));
+            return new SessionDetails(sessionId, null, null, null, null, List.of(), List.of(),
+                    List.of(), message(e));
         }
+    }
+
+    /**
+     * U-041: the session's subagent children ({@code parentID} nesting) with
+     * their live status; the active map and the session list degrade to
+     * empty independently — an unreadable status map reads as idle, an
+     * unreadable list hides the section, neither fails the transcript.
+     */
+    private List<SessionSubagents.Row> subagents(List<Session> sessions, OpencodeClient client) {
+        Map<String, SessionStatus> statuses = Map.of();
+        try {
+            Map<String, SessionStatus> map = client.getSessionStatus();
+            if (map != null) {
+                statuses = map;
+            }
+        } catch (Exception e) {
+            // statuses are optional decoration: children render as idle
+        }
+        return SessionSubagents.rows(sessionId, sessions, statuses);
+    }
+
+    /**
+     * U-041: the session's shell tasks. The transcript (raw message list) is
+     * the association — its {@code type:"shell"} messages carry the
+     * {@code sh_} task ids — and the live task list overlays them (see
+     * {@link SessionShells}). Either fetch degrading to empty only shrinks
+     * the section; the transcript keeps rendering.
+     */
+    private List<SessionShells.Row> shellTasks(OpencodeClient client) {
+        JsonArray messages = new JsonArray();
+        try {
+            JsonArray raw = client.getMessagesJson(sessionId);
+            if (raw != null) {
+                messages = raw;
+            }
+        } catch (Exception e) {
+            // no raw list: no associable tasks, an honest empty section
+        }
+        List<com.opencode.ide.client.model.ShellTask> live = List.of();
+        try {
+            List<com.opencode.ide.client.model.ShellTask> tasks = client.listShellTasks();
+            if (tasks != null) {
+                live = tasks;
+            }
+        } catch (Exception e) {
+            // live overlay optional: transcript rows still show their status
+        }
+        return SessionShells.rows(messages, live);
     }
 
     // ---------- session lifecycle actions (fork / summarize) ----------
@@ -89,6 +153,20 @@ public final class SessionDetailsController {
     }
 
     /**
+     * U-048: this session's working directory — the import target when a
+     * picked export is imported "into the connection's directory". Blocking
+     * (one session-list GET); call from a background job. {@code null} when
+     * unknown: the import then goes unscoped, the service default.
+     */
+    public String directory() {
+        try {
+            return sessionDirectory(clientSupplier.get());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * {@code POST /session/:id/fork} — fork this session at {@code messageId}
      * ({@code null} = at the latest message).
      *
@@ -107,31 +185,48 @@ public final class SessionDetailsController {
         }
     }
 
-    /** v2 snapshots: remember the session state at the selected message. */
-    public LifecycleResult stageSnapshot(String messageId) {
+    /**
+     * U-048, phase 1 of the two-phase revert ({@code POST
+     * .../session/{id}/revert/stage} via {@code revertMessage}): stages the
+     * revert boundary BEFORE this message. The server's default also restores
+     * the working-tree files the messages after the boundary touched (the
+     * client verb cannot send {@code files:false}); the transcript itself is
+     * untouched until {@link #commitRevert()}.
+     */
+    public LifecycleResult stageRevert(String messageId) {
         try {
             clientSupplier.get().revertMessage(sessionId(), messageId);
-            return new LifecycleResult(true, "snapshot staged at " + messageId, null);
+            return new LifecycleResult(true,
+                    "revert staged at " + messageId + " (files restored; commit to cut the history)", null);
         } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
             return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
         }
     }
 
-    /** v2 snapshots: restore the staged snapshot. */
-    public LifecycleResult restoreSnapshot() {
+    /**
+     * U-048, phase 2 ({@code POST .../session/{id}/revert/commit}): cut the
+     * session's message history back to the staged boundary. Irreversible —
+     * call it only after {@link #stageRevert(String)} and an explicit
+     * confirmation.
+     */
+    public LifecycleResult commitRevert() {
         try {
             clientSupplier.get().commitSessionRevert(sessionId());
-            return new LifecycleResult(true, "snapshot restored", null);
+            return new LifecycleResult(true, "revert committed (history cut to the staged boundary)", null);
         } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
             return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
         }
     }
 
-    /** v2 snapshots: discard the staged snapshot. */
-    public LifecycleResult discardSnapshot() {
+    /**
+     * U-048, the undo ({@code DELETE .../session/{id}/revert}): restore the
+     * working-tree files from the staged snapshot and clear the staged
+     * revert. A no-op when nothing is staged.
+     */
+    public LifecycleResult undoRevert() {
         try {
             clientSupplier.get().unrevertSession(sessionId());
-            return new LifecycleResult(true, "snapshot discarded", null);
+            return new LifecycleResult(true, "staged revert undone (files restored, stage cleared)", null);
         } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
             return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
         }
@@ -252,11 +347,152 @@ public final class SessionDetailsController {
         }
     }
 
+    /**
+     * U-046 slice 2: the skills attachable to this session, scoped to the
+     * session's own directory when known (v2 resolves the catalog per
+     * location); empty on failure - the picker degrades to "none available".
+     */
+    public List<SkillInfo> skills() {
+        try {
+            OpencodeClient client = clientSupplier.get();
+            List<SkillInfo> skills = client.listSkills(sessionDirectory(client));
+            return skills == null ? List.of() : skills;
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * U-046 slice 2: activate ("attach") a skill on this session
+     * (EXPERIMENTAL {@code POST .../session/{id}/skill}); the server appends
+     * a {@code skill} message and resumes.
+     */
+    public LifecycleResult attachSkill(String skillId) {
+        try {
+            clientSupplier.get().attachSkill(sessionId(), skillId);
+            return new LifecycleResult(true, "skill attached", null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * U-046 slice 2: one-shot title suggestion ({@code POST .../session/{id}/generate}
+     * with the fixed {@link #TITLE_PROMPT}) - a transient completion that
+     * never mutates the session history. The suggestion is OFFERED to the
+     * user; renaming happens only through {@link #rename(String)} once
+     * accepted.
+     */
+    public LifecycleResult suggestTitle() {
+        try {
+            String title = titleSuggestion(clientSupplier.get().generateOnSession(sessionId(), TITLE_PROMPT));
+            return title == null ? LifecycleResult.failure("no suggestion returned") : LifecycleResult.ok(title);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * Cleans a generate answer into a usable title suggestion: stripped,
+     * wrapping double quotes removed; {@code null} when nothing usable
+     * remains. Pure - unit-testable.
+     */
+    public static String titleSuggestion(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String title = raw.strip();
+        if (title.length() >= 2 && title.startsWith("\"") && title.endsWith("\"")) {
+            title = title.substring(1, title.length() - 1).strip();
+        }
+        return title.isBlank() ? null : title;
+    }
+
     /** v2: run a shell in the session's context (adoption 2026-09-25, U-041). */
     public LifecycleResult runShell(String command) {
         try {
             clientSupplier.get().runShell(sessionId(), null, command);
             return new LifecycleResult(true, "shell started: " + command, null);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * U-041: one shell task's captured output tail ({@code GET /api/shell/:id/output});
+     * {@code null} on failure (unknown/evicted task) so callers degrade to
+     * the transcript's tail instead of an error.
+     */
+    public String shellOutput(String shellId) {
+        try {
+            return clientSupplier.get().shellTaskOutput(shellId);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** U-041: reap a finished shell task ({@code DELETE /api/shell/:id}). */
+    public LifecycleResult removeShellTask(String shellId) {
+        try {
+            clientSupplier.get().removeShellTask(shellId);
+            return LifecycleResult.ok("shell task removed: " + shellId);
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * U-048: mark the session viewed ({@code POST .../session/{id}/view}) —
+     * the read marker behind the server's unread/idle badges. The idle
+     * argument is the epoch-millis watermark the viewer observed: "now"
+     * asserts everything idled up to now counts as seen (the v2.0.19
+     * {@code Session.Viewed} semantics). Fire-and-forget by design — the
+     * view ignores the outcome; a server without the route must not produce
+     * error noise on every refresh.
+     */
+    public LifecycleResult markViewed() {
+        try {
+            clientSupplier.get().markSessionViewed(sessionId(), System.currentTimeMillis());
+            return LifecycleResult.ok("viewed");
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * U-048: FULL-REPLACE the session's environment variables ({@code PUT
+     * .../session/{id}/environment}). There is no GET counterpart on the
+     * wire, so the caller's map comes from the user's editor, never from a
+     * read-back — anything omitted here is removed server-side.
+     */
+    public LifecycleResult replaceEnvironment(Map<String, String> variables) {
+        try {
+            clientSupplier.get().replaceSessionEnvironment(sessionId(), variables);
+            int size = variables == null ? 0 : variables.size();
+            return LifecycleResult.ok("environment replaced (" + size + " variables)");
+        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
+        }
+    }
+
+    /**
+     * U-048: import a session from an export document's payloads
+     * ({@code POST /api/experimental/session/import}); {@code directoryOrNull}
+     * scopes the import like {@code createSession}'s location body
+     * ({@code null} = the server default). A conflict (same session id
+     * already exists) and every other failure surface as the error side of
+     * the result.
+     *
+     * @return the imported session id on success
+     */
+    public LifecycleResult importSession(Map<String, Object> info, List<Map<String, Object>> messages,
+            String directoryOrNull) {
+        try {
+            Map<String, Object> imported = clientSupplier.get().importSession(info, messages, directoryOrNull);
+            String id = imported == null ? null : String.valueOf(imported.get("id"));
+            return (id == null || "null".equals(id))
+                    ? LifecycleResult.failure("the service returned no session id")
+                    : LifecycleResult.ok(id);
         } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
             return new LifecycleResult(false, null, String.valueOf(e.getMessage()));
         }
@@ -318,7 +554,8 @@ public final class SessionDetailsController {
         return DefaultModels.resolve(config, providers);
     }
 
-    private SessionDetails build(List<Session> sessions, List<ChatEntry> messages) {
+    private SessionDetails build(List<Session> sessions, List<ChatEntry> messages,
+            List<SessionSubagents.Row> subagents, List<SessionShells.Row> shellTasks) {
         Session self = findSession(sessions);
         String title = (self == null) ? null : self.title();
         List<MessageRow> rows = new ArrayList<>();
@@ -348,7 +585,7 @@ public final class SessionDetailsController {
         }
         String note = rows.isEmpty() ? EMPTY_NOTE : null;
         return new SessionDetails(sessionId, title, lastAssistantModelLabel, totalCost,
-                totals, List.copyOf(rows), note);
+                totals, subagents, shellTasks, List.copyOf(rows), note);
     }
 
     private Session findSession(List<Session> sessions) {
@@ -421,14 +658,29 @@ public final class SessionDetailsController {
     }
 
     /**
-     * Immutable snapshot: header aggregates plus the ordered message rows, or
-     * an {@code errorNote} when loading failed / the history is empty.
+     * Immutable snapshot: header aggregates, the session's subagent children
+     * and shell tasks (U-041 sections), the ordered message rows, or an
+     * {@code errorNote} when loading failed / the history is empty.
      */
     public record SessionDetails(String sessionId, String title, String modelLabel,
-            Double totalCost, TokenTotals tokens, List<MessageRow> rows, String errorNote) {
+            Double totalCost, TokenTotals tokens, List<SessionSubagents.Row> subagents,
+            List<SessionShells.Row> shellTasks, List<MessageRow> rows, String errorNote) {
 
         public SessionDetails {
+            subagents = (subagents == null) ? List.of() : List.copyOf(subagents);
+            shellTasks = (shellTasks == null) ? List.of() : List.copyOf(shellTasks);
             rows = (rows == null) ? List.of() : List.copyOf(rows);
+        }
+
+        /**
+         * The tree's root nodes: the U-041 sections (subagents, shell tasks)
+         * above the message rows — the composition lives in
+         * {@link SessionSections} so the view stays a thin shell.
+         */
+        public List<Object> roots() {
+            List<Object> roots = new ArrayList<>(SessionSections.roots(subagents, shellTasks));
+            roots.addAll(rows);
+            return roots;
         }
     }
 
