@@ -85,10 +85,26 @@ public final class Turns {
         if (last == null || last.info() == null || !"assistant".equals(last.info().role())
                 || last.text() == null || last.text().isBlank()
                 || !last.info().isComplete() // v2 time.completed stamp: 0 = the step is still streaming
+                || endedByCallingTool(last)
                 || inFlightWork(messages)) {
             return null;
         }
         return last;
+    }
+
+    /**
+     * True when the message's own finish reason says it ended by CALLING a
+     * tool ({@code tool-calls}/{@code tool_calls}): the turn always continues
+     * after the tool result lands. This is the only inter-step signal that
+     * survives the boundary BETWEEN two tool calls - the first tool's part is
+     * already terminal and the second call does not exist yet, so neither
+     * {@link #inFlightWork} nor a quiet window can see it (live 2026-09-29:
+     * the Eclipse chat settled a push turn mid-flight with only the
+     * narration text).
+     */
+    private static boolean endedByCallingTool(ChatEntry entry) {
+        String finish = entry.info().finish();
+        return "tool-calls".equals(finish) || "tool_calls".equals(finish);
     }
 
     /** True while any tool call or shell run of the transcript is non-terminal. */

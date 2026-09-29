@@ -93,6 +93,44 @@ public class HttpOpencodeClientComponentTest {
             """;
 
     /**
+     * The boundary BETWEEN two tool calls (live shape from the 2026-09-29
+     * push turn): the narration step is completed with {@code finish:
+     * tool-calls} and the first tool's part is already terminal - nothing is
+     * visibly in flight, yet the turn continues.
+     */
+    private static final String INTERSTEP_QUIET = """
+            {"data":[
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant",
+               "time":{"created":2,"completed":9},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+               "content":[{"type":"text","text":"Verifying the state, then pushing:"},
+                          {"type":"tool","tool":"bash","state":{"status":"completed","output":"ok"}}],
+               "finish":"tool-calls"},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
+               "text":"push it"}
+            ]}
+            """;
+
+    /** The turn's real end: the final assistant text with {@code finish: stop}. */
+    private static final String FINAL_AFTER_TOOLS = """
+            {"data":[
+              {"id":"msg_a2","sessionID":"ses_new","type":"assistant",
+               "time":{"created":12,"completed":19},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+               "content":[{"type":"text","text":"Pushed."}],
+               "finish":"stop"},
+              {"id":"msg_a1","sessionID":"ses_new","type":"assistant",
+               "time":{"created":2,"completed":9},
+               "agent":"build","model":{"id":"glm-5.2","providerID":"opencode","variant":"high"},
+               "content":[{"type":"text","text":"Verifying the state, then pushing:"},
+                          {"type":"tool","tool":"bash","state":{"status":"completed","output":"ok"}}],
+               "finish":"tool-calls"},
+              {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
+               "text":"push it"}
+            ]}
+            """;
+
+    /**
      * A RESUMED session's first poll: the new turn's assistant message is still
      * empty, while the history carries a COMPLETED assistant and an {@code idle}
      * marker from a previous turn. Answering from those is the bug this guards.
@@ -976,6 +1014,31 @@ public class HttpOpencodeClientComponentTest {
                 count("GET", "/api/session/ses_new/message") >= 2);
         assertTrue("only a time.completed stamp ends the turn", reply.info().isComplete());
         assertEquals("The answer is $4$.", reply.text());
+    }
+
+    /**
+     * REGRESSION (live 2026-09-29: the Eclipse chat settled a push turn
+     * mid-flight, rendering only the 68-char narration): a completed
+     * inter-step assistant message whose own finish reason is tool-calls is
+     * NEVER the turn's end - the step ended by CALLING a tool and the turn
+     * continues after the result lands. Between two tool calls the message
+     * list is quiet and no part is in flight, so only the finish reason sees
+     * the boundary; the quiet window alone settles early.
+     */
+    @Test
+    public void interStepToolCallsMessageNeverSettlesTheTurn() throws Exception {
+        promptAck.set("""
+                {"data":{"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1}}}
+                """);
+        // the inter-step shape must outlive the quiet window (2s, 750ms polls)
+        serveMessages(INTERSTEP_QUIET, INTERSTEP_QUIET, INTERSTEP_QUIET, INTERSTEP_QUIET,
+                FINAL_AFTER_TOOLS);
+
+        ChatEntry reply = client.sendMessage(ChatRequest.of("ses_new", "push it"));
+
+        assertEquals("the final answer, not the inter-step narration", "Pushed.", reply.text());
+        assertTrue("the poll kept going past the quiet inter-step boundary",
+                count("GET", "/api/session/ses_new/message") >= 5);
     }
 
     /**
