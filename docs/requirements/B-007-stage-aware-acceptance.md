@@ -2,8 +2,9 @@
 
 ## About this document
 - **Kind:** `doc` / requirements definition (stage artifact of ticket B-007, stage `requirements`).
-- **Read by:** the downstream V-chain stages of B-007 (`system` → `architecture` → `design` → `implementation`) and the verification leg (`test-*`, ending at `test-requirements`); the reviewer agent at acceptance; any agent asking "what must stage-aware acceptance do?".
+- **Read by:** maintainers; any agent asking "what must stage-aware acceptance do?".
 - **Written by:** the requirements-stage worker (role `developer`, skill `software-requirements`).
+- **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the code landed inside the system-stage run; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** ticket B-007 and its live-extension comment of 2026-09-19 (the settle check has the same bias); U-021 (reviewer auto-accept + auto-advance — the machinery this feature corrects); U-029 (stage pass-through — the paired feature; its definition-leg runs are exactly the ones falsely rejected); U-026 (flow trace; its requirements-stage run was the live rejection that opened this bug); U-023 (clarification loop doctrine: doubt round-trips to the originator, round-trip limits escalate to the human); U-027 ("uniform across every consumer" doctrine). Current-behavior baseline: `TaskFleet.enforceAcPaths` / `applyVerdict`, `ReviewPrompt`, `ReviewVerdict` in `eclipse/bundles/com.opencode.ide.fleet`, and the zero-changes merge refusal in `GitWorktreeManager.mergeBackGuarded` (`eclipse/bundles/com.opencode.ide.git`). This file is the **what and why** — tool shape, storage and code are the next stages' work.
 
 **Terminology guard (read this first).** The **definition leg** of the V is the stages `requirements`, `system`, `architecture`, `design`; the **implementation stage** is `implementation`; the **verification leg** is `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`. **Acceptance evidence** is whatever proves a stage's acceptance criteria are met — it is stage-shaped: a requirements stage's correct output is a requirements doc plus ticket/store updates, not a code diff. Three engine checkpoints consume evidence today and must all become stage-aware: the **settle check** (zero-changes merge refusal: "worker produced no changes"), the **merge gate** (`enforceAcPaths`: "analysis-only run: no acceptance-criterion path in the diff"), and the **reviewer gate** (U-021 `ReviewPrompt`/`ReviewVerdict`/`applyVerdict`).
@@ -75,6 +76,23 @@ The autonomous acceptance machinery (U-021) currently judges every run with a co
 - **AC-003 (FR-009, FR-010 — the ticket's AC 3):** Given an in-review staged ticket where the reviewer returns `UNCLEAR`, when the verdict is applied, then the ticket goes back to the originator's stage backlog with the doubt as the reason (not blocked); and given the retry's review is `UNCLEAR` again, then — and only then — the ticket is blocked with the unresolved doubt.
 - **AC-004 (FR-011 — the ticket's AC 3, engine side):** Given a definition-leg run a checkpoint would previously have refused on heuristic grounds, when the refusal path runs, then the outcome is the originator-retry route with an attributable comment — not a blocked ticket.
 - **AC-005 (FR-013 — the ticket's AC 4):** Given the shipped test suite, when it runs, then one pinned test row per V stage asserts that stage's accepted/refused evidence classes, and the U-026/B-005 regression cases pass while an analysis-only implementation run is still refused.
+
+## Delivery status (per FR)
+
+**Outcome:** shipped (HISTORY.md H9) — `StageEvidence` beside `VStages` is
+the single per-stage evidence matrix all three checkpoints consult, the
+settle check gained the store-side produced-work allowance (`allowEmptyDiff`),
+and reviewer doubt round-trips to the originator once
+(`review doubt retry (1/1)`) before anything blocks; the paired U-028 board
+polish (chevrons, WIP counts) shipped in the same pass.
+
+| FR | Status | Note |
+|---|---|---|
+| FR-001–FR-005 | Delivered | `StageEvidence` (StageEvidence.java, tasks bundle) is the single matrix; the review prompt quotes the matrix row (ReviewPrompt.java, fleet bundle); pinned by StageEvidenceTest |
+| FR-006, FR-007 | Delivered | store-side deliveries count as produced work; the settle check's `allowEmptyDiff` allowance; definition-leg doc/store paths no longer trip the merge gate |
+| FR-008 | Delivered | the U-026/B-005 regression cases are pinned (StageAwareAcceptanceTest) |
+| FR-009–FR-012 | Delivered | the one-retry doubt round-trip to the originator, attributable comments, blocking only after the retry (ReviewDoubtTest, ReviewDoubtRoutingTest) |
+| FR-013 | Delivered | one pinned test row per V stage (StageEvidenceTest) plus the regression cases |
 
 ## Open Questions
 - **Q-001:** Where does the evidence matrix live — a code-level mapping beside `VStages`, or store/config data the PM can tune? Requirements fix only that it is single-sourced and stage-keyed (FR-001, FR-005); placement is design.

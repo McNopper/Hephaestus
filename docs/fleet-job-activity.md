@@ -1,21 +1,23 @@
 # `fleet_job_activity` — deep live observation of a fleet worker
 
 ## About this document
-- **Kind:** `doc` / tool reference for one fleet MCP tool.
-- **Read by:** agents and humans watching dispatched fleet work live;
-  later, the Eclipse panels that will render this data.
-- **Written by:** fleet worker, ticket T-001 (2026-09-22).
+
+- **Kind:** `doc` / tool reference for one fleet MCP tool (exposed as
+  `fleet_fleet_job_activity` when opencode prefixes its MCP server names).
+- **Read by:** agents and humans watching dispatched fleet work live, and
+  maintainers of the Eclipse panels that render the same data.
 - **Related:** `docs/fleet-observability-eclipse-reuse.md` (the Eclipse UI
-  plans), `AGENTS.md` (chat-first control plane), source in
-  `eclipse/bundles/com.opencode.ide.fleet/.../FleetToolProvider.java`.
+  that consumes this data), `AGENTS.md` (chat-first control plane), source:
+  `FleetToolProvider.java:310` -> `FleetControl.java:872` ->
+  `SessionObserver.observe` (FleetControl.java:536).
 
 ## What it is
 
 `fleet_job_activity` is the fleet MCP tool that answers *"what is the worker
 DOING right now"* — not just whether it is moving (`fleet_job_details` does
 that), but what it is actually doing. It returns one point-in-time
-observation of the session, built from pollable endpoints only (no event
-stream needed), so you can poll it to watch a dispatched worker live.
+`SessionObservation` of the session, built from pollable endpoints only (no
+event stream needed), so you can poll it to watch a dispatched worker live.
 
 ## What it reports
 
@@ -44,8 +46,9 @@ hint; a job without a live session reports `observation: "unavailable"`.
 
 ## Consumers
 
-Today this is a chat/MCP tool for polling a worker live. **Eclipse panels
-will consume it later** — the planned fleet tree view and session drill-down
-(see `docs/fleet-observability-eclipse-reuse.md`) render exactly this data:
-activity text per node, tools/shells as console tasks, and tokens/cost
-rollups per subtree.
+- **Chat/MCP**: poll a dispatched worker live from any chat session
+  (`fleet_fleet_job_details`'s busier sibling for "are we moving" checks).
+- **The Eclipse Fleet tree**: `FleetView` builds its nodes from the same
+  `SessionObservation` data (`observeSessions`, FleetView.java:980-1004 ->
+  `FleetTree`), rendering activity text, tools/shells, subagent nesting and
+  tokens/cost per subtree — see `fleet-observability-eclipse-reuse.md`.

@@ -535,21 +535,21 @@ public final class HttpOpencodeClient implements OpencodeClient {
     }
 
     @Override
-    public void removeMcp(String name) throws OpencodeException {
-        request("DELETE", "/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8), null);
+    public void removeMcp(String name, String directory) throws OpencodeException {
+        request("DELETE", withLocation("/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8), directory), null);
     }
 
     @Override
-    public void connectMcp(String name) throws OpencodeException {
-        request("POST", "/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/connect", "{}");
+    public void connectMcp(String name, String directory) throws OpencodeException {
+        request("POST", withLocation("/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/connect", directory), "{}");
     }
 
     @Override
-    public void disconnectMcp(String name) throws OpencodeException {
-        request("POST", "/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/disconnect", "{}");
+    public void disconnectMcp(String name, String directory) throws OpencodeException {
+        request("POST", withLocation("/experimental/mcp/"
+                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/disconnect", directory), "{}");
     }
 
     @Override

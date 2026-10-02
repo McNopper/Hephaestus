@@ -2,9 +2,10 @@
 
 ## About this document
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-027, stage `requirements`).
-- **Read by:** the downstream V-chain stages of U-027 (`system` → `architecture` → `design` → `implementation`) and the verification leg (`test-*`, ending at `test-requirements`); the reviewer agent at acceptance; any agent asking "what must archive-aware readiness do?".
+- **Read by:** maintainers; any agent asking "what must archive-aware readiness do?"; the tickets that complete the undelivered FRs (U-059/U-060, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
-- **Related:** the U-025 lesson (commit `deff2d1` — store-level `_archive/`, manual Archive action, wave-close auto-archiving deliberately withheld); `.opencode/docs/contracts.md` (ticket/stage contract); `StageReadiness`/`TaskStore` in `eclipse/bundles/com.opencode.ide.tasks` (current behavior baseline). This file is the **what and why** — solution shape, structure and code are the next stages' work.
+- **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
+- **Related:** commit `deff2d1` (store-level `_archive/`, manual Archive action, wave-close auto-archiving deliberately withheld — there is no U-025 ticket; the commit is the record); `.opencode/docs/contracts.md` (ticket/stage contract); `StageReadiness`/`TaskStore` in `eclipse/bundles/com.opencode.ide.tasks` (current behavior baseline). This file is the **what and why** — solution shape, structure and code are the next stages' work.
 
 ## Goal
 
@@ -12,8 +13,8 @@ Done tickets should leave the active board (it shows work in flight, not history
 breaking the V-pipeline**. Today those two goals collide: readiness (the H6 machinery that
 decides READY / WAIT_UPSTREAM / …) evaluates upstream satisfaction over the **live** ticket
 list only, so archiving a done upstream orphans its downstream stages — they read
-`WAIT_UPSTREAM` forever (the U-025 lesson, caught live by `RecurringWavesTest` on
-2026-09-19). This feature makes readiness **consult the archive**, then — and only then —
+`WAIT_UPSTREAM` forever (the gap commit `deff2d1` recorded when it
+deliberately withheld the automation — caught live by `RecurringWavesTest`). This feature makes readiness **consult the archive**, then — and only then —
 returns **wave-close auto-archiving**, behind a flag, gated so automation never archives a
 done ticket a live ticket still needs.
 
@@ -34,7 +35,7 @@ done ticket a live ticket still needs.
 (`StageReadiness` verdicts surfaced by `task_readiness`, the board badges, auto-dispatch
 and `WavePlanner` admission, and the STALE invalidation recorder); **wave close** = the
 sprint/wave closing path (`task_close_sprint`, driven manually or by the recurring-waves
-loop); **the archive** = a ticket moved to `<project>/_archive/` (U-025).
+loop); **the archive** = a ticket moved to `<project>/_archive/` (commit `deff2d1`).
 
 ### Archive-aware readiness (the correctness core)
 
@@ -47,7 +48,7 @@ loop); **the archive** = a ticket moved to `<project>/_archive/` (U-025).
 ### Wave-close auto-archiving (the automation, deliberately conservative)
 
 - **FR-006 (optional feature):** WHERE the per-project **wave-close auto-archive flag** is enabled (OFF by default; toggled per project from the Board or the tool surface, mirroring the U-022 recurring-waves opt-in doctrine), WHEN a wave closes, THEN wave close SHALL archive that wave's `done` tickets — **but only those no live ticket still needs** (see *Needs* definition below) — and SHALL complete the close exactly as today for everything else (unfinished tickets return to the product backlog, sprint status becomes `closed`).
-- **FR-007 (unwanted):** IF the flag is off (the default), THEN wave close SHALL leave done tickets live, pinning today's U-025-lesson behavior.
+- **FR-007 (unwanted):** IF the flag is off (the default), THEN wave close SHALL leave done tickets live, pinning today's behavior (commit `deff2d1`).
 - **FR-008 (event-driven):** WHEN a done ticket is skipped by the guard at wave close, THEN the wave close SHALL still succeed and the ticket SHALL simply remain live for a later close or the manual Archive action.
 - **FR-009 (ubiquitous):** THE wave-close auto-archive SHALL consider only tickets with status `done` — never `in-review`, `in-progress`, or backlog states.
 - **FR-010 (ubiquitous):** THE archive operation SHALL preserve the ticket record verbatim — history, artifacts, actuals, comments; only the location changes and the archive event is appended — and SHALL NEVER lose the record if interrupted mid-archive (at worst the ticket exists in both places).
@@ -69,11 +70,11 @@ together, when it has fully drained — coarse, simple, and impossible to get wr
 ## Non-Functional Requirements
 - **NFR-PERF-001:** With hundreds of archived tickets (envelope: 500 archived + 100 live), readiness evaluation SHALL stay in the same order of magnitude as today's live-only evaluation — the archive is consulted per evaluation, never re-scanned per live ticket.
 - **NFR-REL-001:** Readiness and wave close SHALL tolerate an absent `_archive/` directory, an empty one, and unparsable entries (skip + warn) — no crash paths through the archive.
-- **NFR-COMPAT-001:** Verdict kinds and their precedence, the manual Archive action (U-025), the `archived()` listing, and all `task_*` schema keys SHALL remain unchanged; a store with no archived tickets SHALL behave identically to today.
+- **NFR-COMPAT-001:** Verdict kinds and their precedence, the manual Archive action (commit `deff2d1`), the `archived()` listing, and all `task_*` schema keys SHALL remain unchanged; a store with no archived tickets SHALL behave identically to today.
 - **NFR-SAFE-001 (data safety):** Archiving SHALL be lossless and effectively atomic — the archived copy is written before the live file is removed; interruption leaves at worst a duplicate, never a gap.
 
 ## Constraints & Assumptions
-- **C-001:** Storage stays plain Markdown, one file per ticket, `_archive/` as the sibling directory (U-025, live) — no database, no new format.
+- **C-001:** Storage stays plain Markdown, one file per ticket, `_archive/` as the sibling directory (live — commit `deff2d1`) — no database, no new format.
 - **C-002:** `StageReadiness` remains a pure function over one snapshot (no I/O, no clock) — archived evidence enters as data, preserving the pure core (design stage picks the mechanism).
 - **C-003:** The automation hooks wave close (`task_close_sprint`), covering both manual close and the U-022 recurring loop's drained-wave close — no second timer.
 - **C-004:** "Wave" and "sprint" are synonyms in prose; the schema key stays `sprint` (stability doctrine).
@@ -91,6 +92,27 @@ together, when it has fully drained — coarse, simple, and impossible to get wr
 - **AC-008 (FR-009):** Given a ticket `in-review` at wave close with the flag on, when the wave closes, then it is returned to the product backlog — not archived.
 - **AC-009 (FR-005):** Given an archived done upstream, when any readiness surface is consulted (`task_readiness`, board badge, wave planning admission), then all surfaces report the same satisfied/upstream verdict for the downstream ticket.
 
+## Delivery status (per FR)
+
+The archive itself shipped (commit `deff2d1`); the archive-aware readiness and
+the wave-close automation did not reach production. The two-argument
+`StageReadiness.evaluate(live, archived)` (StageReadiness.java:75) exists and
+is tested, but every production caller uses the one-argument form, and
+`closeSprint(project, id, autoArchive)` has a test caller only
+(ArchiveReadinessTest). Completion is tracked by U-051 — decomposed (nothing
+implemented there) into **U-059** (feed the archive pool into production
+readiness) and **U-060** (`auto_archive` on `task_close_sprint`, scoped to the
+closing wave); both in the product backlog.
+
+| FR | Status | Note |
+|---|---|---|
+| FR-001, FR-002, FR-005 | **Not delivered** (library form only) | no production caller feeds the archive pool — U-051 → U-059 |
+| FR-003, FR-004 | Not yet meaningful in production | production readiness ignores the archive today (vacuously true); becomes binding with U-059 |
+| FR-006, FR-008 | **Not delivered** | the flag and the wave-close hook exist only in the library form's tests — U-051 → U-060 |
+| FR-007 | Delivered (trivially) | no flag exists; done tickets stay live at wave close — today's `deff2d1` behavior |
+| FR-009 | Partially delivered | the manual Archive action only ever archives done rows (commit `deff2d1`); the wave-close consideration rides U-060 |
+| FR-010 | Delivered | the store-level `_archive/` move preserves the record verbatim (commit `deff2d1`) |
+
 ## Open Questions
 - **Q-001:** Flag storage mechanics (per-project field in `_meta.json`, board preference, or fleet tuning) — a design-stage decision; requirements fix only: per project, OFF by default, togglable from Board or tool surface.
 - **Q-002:** Should `task_readiness` rows mark *which* evidence tickets are archived beyond the reason text (a structured field)? Nice-to-have for U-026 flow visibility; decide at design.
@@ -99,7 +121,7 @@ together, when it has fully drained — coarse, simple, and impossible to get wr
 ## Non-Goals
 - No auto-unarchive/restore path or UI (manual file move remains possible by construction).
 - No archive retention, compression, or garbage collection.
-- No change to the manual Archive action or the board's Archive view (U-025 semantics stand).
+- No change to the manual Archive action or the board's Archive view (commit `deff2d1` semantics stand).
 - No new board rendering for archived rows (U-028 owns board polish).
 - No change to wave-close semantics beyond the guarded archiving step.
 

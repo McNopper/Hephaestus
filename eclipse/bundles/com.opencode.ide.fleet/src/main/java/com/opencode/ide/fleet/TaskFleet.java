@@ -86,6 +86,17 @@ public final class TaskFleet {
      */
     public static final String REVIEWER = "reviewer";
 
+    static {
+        // B-015: the documented env knobs (FLEET_STALL_TIMEOUT_MS,
+        // FLEET_TICKET_BUDGET_MS) must reach the LIVE values the watchdog
+        // reads when the caller kept the default — RuntimeTuning, not just
+        // FleetTuning's constants. Env sets the RuntimeTuning default here;
+        // the tuning dialog still overrides at runtime (a seed never
+        // clobbers an explicit dialog value).
+        com.opencode.ide.client.RuntimeTuning.seedStallTimeout(FleetTuning.STALL_TIMEOUT);
+        com.opencode.ide.client.RuntimeTuning.seedTicketBudget(FleetTuning.DEFAULT_TICKET_BUDGET);
+    }
+
     private final FleetRunner runner;
     private final TaskStore store;
     private final RoleAgents roleAgents;
@@ -301,7 +312,9 @@ public final class TaskFleet {
         String model = modelOverride != null && !modelOverride.isBlank() ? modelOverride : ticket.model;
         FleetTask task = new FleetTask(
                 ticket.id,
-                ticket.title,
+                // U-054: the session title carries the ticket id prefix so
+                // sessions map to tickets by convention ("[T-014] title")
+                "[" + ticket.id + "] " + ticket.title,
                 SelfClaimPrompt.forTicket(ticket).project(project).build(),
                 roleAgents.agentFor(ticket.role),
                 model,
@@ -556,7 +569,9 @@ public final class TaskFleet {
             }
             FleetTask reviewTask = new FleetTask(
                     taskId,
-                    "Review " + ticket.id + ": " + ticket.title,
+                    // U-054: same "[<id>] ..." prefix convention as worker
+                    // sessions, marked as the review run
+                    "[" + taskId + "] review: " + ticket.title,
                     ReviewPrompt.forTicket(ticket).project(project).build(),
                     roleAgents.agentFor(REVIEWER),
                     null,
@@ -996,10 +1011,15 @@ public final class TaskFleet {
         // runtime tuning (2026-09-23): when the caller kept a tuning default,
         // follow the LIVE knob so the idle/budget windows are adjustable while
         // workers run; explicit timeouts (tests, per-ticket overrides) win.
-        Duration budget = FleetTuning.DEFAULT_TICKET_BUDGET.equals(timeout)
+        // B-015: the live knobs' DEFAULTS are seeded from FleetTuning's
+        // env-parsed values, so FLEET_STALL_TIMEOUT_MS /
+        // FLEET_TICKET_BUDGET_MS actually take effect on this path.
+        boolean budgetFromLiveKnob = FleetTuning.DEFAULT_TICKET_BUDGET.equals(timeout);
+        Duration budget = budgetFromLiveKnob
                 ? com.opencode.ide.client.RuntimeTuning.ticketBudget()
                 : timeout;
-        Duration stall = (stallTimeout == null || FleetTuning.STALL_TIMEOUT.equals(stallTimeout))
+        boolean stallFromLiveKnob = stallTimeout == null || FleetTuning.STALL_TIMEOUT.equals(stallTimeout);
+        Duration stall = stallFromLiveKnob
                 ? com.opencode.ide.client.RuntimeTuning.stallTimeout()
                 : stallTimeout;
         long timeoutNanos = budget.toNanos();
@@ -1128,11 +1148,13 @@ public final class TaskFleet {
             if (now - lastStallReset >= stallNanos) {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
-                        "stalled: session idle and silent for " + stallTimeout
+                        "stalled: session idle and silent for " + stall
                                 + ", session aborted (" + (promptStarted
                                         ? "the prompt was delivered; the worker hung"
                                         : "the prompt never left the worker pool") + ")"
-                                + " | knob: FleetTuning.STALL_TIMEOUT (env FLEET_STALL_TIMEOUT_MS)"
+                                + " | knob: " + (stallFromLiveKnob
+                                        ? "RuntimeTuning.stallTimeout (default: env FLEET_STALL_TIMEOUT_MS; the tuning dialog overrides at runtime)"
+                                        : "the explicit per-run stall window")
                                 + " | cause: " + HangKind.of(
                                         activity == null ? null : activity.lastAssistant(),
                                         activity == null ? null : activity.lastTool())
@@ -1141,9 +1163,11 @@ public final class TaskFleet {
             if (now - lastProgress >= budgetNanos) {
                 runner.abort(job.sessionId());
                 return withState(job, FleetJob.State.FAILED,
-                        "timeout after " + timeout + " without observed progress (ticket budget; knob: "
-                                + "FleetTuning.DEFAULT_TICKET_BUDGET, env FLEET_TICKET_BUDGET_MS - "
-                                + "per-ticket: the launch timeout)"
+                        "timeout after " + budget + " without observed progress (ticket budget; knob: "
+                                + (budgetFromLiveKnob
+                                        ? "RuntimeTuning.ticketBudget (default: env FLEET_TICKET_BUDGET_MS; the tuning dialog overrides at runtime)"
+                                        : "the explicit launch timeout")
+                                + ")"
                                 + (permissionWait ? "; a permission ask was never answered" : "")
                                 + ", session " + job.sessionId() + " aborted"
                                 + " | cause: " + HangKind.of(

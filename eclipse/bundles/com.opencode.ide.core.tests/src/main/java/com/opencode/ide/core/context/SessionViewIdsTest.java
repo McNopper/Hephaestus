@@ -66,4 +66,20 @@ public class SessionViewIdsTest {
         assertEquals("s\u00e4_50%~x", parsed.sessionId());
         assertTrue(parsed.autoRefresh());
     }
+
+    /** B-017: the chat view and open-command ids live HERE, once. */
+    @Test
+    public void chatViewAndCommandIdsArePinned() {
+        assertEquals("com.opencode.ide.chat.views.ChatView", SessionViewIds.CHAT_VIEW_ID);
+        assertEquals("com.opencode.ide.chat.openChat", SessionViewIds.CHAT_OPEN_COMMAND_ID);
+    }
+
+    /** B-017: parameter ids are qualified with the command id — no caller concatenates. */
+    @Test
+    public void chatCommandParametersAreQualifiedWithTheCommandId() {
+        assertEquals(SessionViewIds.CHAT_OPEN_COMMAND_ID + ".providerId",
+                SessionViewIds.chatCommandParameter("providerId"));
+        assertEquals(SessionViewIds.CHAT_OPEN_COMMAND_ID + ".sessionId",
+                SessionViewIds.chatCommandParameter("sessionId"));
+    }
 }

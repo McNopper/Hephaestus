@@ -2,8 +2,9 @@
 
 ## About this document
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-028, stage `requirements`).
-- **Read by:** the downstream V-chain stages of U-028 (`system` → `architecture` → `design` → `implementation`) and the verification leg (`test-*`, ending at `test-requirements`); the reviewer agent at acceptance; any agent asking "what must the WIP count and the V chevrons do?".
+- **Read by:** maintainers; any agent asking "what must the WIP count and the V chevrons do?".
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
+- **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the code landed inside the system-stage run; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** U-018 (origin — the rubberduck-review follow-ups whose slices 1+2 landed; "V chevron connectors, WIP limits" were the deferred remainder), U-016 (the V board layout these features polish), **U-026 (v-flow visibility — this ticket is explicitly secondary to it, see *Scope & Priority*)**, and the current-behavior baseline in `eclipse/bundles/com.opencode.ide.board` (`BoardView`, `BoardModel`/`BoardSnapshot`, `StageColumn`, `VStageLayout`, `TicketRow`). This file is the **what and why** — placement, styling and code are the later stages' work.
 
 ## Goal
@@ -56,7 +57,7 @@ whose geometry `VStageLayout` renders as two arms with the vertex turn at the bo
 
 ### Feature A — WIP indicators (count only)
 
-- **FR-001 (ubiquitous):** THE board SHALL display, in the V-model stages layout, a per-stage-column WIP count: for every rendered stage column, the count of that column's tickets whose status is `in-progress`, shown alongside the existing total/blocked header counts, including when it is 0.
+- **FR-001 (ubiquitous):** THE board SHALL display, in the V-model stages layout, a per-stage-column WIP count: for every rendered stage column, the count of that column's tickets whose status is `in-progress`, shown alongside the existing total/blocked header counts **whenever it is nonzero — a zero count renders nothing** (the label is omitted rather than showing 0). *(Amended: the original text required the count "including when it is 0"; the shipped behavior hides the label at 0 — BoardView.java:2031 — and that choice passed review.)*
 - **FR-002 (ubiquitous):** THE board SHALL display one board-wide WIP count — the number of `in-progress` tickets across the displayed project — on a surface visible in **every** Group-by layout (the header's fleet row, beside the existing `n ready · m stale` readiness badge, is the natural home; design confirms), including when it is 0.
 - **FR-003 (event-driven):** WHEN the board refreshes (watcher event, manual Refresh, layout switch), THEN every WIP count SHALL be recomputed from that refresh's snapshot with the same row-set semantics as the existing column counts — a WIP count never disagrees with the cards the board currently shows.
 - **FR-004 (unwanted):** IF the WIP count takes any value (including values above the fleet's concurrency setting or any other number), THEN the board SHALL NOT warn, recolor, gate, block or otherwise change behavior because of it — no WIP-limit concept exists in this feature (no maximum, no threshold, no setting, no tool).
@@ -83,7 +84,7 @@ whose geometry `VStageLayout` renders as two arms with the vertex turn at the bo
 
 ## Acceptance Criteria
 
-- **AC-001 (FR-001 — per-column WIP):** Given the V-model stages layout and a project with two `in-progress` tickets in `architecture`, one in `test-design` and none in any other stage, when the board renders, then the `architecture` column header shows in-progress count 2, `test-design` shows 1, every other stage column shows 0 — each alongside its existing total/blocked counts.
+- **AC-001 (FR-001 — per-column WIP):** Given the V-model stages layout and a project with two `in-progress` tickets in `architecture`, one in `test-design` and none in any other stage, when the board renders, then the `architecture` column header shows in-progress count 2, `test-design` shows 1, and every other stage column **omits the WIP figure entirely** (a zero count is not rendered — BoardView.java:2031) — each alongside its existing total/blocked counts.
 - **AC-002 (FR-002 — board-wide WIP):** Given any Group-by layout and a project with exactly four tickets in status `in-progress`, when the board renders, then the board-wide WIP surface shows 4.
 - **AC-003 (FR-003 — live refresh):** Given the board showing WIP 2, when a peer agent claims another ticket (a watcher event moves one ticket from `sprint-backlog` to `in-progress`), then after the automatic refresh every WIP surface shows 3 with no manual Refresh.
 - **AC-004 (FR-004 — no limits concept):** Given any number of in-progress tickets (e.g. more than the fleet's concurrency setting), when the board renders, then the WIP counts display plainly — no threshold styling, warning, dialog, or gating of launches and drag-drops — and no WIP-limit setting or tool exists.
@@ -93,6 +94,22 @@ whose geometry `VStageLayout` renders as two arms with the vertex turn at the bo
 - **AC-008 (FR-009 — visual hierarchy):** Given a stage column with blocked tickets (red blocked count), when the board renders with chevrons, then the blocked count remains red/bold and the chevrons use neither red nor bold styling.
 - **AC-009 (FR-010 — empty board):** Given an empty board (a sprint with no tickets, or an empty store), when the V-model stages layout renders, then all ten stage columns and the full nine-connector chevron chain still render.
 - **AC-010 (ticket AC 2 — scope, doc-level):** Given these requirements, then the scope is the two polish features only, U-026 is named primary (*Scope & Priority*, C-003, Non-Goals), and no store/fleet/tool surface is added (C-001) — small by construction.
+
+## Delivery status (per FR)
+
+**Outcome:** shipped — both features landed with the B-007 stage-aware
+acceptance pass (`StageEvidence` + the reviewer doubt retry landed in the
+same era; HISTORY.md H9 records the wave). The board half is pinned by
+`BoardPolishPackTest`.
+
+| FR | Status | Note |
+|---|---|---|
+| FR-001 | Delivered, **as amended** | per-column `· N WIP` label beside total/blocked (BoardView.java:2030-2031); a zero count omits the label — see the amended FR-001 above |
+| FR-002 | Delivered | the fleet-row badge appends `· N WIP` unconditionally, zero included (BoardView.java:1948; BoardSnapshot.wipCount, BoardSnapshot.java:93) |
+| FR-003 | Delivered | recomputed from each refresh's snapshot in `applyPipelineSnapshot` (BoardView.java:2018-2038) |
+| FR-004 | Delivered | a plain count — no warn/recolor/gate anywhere (the FR's unwanted-behavior list matches the code) |
+| FR-005 | Delivered | the badge counts from the sprint snapshot (BoardSnapshot.wipCount), independent of layout and status-filter hiding |
+| FR-006–FR-010 | Delivered | the nine directional chevron connectors derived from `VStageLayout`/`VStages` (BoardPolishPackTest) |
 
 ## Open Questions
 - **Q-001:** Exact chevron placement and visual form (gap between stacked column cells, header-edge markers, or an overlay) — a design-stage decision; requirements fix only the nine connectors, their directions, and the hierarchy rules.

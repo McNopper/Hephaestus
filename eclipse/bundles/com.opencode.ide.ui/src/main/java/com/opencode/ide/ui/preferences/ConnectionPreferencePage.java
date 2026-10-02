@@ -53,6 +53,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
     private Text workdirText;
     private Text defaultModelText;
     private Text defaultVariantText;
+    private Button advertiseRenderingButton;
     private Text tasksRootText;
     private Text tasksProjectText;
     private org.eclipse.swt.widgets.List remoteList;
@@ -186,6 +187,13 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         defaultVariantText = new Text(defaultsGroup, SWT.BORDER);
         defaultVariantText.setToolTipText("Reasoning variant for the default model (e.g. max); empty = model default");
         defaultVariantText.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
+
+        advertiseRenderingButton = new Button(defaultsGroup, SWT.CHECK);
+        advertiseRenderingButton.setText("Advertise rendering");
+        advertiseRenderingButton.setToolTipText("Tell the model in every request what the chat can render "
+                + "(markdown, KaTeX math, mermaid, highlighted code). On by default; without it models "
+                + "answer in plain terminal style and math/diagrams have to be requested manually.");
+        advertiseRenderingButton.setLayoutData(span(2));
 
         Label tasksRootLabel = new Label(defaultsGroup, SWT.NONE);
         tasksRootLabel.setText("Task store root:");
@@ -327,6 +335,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         workdirText.setText(prefs.getWorkingDirectory());
         defaultModelText.setText(prefs.getDefaultModel());
         defaultVariantText.setText(prefs.getDefaultVariant());
+        advertiseRenderingButton.setSelection(prefs.isAdvertiseRendering());
         tasksRootText.setText(prefs.getTasksRoot());
         tasksProjectText.setText(prefs.getTasksProject());
         remoteList.removeAll();
@@ -352,6 +361,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         workdirText.setText(OpencodePreferences.DEFAULT_WORKING_DIRECTORY);
         defaultModelText.setText(OpencodePreferences.DEFAULT_MODEL);
         defaultVariantText.setText(OpencodePreferences.DEFAULT_VARIANT);
+        advertiseRenderingButton.setSelection(true);
         tasksRootText.setText(OpencodePreferences.DEFAULT_TASKS_ROOT);
         tasksProjectText.setText(OpencodePreferences.DEFAULT_TASKS_PROJECT);
         remoteList.removeAll();
@@ -372,6 +382,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
         prefs.setWorkingDirectory(workdirText.getText().trim());
         prefs.setDefaultModel(defaultModelText.getText().trim());
         prefs.setDefaultVariant(defaultVariantText.getText().trim());
+        prefs.setAdvertiseRendering(advertiseRenderingButton.getSelection());
         prefs.setTasksRoot(tasksRootText.getText().trim());
         prefs.setTasksProject(tasksProjectText.getText().trim());
         prefs.setRemoteConnectionConfigs(List.copyOf(remoteConfigs));

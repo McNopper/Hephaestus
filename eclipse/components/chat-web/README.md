@@ -13,6 +13,16 @@ it. In this repository the Eclipse bundle `com.opencode.ide.chat` consumes it
 at build time by copying `web/` into the plugin jar; that is one consumer, not
 a requirement.
 
+## About this document
+
+- **Kind:** `doc` / component README and consumer doc for the versioned bridge
+  contract of `components/chat-web`.
+- **Read by:** embedders hosting the renderer (the Eclipse chat bundle is one)
+  and anyone changing `web/chat.js`; **written by:** maintainers.
+- **Related:** the Eclipse consumer lives in
+  `../../bundles/com.opencode.ide.chat` (`ChatPage`, `MarkdownPage` — the
+  doc-mode reuse); `../../ARCHITECTURE.md` points here as the contract.
+
 ## Layout
 
 ```
@@ -52,6 +62,7 @@ of throwing silently inside `browser.execute()`.
 |---|---|---|
 | `__setTheme(theme)` | plain string `"dark"` or `"light"` | Toggles `body.dark`/`body.light`, swaps the highlight.js stylesheet (`#hljs-light`/`#hljs-dark`), re-initialises mermaid lazily with the matching theme. |
 | `__setNotice(text)` | plain string | Appends a centred, muted notice line to the transcript. |
+| `__setDocMode(on)` | plain boolean | Toggles read-only **doc mode** (`body.doc`): drops the chat-bubble width cap so full-width content (mermaid architecture diagrams) fits. Hosts that reuse the page as a plain markdown renderer (the Board's ticket details via the chat bundle's `MarkdownPage`) load it as `chat.html?doc=1`, which applies the class automatically; `__setDocMode` toggles it from Java afterwards (also works where `location` is unavailable, e.g. embedded shims). Reports `doc mode: on/off`. |
 | `__appendUser(json)` | `{"text": string}` | Appends a user bubble; text is rendered as markdown. |
 | `__startAssistant(json)` | `{"mid": string}` | Appends an empty assistant bubble tagged `data-mid=mid` showing a pulsing "thinking…" indicator (idempotent: no-op if `mid` already exists). The indicator is cleared by the first content chunk, `__stopStream` or the final render. |
 | `__appendDelta(json)` | `{"mid": string, "text": string}` | Streams one text chunk into the assistant bubble. Rendering is **block-level progressive**: a markdown block that completed while streaming (sealed by a later blank line, a closed code fence, or a well-formed table) renders as markdown immediately as its own element and is never re-rendered; only the trailing in-progress block stays raw text (monospace) under the blinking cursor. Whole repaints are throttled to ~5 renders/s (leading edge immediate, later chunks coalesced); structural commits paint on the spot because their cost scales with the new blocks, not the whole message. The mermaid diagram pass is skipped mid-stream (incomplete fence source would error on every tick) — fences stay highlighted code until the final render. Creates the bubble if `__startAssistant` was not called. |

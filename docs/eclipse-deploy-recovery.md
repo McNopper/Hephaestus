@@ -6,7 +6,7 @@
 - **Read by:** anyone deploying or testing the plugin on a real Eclipse;
   **written by:** maintainers.
 - **Related:** `eclipse/deploy-dev.ps1` (the tool this documents),
-  `../ROADMAP.md`, `status-quo-review.md` (why these behaviors exist).
+  `../ROADMAP.md`, `HISTORY.md` (why these behaviors exist).
 
 ## Deploying
 
@@ -30,6 +30,15 @@ jars, then:
   lines (the recovery state below), refreshes them to the freshly built
   versions so OSGi never sees a manifest/bundles.info version mismatch.
   Normal installs have no such lines and rely on the p2 dropins reconciler.
+- copies `plugin_customization.ini` to the Eclipse root and, if the flag is
+  absent, inserts `-pluginCustomization plugin_customization.ini` into
+  `eclipse.ini` (just before `-vmargs`) — the seeded defaults for connection
+  scope and task store.
+- pins `-Dopencode.repo=<repo-of-the-deploy>` as a vmargs line in
+  `eclipse.ini` (idempotent — only added when missing). This is the
+  authoritative "where is my project" setting: connection scope and task
+  store both resolve from it, and **when set it wins over every preference
+  and ini key**, including the `plugin_customization.ini` values above.
 
 **Launch with an explicit workspace** when scripting (`-data
 C:\Development\workspace-cpp`); without it the instance data location can stay
@@ -41,12 +50,13 @@ deploy is slower (cache rebuild + p2 reconciliation); let it finish.
 
 ## Install recovery (damaged p2 profile)
 
-Symptoms seen on 2026-09-14 after a reconciliation was interrupted mid-start:
-instant "Unable to acquire application service" exits, `bundles.info` missing
-or stripped of exploded-directory bundles, resolution cascades ending in
-`Application "org.eclipse.ui.ide.workbench" could not be found`.
+Symptoms: instant "Unable to acquire application service" exits,
+`bundles.info` missing or stripped of exploded-directory bundles, resolution
+cascades ending in
+`Application "org.eclipse.ui.ide.workbench" could not be found` (the damaged
+state below).
 
-Recovery that worked (in order):
+Recovery (in order):
 
 1. **Restore `configuration\config.ini`.** A correct one boots
    `org.eclipse.equinox.simpleconfigurator` via `osgi.bundles` with an
@@ -59,10 +69,9 @@ Recovery that worked (in order):
 2. **Regenerate `bundles.info` from the actual `plugins/` content.** Two kinds
    of entries exist and both must be present:
    - every `*.jar`: `<id>,<version>,file:plugins/<name>.jar,<level>,<started>`
-   - every **exploded directory** with `META-INF/MANIFEST.MF` (13 existed in
-     the CDT 4.41 EPP install, including the product bundle, the splash, the
-     CDT win32 fragment and the JustJ JRE) — a jar-only scan silently drops
-     them.
+   - every **exploded directory** with `META-INF/MANIFEST.MF` (an EPP install
+     carries several — product bundle, splash, win32 fragments, the JustJ
+     JRE) — a jar-only scan silently drops them.
    Read id/version from each manifest. Safe flags: `org.eclipse.equinox.
    simpleconfigurator` → `1,true`; `org.eclipse.equinox.common` → `2,true`;
    `org.eclipse.core.runtime` → `4,true`; the runtime-critical set
@@ -74,7 +83,7 @@ Recovery that worked (in order):
    during IDEApplication startup.
 3. **Add the opencode-ide dropin jars as explicit lines**
    (`file:dropins/opencode-ide/plugins/<jar>.jar`) if the dropins reconciler
-   no longer manages them — the damaged profile stopped doing so. Deploy-
+   no longer manages them — a damaged profile stops doing so. Deploy-
    dev.ps1 keeps these lines current on every redeploy.
 4. Launch once; expect one p2-triggered framework restart while
    reconciliation settles, then a normal workbench.
@@ -107,10 +116,13 @@ builds and deploys still go through `build.ps1 verify` + `deploy-dev.ps1`
 
 EGit covers commit/push from inside Eclipse (*Team → Commit/Push*); the HOME
 warning on startup is cosmetic (Git for Windows and EGit agree on
-`C:\Users\<user>` for global config). Note that a repo-root `.project`
-conflicts with nested bundle projects (Eclipse forbids overlapping projects) —
-detection of "the opened repo" for product self-configuration is tracked as
-ticket O-001.
+`C:\Users\<user>` for global config). A repo-root `.project` still conflicts
+with the nested bundle projects (Eclipse forbids overlapping projects), which
+is why THIS repo's dev layout keeps working through markers. For adopting
+other repos, O-001 is done: the OpenCode repo nature plus the Board's
+*Adopt repo…* action — it writes the root `.project`, imports and opens the
+repo as a workspace project, and refuses nested-project repos with the
+auto-discovery explanation.
 
 ## Known launch-time pitfalls fixed in the plugin
 

@@ -5,6 +5,14 @@ Eclipse plugin integrating [opencode](https://opencode.ai) into the Eclipse CDT 
 `-EclipseRoot` argument or the `ECLIPSE_HOME` env var; Eclipse 4.40 / Java 21 / CDT 12.5).
 Source lives in the repo's `eclipse/` folder.
 
+## About this document
+
+- **Kind:** `doc` / install & run guide for the `eclipse/` plugin.
+- **Read by:** anyone building or running the plugin (or the `tasks`/`fleet`
+  stdio launchers); **written by:** maintainers.
+- **Related:** `README.md` (bundle map), `ARCHITECTURE.md` (layer rules),
+  `QUALITY.md` (the quality gate), `DISTRIBUTED-FLEETS.md` (multi-machine stores).
+
 ## Prerequisites
 
 - **opencode** installed and on PATH (`opencode --version` → 2.x). Pinned and endpoint-verified against 2.0.19 (see `ServerVersionPin`; last live cross-check 2026-09-29).
@@ -50,9 +58,11 @@ Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules
             -pl bundles/com.opencode.ide.mcp -pl bundles/com.opencode.ide.mcp.tests clean verify
 ```
 
-Both run the 1048 Java tests (plus 16 in the `opencode-tasks` mojo module); `verify` also runs
-the 153 Node checks (51 renderer + 94 bridge + 8 mermaid against `components/chat-web`) when
-Node is available (`-DskipNodeChecks=true` to skip). Produces plugin JARs in
+Both run the Java test suites (1913 `@Test` methods across the 11 test
+fragments, plus 16 in the `opencode-tasks` mojo module); `verify` also runs
+the 260 Node checks (58 renderer + 194 bridge + 8 mermaid against
+`components/chat-web`) when Node is available (`-DskipNodeChecks=true` to skip).
+Produces plugin JARs in
 `bundles\<name>\target\` and (full build) a p2 update site in
 `releng\com.opencode.ide.repository\target\repository\`.
 
@@ -71,10 +81,30 @@ Copies the freshly built plugin JARs straight into the Eclipse dropins folder.
 
 Then **(re)start Eclipse CDT** and open the **OpenCode** perspective.
 
+Besides the jars, `deploy-dev.ps1` also wires the harness defaults once per
+install (each edit is skipped when its flag is already present):
+
+- it copies `plugin_customization.ini` next to `eclipse.exe` and adds
+  `-pluginCustomization plugin_customization.ini` to `eclipse.ini`. That file
+  seeds a **fresh workspace** with the Board's default project — it carries
+  no paths (B-019): machine paths never ship; every value stays overridable
+  in Preferences.
+- it adds `-Dopencode.repo=<repo>` to the `-vmargs` block, pinned to the repo
+  the script ran from. This pin is the **one authoritative repo path**: when
+  set it wins over the working-directory / tasks-root preferences (an open
+  CDT project still wins for the spawn working directory), so a deploy to a
+  different clone path needs no hand edits. Without the pin the task store
+  resolves from the workspace itself (climb / repo adoption / preference —
+  see `TasksRootResolution`), and the spawn working directory derives from
+  the workspace/project context.
+
 - Re-run both lines after any code change, then restart Eclipse.
 - If the perspective/views don't refresh after a change, run Eclipse once with `-clean`
   (add a line `-clean` near the top of `<eclipse-install>\eclipse.ini`, start once, remove it).
-- **Undo:** delete `<eclipse-install>\dropins\opencode-ide\` and restart — plugin is gone.
+- **Undo:** delete `<eclipse-install>\dropins\opencode-ide\`, remove the
+  `-pluginCustomization` and `-Dopencode.repo=…` lines from `eclipse.ini`,
+  delete the copied `plugin_customization.ini`, and restart — plugin and
+  defaults are gone.
 - No debugging/breakpoints with this route.
 
 ### Option B — p2 install (stable / "production")
@@ -109,25 +139,33 @@ one-time setup:
 
 ## Using the plugin
 
-1. **Start an opencode server** (one of):
-   - *Connect mode* (default): in a terminal run
-     ```
-     opencode serve --hostname 127.0.0.1 --port 4096
-     ```
-     (If you set `OPENCODE_SERVER_PASSWORD`, also enter it in the preference page below.)
-   - *Spawn mode*: in **Window → Preferences → OpenCode** set **Mode = SPAWN**. The plugin
-     starts and manages an `opencode serve` child process itself (resolves the binary from
-     the preference or PATH; kills the process tree on stop).
-2. **Window → Perspective → Open Perspective → Other… → OpenCode**.
+1. **Connection** — the default is **SPAWN with *Attach to the shared opencode
+   service (v2)* on**: the plugin joins the per-user background service every
+   v2 client (TUI, CLI) shares, and falls back to spawning a private
+   `opencode serve` child process when the service cannot be discovered or
+   started (binary resolved from the preference or PATH; process tree killed
+   on stop; the port is **dynamic** — the preference page has no port field,
+   only the bind hostname). Alternatively set **Mode = CONNECT** in
+   **Window → Preferences → OpenCode** and start the server yourself:
+   ```
+   opencode serve --hostname 127.0.0.1 --port 4096
+   ```
+   (If you set `OPENCODE_SERVER_PASSWORD`, also enter it in the preference page.)
+2. **Window → Perspective → Open Perspective → Other… → OpenCode** — the chat
+   fills the right side, every other view is one tab in the left stack.
 3. The **Server** view (left) shows one root per connection (the primary plus any remote
     connections configured in the preferences) with **Agents**, **Sessions** (subagents
-    nested, thinking/running-tool indicators), **Active files**, **MCP servers** and
+    nested, thinking/running-tool indicators), **Active files**, **Working set** (the
+    project's changed files with per-status counts), **MCP servers** and
     **Skills** categories (virtualized for scale). The **Providers** view
-    (bottom) lists all models with filter + column sorting (virtualized; provider logos with
-    letter-badge fallback). Use the views' **Refresh** action to re-query. A session's context
-    menu offers **Session details** — a per-session transcript view (messages, reasoning,
-    tool lines, tokens/cost) that refreshes live over SSE; double-clicking a session resumes
-    it in a chat window.
+    lists all models with filter + column sorting (virtualized; provider logos with
+    letter-badge fallback). The **Repo** view is a lazy file tree plus fuzzy
+    file/symbol/text search over the server's file endpoints; the **Background** view is
+    the "what is going on" cockpit (every session and subagent with live activity, shells
+    with their output, pending permission asks answerable once/always/reject). A session's
+    context menu offers **Session details** — a per-session transcript view (messages,
+    reasoning, tool lines, tokens/cost) that refreshes live over SSE; double-clicking a
+    session resumes it in a chat window. Use the views' **Refresh** action to re-query.
 4. The **Chat** view (right) is a native markdown chat: pick an agent + model (+ **variant** for
     models that expose them, e.g. `high`/`thinking`; `(default)` omits it), type a prompt
     (**ENTER** sends, **Shift+ENTER** = newline). Replies render markdown, **LaTeX math**
@@ -138,32 +176,39 @@ one-time setup:
     window Ctrl+Alt+Shift+N). Double-clicking a model in Providers or a session in
     the Server view opens a chat window pre-set to it / resuming it.
     - Requires **WebView2**; the view shows a hint if unavailable.
-    - The plugin tells the model what the view can render (markdown/math/code fences) via a
-      per-request system prompt — toggle in *Preferences → OpenCode → Advertise rendering*.
-5. The **Board** view (PM kanban over the repo's `.opencode/tasks/` store: five status
-    columns, sprint selector + goal, blocked flags, ticket details with artifact links,
-    live refresh) and the **Fleet** view (launched fleet jobs: task → session → worktree →
-    state, per-job diff/folder/take-over) drive the headless fleet: select a
-    sprint-backlog/in-progress ticket and **Launch task** to run it in an isolated git
+    - The plugin tells the model what the view can render (markdown, LaTeX math, mermaid,
+      highlighted code fences) via a per-request system prompt
+      (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; there is no
+      preference-page toggle for it yet (U-055).
+5. The **Board** view (PM kanban over the repo's `.opencode/tasks/` store: six status
+    columns — *paused* included — or the ten V-stage pipeline columns, sprint selector
+    + goal, blocked flags, ticket details with artifact links, live refresh) and the
+    **Fleet** view (a tree of engine → wave → job (ticket) → worker session → subagents →
+    console/shell tasks, with per-job diff/folder/watch actions; jobs launched by peer
+    engines group under their own root; *Take over* opens the worktree and marks the job
+    taken over — v2 has no TUI steering channel any more) drive the headless fleet: select
+    a sprint-backlog/in-progress ticket and **Launch task** to run it in an isolated git
     worktree with a role-mapped agent (merge-back and ticket bookkeeping are automatic).
 6. If the server URL or credentials differ, set them in
-    **Window → Preferences → OpenCode** — primary connection incl. spawn settings and
-    working directory, plus the **Defaults** group (chat model `provider/model` + variant —
+    **Window → Preferences → OpenCode** — primary connection (mode; SPAWN: the attach
+    checkbox, opencode binary, hostname, working directory — no port; CONNECT: server URL,
+    username, password) plus the **Defaults** group (chat model `provider/model` + variant —
     default `zai-coding-plan/glm-5.3` with `max`; task-store root + Board project — blank
     root = derived from the workspace (the Board walks up looking for `.opencode/tasks`),
     project default `hephaestus`; remote-connections list with passwords in secure storage) —
     then hit **Refresh**.
-6. On startup the plugin also starts a local **MCP endpoint** for agents
+7. On startup the plugin also starts a local **MCP endpoint** for agents
    (log line: `eclipse-build MCP listening on http://127.0.0.1:<port>/mcp`) exposing
    cmake build/test, run, gdb-batch debug, clang-tidy/cppcheck lint and clang-format tools
-   across the detected toolchains (MSVC + MSYS2 clang64/mingw64/ucrt64).
+   across the detected toolchains (MSVC + MSYS2 clang64/mingw64/ucrt64), **plus the
+   `task_*` tool pack** (the same 22 tools the `tasks` stdio server serves).
 
 ## Connection modes at a glance
 
 | Mode | Where the server comes from | Preference fields |
 |---|---|---|
-| **CONNECT** (default) | You start `opencode serve` | Server URL, Username, Password |
-| **SPAWN** | Plugin starts/owns `opencode serve` | (optional) opencode binary, hostname, port, Password, **working directory** (the repo whose `.opencode/` agents/skills/MCP config load; blank = derived from the workspace — an open CDT project still wins) |
+| **SPAWN** (default) | Plugin joins the shared v2 background service, or spawns/owns `opencode serve` | **Attach to the shared service** checkbox (default on), (optional) opencode binary, hostname, Password, **working directory** (the repo whose `.opencode/` agents/skills/MCP config load; blank = derived from the workspace — an open CDT project still wins). No port field: the port is dynamic |
+| **CONNECT** | You start `opencode serve` | Server URL, Username, Password |
 
 > In SPAWN mode the server runs in the configured working directory, so the **Hephaestus
 > harness itself is what the plugin hosts**: its agents, skills and MCP servers (visible in
@@ -172,9 +217,12 @@ one-time setup:
 ## Troubleshooting
 
 - **`tasks`/`fleet` MCP servers fail with `Connection closed` (opencode TUI)** → the stdio
-  launchers (`eclipse/tasks-tools.ps1` / `fleet-tools.ps1`) died at spawn: install
-  PowerShell 7, run one `.\build.ps1 clean verify` (the launchers need the built jars and
-  resolve gson from the Tycho p2 cache `~/.m2` or `$env:ECLIPSE_HOME`). Then reconnect —
+  launchers (`eclipse/tasks-tools.ps1` / `fleet-tools.ps1`) died at spawn. They are **pwsh**
+  scripts (install PowerShell 7) needing a JDK 21+ and the **built bundle jars** — run one
+  `.\build.ps1 clean verify` first (the `tasks` launcher resolves tasks+tools, the `fleet`
+  launcher fleet+client+git+tasks+tools; gson comes from the Tycho p2 cache `~/.m2` or
+  `$env:ECLIPSE_HOME`; a launcher spawned from a fleet *worktree* falls back to the main
+  checkout's jars — worktrees carry no `target/` output). Then reconnect —
   the MCP servers belong to the shared background service, so a TUI restart keeps the
   stale state: `POST /api/experimental/mcp/<name>/connect?location[directory]=<repo>`
   (Basic auth; password in `~/.local/state/opencode/service.json`), or restart the service.

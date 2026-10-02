@@ -163,6 +163,9 @@ public final class TaskToolProvider implements ToolProvider {
                 return json(store.addArtifact(reqStr(a, "project"), reqStr(a, "ticket_id"),
                         reqStr(a, "kind"), reqStr(a, "ref"), optStr(a, "note", ""),
                         optStr(a, "by", null)).toJson());
+            case "task_remove_artifact":
+                return json(store.removeArtifact(reqStr(a, "project"), reqStr(a, "ticket_id"),
+                        reqInt(a, "index"), optStr(a, "by", null)).toJson());
             case "task_add_todo":
                 return json(store.addTodo(reqStr(a, "project"), reqStr(a, "ticket_id"),
                         reqStr(a, "text"), optBool(a, "done", false),
@@ -437,6 +440,15 @@ public final class TaskToolProvider implements ToolProvider {
                     obj.add("note", strP());
                     obj.add("by", strP());
                 })));
+        out.add(new McpTool("task_remove_artifact",
+                "Remove a task's artifact by 0-based index (correcting a wrong ref: remove it, then re-record "
+                        + "via task_add_artifact).",
+                schema(new String[]{"project", "ticket_id", "index"}, obj -> {
+                    obj.add("project", strP());
+                    obj.add("ticket_id", strP());
+                    obj.add("index", intP());
+                    obj.add("by", strP());
+                })));
         out.add(new McpTool("task_add_todo", "Append a todo (checklist item) to a task.",
                 schema(new String[]{"project", "ticket_id", "text"}, obj -> {
                     obj.add("project", strP());
@@ -488,8 +500,12 @@ public final class TaskToolProvider implements ToolProvider {
                         + "what's runnable right now.",
                 schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
         out.add(new McpTool("task_doctor",
-                "Store self-check (lint): reports inconsistent flag combinations per ticket (done but blocked, "
-                        + "sprint set while product-backlog); ok=true when the store is consistent.",
+                "Store self-check (lint): reports ticket files the store cannot parse (invisible to every "
+                        + "other task_* read), inconsistent flag combinations per ticket (done but blocked, "
+                        + "sprint set while product-backlog) and file/path artifact refs that do not resolve "
+                        + "under the repo root (glob/brace/prose-like refs are skipped, and so is the whole "
+                        + "check when the store root is not <repo>/.opencode/tasks); ok=true when the store "
+                        + "is consistent.",
                 schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
         return List.copyOf(out);
     }

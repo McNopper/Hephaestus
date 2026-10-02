@@ -373,16 +373,31 @@ public interface OpencodeClient {
 
     /** v2 MCP management: remove a configured server (experimental.mcp.remove). */
     default void removeMcp(String name) throws OpencodeException {
+        removeMcp(name, null);
+    }
+
+    /** {@code DELETE /api/experimental/mcp/:server?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default void removeMcp(String name, String directory) throws OpencodeException {
         throw new UnsupportedOperationException("removeMcp");
     }
 
     /** v2 MCP management: reconnect a server (experimental.mcp.connect). */
     default void connectMcp(String name) throws OpencodeException {
+        connectMcp(name, null);
+    }
+
+    /** {@code POST /api/experimental/mcp/:server/connect?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default void connectMcp(String name, String directory) throws OpencodeException {
         throw new UnsupportedOperationException("connectMcp");
     }
 
     /** v2 MCP management: disconnect a server (experimental.mcp.disconnect). */
     default void disconnectMcp(String name) throws OpencodeException {
+        disconnectMcp(name, null);
+    }
+
+    /** {@code POST /api/experimental/mcp/:server/disconnect?location[directory]=…} - scoped variant (see {@link #getAgents(String)}). */
+    default void disconnectMcp(String name, String directory) throws OpencodeException {
         throw new UnsupportedOperationException("disconnectMcp");
     }
 

@@ -1,4 +1,4 @@
-package com.opencode.ide.board.model;
+package com.opencode.ide.core;
 
 import static org.junit.Assert.assertEquals;
 
@@ -19,6 +19,11 @@ import org.junit.rules.TemporaryFolder;
  * default — the live B-002 failure), then the preference, then the
  * historical guess. Everything runs against temp directories; the
  * preference is a supplier, so no Eclipse runtime is needed.
+ *
+ * <p>Moved from the board bundle to core with the resolver (B-016): the
+ * order now pins the ONE seam the Board view AND the eclipse-build endpoint
+ * (via the activator's {@code opencode.tasks.root} bridge) resolve through.
+ * The assertions are unchanged.</p>
  */
 public class TasksRootResolutionTest {
 

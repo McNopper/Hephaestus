@@ -20,6 +20,9 @@ DB="$BUILD_DIR/compile_commands.json"
 
 LOG="$BUILD_DIR/reports/clang-tidy.log"
 mkdir -p "$BUILD_DIR/reports"
+# start from an empty log: the classification below greps $LOG, so findings
+# appended by earlier runs would keep the lane red after the code was fixed
+: > "$LOG"
 
 fail=0
 advisory=0

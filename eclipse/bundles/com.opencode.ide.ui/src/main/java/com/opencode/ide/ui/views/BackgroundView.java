@@ -31,6 +31,7 @@ import com.opencode.ide.client.activity.SessionObserver;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.context.SessionViewIds;
 import com.opencode.ide.ui.model.BackgroundModel;
 
 /**
@@ -51,7 +52,6 @@ public class BackgroundView extends ViewPart {
     public static final String ID = "com.opencode.ide.ui.views.BackgroundView";
 
     private static final int REFRESH_MILLIS = 3_000;
-    private static final String CHAT_VIEW_ID = "com.opencode.ide.chat.views.ChatView";
 
     private Tree agentsTree;
     private Table shellsTable;
@@ -327,13 +327,14 @@ public class BackgroundView extends ViewPart {
 
     /**
      * Opens/resumes the chat cross-bundle via the ChatView secondary-id
-     * convention ({@code ses_…} = resume that session) - no bundle
+     * convention ({@code ses_…} = resume that session; the id built by the
+     * ONE seam, {@link SessionViewIds#secondaryId(String)}) - no bundle
      * dependency; a missing chat bundle degrades to a status note.
      */
     private void openChat(String sessionId) {
         try {
-            getSite().getPage().showView(CHAT_VIEW_ID,
-                    java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8),
+            getSite().getPage().showView(SessionViewIds.CHAT_VIEW_ID,
+                    SessionViewIds.secondaryId(sessionId),
                     org.eclipse.ui.IWorkbenchPage.VIEW_ACTIVATE);
         } catch (Exception e) {
             note("cannot open the chat: " + e.getMessage());

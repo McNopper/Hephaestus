@@ -20,7 +20,7 @@
 
 | Need | Check | Notes |
 |---|---|---|
-| JDK 21+ | `java -version` | On PATH or via `JAVA_HOME`. The fleet bundles are JavaSE-21 (17+ covers only the `tasks` server). |
+| JDK 21+ | `java -version` | On PATH or via `JAVA_HOME` — **both** stdio servers require it: `tasks-tools.ps1` and `fleet-tools.ps1` throw without a JDK 21+ (the bundles are JavaSE-21). |
 | git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
 | opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.0.19 (endpoint-verified against the v2 API — on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
 | pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
@@ -59,8 +59,25 @@ the tool — but the steps below name them so you know what happened.
 Both launchers also work from inside a fleet worktree: when the jars are missing
 locally (worktrees carry no `target/` build output) they resolve them from the
 **main checkout** via git's common-dir — worker sessions keep their `task_*`
-tools. (2026-09-20: their absence there was the root cause of a wave of stalled
-runs.)
+tools.
+
+## Enable the fleet server (once per repo)
+
+The `fleet` MCP server ships **disabled** (`"disabled": true` in
+`opencode.json` — fleets eat tokens; nothing auto-starts). Before the first
+dispatch, enable it for this repo:
+
+1. Set the fleet entry to `"disabled": false`. v2's config schema knows
+   `disabled`, not the legacy `enabled` key — unknown keys are silently
+   dropped, so `"enabled": true` does nothing.
+2. Connect the server scoped to the repo:
+   `POST /api/experimental/mcp/fleet/connect?location[directory]=<repo>`
+   (Basic auth; password in `~/.local/state/opencode/service.json`).
+
+From Eclipse instead: the Fleet view's *Enable Fleet* button — the Board has
+no enable toggle (its `Auto ▶`/`Waves ▶` drive dispatch loops, not the
+server). If the `fleet_*` tools are missing from your session, the server
+was never connected for this directory.
 
 ## First run, end to end
 
@@ -117,7 +134,10 @@ it is not automatically adopted or deleted.
 ```
 
 Guards: the ticket must exist, be unblocked, not `done`, and not already in flight.
-`timeout_minutes` defaults to 30, max 1440.
+`timeout_minutes` is a **no-progress window** (default 30, max 1440): observed
+progress resets it, so a session that keeps making progress is never
+budget-killed. The absolute backstop is the separate **4 h hard run cap**
+(`FLEET_HARD_RUN_CAP_MS`).
 
 **4. Poll** — `fleet_fleet_jobs` shows the live snapshot per ticket:
 `RUNNING` → `COMPLETED` → `MERGED`, or `FAILED` with a `detail`, plus `session_id`
@@ -154,6 +174,24 @@ Those comments are the measured cost baseline; they accumulate on tickets.
    starts from a clean slate; a dispatch that still finds residue whose tip is
    already merged reclaims it automatically (B-006) — "branch already exists"
    is now only raised for real unmerged work (inspect it, or `fleet_reset`).
+6. **Automatic review after the merge (U-021, on in production):** when the
+   merged launch leaves the ticket `in-review`, the engine dispatches a
+   **second, read-only REVIEW session** under the `reviewer` agent — another
+   paid session; its actuals land on the ticket like any worker run, and the
+   wave budget absorbs its cost. It judges the acceptance criteria against the
+   recorded artifacts and the verification gate, and the engine applies the
+   parsed verdict:
+   - **PASS** → ticket marked `done` + advanced into the next stage's backlog
+     (`task_advance`) — no human click.
+   - **FAIL** → sent back (`task_send_back`) to the previous stage's backlog
+     with the reviewer's reasons, blocked (the human-escalation signal); an
+     unstaged ticket or the first stage has nowhere to go back to and is
+     blocked in place.
+   - **UNCLEAR** (or a failed/unparsable review) → the doubt round-trips to
+     the originator — the ticket returns to its own stage's backlog for one
+     retry per stage visit; only a repeating doubt escalates to blocked. An
+     unstaged ticket stays `in-review` with a `review: UNCLEAR` comment and
+     waits for a human accept.
 
 ## When the worker asks for permission
 
@@ -190,7 +228,7 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 
 | Symptom | Meaning | Recovery |
 |---|---|---|
-| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout (the session is aborted — a *busy* session is still killed at the cap; progress-aware budget is B-008); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout — the no-progress window elapsed with zero progress (progress resets it, B-008; a busy-but-progressing session is only ever stopped by the absolute 4 h hard run cap); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
 | worktree still in `.git/opencode-fleet/` | kept for post-mortem after failures (successful settles reap worktree+branch automatically) | inspect it, then delete |
 | dispatch refused: "refusing to auto-reclaim" | the stale branch carries real unmerged commits or uncommitted edits — never raised for mere bookkeeping (B-006) | inspect the worktree/branch, then `fleet_reset` or merge by hand |
 | dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |
@@ -202,27 +240,15 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 - `AGENTS.md` — states, the V-pipeline stages, and the chat-first control plane.
 - `eclipse/DISTRIBUTED-FLEETS.md` — running one store across many machines.
 
-## Retired: the detached daemon (V-006)
+## Stopping the engine
 
-By default the fleet engine lives in your session's `fleet` MCP server
-process — closing the session ends its runs (bookkeeping survives on the
-tickets). The **V-006 daemon is RETIRED** (2026-09-23): the pump lives in Eclipse and
-is off when Eclipse is closed, by design. To stop it deliberately: the
-`fleet_shutdown` chat tool, `eclipse/fleet-stop.ps1`, or the Board's
-*Shutdown...* button - parks admissions, checkpoints + pauses in-flight
-workers, and kills a spawned serve (never an attached shared service).
-(The section below is historical.)
-
-```powershell
-# once per machine/repo (from the repo root):
-pwsh -NoProfile -File eclipse/fleet-daemon.ps1     # detached start; pid+token land
-                                                    # in .git/opencode-fleet/daemon.json
-# then, in the environment of every opencode session that should attach:
-$env:FLEET_DAEMON = "auto"    # attach when a live daemon exists, else own engine
-```
-
-`auto` attaches as a thin proxy: your `fleet_*` calls drive the daemon's
-engine, **runs survive disconnecting**, and a reconnecting session sees the
-running jobs. `always` fails fast when no daemon is live; `off` (the default)
-keeps the per-session engine. Stop the daemon with the `daemon/shutdown` JSON-RPC
-call over its socket (see `eclipse/README.md`) or kill the pid from the pidfile.
+The fleet engine lives in your session's `fleet` MCP server process — closing
+the session ends its runs (bookkeeping survives on the tickets). The automatic
+pump (auto-dispatch / recurring waves) runs in **whichever host started it** —
+the Eclipse Board, or the fleet stdio JVM when a chat session calls
+`fleet_fleet_auto_start` / `fleet_fleet_waves_start` — and pumps for as long
+as that host runs. There is no detached fleet daemon (V-006 is retired). To
+stop deliberately: the `fleet_fleet_shutdown` tool, `eclipse/fleet-stop.ps1`,
+or the Board's *Shutdown...* button — parks admissions, checkpoints + pauses
+in-flight workers, and kills a spawned serve (never an attached shared
+service).

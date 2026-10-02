@@ -4,6 +4,8 @@ import org.eclipse.ui.IFolderLayout;
 import org.eclipse.ui.IPageLayout;
 import org.eclipse.ui.IPerspectiveFactory;
 
+import com.opencode.ide.core.context.SessionViewIds;
+
 /**
  * The "OpenCode" perspective: a chat-first two-column layout.
  *
@@ -29,7 +31,8 @@ public class OpencodePerspective implements IPerspectiveFactory {
 
     // Views contributed by other bundles - referenced by ID so this bundle has
     // no compile dependency on them; they are silently skipped if not installed.
-    private static final String CHAT_VIEW_ID = "com.opencode.ide.chat.views.ChatView";
+    // The chat view id lives in the ONE core seam (T-009); the board/fleet ids
+    // stay local literals (ui must NOT depend on the board bundle).
     private static final String BOARD_VIEW_ID = "com.opencode.ide.board.views.BoardView";
     private static final String FLEET_VIEW_ID = "com.opencode.ide.board.views.FleetView";
 
@@ -62,11 +65,11 @@ public class OpencodePerspective implements IPerspectiveFactory {
         // The chat fills everything to the right of the tab column.
         IFolderLayout chat = layout.createFolder(
                 "com.opencode.ide.ui.folder.chat", IPageLayout.RIGHT, 0.72f, editorArea);
-        chat.addView(CHAT_VIEW_ID);
+        chat.addView(SessionViewIds.CHAT_VIEW_ID);
 
         layout.addShowViewShortcut(com.opencode.ide.ui.views.ServerView.ID);
         layout.addShowViewShortcut(com.opencode.ide.ui.views.RepoView.ID);
-        layout.addShowViewShortcut(CHAT_VIEW_ID);
+        layout.addShowViewShortcut(SessionViewIds.CHAT_VIEW_ID);
         layout.addShowViewShortcut(com.opencode.ide.ui.views.ProvidersView.ID);
         layout.addShowViewShortcut(BOARD_VIEW_ID);
         layout.addShowViewShortcut(FLEET_VIEW_ID);

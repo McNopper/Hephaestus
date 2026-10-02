@@ -32,6 +32,23 @@ This skill **owns**:
 - Detecting missing, weak, or ambiguous links.
 - Prioritizing high-risk gaps for correction.
 
+## What `task_traceability` computes (engine truth)
+
+The `task_traceability` **tool** is role+epic based: a `tester`-role ticket
+whose `epic` points at another ticket counts as verifying it, and a
+definition is a ticket with role `architect` or `developer` that some
+`tester` ticket points back at (`Task.DEFINITION_ROLES` /
+`Task.VERIFICATION_ROLES`). It reads **neither artifacts nor V levels**, and
+`pm`-role requirements tickets are not audited as definitions — so a ticket
+that walks the V alone shows up as an "orphan". D-001 tracks the decision to
+widen this.
+
+This skill's audit is the **manual, artifact-level** complement: walk the
+recorded artifacts (FR/AC/IT/LT/CT/UT ids) and the store's epic links,
+classify coverage per composition level, and name the owning skill for each
+gap — the checks the tool cannot express. Use the tool for the quick matrix;
+run this skill's audit when the matrix must be trustworthy.
+
 This skill **does not** rewrite full designs or test suites; it reports gaps and
 hands off to the owning skill for fixes.
 

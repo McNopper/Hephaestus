@@ -26,6 +26,7 @@ import com.opencode.ide.client.activity.SessionObservation;
 import com.opencode.ide.client.activity.SessionObserver;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.tools.McpTool;
 import com.opencode.ide.tools.McpToolResult;
 import com.opencode.ide.tools.ParamError;
 
@@ -153,6 +154,28 @@ public class FleetToolProviderTest {
 
     private JsonObject wavesStatus() {
         return JsonParser.parseString(provider.call("fleet_waves_status", null).text()).getAsJsonObject();
+    }
+
+    @Test
+    public void noToolDescriptionDescribesTheRetiredDaemon() {
+        // B-014: the V-006 detached daemon is retired - nothing a tool
+        // description tells an agent may describe it as current.
+        List<String> daemonic = provider.tools().stream()
+                .filter(t -> t.description().toLowerCase(java.util.Locale.ROOT).contains("daemon"))
+                .map(McpTool::name)
+                .toList();
+        assertTrue("tool descriptions mentioning the retired daemon: " + daemonic, daemonic.isEmpty());
+    }
+
+    @Test
+    public void wavesStartDescriptionNamesTheHostProcessNotADaemon() {
+        String description = provider.tools().stream()
+                .filter(t -> "fleet_waves_start".equals(t.name()))
+                .map(McpTool::description)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("fleet_waves_start tool missing"));
+        assertTrue(description, description.contains("host process"));
+        assertFalse(description, description.toLowerCase(java.util.Locale.ROOT).contains("daemon"));
     }
 
     @Test

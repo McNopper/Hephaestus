@@ -16,8 +16,9 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * The pure H6 readiness function over real store snapshots: the precedence
- * order (NOT_APPLICABLE &gt; RUNNING &gt; BLOCKED &gt; WAIT_UPSTREAM &gt;
- * STALE &gt; READY, done-with-fresh-inputs falling out as NOT_APPLICABLE),
+ * order (NOT_APPLICABLE (no stage) &gt; BLOCKED &gt; RUNNING &gt; WAIT_UPSTREAM &gt;
+ * STALE &gt; READY, done-with-fresh-inputs and done-without-any-upstream
+ * falling out as NOT_APPLICABLE),
  * the upstream mapping (previous ladder stage for definition stages, paired
  * definition stage for verification stages), the two upstream evidences the
  * store actually records (own gated advance history; epic-chain ticket in
@@ -250,6 +251,25 @@ public class StageReadinessTest {
         assertEquals("the Kind set has no FINISHED; READY would re-dispatch finished work, so a done ticket with unchanged inputs drops out of the dispatch loop",
                 StageReadiness.Kind.NOT_APPLICABLE, r.kind());
         assertTrue(r.reason(), r.reason().contains("done"));
+    }
+
+    @Test
+    public void doneTicketThatEnteredThePipelineMidwayIsFinishedNotWaiting() {
+        StageReadiness.Readiness r = StageReadiness.evaluate(List.of(ticket("T-001", "implementation", "done")))
+                .get("T-001");
+        assertEquals("a bug fixed straight at implementation has no upstream to ever wait on - done is finished",
+                StageReadiness.Kind.NOT_APPLICABLE, r.kind());
+        assertTrue(r.reason(), r.reason().contains("entered the V pipeline"));
+    }
+
+    @Test
+    public void doneDownstreamOfAnUpstreamInReworkStillWaits() {
+        Task upstream = ticket("T-001", "design", "in-progress");
+        Task done = ticket("T-002", "implementation", "done");
+        done.epic = "T-001";
+        assertEquals("the upstream exists but is being reworked: the done downstream waits, then goes STALE",
+                StageReadiness.Kind.WAIT_UPSTREAM,
+                StageReadiness.evaluate(List.of(upstream, done)).get("T-002").kind());
     }
 
     @Test

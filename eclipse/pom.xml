@@ -115,6 +115,8 @@
         <executions>
           <execution>
             <id>check-architecture</id>
+            <!-- once per reactor (QUALITY.md): the script scans the whole tree -->
+            <inherited>false</inherited>
             <phase>validate</phase>
             <goals>
               <goal>exec</goal>
@@ -166,8 +168,9 @@
     <!--
       The deeper quality gate (QUALITY.md): `verify -Pquality` adds bug-pattern
       and duplication scans on top of the always-on checkstyle + architecture
-      checks. Report-only today (findings print, build stays green) - promote
-      to enforced once the first cleanup pass has landed.
+      checks. SpotBugs is report-only (failOnError=false: findings print, the
+      build stays green); PMD CPD (cpd-check, >=100 tokens) fails the build on
+      duplication findings.
     -->
     <profile>
       <id>quality</id>

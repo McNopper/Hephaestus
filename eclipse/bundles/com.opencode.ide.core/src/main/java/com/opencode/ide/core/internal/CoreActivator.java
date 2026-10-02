@@ -3,6 +3,7 @@ package com.opencode.ide.core.internal;
 import java.util.logging.Level;
 
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Plugin;
 import org.eclipse.core.runtime.Status;
 import org.osgi.framework.Bundle;
@@ -15,7 +16,7 @@ import org.osgi.util.tracker.ServiceTracker;
 import com.opencode.ide.client.ClientLog;
 import com.opencode.ide.core.ConnectionsManager;
 import com.opencode.ide.core.OpencodeConnection;
-import com.opencode.ide.core.OpencodePreferences;
+import com.opencode.ide.core.TasksRootResolution;
 import com.opencode.ide.core.context.ProjectContext;
 
 /**
@@ -186,19 +187,32 @@ public class CoreActivator extends Plugin {
     }
 
     /**
-     * Bridges the tasksRoot preference into the system property the eclipse-build
-     * MCP endpoint reads - one task store for the Board view, the fleet and the
-     * in-session task_* tools. Safe at any activation phase: a no-op (with a
-     * warning) while the instance area is not yet available.
+     * Bridges the task-store root into the system property the eclipse-build
+     * MCP endpoint reads — one task store for the Board view, the fleet and
+     * the in-session task_* tools. B-016: the property gets the FULL shared
+     * resolution ({@link TasksRootResolution#resolveForWorkspace(String)},
+     * empty override — workspace climb, open-project repo adoption, then the
+     * preference), not just the raw preference: with a blank tasksRoot
+     * preference the endpoint used to fall back to {@code ~/.opencode/tasks}
+     * while the Board adopted the open repo's store — two surfaces, two
+     * stores. Safe at any activation phase: a no-op while the workspace
+     * location is not yet available (the bridge re-runs on the first service
+     * consumer, when the workspace is open). Public so the wiring test can
+     * drive it.
      */
-    private static void bridgeTasksRootPreference() {
+    public static void bridgeTasksRootPreference() {
         try {
-            String configured = new OpencodePreferences().getTasksRoot();
-            if (configured != null && !configured.isBlank()) {
-                System.setProperty("opencode.tasks.root", configured.trim());
+            if (Platform.getLocation() == null) {
+                // workspace not yet known — do not freeze a guess into the
+                // property; the re-bridge on the first service consumer
+                // resolves against the open workspace
+                return;
             }
+            System.setProperty("opencode.tasks.root",
+                    TasksRootResolution.resolveForWorkspace("").toString());
         } catch (RuntimeException | LinkageError e) {
-            logWarning("cannot bridge tasksRoot preference into opencode.tasks.root: " + e.getMessage());
+            logWarning("cannot bridge the resolved tasksRoot into opencode.tasks.root: "
+                    + e.getMessage());
         }
     }
 

@@ -21,8 +21,8 @@ the frontier tier's reasoning.
 
 ## Model (pinned)
 
-You run at **very-high** — do **not** resolve a tier from the mapping in
-`project-manager-orchestrate-execution`; your model is fixed (see the `model:` field above) at
+You run at **very-high** — do **not** resolve a model through `/models` /
+`opencode.json` like the other agents; your model is fixed (see the `model:` field above) at
 the `very-high` level. All other agents are model-neutral; you are the exception
 by design. The concrete model behind the pin is intentionally not named in the
 docs — to change it, edit the `model:` field here.

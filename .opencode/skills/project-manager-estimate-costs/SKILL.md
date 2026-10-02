@@ -33,7 +33,8 @@ This skill **owns**:
 - Estimating input/output tokens per task from its scope.
 - Pricing tasks against the current per-model **rate card**.
 - Accounting for tier multipliers: `very-high` double-run + reconciler, rubberduck
-  overhead on `high`/`very-high`, and the retry budget.
+  overhead on `very-high` (the critic only reviews `very-high` tasks), and the
+  retry budget.
 - Producing per-task, per-tier, and total costs with a cheap/expected/worst-case range.
 - Suggesting **de-escalation** opportunities (tasks that could safely drop a tier).
 - **Budget-cap fitting:** given a spend cap (e.g. "~$X today"), propose how to fit the run

@@ -2,8 +2,9 @@
 
 ## About this document
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-029, stage `requirements`).
-- **Read by:** the downstream V-chain stages of U-029 (`system` → `architecture` → `design` → `implementation`) and the verification leg (`test-*`, ending at `test-requirements`); the reviewer agent at acceptance; any agent asking "what must stage pass-through do?".
+- **Read by:** maintainers; any agent asking "what must stage pass-through do?"; the tickets that complete the undelivered FRs (U-057/U-058, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
+- **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** user direction 2026-09-19 ("they should wander from 1 to 10; sometimes no need to change something on architecture level; however, V-model execution"); `.opencode/docs/contracts.md` (ticket/stage contract); `VStages`/`TaskStore.advance`/`StageReadiness` in `eclipse/bundles/com.opencode.ide.tasks` and `WavePlanner`/`FleetRunner`/`ReviewVerdict` (U-021 autonomous acceptance) in `eclipse/bundles/com.opencode.ide.fleet` (current behavior baseline); U-026 (flow trace — consumes the data this feature produces); U-027 (the "verdict-neutral bookkeeping" and "uniform across every consumer" doctrines reused below). This file is the **what and why** — tool shape, storage and code are the next stages' work.
 
 **Terminology guard (read this first).** A **stage pass** (this feature) is a recorded pass-through of one V stage. It is *not* the U-021 review verdict `VERDICT: PASS` (acceptance of a finished stage) and *not* the readiness kind `NOT_APPLICABLE` (unstaged/done tickets). Where the review machinery is meant, this doc says **review acceptance**.
@@ -32,7 +33,7 @@ The V-pipeline must stay **visible and honest** — every staged ticket wanders 
 ### Full-travel semantics (the ticket's AC 1)
 
 - **FR-001 (ubiquitous, invariant):** THE pipeline SHALL move every staged ticket through the ten canonical stages strictly one stage per transition, so that a ticket's stage sequence and history show an unbroken 1→10 journey (`requirements` → … → `test-requirements`) regardless of passes — a pass visits a stage, it never skips over one.
-- **FR-002 (event-driven):** WHEN a stage is passed, THEN the pipeline SHALL transition the ticket exactly like a completed-stage advance — stage and role become the next stage's, status becomes the next stage's backlog (`product-backlog`), the assignee is cleared, the blocked flag stays as-is — **and** SHALL append a ticket-history event `stage '<stage>' passed: <reason>` carrying author and timestamp. No stage artifact is required or expected for a passed stage.
+- **FR-002 (event-driven):** WHEN a stage is passed, THEN the pipeline SHALL transition the ticket exactly like a completed-stage advance — stage and role become the next stage's, status becomes the next stage's backlog (`product-backlog`), the assignee is cleared, the blocked flag stays as-is — **and** SHALL append a ticket-history event `stage <N> passed: <reason>` (N = the stage's ladder number) carrying author and timestamp. No stage artifact is required or expected for a passed stage.
 - **FR-003 (unwanted):** IF a pass is attempted for the V tip stage `test-requirements`, or with a blank reason, THEN the pipeline SHALL reject it — the journey always ends with a real acceptance run, and a pass without a stateable claim of non-applicability is not a pass.
 
 ### Who decides (the ticket's AC 2)
@@ -46,7 +47,7 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 
 ### Rationale recording and visibility (the ticket's AC 3)
 
-- **FR-008 (ubiquitous):** THE pass SHALL always be recorded in the ticket history as an auditable event — action text `stage '<stage>' passed: <reason>`, author, timestamp — never as a silent mutation; passes leave the same evidentiary trail as advances and send-backs.
+- **FR-008 (ubiquitous):** THE pass SHALL always be recorded in the ticket history as an auditable event — action text `stage <N> passed: <reason>` (N = the stage's ladder number), author, timestamp — never as a silent mutation; passes leave the same evidentiary trail as advances and send-backs.
 - **FR-009 (ubiquitous):** THE pass event SHALL be carried entirely in ticket-history data, such that the U-026 flow trace renders it without a parallel channel: per-card stage progress counts a passed stage as **visited** (a ticket at stage 6 with two passes still shows 6/10), the movement trace lists the pass with its timestamp, reason and author, and the per-wave movement digest counts passes as movement.
 
 ### No dispatch, no charge, machinery equivalence (the ticket's AC 4)
@@ -74,7 +75,7 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 
 ## Acceptance Criteria
 
-- **AC-001 (FR-001, FR-002 — the ticket's AC 1):** Given a staged ticket at `architecture` whose change has no architectural impact, when the stage is passed with reason "no architecture impact: local change", then stage becomes `design`, role `developer`, status `product-backlog`, assignee cleared, and history gains `stage 'architecture' passed: no architecture impact: local change` with author and timestamp — and the ticket's stage sequence so far reads `requirements → system → architecture → design` with every adjacent pair exactly one ladder step apart.
+- **AC-001 (FR-001, FR-002 — the ticket's AC 1):** Given a staged ticket at `architecture` whose change has no architectural impact, when the stage is passed with reason "no architecture impact: local change", then stage becomes `design`, role `developer`, status `product-backlog`, assignee cleared, and history gains `stage 3 passed: no architecture impact: local change` with author and timestamp — and the ticket's stage sequence so far reads `requirements → system → architecture → design` with every adjacent pair exactly one ladder step apart.
 - **AC-002 (FR-003 — the ticket's AC 1 guard):** Given a ticket at `test-requirements` (the V tip), when a pass is attempted, then the pipeline rejects it naming the tip; and given any stage, when a pass is attempted with a blank reason, then it is rejected.
 - **AC-003 (FR-004, FR-005 — the ticket's AC 2):** Given stage N's artifact declares "`architecture`: pass — no architectural impact: local change" and no later artifact contradicts it, when the ticket reaches `architecture`, then the pass is recorded attributed to stage N's worker and no architect session is launched; but when a later artifact requires architecture work, then a worker is dispatched as usual.
 - **AC-004 (FR-006 — the ticket's AC 2):** Given a ticket `in-review` at `design` where the reviewer finds no design-level work applies, when the reviewer passes the stage, then the ticket advances to `implementation` with the pass reason and reviewer attribution in history — no hollow artifact is demanded and no rework loop starts.
@@ -83,6 +84,26 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 - **AC-007 (FR-011 — the ticket's AC 4):** Given a ticket at `design` whose epic-chain upstream `architecture` was passed, when readiness evaluates it, then it reads `READY` with a reason naming the passed upstream — the same verdict the identical completed stage would produce; and recording the pass made no ticket `STALE`.
 - **AC-008 (FR-012, FR-013 — wrong-pass recovery):** Given `architecture` was passed and `implementation` sends the ticket back ("needs an architecture decision: concurrency model"), when the send-back lands, then the ticket sits in `architecture` blocked with that reason, history keeps the earlier pass, and after the blocker clears the stage shows either real work or a corrected pass rationale addressing the concurrency question.
 - **AC-009 (FR-014, NFR-CONSIST-001):** Given a passed upstream, when any surface is consulted (`task_readiness`, board progress, wave-planning admission, cost overview), then all surfaces treat the pass as a completed stage, uniformly.
+
+## Delivery status (per FR)
+
+The pass transition exists at **library level only**: `TaskStore.passStage`
+(TaskStore.java:458-480; rejects the V tip and blank reasons, records the
+literal `stage <N> passed: <reason>` at :480) is tested by `StageRoutingTest`
+but has **no `task_*` tool and no production caller** — a staged ticket still
+needs a full dispatch at each stage. Completion is tracked by U-049 —
+decomposed (nothing implemented there) into **U-057** (expose
+`task_pass_stage` as a store tool) and **U-058** (let the pump pass a stage
+without launching a session); both in the product backlog.
+
+| FR | Status | Note |
+|---|---|---|
+| FR-001, FR-002, FR-003, FR-008 | Delivered (library level) | `TaskStore.passStage` — one-stage transition, tip/blank rejection, the auditable history event; unreachable in production until U-057/U-058 |
+| FR-004, FR-005 | **Not delivered** | no forward-declaration mechanism exists — U-049 → U-057/U-058 |
+| FR-006, FR-007 | **Not delivered** | no reviewer pass path, no at-stage pass recording — U-049 → U-057/U-058 |
+| FR-009 | Delivered | the flow trace counts a passed stage as visited and lists the pass (StageJourney; the codec recognizes the event, TaskStore.java:684) |
+| FR-010 | **Not delivered** | no pump wiring to skip the dispatch — U-049 → U-058 |
+| FR-011–FR-014 | Rides the wiring | the readiness/uniformity semantics take effect when U-057/U-058 land |
 
 ## Open Questions
 - **Q-001:** Tool surface — dedicated `task_pass_stage(project, ticket, reason)` vs `task_advance(passed=true, reason=…)`; and its status gate (backlog states + `in-review`?) — design decides; requirements fix only the transition semantics (FR-002) and rejections (FR-003).

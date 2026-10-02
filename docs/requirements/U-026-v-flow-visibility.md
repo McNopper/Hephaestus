@@ -2,8 +2,9 @@
 
 ## About this document
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-026, stage `requirements`).
-- **Read by:** the downstream V-chain stages of U-026 (`system` → `architecture` → `design` → `implementation`) and the verification leg; the reviewer agent at acceptance; anyone asking "what must V-flow visibility show?".
+- **Read by:** maintainers; any agent asking "what must V-flow visibility show?"; the tickets that complete the undelivered FRs (U-061/U-062, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
+- **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the code (StageJourney and its board surfaces) landed inside the system-stage run; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** ticket U-026 (the chain head — the pump walks it 1 through 10); U-028 (board polish — explicitly secondary to this feature); B-007 (stage-aware acceptance — its evidence matrix is what this feature visualizes); `VStages` / `TaskStore.advance|sendBack|passStage|reportHorizontal` (the movement events this feature reads); `docs/requirements/U-028-board-polish-pack.md`. This file is the **what and why** — tool shape, storage and code are the next stages' work.
 
 ## Goal
@@ -67,6 +68,25 @@ per-wave summary of movements.
 - No minimap, no wave replay, no forecasting.
 - No new stored state: no journey caches, no movement tables.
 - No WIP-limit concepts (U-028 FR-004 territory) and no readiness badges (already live).
+
+## Delivery status (per FR)
+
+The board surfaces shipped (journey, per-card progress, movement trace,
+send-back visibility); the per-wave digest did not reach its hook. Completion
+of FR-005/FR-006 is tracked by U-056 — decomposed (nothing implemented there)
+into **U-061** (record the wave digest on plan/close in the store) and
+**U-062** (Board renders the shared digest; settles the placement questions);
+both in the product backlog.
+
+| FR | Status | Note |
+|---|---|---|
+| FR-001 | Delivered | `StageJourney` derives the journey from history events only (StageJourney.java:14-43) |
+| FR-002 | Delivered | per-card `<visited>/10`, distinct stages — Q-002's lean answer (BoardView.java:1287, :1366) |
+| FR-003 | Delivered | the movement trace as paste-ready plain text (BoardView.java:1016, :1151) |
+| FR-004 | Delivered | the `sent back from X: <reason>` shape rides the card/trace (BoardModel.java:391; StageJourney) |
+| FR-005, FR-006 | **Not delivered** | the digest exists only as an on-demand Board dialog (WaveDigest.java; BoardView.java:1620-1622, :2210-2221) — no plan/close hook, no UI-free render — U-056 → U-061/U-062 |
+| FR-007 | Delivered | pure projection — no feature here writes to the store |
+| FR-008 | Delivered | pass events count as movement (the codec recognizes `stage N passed`, TaskStore.java:684; StageJourney) |
 
 ## Open Questions
 - **Q-001:** Digest placement — epic ticket comment, tool output only, or both? (C-003.)

@@ -42,6 +42,7 @@ import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.core.ConnectionsManager;
 import com.opencode.ide.core.ManagedConnection;
 import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.context.SessionViewIds;
 import com.opencode.ide.ui.internal.ProviderIcons;
 import com.opencode.ide.ui.internal.ProviderLogos;
 import com.opencode.ide.ui.internal.Refreshable;
@@ -164,7 +165,7 @@ public class ProvidersView extends ViewPart implements Refreshable {
         refresh();
     }
 
-    /** Launches the chat (via the openChat command) with the selected model. */
+    /** Launches the chat (via the openChat command from the ONE seam) with the selected model. */
     private void openChatWithSelection(IStructuredSelection selection) {
         if (selection == null || selection.isEmpty()) {
             return;
@@ -175,16 +176,16 @@ public class ProvidersView extends ViewPart implements Refreshable {
         }
         try {
             ICommandService commands = getViewSite().getService(ICommandService.class);
-            var command = commands.getCommand("com.opencode.ide.chat.openChat");
+            var command = commands.getCommand(SessionViewIds.CHAT_OPEN_COMMAND_ID);
             if (!command.isDefined()) {
                 MessageDialog.openInformation(viewer.getControl().getShell(),
                         "Chat", "The opencode Chat view is not installed.");
                 return;
             }
             ParameterizedCommand parameterized = new ParameterizedCommand(command, new Parameterization[] {
-                    new Parameterization(command.getParameter("com.opencode.ide.chat.openChat.providerId"),
+                    new Parameterization(command.getParameter(SessionViewIds.chatCommandParameter("providerId")),
                             row.providerId()),
-                    new Parameterization(command.getParameter("com.opencode.ide.chat.openChat.modelId"),
+                    new Parameterization(command.getParameter(SessionViewIds.chatCommandParameter("modelId")),
                             row.model().id()) });
             IHandlerService handlers = getViewSite().getService(IHandlerService.class);
             handlers.executeCommand(parameterized, null);

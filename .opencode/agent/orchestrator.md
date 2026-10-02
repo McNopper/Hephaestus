@@ -19,15 +19,17 @@ automation artifacts (the execution manifest / run state) and `bash` only for
 verification, monitoring, and status — all production edits go to worker agents.
 
 ## Tier
-You operate at the **high** tier. Resolve your tier's concrete model from the authoritative
-tier→model mapping in the `project-manager-orchestrate-execution` skill, and reference **tiers**, never
-hard-coded model IDs. (`very-high` work escalates to the frontier model and runs two
-independent passes — see the mapping.)
+You operate at the **high** tier. Tiers are selection rules only — there is no per-tier
+model map. Resolve your tier's concrete model through `/models` and the opencode
+configuration (the default `model` field in `opencode.json`, plus any per-agent
+frontmatter override), and reference **tiers**, never hard-coded model IDs.
+(`very-high` work runs two independent passes that are reconciled — see the tier
+table in `project-manager-orchestrate-execution`.)
 
 ## How you dispatch (important)
 Plan mode (`Tab`), `/agents`, and the **Task/subagent tool** are the interactive controls.
 When running autonomously you **dispatch each task via the Task/subagent tool**, passing
-the tier's **exact model ID** (from the authoritative mapping) as the `model` override;
+the tier's **exact model ID** (resolved via `/models` / `opencode.json`) as the `model` override;
 workers stay model-neutral. You run each task's verification via `bash` and **persist
 manifest/state updates via `edit`** (to a `.manifest.yml` and/or the session store) so
 state survives and loops terminate.
@@ -55,8 +57,10 @@ state survives and loops terminate.
 - **Auto-rubberduck:** invoke `rubberduck` (the cross-vendor critic model) before/after each
   `very-high` task to cross-check the high-end model; a plan-level critic pass is optional.
   Block on blocking findings.
-- **Iterative agile loop:** when `reviewer` or a verification skill fails, the ticket goes
-  back to `in-progress` (rework) and the downstream verification re-runs until it converges.
+- **Iterative agile loop:** when a review FAILs, the engine sends the ticket back to the
+  previous stage (`task_send_back`, blocked with the reasons; the first stage and
+  unstaged tickets are blocked in place), the rework lands there and the affected
+  verification re-runs until it converges.
   Track rework; enforce the wave's iteration cap, then surface to the `project-manager` agent / human.
   When **objectives change**, have `manifest-author` amend the manifest — do not restart.
 - **Budget:** honor the spend cap. Price with `project-manager-estimate-costs`, schedule by

@@ -104,6 +104,8 @@ public final class TaskStore {
     private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(30);
     private static final Gson GSON = new Gson();
     private static final Set<String> ARTIFACT_KINDS = Set.of("file", "git", "path", "url", "doc");
+    /** Artifact kinds whose ref is a repo path task_doctor can check for existence. */
+    private static final Set<String> PATH_ARTIFACT_KINDS = Set.of("file", "path");
     private static final String INVALIDATION_BY = "h6";
     /** The readiness report's severity order: most urgent kind first. */
     private static final List<StageReadiness.Kind> READINESS_SEVERITY = List.of(
@@ -963,6 +965,30 @@ public final class TaskStore {
         });
     }
 
+    /**
+     * Removes an artifact by 0-based index - the correction counterpart of
+     * {@link #addArtifact}: a wrong ref is removed and re-recorded instead of
+     * hand-edited in the ticket file (U-053). The removal is history-recorded
+     * as {@code artifact removed:<kind>:<ref>}, so the audit trail keeps what
+     * was dropped.
+     *
+     * @throws Invalid when the index is out of range (like {@link #removeTodo})
+     */
+    public Task removeArtifact(String project, String id, int index, String by) {
+        return transaction(project, data -> {
+            Task t = require(data, project, id);
+            if (index < 0 || index >= t.artifacts.size()) {
+                throw new Invalid("artifact index " + index + " out of range (have "
+                        + t.artifacts.size() + ")");
+            }
+            Task.Artifact removed = t.artifacts.remove(index);
+            t.updatedAt = now();
+            t.history("artifact removed:" + removed.kind() + ":" + removed.ref(), by);
+            data.changed.add(id);
+            return t;
+        });
+    }
+
     /** Appends a todo (checklist item; single-line text — newlines would corrupt the file format). */
     public Task addTodo(String project, String id, String text, boolean done, String by) {
         if (text == null || text.contains("\n") || text.contains("\r")) {
@@ -1198,13 +1224,13 @@ public final class TaskStore {
                     if (clearBlockedWhenDone(t)) {
                         data.changed.add(t.id);
                     }
-                    // NOT archived here on purpose (U-025 lesson, live
-                    // 2026-09-19): downstream stages need their done
-                    // upstream tickets visible for the readiness epic
-                    // chain - archiving on wave close orphaned WAIT_UPSTREAM
-                    // children. Auto-archiving returns once readiness
-                    // consults the archive; until then the Archive context
-                    // action is the manual path.
+                    // NOT archived here (U-025 lesson, live 2026-09-19:
+                    // archiving on wave close orphaned WAIT_UPSTREAM
+                    // children). The opt-in overload closeSprint(project,
+                    // sprintId, autoArchive) archives done tickets no live
+                    // epic chain still needs, but no production caller uses
+                    // it yet: readiness callers do not pass the archive pool
+                    // (only StageReadiness.evaluate(live, archived) can).
                     continue;
                 }
                 t.sprint = null;
@@ -1350,20 +1376,48 @@ public final class TaskStore {
     }
 
     /**
-     * Store self-check (lint): human-readable reports of inconsistent flag
-     * combinations - tickets that are {@code done} but still carry the
-     * blocked flag, and tickets with a sprint set while sitting in
-     * {@code product-backlog} - one report line per ticket, sorted by id;
-     * empty when the store is consistent. Read-only.
+     * Store self-check (lint): human-readable reports of store damage and
+     * inconsistent flag combinations - ticket files the store cannot parse
+     * (every other read skips them, so a corrupted file would otherwise
+     * vanish silently), tickets that are {@code done} but still carry the
+     * blocked flag, tickets with a sprint set while sitting in
+     * {@code product-backlog}, and {@code file}/{@code path} artifact refs
+     * that do not resolve under the repo root (U-053: two corrupted refs sat
+     * unnoticed for days). Glob/brace/enumerated/prose-like refs are skipped,
+     * and so is the whole resolution check when the repo root cannot be
+     * determined from the store root's layout - one report line per file or
+     * ticket, sorted; empty when the store is consistent. Read-only.
      */
     public List<String> inconsistencies(String project) {
-        List<String> out = new ArrayList<>();
-        for (Task t : list(project, null, null, null, null)) {
+        if (projectDirectoryMissing(project)) {
+            return new ArrayList<>();
+        }
+        List<Task> tasks = new ArrayList<>();
+        List<String> out = new ArrayList<>(transaction(project, data -> {
+            tasks.addAll(data.tasks.values());
+            return data.unparsable;
+        }));
+        for (Task t : tasks) {
             if ("done".equals(t.status) && t.blocked) {
                 out.add(t.id + ": status=done but blocked"
                         + (t.blocker == null ? "" : " (blocker: " + t.blocker + ")"));
             } else if (t.sprint != null && "product-backlog".equals(t.status)) {
                 out.add(t.id + ": status=product-backlog but sprint=" + t.sprint);
+            }
+        }
+        Path repoRoot = repoRootOrNull();
+        if (repoRoot != null) {
+            for (Task t : tasks) {
+                for (Task.Artifact a : t.artifacts) {
+                    if (a.kind() == null || !PATH_ARTIFACT_KINDS.contains(a.kind())
+                            || !isPlainPathRef(a.ref())) {
+                        continue;
+                    }
+                    if (!artifactRefResolves(repoRoot, a.ref())) {
+                        out.add(t.id + ": artifact " + a.kind() + " ref does not resolve under "
+                                + repoRoot + ": " + a.ref());
+                    }
+                }
             }
         }
         out.sort(Comparator.naturalOrder());
@@ -1438,6 +1492,8 @@ public final class TaskStore {
         final Set<String> changed = new HashSet<>();
         boolean metaDirty;
         final Path dir;
+        /** Ticket files {@link #load} could not parse: "file: reason" (task_doctor reports them). */
+        final List<String> unparsable = new ArrayList<>();
 
         ProjectData(Path dir) {
             this.dir = dir;
@@ -1451,6 +1507,61 @@ public final class TaskStore {
      */
     private boolean projectDirectoryMissing(String project) {
         return !Files.isDirectory(root.resolve(sanitizeProject(project)));
+    }
+
+    /**
+     * The repository root this store lives in, or null when it cannot be
+     * determined. The store does not know its repo: it is by convention
+     * rooted at {@code <repo>/.opencode/tasks} (the stdio launcher's default
+     * and the Eclipse preference's derived root both use exactly that), so
+     * the repo root is two levels up the store root's parents - but only
+     * when the immediate parent really is a directory named
+     * {@code .opencode}. Any other layout (a temp fixture, a custom root)
+     * means the repo root is unknown, and every repo-root-dependent check
+     * (task_doctor's artifact resolution) must skip rather than resolve refs
+     * against an accidental parent directory.
+     */
+    private Path repoRootOrNull() {
+        Path opencode = root.toAbsolutePath().normalize().getParent();
+        if (opencode == null || opencode.getFileName() == null
+                || !".opencode".equals(opencode.getFileName().toString())) {
+            return null;
+        }
+        Path repo = opencode.getParent();
+        return repo != null && Files.isDirectory(repo) ? repo : null;
+    }
+
+    /**
+     * Whether an artifact ref looks like a plain path the doctor dares to
+     * resolve: no glob or brace characters ({@code { } * ?}), no commas
+     * (enumerations) and no spaces (prose). Anything else is left alone -
+     * the doctor checks paths, not prose.
+     */
+    private static boolean isPlainPathRef(String ref) {
+        if (ref == null || ref.isBlank()) {
+            return false;
+        }
+        for (char c : ref.toCharArray()) {
+            if (c == '{' || c == '}' || c == '*' || c == '?' || c == ',' || c == ' ') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the ref resolves to an existing file under the repo root
+     * (absolute refs resolve to themselves). A ref that cannot even form a
+     * path (a {@code :} in a Windows-relative ref, a stray URL) counts as
+     * unresolvable - that is exactly the corruption the doctor exists to
+     * surface.
+     */
+    private static boolean artifactRefResolves(Path repoRoot, String ref) {
+        try {
+            return Files.exists(repoRoot.resolve(ref));
+        } catch (java.nio.file.InvalidPathException e) {
+            return false;
+        }
     }
 
     private <T> T transaction(String project, Function<ProjectData, T> work) {
@@ -1556,6 +1667,8 @@ public final class TaskStore {
                 data.tasks.put(t.id, t);
             } catch (IOException | RuntimeException e) {
                 LOG.log(Level.WARNING, "skipping unparsable task file " + p + ": " + e.getMessage(), e);
+                data.unparsable.add(p.getFileName() + ": unparsable ticket file, invisible to every other"
+                        + " task_* read (" + e.getMessage() + ")");
             }
         }
         if (data.tasks.values().stream().anyMatch(t -> t.id != null)) {

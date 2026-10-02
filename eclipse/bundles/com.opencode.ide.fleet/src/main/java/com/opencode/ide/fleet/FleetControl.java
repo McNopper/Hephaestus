@@ -232,8 +232,9 @@ public final class FleetControl implements AutoCloseable {
      * tickets wait (clearing a blocker resumes it automatically) and stops
      * cleanly on budget exhaustion or when nothing is plannable. Deliberately
      * OFF by default: only this explicit call (or the Board's toggle) turns
-     * it on; the cost budget is a hard stop. The loop lives in this engine,
-     * so under the fleet daemon it survives every client disconnect.
+     * it on; the cost budget is a hard stop. The loop lives in this engine's
+     * host process (the Eclipse session or the standalone MCP server), so it
+     * outlives any single chat session while that host is up.
      *
      * @param project    the task store project to pump
      * @param initialWave an existing sprint adopted as the first wave
@@ -622,7 +623,7 @@ public final class FleetControl implements AutoCloseable {
             // opencode server at <recorded endpoint>" - close the dead
             // engine (its event stream) and spawn a fresh one, exactly like
             // the lazy first spawn. Live-found 2026-09-17: only a full
-            // daemon restart used to recover from this.
+            // host restart used to recover from this.
             com.opencode.ide.client.ClientLog.warning(
                     "fleet: the spawned opencode serve is dead - respawning before reuse"
                             + " (the recorded endpoint went stale)");

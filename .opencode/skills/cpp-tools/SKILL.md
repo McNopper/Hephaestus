@@ -39,22 +39,36 @@ does not write feature code (that is `software-implementation`).
 1. Configure once, build in place; keep build artifacts out of source control.
 2. Format is non-negotiable: clang-format must pass before analysis.
 3. Run cppcheck + clang-tidy; triage findings by severity.
-4. Treat warnings as errors in CI-like runs; report the file:line for every finding.
+4. Gate on correctness findings (the tidy lane's FAIL categories, cppcheck's
+   `--error-exitcode`), not on compiler `-Werror`; report the file:line for
+   every finding.
 5. Read reports from the agent's output; never guess tool paths.
 
 ## Canonical actions (run by the agent)
 
-- **Configure:** `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`
-- **Build:** `cmake --build build --config Release -j`
-- **Format (check):** `clang-format --dry-run --Werror $(find . -name '*.cpp' -o -name '*.h')`
-- **Format (apply):** `clang-format -i <files>`
-- **Static analysis:** `cppcheck --enable=all --project=build/compile_commands.json`
-  and `clang-tidy -p build <files>`
+The presets, targets, and report paths in **`cpp/AGENTS.md`** are the single
+source of truth — defer to them; the forms below are the defaults to reach for
+(run from `cpp/`):
+
+- **Configure:** `cmake --preset default` (Debug + analysis, builds into
+  `build/`); Release via `cmake --preset release` (`build-release/`).
+- **Build:** `cmake --build build` (or the matching `build-*` dir per preset).
+- **Format (check):** `cmake --build build --target format-check` — covers
+  `.cpp` *and* every header extension (`.h`, `.hh`, `.hpp`, `.hxx` under
+  `include/`, `src/`, `tests/`); a hand-rolled `find -name '*.cpp'` misses
+  `.hpp`, so prefer the target.
+- **Format (apply):** `cmake --build build --target format` (or
+  `clang-format -i` on exactly the files you touched).
+- **Static analysis:** the targets `tidy` and `cppcheck` (default profile
+  `warning,performance,portability`, `tests/` excluded; `cppcheck-strict` is
+  the opt-in exhaustive one), or all lanes at once: `ctest -L analysis`.
 - **Dependency graph:** `cmake --build build --target scan-deps` (writes
-  `build/reports/scan-deps/deps.json`); ad-hoc:
+  `build/reports/scan-deps/deps.json`); the layers lane writes the make-format
+  variants `deps.mk` / `deps.rules` in the same directory; ad-hoc:
   `clang-scan-deps -compilation-database=build/compile_commands.json --format=experimental-full > deps.json`
-- **Reports:** read the agent's stdout/stderr (and any `build/reports/*.txt`)
-  for per-file:line findings; summarize by severity.
+- **Reports:** read the agent's stdout/stderr and `build/reports/*`
+  (`clang-tidy.log`, `analysis-status.txt`, ...) for per-file:line findings;
+  summarize by severity.
 
 ## Quality contract (the gate)
 
@@ -63,11 +77,15 @@ does not write feature code (that is `software-implementation`).
   `SKIP_RETURN_CODE 77` and the `analysis` label (`ctest -L analysis` runs
   only them, `ctest -LE analysis` skips them); a missing tool is a SKIP,
   never a failure. A lane's exit code is the gate - not the wrapping build's.
-- **Fail vs report-only:** correctness findings fail - compiler warnings as
-  errors, `clang-diagnostic-*`, `clang-analyzer-*`, `bugprone-*`, cppcheck
-  warning/performance/portability, layer violations, sanitizer aborts, test
-  failures. Modernization (`modernize-*`), style and benchmark numbers are
-  report-only guidance: generated code is guided, not blocked.
+- **Fail vs report-only:** correctness findings fail - `clang-diagnostic-*`,
+  `clang-analyzer-*`, `bugprone-*`, cppcheck warning/performance/portability,
+  layer violations, sanitizer aborts, test failures. The compilers build with
+  high warning levels (`/W4` / `-Wall -Wextra -Wpedantic` ...) but **without**
+  `-Werror` or MSVC's `/WX`: compiler warnings reach the gate through the
+  tidy lane's `clang-diagnostic-*` FAIL category (and `.clang-tidy`'s
+  `WarningsAsErrors`), not by failing the compile. Modernization (`modernize-*`), style and
+  benchmark numbers are report-only guidance: generated code is guided, not
+  blocked.
 - **Sanitizers:** one dedicated build tree per lane
   (`-DENABLE_SANITIZER=address,undefined` or `thread`); sanitized and plain
   objects never mix. TSan suppressions live in `tools/tsan.supp`, short and

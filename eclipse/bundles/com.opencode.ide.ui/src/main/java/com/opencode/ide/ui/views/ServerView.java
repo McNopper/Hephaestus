@@ -44,6 +44,7 @@ import com.opencode.ide.client.model.SkillInfo;
 import com.opencode.ide.core.ConnectionsManager;
 import com.opencode.ide.core.ManagedConnection;
 import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.context.SessionViewIds;
 import com.opencode.ide.ui.internal.Refreshable;
 import com.opencode.ide.ui.internal.UiActivator;
 import com.opencode.ide.ui.internal.ViewLoadSupport;
@@ -159,6 +160,8 @@ public class ServerView extends ViewPart implements Refreshable {
         final List<McpServerInfo> mcpServers;
         final List<SkillInfo> skills;
         final WorkingSet workingSet;
+        /** The location scope {@link #mcpServers} was listed with - actions must reuse it (B-023). */
+        final String mcpDirectory;
         final CategoryNode agentsCategory;
         final CategoryNode sessionsCategory;
         final CategoryNode filesCategory;
@@ -170,13 +173,14 @@ public class ServerView extends ViewPart implements Refreshable {
                 String version, Long pid, List<Agent> agents, List<Session> sessions,
                 Map<String, SessionStatus> statuses) {
             this(primary, label, mode, url, healthy, version, pid, null, agents, sessions, statuses,
-                    List.of(), List.of(), WorkingSet.EMPTY);
+                    List.of(), List.of(), WorkingSet.EMPTY, null);
         }
 
         ServerNode(boolean primary, String label, String mode, String url, boolean healthy,
                 String version, Long pid, OpencodeClient client, List<Agent> agents,
                 List<Session> sessions, Map<String, SessionStatus> statuses,
-                List<McpServerInfo> mcpServers, List<SkillInfo> skills, WorkingSet workingSet) {
+                List<McpServerInfo> mcpServers, List<SkillInfo> skills, WorkingSet workingSet,
+                String mcpDirectory) {
             this.primary = primary;
             this.label = label;
             this.mode = mode;
@@ -192,6 +196,7 @@ public class ServerView extends ViewPart implements Refreshable {
             this.mcpServers = mcpServers == null ? List.of() : mcpServers;
             this.skills = skills == null ? List.of() : skills;
             this.workingSet = workingSet == null ? WorkingSet.EMPTY : workingSet;
+            this.mcpDirectory = mcpDirectory;
             this.agentsCategory = new CategoryNode("Agents", CategoryKind.AGENTS, this);
             this.sessionsCategory = new CategoryNode("Sessions", CategoryKind.SESSIONS, this);
             this.filesCategory = new CategoryNode("Active files", CategoryKind.ACTIVE_FILES, this);
@@ -639,7 +644,8 @@ public class ServerView extends ViewPart implements Refreshable {
         if (owner == null || owner.client == null) {
             return;
         }
-        new McpServersDialog(getSite().getShell(), owner.client, owner.mcpServers).open();
+        new McpServersDialog(getSite().getShell(), owner.client, owner.mcpServers,
+                owner.mcpDirectory).open();
     }
 
     /**
@@ -829,7 +835,8 @@ public class ServerView extends ViewPart implements Refreshable {
         ConnectionsManager.getDefault().addListener(connectionsListener);
     }
 
-    /** Resumes the given session in a chat window (via the openChat command - no chat-bundle dependency). */
+    /** Resumes the given session in a chat window (via the openChat command
+     * from the ONE seam — no chat-bundle dependency). */
     private void openChatForSession(String sessionId) {
         if (!selectedTarget().openSession()) {
             return;
@@ -840,14 +847,15 @@ public class ServerView extends ViewPart implements Refreshable {
     private void openChatParameter(String parameter, String value) {
         try {
             var commands = getViewSite().getService(org.eclipse.ui.commands.ICommandService.class);
-            var command = commands.getCommand("com.opencode.ide.chat.openChat");
+            var command = commands.getCommand(SessionViewIds.CHAT_OPEN_COMMAND_ID);
             if (!command.isDefined()) {
                 return; // chat bundle not installed
             }
             var parameterized = new org.eclipse.core.commands.ParameterizedCommand(command,
                     new org.eclipse.core.commands.Parameterization[] {
                             new org.eclipse.core.commands.Parameterization(
-                                    command.getParameter("com.opencode.ide.chat.openChat." + parameter), value) });
+                                    command.getParameter(SessionViewIds.chatCommandParameter(parameter)),
+                                    value) });
             var handlers = getViewSite().getService(org.eclipse.ui.handlers.IHandlerService.class);
             handlers.executeCommand(parameterized, null);
         } catch (Exception e) {
@@ -935,7 +943,8 @@ public class ServerView extends ViewPart implements Refreshable {
                 statuses == null ? Collections.emptyMap() : statuses,
                 mcpServers == null ? Collections.emptyList() : mcpServers,
                 skills == null ? Collections.emptyList() : skills,
-                workingSet);
+                workingSet,
+                scopeDir);   // the MCP actions reuse the list's scope (B-023)
     }
 
     /**
@@ -967,7 +976,8 @@ public class ServerView extends ViewPart implements Refreshable {
                     statuses == null ? Collections.emptyMap() : statuses,
                     mcpServers == null ? Collections.emptyList() : mcpServers,
                     skills == null ? Collections.emptyList() : skills,
-                    workingSet);
+                    workingSet,
+                    null);   // remote lists are unscoped, so its actions stay unscoped
         } catch (Exception e) {
             return new ServerNode(false, label, null, url, false, null, null,
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());

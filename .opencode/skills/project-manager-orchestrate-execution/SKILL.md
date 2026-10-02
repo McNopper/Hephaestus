@@ -108,7 +108,7 @@ For each plan item, emit tickets with `role` set so the right agent claims them:
 ```
 sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept--> done
                           ^                                  |
-                          `---------- rework ----------------'
+                          `-- review FAIL: send-back / blocked in place --'
 ```
 
 - Agent claims via `task_claim(role=...)`. Two agents never get the same ticket.
@@ -121,7 +121,9 @@ sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept-->
   expects code+tests (AC-named paths); test-* stages expect tests/goldens.
   Reviewer doubt round-trips to the **originator** (one retry per stage visit,
   `review doubt retry (1/1)` history marker) before anything is blocked.
-- Review finding -> back to `in-progress` (rework). Converge, don't restart.
+- Review FAIL -> the engine sends the ticket back to the previous stage's backlog
+  (blocked with the reviewer's reasons; the first stage and unstaged tickets are
+  blocked in place). Converge, don't restart.
 - A returned/unclaimed ticket can be released (`task_release`) and picked
   up by a **different** agent.
 - `done` only on Definition-of-Done + the review pass's acceptance.
@@ -130,13 +132,16 @@ sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept-->
 
 A ticket with a `stage` visits **ALL ten V stages** (requirements → system →
 architecture → design → implementation → test-implementation → test-design →
-test-architecture → test-system → test-requirements). A stage where nothing
-applies passes with a recorded rationale (`task_pass_stage` → history
-"stage N passed: reason") instead of a full dispatch — every stage is visited;
-not every stage does work. Stages run **concurrently** (no phase gates, no
-ordering enforcement): `task_advance` moves the ticket to the next stage's
-backlog, `task_send_back` to the previous one (blocked with reason), and
-`reportHorizontal` to the V-pair stage.
+test-architecture → test-system → test-requirements). The pass-through — a
+stage where nothing applies advances with a recorded rationale instead of a
+full dispatch — is **library-level only**: `TaskStore.passStage` exists but
+there is no `task_pass_stage` tool and no production caller, so today a staged
+ticket needs a full dispatch at each stage (U-049 tracks the wiring). Stages
+run **concurrently** (no phase gates, no ordering enforcement): `task_advance`
+moves the ticket to the next stage's backlog, `task_send_back` to the previous
+one (blocked with reason). (A horizontal "report to the V-pair stage" route
+exists only inside the unwired resolution pass — `ResolutionPolicy` /
+`DispatchScheduler.withResolution`, U-050.)
 
 ## Bubble-up -> escalation
 
@@ -144,12 +149,15 @@ When an agent cannot proceed:
 1. It passes the question back to the **originator agent** first
    (`clarification:` send-back, up to 3 round-trips) — never to the human first.
 2. Only after that attempt does it set `blocked` + `blocker` on the ticket
-   (`task_set_blocked`) — `blocked` always means NEEDS-HUMAN.
-3. Resolution-first pumping: every wave tick resolves blocked items first
-   (vertical `task_send_back` to the previous stage / horizontal report to the
-   V-pair stage) before planning new launches; only the remainder escalates to
-   **the human** (scope/goal/spend/security decisions — the human's only
-   regular duty).
+   (`task_set_blocked`) — a blocked ticket is NEEDS-HUMAN once no agent
+   retry is in flight.
+3. Resolution-first pumping (unwired — U-050): the intended tick order
+   resolves blocked items first (vertical `task_send_back` to the previous
+   stage / horizontal report to the V-pair stage) before planning new
+   launches; the production schedulers never set the resolver, so today a
+   blocked ticket stays put until its blocker is cleared. Only the remainder
+   escalates to **the human** (scope/goal/spend/security decisions — the
+   human's only regular duty).
 
 ## Default Output
 

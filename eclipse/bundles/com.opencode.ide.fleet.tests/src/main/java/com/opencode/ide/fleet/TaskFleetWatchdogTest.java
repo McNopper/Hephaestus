@@ -473,6 +473,63 @@ public class TaskFleetWatchdogTest {
     }
 
     /**
+     * B-015 AC1: the env knobs seed RuntimeTuning's DEFAULTS, and with the
+     * caller keeping the default the SEEDED live value — not the compiled-in
+     * 5m/30m — drives the stall window. The fleet is built BEFORE the seed
+     * (TaskFleet's static init seeds once at class load) and the seed is
+     * cleared after, so no other test in this bundle sees it.
+     */
+    @Test
+    public void seededStallDefaultDrivesTheWatchdog() {
+        String id = sprintTicket("developer");
+        client.sessionType = "idle"; // idle and silent: the stall window fires
+        TaskFleet fleet = fleet(); // no withStallTimeout: the DEFAULT path is under test
+        try {
+            com.opencode.ide.client.RuntimeTuning.seedStallTimeout(Duration.ofMillis(150));
+
+            FleetJob job = fleet.launch(PROJECT, id, REPO, FleetTuning.DEFAULT_TICKET_BUDGET);
+
+            assertEquals(FleetJob.State.FAILED, job.state());
+            assertTrue(job.detail(), job.detail().contains("stalled"));
+            assertTrue("the abort names the effective window, not the caller's default: " + job.detail(),
+                    job.detail().contains("idle and silent for PT0.15S"));
+            assertTrue("the abort names the knob that actually applied: " + job.detail(),
+                    job.detail().contains("RuntimeTuning.stallTimeout"));
+            assertTrue(job.detail(), job.detail().contains("FLEET_STALL_TIMEOUT_MS"));
+            assertTrue("the hung session was aborted", client.aborted.contains("ses_1"));
+        } finally {
+            com.opencode.ide.client.RuntimeTuning.clearSeededDefaults();
+        }
+    }
+
+    /**
+     * B-015 AC1+AC2: ditto for the ticket budget — a seeded budget default
+     * (what FLEET_TICKET_BUDGET_MS produces) stops a busy-silent session,
+     * and the abort message reports the EFFECTIVE budget and names the live
+     * knob (previously it printed the launch parameter, PT30M, even when
+     * the live knob had decided).
+     */
+    @Test
+    public void seededBudgetDefaultDrivesTheWatchdogAndTheAbortNamesIt() {
+        String id = sprintTicket("pm"); // busy + static messages: no-progress budget kill
+        TaskFleet fleet = fleet();
+        try {
+            com.opencode.ide.client.RuntimeTuning.seedTicketBudget(Duration.ofMillis(400));
+
+            FleetJob job = fleet.launch(PROJECT, id, REPO, FleetTuning.DEFAULT_TICKET_BUDGET);
+
+            assertEquals(FleetJob.State.FAILED, job.state());
+            assertTrue("the abort names the effective budget: " + job.detail(),
+                    job.detail().contains("timeout after PT0.4S"));
+            assertTrue("the abort names the knob that actually applied: " + job.detail(),
+                    job.detail().contains("RuntimeTuning.ticketBudget"));
+            assertTrue(job.detail(), job.detail().contains("FLEET_TICKET_BUDGET_MS"));
+        } finally {
+            com.opencode.ide.client.RuntimeTuning.clearSeededDefaults();
+        }
+    }
+
+    /**
      * B-008 AC1: the diagnostic names the last tool call (name + status) so
      * a tool-hang is distinguishable from a model-hang and a true hang.
      */

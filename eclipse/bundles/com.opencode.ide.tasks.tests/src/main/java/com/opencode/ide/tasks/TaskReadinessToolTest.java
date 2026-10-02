@@ -42,7 +42,8 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
      * sprint), T-002 WAIT_UPSTREAM (system, nothing upstream), T-003
      * NOT_APPLICABLE (no stage), T-004 STALE (design ran before, epic chain
      * to T-006 which changed after), T-005 BLOCKED, T-006 the done
-     * architecture anchor (itself WAIT_UPSTREAM), T-007 RUNNING.
+     * architecture anchor (itself NOT_APPLICABLE: done, and it entered the
+     * pipeline at architecture - nothing upstream to wait on), T-007 RUNNING.
      */
     private void createEveryKind() throws InterruptedException {
         call("task_create", "{\"project\":\"p\",\"title\":\"ready\",\"stage\":\"requirements\"}");
@@ -74,7 +75,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
         JsonArray rows = callArray("task_readiness", "{\"project\":\"p\"}");
         assertEquals(7, rows.size());
         assertEquals("STALE before BLOCKED before WAIT_UPSTREAM (by id) before RUNNING before READY before NOT_APPLICABLE",
-                List.of("T-004", "T-005", "T-002", "T-006", "T-007", "T-001", "T-003"), ids(rows));
+                List.of("T-004", "T-005", "T-002", "T-007", "T-001", "T-003", "T-006"), ids(rows));
     }
 
     @Test

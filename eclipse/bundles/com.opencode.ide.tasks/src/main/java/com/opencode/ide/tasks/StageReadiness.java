@@ -34,10 +34,14 @@ import java.util.Map;
  * read as failed, never as running. A ticket
  * that already ran to {@code done} with unchanged inputs falls through to
  * NOT_APPLICABLE: the fixed Kind set has no FINISHED, and READY would re-dispatch
- * finished work. A sent-back ticket reports BLOCKED (that is exactly how the
+ * finished work. So does a {@code done} ticket that entered the pipeline
+ * mid-way (no upstream-stage ticket anywhere in its epic chain and no own
+ * advance history - a bug fixed straight at implementation): nothing could
+ * ever arrive for it to wait on. A sent-back ticket reports BLOCKED (that is exactly how the
  * store records a send-back) and, once unblocked, is READY for rework via its
- * own advance history; epic-chain downstream tickets automatically go
- * WAIT_UPSTREAM because the sent-back upstream left done/in-review.</p>
+ * own advance history; epic-chain downstream tickets - done ones included -
+ * go WAIT_UPSTREAM because the sent-back upstream left done/in-review, and
+ * STALE once it lands again.</p>
  */
 public final class StageReadiness {
 
@@ -136,6 +140,10 @@ public final class StageReadiness {
         }
         Task viaEpic = satisfiedViaEpicChain(t, upstream, tickets);
         if (viaEpic == null && !flowedFromUpstream(t, upstream)) {
+            if ("done".equals(t.status) && !epicChainHasStage(t, upstream, tickets)) {
+                return new Readiness(Kind.NOT_APPLICABLE, "stage '" + t.stage + "' finished (done); the ticket"
+                        + " entered the V pipeline here - no '" + upstream + "' ticket to wait on");
+            }
             return new Readiness(Kind.WAIT_UPSTREAM, "no done/in-review ticket in upstream stage '"
                     + upstream + "' (epic chain or own advance history)");
         }
@@ -175,7 +183,7 @@ public final class StageReadiness {
             if (!upstream.equals(u.stage) || !("done".equals(u.status) || "in-review".equals(u.status))) {
                 continue;
             }
-            if (!u.id.equals(t.epic) && (t.epic == null || !t.epic.equals(u.epic))) {
+            if (!linkedByEpic(t, u)) {
                 continue;
             }
             if (best == null || (isStrictlyAfter(u.updatedAt, best.updatedAt))) {
@@ -183,6 +191,25 @@ public final class StageReadiness {
             }
         }
         return best;
+    }
+
+    /**
+     * True when the epic chain holds ANY ticket in the upstream stage,
+     * whatever its status: an upstream in rework still counts - its done
+     * downstreams wait for it, then go STALE when it lands again.
+     */
+    private static boolean epicChainHasStage(Task t, String upstream, List<Task> tickets) {
+        for (Task u : tickets) {
+            if (u != null && u.id != null && !u.id.equals(t.id) && upstream.equals(u.stage) && linkedByEpic(t, u)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The epic-chain link: {@code u} is {@code t}'s epic parent or shares its epic (id or label). */
+    private static boolean linkedByEpic(Task t, Task u) {
+        return u.id.equals(t.epic) || t.epic != null && t.epic.equals(u.epic);
     }
 
     /**

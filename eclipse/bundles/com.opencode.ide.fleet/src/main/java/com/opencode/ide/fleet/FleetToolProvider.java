@@ -551,8 +551,8 @@ public final class FleetToolProvider implements ToolProvider {
                         + "no human click between waves. The loop parks while blocked (NEEDS-HUMAN) "
                         + "tickets wait and resumes when a blocker clears; it stops cleanly on budget "
                         + "exhaustion or when nothing is plannable. OFF by default; the cost budget is "
-                        + "a hard stop. Daemon-attached: under the fleet daemon the loop survives "
-                        + "client disconnects.",
+                        + "a hard stop. The loop runs inside this engine's host process (the "
+                        + "Eclipse session or this standalone MCP server), not in the chat client.",
                 schema(new String[]{"project"}, obj -> {
                     obj.add("project", strP("task store project to pump"));
                     obj.add("sprint", strP("optional existing sprint adopted as the first wave;"

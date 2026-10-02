@@ -5,9 +5,13 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The ONE home for view ids and the session-id encoding (T-009): every pane
+ * The ONE home for the cross-bundle view ids, the chat open-command id
+ * and the session-id encoding (T-009): every pane
  * that opens a per-session view (Chat, Session Details) goes through these
- * constants and this encoding. It also owns the one explicit auto-refresh
+ * constants and this encoding, and every pane that opens the chat goes
+ * through the {@link #CHAT_OPEN_COMMAND_ID} (B-017: ui used to mirror the
+ * chat view and command ids as private literals). It also owns the one
+ * explicit auto-refresh
  * parameter a Session Details open can carry: the {@link #LIVE_WATCH_SEGMENT}
  * in the secondary id (built by {@link #secondaryId(String, boolean)}, read
  * back by {@link #parse(String)}). Before this class, four call sites carried
@@ -24,6 +28,16 @@ public final class SessionViewIds {
 
     /** The session history inspector (ui bundle; {@code allowMultiple}, secondary id = session id). */
     public static final String SESSION_DETAILS_VIEW_ID = "com.opencode.ide.ui.views.SessionDetailsView";
+
+    /**
+     * The chat bundle's {@code openChat} command (B-017): the one way
+     * non-chat bundles open the chat — via the workbench command service,
+     * so there is no compile dependency on the chat bundle and a missing
+     * chat bundle degrades to {@code !command.isDefined()}. The command id
+     * (and its parameter ids, see {@link #chatCommandParameter(String)})
+     * live HERE so no other bundle mirrors the literal.
+     */
+    public static final String CHAT_OPEN_COMMAND_ID = "com.opencode.ide.chat.openChat";
 
     /**
      * The live-watch segment of a Session Details secondary id: the one
@@ -87,6 +101,17 @@ public final class SessionViewIds {
      */
     public static String sessionId(String secondaryId) {
         return parse(secondaryId).sessionId();
+    }
+
+    /**
+     * The fully-qualified parameter id of the {@link #CHAT_OPEN_COMMAND_ID}
+     * command (e.g. {@code chatCommandParameter("providerId")}); the
+     * command's parameters ({@code providerId}, {@code modelId},
+     * {@code sessionId}) are qualified with the command id, so callers
+     * never concatenate the literal themselves.
+     */
+    public static String chatCommandParameter(String parameter) {
+        return CHAT_OPEN_COMMAND_ID + "." + parameter;
     }
 
     private SessionViewIds() {

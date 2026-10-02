@@ -43,9 +43,10 @@ enforce the Definition of Done. Worker agents are dispatched (by the
 ```
 product-backlog --wave planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
       ^                                          |                       |                    |
-      `--- on wave close, incomplete <---'                       `--- rework ---'                    |
-blocked = orthogonal flag (blocked:bool + blocker:str) at any active state; blocked always means
-          NEEDS-HUMAN (reached only after agents had their attempt)
+      `--- on wave close, incomplete <---'     `--- review FAIL: send-back / blocked in place --'   |
+blocked = orthogonal flag (blocked:bool + blocker:str) at any active state; a blocked ticket is
+          NEEDS-HUMAN once no agent retry is in flight (blocked is reached only after agents
+          had their attempt)
 paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update
 stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back ->
           previous stage (blocked + reason)
@@ -59,7 +60,7 @@ stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_
 | `in-review` | Implementation complete — under review / verification (`reviewer` + test skills) | the wave / review |
 | `done` | Meets **Definition of Done** and accepted | the Increment |
 | `paused` *(status)* | Parked for maintenance (U-038): visible, never blocked; resume is a plain status update | shutdown checkpoint (WIP on the task branch) |
-| `blocked` *(flag)* | NEEDS-HUMAN: agents had their attempt; preserves the workflow position | impediment -> the human's only regular duty |
+| `blocked` *(flag)* | NEEDS-HUMAN once no agent retry is in flight; agents had their attempt; preserves the workflow position | impediment -> the human's only regular duty |
 
 ## Ticket fields
 
@@ -67,7 +68,9 @@ stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_
 `status`, `blocked` + `blocker`, `sprint` (S-XX | null; the schema key for the
 wave — the UI calls it a wave), `story_points`,
 `role` (architect / developer / tester / pm / cpp-engineer / graphics-engineer),
-`priority`, `assignee`, `acceptance_criteria[]`, `labels[]`, `epic` (optional),
+`priority`, `model` (optional fleet model override, `provider/model[#variant]`;
+null = server default — the per-ticket cost lever), `assignee`,
+`acceptance_criteria[]`, `labels[]`, `epic` (optional),
 `stage` (V-model stage | null), `artifacts[]`, `todos[]`,
 timestamps, append-only `history[]`, `comments[]`.
 
@@ -83,15 +86,18 @@ timestamps, append-only `history[]`, `comments[]`.
    (`task_plan_sprint` — the tool keeps the `sprint` name for schema
    stability), set the wave goal. They move to `sprint-backlog`.
 3. **Triage (ongoing — there is no daily Scrum calendar):** surface
-   `in-progress` / `blocked`; reassign; clear impediments. Every wave tick
-   resolves blocked items first (vertical send-back to the previous stage /
-   horizontal report to the V-pair stage) before planning new launches.
+   `in-progress` / `blocked`; reassign; clear impediments. The intended tick
+   order resolves blocked items first (vertical send-back to the previous
+   stage / horizontal report to the V-pair stage) before planning new
+   launches — that resolution pass is not wired into the production
+   schedulers yet (U-050); today a blocked ticket stays put until its
+   blocker is cleared.
 4. **Wave review:** demo `in-review` / `done`; acceptance is the engine's
    read-only review pass (stage-shaped evidence — see the DoD), not a human
    gate; the human sees the outcome and resolves NEEDS-HUMAN items here.
 5. **Wave retro:** log what to improve; `task_close_sprint` returns
-   incomplete tickets to `product-backlog`; done tickets auto-archive (U-027)
-   and are never re-dispatched.
+   incomplete tickets to `product-backlog`; done tickets stay `done` and are
+   never re-dispatched — archiving on close is not wired (U-051 tracks it).
 
 ## Bubble-up -> escalation
 
@@ -100,8 +106,8 @@ passes the question back to the **originator agent** (`clarification:`
 send-backs, up to 3 round-trips; reviewer doubt round-trips once per stage
 visit — `review doubt retry (1/1)` history marker) — never to the human
 first. Only after that attempt does it set `blocked` + a `blocker` reason on
-the ticket (`task_set_blocked`): `blocked` always means NEEDS-HUMAN. You
-triage:
+the ticket (`task_set_blocked`); a blocked ticket is NEEDS-HUMAN once no
+agent retry is in flight. You triage:
 
 - **Resolve internally** when you can (reassign, resequence, send back to the
   previous stage, report to the V-pair stage, adjust the wave) -> clear
@@ -147,7 +153,9 @@ serialization point):
 
 ## Iterative rework loop
 
-`in-review` -> failure / review finding -> back to `in-progress` (rework).
+`in-review` -> review FAIL -> `task_send_back` to the previous stage's backlog
+(blocked with the reviewer's reasons; the first stage and unstaged tickets are
+blocked in place) -> rework -> re-verify.
 This is the agile loop: a defect reopens the work that produced it, downstream
 re-verifies, and the ticket converges before `done`. On a changed objective,
 amend the wave/backlog rather than restarting.

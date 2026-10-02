@@ -14,7 +14,10 @@
 #      keep strict `ban-eclipse-imports` purity.);
 #   2. chat must not depend on ui or board; ui must not depend on chat or board;
 #   3. nothing depends on a *.tests bundle;
-#   4. no machine-specific absolute paths in sources (the no-fixed-paths rule).
+#   4. no machine-specific absolute paths in sources (the no-fixed-paths rule;
+#      layer 2b extends it to *.ini anywhere under eclipse/, B-019);
+#   5. no mojibake (double-encoded UTF-8) in the harness sources and the repo
+#      docs - the compiler accepts it, users read it.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot   # eclipse/
@@ -57,11 +60,54 @@ Get-ChildItem (Join-Path $root 'bundles') -Directory | ForEach-Object {
 # (QUALITY.md) - production bundles and the mojo are the rule's target.
 $pattern = '[A-Za-z]:\\\\(Users|Development)\\\\'
 Get-ChildItem (Join-Path $root 'bundles'), (Join-Path $root 'mojo') -Recurse -Include *.java, *.xml, *.properties -File |
-    Where-Object { $_.FullName -notmatch '\\target\\' -and $_.FullName -notmatch '\.tests\\' } |
+    Where-Object { $_.FullName -notmatch '[\\/]target[\\/]' -and $_.FullName -notmatch '\.tests[\\/]' } |
     ForEach-Object {
         $hit = Select-String -Path $_.FullName -Pattern $pattern -SimpleMatch:$false | Select-Object -First 1
         if ($hit) {
             $violations += "machine-specific path in $($_.FullName):$($hit.LineNumber) - resolve at runtime instead"
+        }
+    }
+
+# layer 2b: the same no-fixed-paths rule over *.ini files anywhere under
+# eclipse/ (B-019: the shipped plugin_customization.ini used to carry the
+# build machine's repo paths). Ini files escape the drive colon (C\:/...) on
+# Windows and commonly use forward slashes, so this pattern allows both
+# slash directions AND the escaped-colon form; build output (target/) and
+# vendored min.* files are excluded like everywhere else.
+$iniPattern = '[A-Za-z]\\?:[\\/]{1,2}(Users|Development)[\\/]'
+Get-ChildItem $root -Recurse -Include *.ini -File |
+    Where-Object { $_.FullName -notmatch '[\\/]target[\\/]' -and $_.FullName -notmatch '[\\/]node_modules[\\/]' -and $_.Name -notmatch '\.min\.' } |
+    ForEach-Object {
+        $hit = Select-String -Path $_.FullName -Pattern $iniPattern -SimpleMatch:$false | Select-Object -First 1
+        if ($hit) {
+            $violations += "machine-specific path in $($_.FullName):$($hit.LineNumber) - resolve at runtime instead"
+        }
+    }
+
+# layer 3: no mojibake. A UTF-8 file that takes an ANSI round-trip (a Windows
+# PowerShell 5.1 Get-Content/Set-Content edit) turns every non-ASCII character
+# into two or three cp1252 characters - an em dash becomes U+00E2 U+20AC
+# U+201D. Detected: U+00C2/U+00C3 followed by a cp1252-decoded continuation
+# byte, or U+00E2 followed by two. Vendored third-party bundles (hljs/,
+# katex/, *.min.*) are out of scope; intentional fixtures use \u escapes.
+$repo = Split-Path -Parent $root
+$cont = '[\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014' +
+        '\u2018\u2019\u201A\u201C\u201D\u201E\u2020\u2021\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]'
+$mojibake = [regex]('[\u00C2\u00C3]' + $cont + '|\u00E2' + $cont + $cont)
+$scanRoots = @((Join-Path $root 'bundles'), (Join-Path $root 'components'), (Join-Path $root 'mojo'),
+    (Join-Path $root 'releng'), (Join-Path $repo 'docs'), (Join-Path $repo '.opencode/skills'),
+    (Join-Path $repo '.opencode/agent')) | Where-Object { Test-Path $_ }
+$textFiles = @(Get-ChildItem $scanRoots -Recurse -File -Include *.java, *.js, *.mjs, *.html, *.css, *.xml,
+        *.properties, *.MF, *.md, *.json, *.ps1) +
+    @(Get-ChildItem $root, $repo, (Join-Path $repo 'cpp') -File -Filter *.md -ErrorAction SilentlyContinue)
+$textFiles |
+    Where-Object { $_.FullName -notmatch '[\\/](target|node_modules|hljs|katex)[\\/]' -and $_.Name -notmatch '\.min\.' } |
+    ForEach-Object {
+        $text = [IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8)
+        $hit = $mojibake.Match($text)
+        if ($hit.Success) {
+            $line = ($text.Substring(0, $hit.Index) -split "`n").Count
+            $violations += "mojibake (double-encoded UTF-8) in $($_.FullName):$line - re-save the text as UTF-8"
         }
     }
 
@@ -70,4 +116,4 @@ if ($violations.Count -gt 0) {
     $violations | ForEach-Object { Write-Host "  - $_" }
     exit 1
 }
-Write-Host 'architecture check passed (dependency direction + no fixed paths)'
+Write-Host 'architecture check passed (dependency direction + no fixed paths + no mojibake)'

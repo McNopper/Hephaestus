@@ -94,11 +94,11 @@ import com.opencode.ide.board.model.StageJourney;
 import com.opencode.ide.board.model.StageSelection;
 import com.opencode.ide.board.model.TakeoverRouter;
 import com.opencode.ide.board.model.TaskStoreWatcher;
-import com.opencode.ide.board.model.TasksRootResolution;
 import com.opencode.ide.board.model.TicketRow;
 import com.opencode.ide.board.model.VStageLayout;
 import com.opencode.ide.board.model.WaveDigest;
 import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.TasksRootResolution;
 import com.opencode.ide.fleet.Bootstrap;
 import com.opencode.ide.fleet.FleetTuning;
 import com.opencode.ide.git.FleetGit;
@@ -128,8 +128,8 @@ import com.opencode.ide.tasks.VStages;
  * (U-016): a drop on a flat column changes the status, a drop on a stage
  * column changes the stage (backward drops carry the send-back reason
  * contract). The board refreshes live via {@link TaskStoreWatcher} on
- * {@code <root>/<project>} Ã¢â‚¬â€ including peer-agent writes and git-checkout
- * file replacements (B-002) Ã¢â‚¬â€ and survives a missing store (notice instead
+ * {@code <root>/<project>} — including peer-agent writes and git-checkout
+ * file replacements (B-002) — and survives a missing store (notice instead
  * of exception, polling continues). The watched root is the adopted repo
  * store ({@link TasksRootResolution}); a refresh that finds the unpicked
  * (backlog) default empty while real sprints exist auto-selects the newest
@@ -137,17 +137,17 @@ import com.opencode.ide.tasks.VStages;
  *
  * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red
  * blocked count in every V-model stage column header. The stage columns
- * always render Ã¢â‚¬â€ all ten, empty ones included, each at the fixed width Ã¢â‚¬â€
+ * always render — all ten, empty ones included, each at the fixed width —
  * and sit on the diagonal {@link VStageLayout} grid so the board reads as
  * a V (definition leg descending left, verification leg ascending right;
  * U-016). Bug tickets carry a red
- * {@code [bug]} type tag on the row (normal weight Ã¢â‚¬â€ blocked stays the
+ * {@code [bug]} type tag on the row (normal weight — blocked stays the
  * louder signal; U-005). The context menu on a ticket
- * row mirrors the toolbar (Launch task / Take over / Open ticketÃ¢â‚¬Â¦ / Copy
- * ticket id) and adds the V-pipeline moves "Advance stage Ã¢â€ â€™" / "Send backÃ¢â‚¬Â¦"
+ * row mirrors the toolbar (Launch task / Take over / Open ticket… / Copy
+ * ticket id) and adds the V-pipeline moves "Advance stage →" / "Send back…"
  * (failures surface in the status line).</p>
  *
- * <p>Threading: refreshes are single-flight Ã¢â‚¬â€ the snapshot (and sprint list)
+ * <p>Threading: refreshes are single-flight — the snapshot (and sprint list)
  * is computed on a background thread and only the apply runs on the UI thread
  * via {@code Display.asyncExec}. While a compute is in flight further refresh
  * requests just mark it dirty; the drain loop then re-computes once more
@@ -174,7 +174,7 @@ public class BoardView extends ViewPart {
     private static final String SETTING_SHOW_ARCHIVE = "showArchive";
 
     /**
-     * Fixed width of every V-model stage column Ã¢â‚¬â€ empty ones keep it too:
+     * Fixed width of every V-model stage column — empty ones keep it too:
      * all ten columns always render (U-016), so the V stays complete and
      * recognizable on an empty board. No collapse-to-header anymore.
      */
@@ -185,7 +185,7 @@ public class BoardView extends ViewPart {
 
     /** The compact status-prefix legend (tooltip text on pipeline rows). */
     private static final String STATUS_LEGEND =
-            "\u25AD product-backlog Ã‚Â· \u25CB sprint-backlog Ã‚Â· \u25B6 in-progress Ã‚Â· \u25D0 in-review Ã‚Â· \u2713 done";
+            "\u25AD product-backlog · \u25CB sprint-backlog · \u25B6 in-progress · \u25D0 in-review · \u2713 done";
 
     /** The background loop's tick period (H6 piece 4; calibrated later). */
     private static final Duration AUTO_DISPATCH_PERIOD = Duration.ofSeconds(30);
@@ -195,7 +195,7 @@ public class BoardView extends ViewPart {
 
     private BoardModel model;
     private TaskStoreWatcher watcher;
-    /** Assigned in createPartControl Ã¢â‚¬â€ null-checked before every use. */
+    /** Assigned in createPartControl — null-checked before every use. */
     private FleetLauncher launcher;
     /** The persisted dispatch policy + bootstrap; null when preference persistence is unavailable. */
     private DispatchPolicyStore dispatchStore;
@@ -210,7 +210,7 @@ public class BoardView extends ViewPart {
     private final List<PipelineColumnUi> pipelineColumns = new ArrayList<>();
     /** U-018: every live row label provider, fed the readiness verdicts per snapshot apply. */
     private final List<BoardRowLabel> rowLabels = new ArrayList<>();
-    /** Fleet-row readiness badge ("n ready Ã‚Â· m stale"). */
+    /** Fleet-row readiness badge ("n ready · m stale"). */
     private Label readinessLabel;
     /** The most recent applied snapshot (column-launch picks the top READY ticket from it). */
     private BoardSnapshot lastSnapshot;
@@ -258,7 +258,7 @@ public class BoardView extends ViewPart {
     private Action launchAction;
     private Action autoDispatchAction;
     private Action autoLoopAction;
-    /** U-022: the recurring-waves toggle Ã¢â‚¬â€ wave-to-wave planning without clicks. */
+    /** U-022: the recurring-waves toggle — wave-to-wave planning without clicks. */
     private Action wavesLoopAction;
     private Action dispatchSettingsAction;
     private Action takeOverAction;
@@ -581,7 +581,7 @@ public class BoardView extends ViewPart {
         archiveRow.setLayoutData(archiveRowData);
 
         archiveToggle = new Button(archiveRow, SWT.FLAT);
-        archiveToggle.setText(showArchive ? "Archive (Ã¢â‚¬Â¦) \u25BE" : "Archive \u25B8 (hidden)");
+        archiveToggle.setText(showArchive ? "Archive (…) \u25BE" : "Archive \u25B8 (hidden)");
         archiveToggle.setToolTipText("Done tickets archived with their wave - out of the active "
                 + "board, record kept. Click to " + (showArchive ? "hide" : "show"));
         archiveToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
@@ -641,8 +641,8 @@ public class BoardView extends ViewPart {
         layout.marginHeight = 0;
         column.setLayout(layout);
         // Fixed cell of the V grid (U-016): always rendered at the fixed
-        // width Ã¢â‚¬â€ an empty column keeps its table instead of collapsing to
-        // its header Ã¢â‚¬â€ and tall enough for a handful of rows; fuller tables
+        // width — an empty column keeps its table instead of collapsing to
+        // its header — and tall enough for a handful of rows; fuller tables
         // scroll internally, which keeps the V's rows stable.
         GridData cell = new GridData(SWT.FILL, SWT.FILL, false, true);
         cell.widthHint = PIPELINE_COLUMN_WIDTH;
@@ -718,7 +718,7 @@ public class BoardView extends ViewPart {
             data.exclude = !showUntracked;
             tableHolder.setLayoutData(data);
         }
-        untrackedToggle.setText(showUntracked ? "No stage (Ã¢â‚¬Â¦) \u25BE" : "No stage \u25B8 (hidden)");
+        untrackedToggle.setText(showUntracked ? "No stage (…) \u25BE" : "No stage \u25B8 (hidden)");
         untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
                 + (showUntracked ? "hide" : "show") + " the group");
     }
@@ -844,9 +844,9 @@ public class BoardView extends ViewPart {
                     StringBuilder sb = new StringBuilder(safe(row.id()))
                             .append(" \u2014 ").append(safe(row.title()));
                     sb.append("\nstatus: ").append(safe(row.status()))
-                            .append(" Ã‚Â· type: ").append(row.type() == null ? "(none)" : row.type())
-                            .append(" Ã‚Â· stage: ").append(row.stage() == null ? "(none)" : row.stage())
-                            .append(" Ã‚Â· priority: ").append(row.priority() == null
+                            .append(" · type: ").append(row.type() == null ? "(none)" : row.type())
+                            .append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage())
+                            .append(" · priority: ").append(row.priority() == null
                                     || row.priority().isBlank() ? "medium" : row.priority());
                     if (row.displayBlocked()) {
                         sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
@@ -902,7 +902,7 @@ public class BoardView extends ViewPart {
     /**
      * Drag-and-drop (U-016 rubberduck review: the kanban's core missing
      * affordance). Dragging carries the ticket id; each column's table is a
-     * drop target Ã¢â‚¬â€ a flat column drops change the STATUS, a V-model stage
+     * drop target — a flat column drops change the STATUS, a V-model stage
      * column drops change the STAGE (backward drops ask for the send-back
      * reason first, exactly like the context-menu send-back).
      */
@@ -1232,7 +1232,7 @@ public class BoardView extends ViewPart {
 
     /** Row rendering shared by both layouts: status glyph (colored), blocked bug accents, readiness chips.
      * Blocked rows render their [BLOCKED] tag red bold, bug rows carry a red [bug] tag; readiness chips
-     * (Ã‚Â· stale / Ã‚Â· waiting) ride on the tail. Uses {@link StyledString} so the glyph and tags carry
+     * (· stale / · waiting) ride on the tail. Uses {@link StyledString} so the glyph and tags carry
      * their own colors inside one cell (user direction 2026-09-18: pictographs over [IP]-style codes). */
     private static final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
         private final boolean pipeline;
@@ -1345,9 +1345,9 @@ public class BoardView extends ViewPart {
             StringBuilder sb = new StringBuilder(STATUS_LEGEND);
             sb.append("\n").append(safe(row.id())).append(" \u2014 ").append(safe(row.title()));
             sb.append("\nstatus: ").append(safe(row.status()));
-            sb.append(" Ã‚Â· type: ").append(row.type() == null ? "(none)" : row.type());
-            sb.append(" Ã‚Â· stage: ").append(row.stage() == null ? "(none)" : row.stage());
-            sb.append(" Ã‚Â· priority: ").append(row.priority() == null || row.priority().isBlank()
+            sb.append(" · type: ").append(row.type() == null ? "(none)" : row.type());
+            sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
+            sb.append(" · priority: ").append(row.priority() == null || row.priority().isBlank()
                     ? "medium" : row.priority());
             if (row.displayBlocked()) {
                 sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
@@ -1395,7 +1395,7 @@ public class BoardView extends ViewPart {
 
     /**
      * One header row (U-017): an embedded flat tool bar inside the view's
-     * header stack Ã¢â‚¬â€ same {@link Action}/{@link ControlContribution}
+     * header stack — same {@link Action}/{@link ControlContribution}
      * objects the old single view toolbar held, just grouped by meaning.
      */
     private static ToolBarManager headerRow(Composite parent) {
@@ -1556,7 +1556,7 @@ public class BoardView extends ViewPart {
             }
         };
         syncStoreAction.setToolTipText(
-                "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull Ã¢â€ â€™ claim Ã¢â€ â€™ push)");
+                "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull → claim → push)");
         syncStoreAction.setImageDescriptor(icon("sync-store"));
 
         // U-035: the grey freshness stamp rides the store row right next to
@@ -1650,7 +1650,7 @@ public class BoardView extends ViewPart {
                 "Plan over the current sprint (readiness + cost budget) and launch every admitted ticket as a fleet agent");
         autoDispatchAction.setImageDescriptor(icon("auto-dispatch"));
 
-        autoLoopAction = new Action("Auto Ã¢â€“Â¶", Action.AS_CHECK_BOX) {
+        autoLoopAction = new Action("Auto ▶", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 toggleDispatchLoop();
@@ -1660,19 +1660,19 @@ public class BoardView extends ViewPart {
                 + "launches admitted tickets until it drains (stops on uncheck or view close)");
         autoLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        wavesLoopAction = new Action("Waves Ã¢â€“Â¶", Action.AS_CHECK_BOX) {
+        wavesLoopAction = new Action("Waves ▶", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 toggleWavesLoop();
             }
         };
         wavesLoopAction.setToolTipText("Recurring waves (U-022): drains the active wave, then plans the next "
-                + "from the prioritized backlog automatically Ã¢â‚¬â€ no click between waves. Parks while "
+                + "from the prioritized backlog automatically — no click between waves. Parks while "
                 + "NEEDS-HUMAN (blocked) tickets wait and resumes when a blocker clears; stops cleanly on "
                 + "budget exhaustion or when nothing is plannable. OFF by default; per project.");
         wavesLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        dispatchSettingsAction = new Action("Dispatch settingsÃ¢â‚¬Â¦") {
+        dispatchSettingsAction = new Action("Dispatch settings…") {
             @Override
             public void run() {
                 openDispatchSettings();
@@ -1680,7 +1680,7 @@ public class BoardView extends ViewPart {
         };
         dispatchSettingsAction.setToolTipText(
                 "The stored auto-dispatch policy (concurrency, cost budget, STALE re-runs) and the "
-                        + "per-launch bootstrap command Ã¢â‚¬â€ both dispatch actions load it at action time");
+                        + "per-launch bootstrap command — both dispatch actions load it at action time");
         dispatchSettingsAction.setImageDescriptor(icon("dispatch-settings"));
 
         takeOverAction = new Action("Take over") {
@@ -1709,9 +1709,9 @@ public class BoardView extends ViewPart {
         shutdownAction.setImageDescriptor(icon("abort"));
 
         // U-017: three dedicated rows replace the single cramped view
-        // toolbar Ã¢â‚¬â€ grouped by meaning (user direction 2026-09-17, refined
+        // toolbar — grouped by meaning (user direction 2026-09-17, refined
         // by the rubberduck review: Refresh/Sync are store-level and sit
-        // with the store inputs; Cost overview is spend Ã¢â‚¬â€ fleet row).
+        // with the store inputs; Cost overview is spend — fleet row).
         ToolBarManager storeRow = headerRow(parent);
         storeRow.add(inputsCc);
         storeRow.add(refreshAction);
@@ -1731,7 +1731,7 @@ public class BoardView extends ViewPart {
         scopeRow.update(true);
 
         // U-017+U-018: the fleet row carries the dispatch actions AND the
-        // live readiness verdicts of the current sprint ("n ready Ã‚Â· m stale")
+        // live readiness verdicts of the current sprint ("n ready · m stale")
         Composite fleetRow = new Composite(parent, SWT.NONE);
         GridLayout fleetLayout = new GridLayout(4, false);
         fleetLayout.marginWidth = 0;
@@ -1743,7 +1743,7 @@ public class BoardView extends ViewPart {
         ToolBar fleetToolBar = fleetBar.createControl(fleetRow);
         fleetToolBar.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
         readinessLabel = new Label(fleetRow, SWT.NONE);
-        readinessLabel.setText("0 ready Ã‚Â· 0 stale");
+        readinessLabel.setText("0 ready · 0 stale");
         readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
                 + "what the fleet can dispatch now, and what went stale");
         readinessLabel.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
@@ -1922,7 +1922,7 @@ public class BoardView extends ViewPart {
             try {
                 refreshExecutor.execute(this::drainRefresh);
             } catch (java.util.concurrent.RejectedExecutionException e) {
-                draining.set(false); // view disposed mid-drain Ã¢â‚¬â€ nothing left to refresh
+                draining.set(false); // view disposed mid-drain — nothing left to refresh
             }
         }
     }
@@ -1938,7 +1938,7 @@ public class BoardView extends ViewPart {
             label.setJourneys(snapshot.journeys());
         }
         if (readinessLabel != null && !readinessLabel.isDisposed()) {
-            // U-022: the badge extends to the NEEDS-HUMAN count Ã¢â‚¬â€ blocked
+            // U-022: the badge extends to the NEEDS-HUMAN count — blocked
             // tickets no live fleet job is retrying park at the human; the
             // recurring loop resumes automatically once a blocker clears.
             readinessLabel.setText(snapshot.readyCount() + " ready \u00b7 " + snapshot.staleCount()
@@ -1994,7 +1994,7 @@ public class BoardView extends ViewPart {
     }
 
     /**
-     * The numbered V-stage header text: {@code 3 Ã‚Â· architecture}, with the
+     * The numbered V-stage header text: {@code 3 · architecture}, with the
      * chevron connector to the NEXT stage (down the definition leg, the
      * vertex turn, up the verification leg - U-028); the untracked group stays unnumbered.
      */
@@ -2033,7 +2033,7 @@ public class BoardView extends ViewPart {
             ui.blockedLabel.setForeground(blockedCount > 0
                     ? ui.blockedLabel.getDisplay().getSystemColor(SWT.COLOR_RED) : null);
             // Every column keeps its fixed V cell (U-016): empty ones stay
-            // rendered with their table Ã¢â‚¬â€ no collapse-to-header anymore.
+            // rendered with their table — no collapse-to-header anymore.
             ui.viewer.setInput(rows);
         }
         // the untracked row below the V: count rides the toggle text
@@ -2061,7 +2061,7 @@ public class BoardView extends ViewPart {
     /**
      * B-002 (dispatch scope only): when the model still sits on the
      * unpicked {@code (backlog)} default while real waves exist, point the
-     * DISPATCH scope at the newest wave Ã¢â‚¬â€ Launch/Auto drain it. The board's
+     * DISPATCH scope at the newest wave — Launch/Auto drain it. The board's
      * DISPLAY is wave-agnostic now (all tickets, user direction
      * 2026-09-18), so this no longer re-renders anything.
      */
@@ -2235,10 +2235,10 @@ public class BoardView extends ViewPart {
 
     /**
      * "Auto-dispatch" toolbar action (ROADMAP H6 piece 2, manual wave):
-     * {@link AutoDispatch} plans over the current sprint's tickets Ã¢â‚¬â€
+     * {@link AutoDispatch} plans over the current sprint's tickets —
      * readiness evaluated across the whole project, spend from the
      * project-wide cost overview, live fleet jobs against the concurrency
-     * cap Ã¢â‚¬â€ and every admitted id launches through the same
+     * cap — and every admitted id launches through the same
      * {@link TaskFleetLauncher} path as "Launch task", one call each. The
      * policy loads from the {@link DispatchPolicyStore} at click time with
      * the cost-calibrated per-launch estimate. Opt-in per click; the
@@ -2273,7 +2273,7 @@ public class BoardView extends ViewPart {
     }
 
     /**
-     * "Auto Ã¢â€“Â¶/Ã¢â€“Â " toggle (ROADMAP H6 piece 4, the self-draining loop): a
+     * "Auto ▶/■" toggle (ROADMAP H6 piece 4, the self-draining loop): a
      * {@link DispatchScheduler} over the selected sprint. Tickets added to that
      * sprint drain automatically; changing root/project/sprint stops the loop.
      * The policy loads from the
@@ -2327,7 +2327,7 @@ public class BoardView extends ViewPart {
         runDispatchJob("Starting auto-dispatch", () -> dispatch.scheduler(() -> storedDispatch().policy()), scheduler -> {
             dispatchScheduler = scheduler;
             scheduler.start(AUTO_DISPATCH_PERIOD);
-            statusMessage("Auto-dispatch loop started Ã¢â‚¬â€ every "
+            statusMessage("Auto-dispatch loop started — every "
                     + AUTO_DISPATCH_PERIOD.toSeconds() + "s over " + model.sprint() + ".");
         });
     }
@@ -2385,12 +2385,12 @@ public class BoardView extends ViewPart {
     private void cancelDispatchForSelection() {
         stopDispatchLoop(null);
         autoLoopAction.setChecked(false);
-        autoLoopAction.setText("Auto Ã¢â€“Â¶");
+        autoLoopAction.setText("Auto ▶");
         // a project/root/sprint switch invalidates the waves loop's context
-        // exactly like the one-sprint loop's Ã¢â‚¬â€ turn it off with the toggle
+        // exactly like the one-sprint loop's — turn it off with the toggle
         stopWavesLoop(null);
         wavesLoopAction.setChecked(false);
-        wavesLoopAction.setText("Waves Ã¢â€“Â¶");
+        wavesLoopAction.setText("Waves ▶");
     }
 
     /**
@@ -2470,20 +2470,20 @@ public class BoardView extends ViewPart {
     }
 
     /**
-     * "Waves Ã¢â€“Â¶/Ã¢â€“Â " toggle (U-022, the recurring mode): a {@link RecurringWaves}
-     * loop over this project Ã¢â‚¬â€ drains the active wave (the selected sprint,
+     * "Waves ▶/■" toggle (U-022, the recurring mode): a {@link RecurringWaves}
+     * loop over this project — drains the active wave (the selected sprint,
      * or the newest one), then plans the next from the prioritized backlog
      * with no click in between; parks on NEEDS-HUMAN, stops cleanly on budget
      * exhaustion or nothing-plannable. The Board path runs in this Eclipse
      * session; for a loop that survives client disconnects enable it through
-     * the fleet daemon's {@code fleet_waves_start} tool. OFF by default.
+     * the standalone fleet MCP server's {@code fleet_waves_start} tool. OFF by default.
      */
     private void toggleWavesLoop() {
         if (wavesLoopAction == null) {
             return;
         }
         boolean on = wavesLoopAction.isChecked();
-        wavesLoopAction.setText(on ? "Waves Ã¢â€“Â " : "Waves Ã¢â€“Â¶");
+        wavesLoopAction.setText(on ? "Waves ■" : "Waves ▶");
         if (on) {
             startWavesLoop();
         } else {
@@ -2494,7 +2494,7 @@ public class BoardView extends ViewPart {
     private void startWavesLoop() {
         if (model == null || launcher == null || dispatchPending) {
             wavesLoopAction.setChecked(false);
-            wavesLoopAction.setText("Waves Ã¢â€“Â¶");
+            wavesLoopAction.setText("Waves ▶");
             return;
         }
         stopWavesLoop(null);
@@ -2518,7 +2518,7 @@ public class BoardView extends ViewPart {
         });
         start.setSystem(true);
         start.schedule();
-        statusMessage("Recurring waves on Ã¢â‚¬â€ drains the active wave, then plans the next"
+        statusMessage("Recurring waves on — drains the active wave, then plans the next"
                 + " automatically (parks on NEEDS-HUMAN, budget is a hard stop).");
     }
 
@@ -2550,8 +2550,8 @@ public class BoardView extends ViewPart {
     /**
      * TUI-first takeover (ROADMAP H5 item 3): the ticket's fleet session is
      * handed to the attached opencode TUI over the {@code /tui} control
-     * channel (routing off the UI thread Ã¢â‚¬â€ the client may spawn/wait for
-     * the server); without a session or TUI the pre-TUI behavior stands Ã¢â‚¬â€
+     * channel (routing off the UI thread — the client may spawn/wait for
+     * the server); without a session or TUI the pre-TUI behavior stands —
      * open the fleet worktree and select the ticket.
      */
     private void takeOverSelected() {
@@ -2600,7 +2600,7 @@ public class BoardView extends ViewPart {
 
     /**
      * Distributed-fleet store sync (pull \u2192 claim \u2192 push discipline):
-     * commit local ticket changes, pull-rebase, push Ã¢â‚¬â€ off the UI thread (git
+     * commit local ticket changes, pull-rebase, push — off the UI thread (git
      * may wait on the network). A pull conflict offers the recover path
      * (abort the rebase; nothing was pushed).
      */
@@ -2744,8 +2744,8 @@ public class BoardView extends ViewPart {
                     StoreSync.Outcome recovered = StoreSync.recover(model.root());
                     MessageDialog.openInformation(getSite().getShell(), "Sync store",
                             recovered == StoreSync.Outcome.FAILED
-                                    ? "Rebase aborted Ã¢â‚¬â€ your local commits are intact; retry the sync later."
-                                    : "Recovery left the store mid-rebase Ã¢â‚¬â€ resolve manually with git.");
+                                    ? "Rebase aborted — your local commits are intact; retry the sync later."
+                                    : "Recovery left the store mid-rebase — resolve manually with git.");
                 }
             }
             case PUSH_REJECTED -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
@@ -2814,57 +2814,19 @@ public class BoardView extends ViewPart {
     /**
      * The board's task-store root: the explicit override, else the adopted
      * repo store (workspace climb, then open-workspace projects), else the
-     * preference fallback Ã¢â‚¬â€ the full order lives in
-     * {@link TasksRootResolution} (SWT-free, unit-tested). B-002 AC-4: what
-     * resolves here is what the watcher watches, and a stale preference
-     * default must never shadow the adopted repo store.
+     * preference fallback — the full order lives in the shared core seam
+     * {@link TasksRootResolution} (SWT-free, unit-tested; B-016: the
+     * eclipse-build endpoint bridges the very same resolution into
+     * {@code opencode.tasks.root}). B-002 AC-4: what resolves here is what
+     * the watcher watches, and a stale preference default must never shadow
+     * the adopted repo store.
      */
     private static Path resolveTasksRoot(String override) {
-        return TasksRootResolution.resolve(override, workspaceRoot(), workspaceProjectLocations(),
-                BoardView::preferenceTasksRoot);
+        return TasksRootResolution.resolveForWorkspace(override);
     }
 
     /**
-     * The {@code tasksRoot} workspace preference text (Preferences Ã¢â€ â€™
-     * OpenCode); {@code null} when unset or unreadable (headless/test
-     * contexts) Ã¢â‚¬â€ {@link TasksRootResolution} treats null as no preference.
-     */
-    private static String preferenceTasksRoot() {
-        try {
-            String configured = new com.opencode.ide.core.OpencodePreferences().getTasksRoot();
-            return configured == null || configured.isBlank() ? null : configured.trim();
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    /**
-     * O-001/B-002 adoption candidates: the locations of the open workspace
-     * projects. A project imported from inside a repo makes that repo's
-     * {@code .opencode/tasks} adoptable even when the workspace directory
-     * itself is outside every repo. Empty when the resources plugin is
-     * unavailable (tests, non-workbench hosts) Ã¢â‚¬â€ the climb still runs.
-     */
-    private static List<Path> workspaceProjectLocations() {
-        try {
-            var projects = org.eclipse.core.resources.ResourcesPlugin.getWorkspace()
-                    .getRoot().getProjects();
-            List<Path> locations = new ArrayList<>();
-            for (var project : projects) {
-                var location = project.getLocation();
-                if (location != null) {
-                    locations.add(location.toFile().toPath().toAbsolutePath().normalize());
-                }
-            }
-            return locations;
-        } catch (LinkageError | RuntimeException e) {
-            // no resources plugin / no workbench: adoption falls back to the climb
-            return List.of();
-        }
-    }
-
-    /**
-     * The board's current task-store root Ã¢â‚¬â€ the persisted root override when
+     * The board's current task-store root — the persisted root override when
      * set, else the adopted repo store with the preference fallback (see
      * {@link TasksRootResolution}). Package-private seam for the Fleet view's
      * peer-row scan (F-004), so both views read the same store.
@@ -2891,12 +2853,6 @@ public class BoardView extends ViewPart {
             // defaults survive an unreadable dialog settings file
         }
         return "";
-    }
-
-    private static Path workspaceRoot() {
-        var location = Platform.getLocation();
-        return location == null ? Path.of(".").toAbsolutePath().normalize()
-                : location.toFile().toPath().toAbsolutePath().normalize();
     }
 
     // ------------------------------------------------------------------
@@ -2944,7 +2900,7 @@ public class BoardView extends ViewPart {
         // B-002: the preference is deliberately NOT seeded into rootOverride
         // anymore. The old seeding froze whatever the preference said into
         // the dialog settings, after which the board never re-read the
-        // preference Ã¢â‚¬â€ and a stale value (old clone, pre-P1-4 dev default)
+        // preference — and a stale value (old clone, pre-P1-4 dev default)
         // permanently shadowed the adopted repo store. The preference is now
         // a LIVE fallback inside TasksRootResolution, ranked below adoption.
         if (projectName == null || projectName.isBlank()) {

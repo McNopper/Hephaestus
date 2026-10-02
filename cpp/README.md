@@ -29,6 +29,11 @@ cpp/
 ├── cmake/
 │   ├── cppcheck.cmake      # single source of truth for cppcheck targets
 │   └── clang-scan-deps.cmake # single source of truth for the scan-deps target
+├── tools/
+│   ├── check-tidy.sh       # clang-tidy analysis lane (ctest label 'analysis')
+│   ├── check-cppcheck.sh   # cppcheck analysis lane
+│   ├── check-layers.sh     # include-graph layer rules lane
+│   └── tsan.supp           # TSan suppressions (ENABLE_SANITIZER=thread)
 ├── include/
 │   └── example.hpp
 ├── src/
@@ -43,8 +48,10 @@ cpp/
 ```bash
 cmake --list-presets                        # shows exactly what THIS environment can build
 cmake --preset default                       # configure (Debug + analysis)
-cmake --build build --target verify          # fast: build + test + analysis status
+cmake --build build --target verify          # fast: build + tests (+ analysis lanes)
 cmake --build build --target verify-full     # full: verify + format + static analysis + docs
+ctest --preset default -LE analysis          # unit tests only (exclude the analysis lanes)
+ctest --preset default -L analysis           # analysis lanes only (tidy, cppcheck, layers)
 
 # MSYS2 toolchains (run from the matching shell so clang/gcc+ninja are on PATH):
 cmake --preset clang64 && cmake --build build-clang64   # CLANG64: full analysis gate
@@ -69,6 +76,10 @@ of every machine-readable report.
 C++ work in this repo is driven by the `cpp-tools` **agent** (methodology in the
 `cpp-tools` skill). It runs the CMake targets via bash and reads the machine-readable
 reports. There is no separate MCP server — C++ is an agent now.
+
+Inside Eclipse, the same flow is available as MCP tools on the `eclipse-build`
+endpoint (`cmake_configure`, `cmake_build`, `ctest_run`, `run_binary`,
+`debug_batch`, `lint_run`, `format_run`, `toolchains_list`).
 
 ## Toolchain
 
@@ -102,9 +113,15 @@ the LLVM/Clang tools (`clang-format`, `clang-tidy`, `clang-scan-deps`).
 - **cppcheck XML** (`build/reports/cppcheck/cppcheck.xml`).
 - **clang-scan-deps dependency graph** (`build/reports/scan-deps/deps.json`) —
   the exact include set of every translation unit (and module provides/requires
-  once C++23 modules arrive), scanned with each TU's real compile flags.
+  once C++23 modules arrive), scanned with each TU's real compile flags. The
+  layers lane's `--mode=make-dependencies` pass writes `deps.mk` (raw rules) and
+  `deps.rules` (continuations unwrapped) next to it.
 - **analysis status contract** (`build/reports/analysis-status.txt`) with
   `analysis=enabled|skipped` and toolchain reason.
+- **Analysis lanes as ctest entries** (label `analysis`, exit 77 = SKIP): the
+  tidy lane's full log lands in `build/reports/clang-tidy.log`, fresh on every
+  run; `verify` runs them via plain ctest — `-LE analysis` excludes them,
+  `-L analysis` runs only them.
 - Stable, predictable report paths under `${binaryDir}/reports/`.
 - Two verification levels: fast **`verify`** and strict **`verify-full`**.
 

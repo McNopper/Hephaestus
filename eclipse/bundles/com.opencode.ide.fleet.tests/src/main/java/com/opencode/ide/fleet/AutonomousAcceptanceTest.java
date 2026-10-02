@@ -22,9 +22,9 @@ import com.opencode.ide.tasks.VStages;
  * ticket to in-review dispatches a second, read-only REVIEW session under
  * the reviewer agent; the FAKE reviewer path is the fake client's reply to
  * that session ({@code VERDICT: ...}), and the tests assert the engine
- * applies it through the store: PASS â†’ done + advance into the next
- * stage's wave backlog, FAIL â†’ send-back blocked with the reviewer's
- * reasons (the human-escalation signal), UNCLEAR â†’ stays in-review with a
+ * applies it through the store: PASS → done + advance into the next
+ * stage's wave backlog, FAIL → send-back blocked with the reviewer's
+ * reasons (the human-escalation signal), UNCLEAR → stays in-review with a
  * comment. The review run's actuals land on the ticket like any run, so
  * the wave budget absorbs the reviewer's cost.
  */
@@ -35,6 +35,26 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         return fleet.withAutonomousAcceptance();
     }
 
+    /**
+     * U-054: worker and review sessions carry the ticket-id title prefix -
+     * the "[&lt;id&gt;] title" convention project-manager-gather-intelligence
+     * maps sessions to tickets by. The worker gets "[id] title", the review
+     * run "[id] review: title" (previously the bare title / "Review id:
+     * title", which landed every fleet session in "(unassigned)").
+     */
+    @Test
+    public void workerAndReviewSessionTitlesCarryTheTicketIdPrefix() {
+        String id = stagedTicket("implementation");
+        workerCompletesAndReviewReplies(
+                "criteria met.\nVERDICT: PASS - all criteria verified, gate green");
+
+        FleetJob job = fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        assertEquals(FleetJob.State.MERGED, job.state());
+        assertEquals("worker session then review session, both titled by ticket id",
+                List.of("[" + id + "] Stage work", "[" + id + "] review: Stage work"),
+                client.createdTitles);
+    }
 
     @Test
     public void acceptedReviewMarksDoneAndAdvancesToTheNextStageBacklog() {

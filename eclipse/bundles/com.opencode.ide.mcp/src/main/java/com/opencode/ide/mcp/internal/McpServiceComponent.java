@@ -21,13 +21,15 @@ import com.opencode.ide.tasks.TaskToolProvider;
  *
  * <p>The dispatcher unions all tool packs: the C/C++ language pack and the
  * task board ({@code task_*} tools over the Markdown task store). The task
- * store root is configurable with the {@code opencode.tasks.root} system
- * property (absolute path); the core bundle's activator bridges the
- * {@code tasksRoot} preference into that property, and the component is
- * {@code immediate="false"} so it activates only when the first consumer
- * binds {@link McpInfo} — guaranteeing the bridged property is already set
- * (the plain fallback is {@code <user.home>/.opencode/tasks} for non-Eclipse
- * embedders).</p>
+ * store root comes from the {@code opencode.tasks.root} system property,
+ * which the core bundle's activator bridges from the ONE shared resolver
+ * ({@code com.opencode.ide.core.TasksRootResolution}, B-016): the same
+ * order the Board view resolves — workspace climb, open-project repo
+ * adoption, then the {@code tasksRoot} preference — so both surfaces always
+ * see one store. The component is {@code immediate="false"} so it activates
+ * only when the first consumer binds {@link McpInfo} — after the bridge has
+ * run (the plain fallback is {@code <user.home>/.opencode/tasks} for
+ * non-Eclipse embedders).</p>
  */
 public class McpServiceComponent implements McpInfo {
 

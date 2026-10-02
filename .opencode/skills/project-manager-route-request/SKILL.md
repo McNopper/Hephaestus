@@ -61,6 +61,15 @@ to the correct skill/agent that owns execution.
 | Verifying requirements from the user's view | `test-software-requirements` |
 | C++ configure / build / verify / analysis | `cpp-tools` agent |
 | Window screenshot / RenderDoc capture / render compare | `mcp.graphics` tools |
+| Judging two renderings against each other (methodology) | `graphics-render-comparison` (on `mcp.graphics` results) |
+| Frontier (`very-high`) graphics analysis / RenderDoc deep-dive | `graphics-expert` agent |
+| Package/namespace dependency map (Mermaid block diagram) | `code-dependency` |
+| Repo orientation map (layout, build/test entry points, modules) | `code-repo-map` |
+| Live model market rates (leaderboard, cost per task) | `research-artificial-analysis-models` |
+| Measured run actuals (per-session cost/tokens over the REST API) | `project-manager-gather-intelligence` |
+| How to write a ticket (template, role map, story points) | `project-manager-create-ticket` |
+| "About this document" sections for repo Markdown | `project-manager-doc-about` |
+| Authoritative-source investigation / validated synthesis | `research` agent |
 | Estimating cost of a plan / manifest | `project-manager-estimate-costs` |
 | Traceability across definition->verification | `project-manager-audit-traceability` |
 | Third-party license audit / compatibility with the project license | `code-licenses` |

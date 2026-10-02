@@ -103,6 +103,31 @@ public class SelfClaimPromptTest {
                 lineCount(prompt) <= 40);
     }
 
+    /**
+     * B-020: the staged prompt teaches the U-023 clarification loop - a
+     * "clarification:" send-back to the ORIGINATOR first (up to 3
+     * round-trips), and task_set_blocked only as the documented last
+     * resort. Mirrors executor.md's guardrail word for word in doctrine.
+     */
+    @Test
+    public void stagedPromptAsksTheOriginatorBeforeBlocking() {
+        Task definition = ticket();
+        definition.stage = "design";
+        String prompt = SelfClaimPrompt.forTicket(definition).project("demo").build();
+
+        assertTrue("the question path names the prefix",
+                prompt.contains("\"clarification:\""));
+        assertTrue(prompt.contains("ORIGINATOR"));
+        assertTrue("the round-trip limit is stated", prompt.contains("up to 3 round-trips"));
+        assertTrue("the defect path stays a plain send-back",
+                prompt.contains("blocked with your reason"));
+        int question = prompt.indexOf("clarification:");
+        int blocked = prompt.indexOf("task_set_blocked");
+        assertTrue("the clarification path is taught BEFORE blocking",
+                question >= 0 && blocked > question);
+        assertTrue("blocking is framed as the last resort", prompt.contains("LAST resort"));
+    }
+
     @Test
     public void verificationStageNamesItsSkillFamily() {
         Task verification = ticket();
@@ -123,5 +148,7 @@ public class SelfClaimPromptTest {
         assertFalse("no pipeline protocol without a stage", prompt.contains("PIPELINE PROTOCOL"));
         assertFalse("no advance tool without a stage", prompt.contains("task_advance"));
         assertFalse("no send-back tool without a stage", prompt.contains("task_send_back"));
+        assertFalse("no clarification loop without a stage (the store rejects it)",
+                prompt.contains("clarification:"));
     }
 }

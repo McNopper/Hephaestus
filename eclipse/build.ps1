@@ -15,12 +15,15 @@ function Resolve-JavaHome {
     if ($IsWindowsOS) {
         foreach ($key in @("HKLM:\SOFTWARE\JavaSoft\JDK", "HKLM:\SOFTWARE\JavaSoft\Java Development Kit")) {
             if ($result) { break }
+            if (-not (Test-Path $key)) { continue }
             try {
                 foreach ($k in (Get-ChildItem $key -ErrorAction Stop)) {
-                    $home = (Get-ItemProperty $k.PSPath -Name JavaHome -ErrorAction SilentlyContinue).JavaHome
-                    if ($home -and (Test-Path "$home\bin\java.exe")) { $result = $home; break }
+                    $javaHome = (Get-ItemProperty $k.PSPath -Name JavaHome -ErrorAction SilentlyContinue).JavaHome
+                    if ($javaHome -and (Test-Path "$javaHome\bin\java.exe")) { $result = $javaHome; break }
                 }
-            } catch { }
+            } catch {
+                Write-Warning "[build] JDK registry lookup failed for ${key}: $($_.Exception.Message)"
+            }
         }
         if (-not $result) {
             foreach ($glob in @("C:\Program Files\Java\jdk-*", "C:\Program Files\Eclipse Adoptium\jdk-*", "C:\Program Files\Microsoft\jdk-*")) {

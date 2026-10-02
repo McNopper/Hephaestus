@@ -80,9 +80,10 @@ public final class SelfClaimPrompt {
                     .append(" and moves the ticket to the next stage's backlog.\n");
             out.append("- ").append(VStages.last()).append(" is the last stage (the V tip): there is no")
                     .append(" task_advance from it — finish in in-review/done for acceptance.\n");
-            out.append("- If you cannot proceed (missing input from the previous stage, unclear requirement),")
-                    .append(" call task_send_back with a concrete reason — it returns the ticket to the")
-                    .append(" previous stage's backlog, blocked with your reason.\n");
+            out.append("- A QUESTION goes back to the ORIGINATOR agent first: task_send_back with a reason")
+                    .append(" starting \"clarification:\" (up to 3 round-trips; not a human block).\n");
+            out.append("- A DEFECT (or the clarification loop exhausted): plain task_send_back with a concrete")
+                    .append(" reason — it returns the ticket to the previous stage's backlog, blocked with your reason.\n");
             out.append("- Never silently stop and never do the next stage's work yourself.\n");
             out.append("- The fleet dispatches you by stage role.\n");
         }
@@ -105,7 +106,12 @@ public final class SelfClaimPrompt {
         out.append("- Verify the result against every acceptance criterion.\n");
         out.append("- Record every produced artifact with task_add_artifact (kind: file/git/path/url/doc) BEFORE finishing.\n");
         out.append("- When the work is done, move the ticket to review with task_update(status=\"in-review\").\n");
-        out.append("- If you cannot finish, call task_set_blocked with a concrete blocker reason instead of silently stopping.\n");
+        if (ticket.stage != null) {
+            out.append("- task_set_blocked is the LAST resort (a defect, or the clarification loop exhausted):")
+                    .append(" it means NEEDS-HUMAN. Questions go back as \"clarification:\" first (see above).\n");
+        } else {
+            out.append("- If you cannot finish, call task_set_blocked with a concrete blocker reason instead of silently stopping.\n");
+        }
         out.append("- The task_* MCP tools above are already configured for this session.\n");
         return out.toString();
     }

@@ -90,8 +90,10 @@ Use the `project-manager-create-ticket` skill (or the Board's New Ticket):
    the recurring-waves mode (`fleet_fleet_waves_start`) drive it unattended.
 3. **Fleet:** `fleet_fleet_dispatch` per ticket (git-worktree isolation,
    role-mapped agent, merge-back). The fleet is **disabled by default** (it
-   eats tokens) - arm it with the Enable button in the Fleet/Background view
-   or the `fleet_fleet_*` tools. Use the ticket's `model` field as the cost
+   eats tokens) - arm it with the **Enable Fleet** button in the Fleet view
+   (that button lives there only, not on the Board) or by flipping the
+   fleet entry in `opencode.json` to `"disabled": false` and using the
+   `fleet_fleet_*` tools. Use the ticket's `model` field as the cost
    lever: small well-specified tickets deserve cheap models.
 
 ### 7. If you use the Eclipse harness
@@ -103,26 +105,35 @@ Background views then show your project, not Hephaestus'.
 
 ## First Eclipse start (how Eclipse finds your repo)
 
-Eclipse cannot guess where the repo lives - three things can tell it, and
+Eclipse cannot guess where the repo lives - four things can tell it, and
 each is a one-timer:
 
-0. **Pin it in `eclipse.ini`** (the simplest, machine-wide): one line in the
-   vmargs - `-Dopencode.repo=C:/path/to/your/repo` - and the plugin takes it
-   as THE repo (connection scope + task store + board project). `deploy-dev.ps1`
-   pins it automatically to the repo it was run from.
+0. **Pin it in `eclipse.ini`** (the simplest, machine-wide - and the
+   strongest): one line in the vmargs -
+   `-Dopencode.repo=C:/path/to/your/repo` - and the plugin takes it as THE
+   repo (connection scope + task store + board project). **When set it wins
+   over every preference and every `plugin_customization.ini` key** -
+   Preferences cannot override it. `deploy-dev.ps1` pins it automatically
+   to the repo it was run from.
 
 1. **Open the relevant directory**: import/open your project's repo folder
    as a workspace project. The adoption rules then do the rest - the task
    store (`<repo>/.opencode/tasks`) and the connection scope (the repo root,
    which is what MCP servers/agents/skills are scoped to) are both adopted
-   from the open project. This is the recommended path.
-2. **Or ship the values in an ini file**: `eclipse/plugin_customization.ini`
+   from the open project. This is the recommended path without an ini pin.
+2. **Adopt it from the Board**: the Board's *Adopt repo…* action opens a
+   directory dialog, writes a root `.project` for the chosen repo, and
+   imports + opens it as a workspace project - the repo-driven derivation
+   then anchors to it exactly as in 1. Repos with nested Eclipse projects
+   are refused (Eclipse forbids overlapping projects).
+3. **Or ship the values in an ini file**: `eclipse/plugin_customization.ini`
    holds the three machine-local values (connection `workingDirectory`,
    `tasksRoot`, `tasksProject`) and is seeded into a fresh workspace when
    Eclipse runs with `-pluginCustomization plugin_customization.ini`
    (`deploy-dev.ps1` copies the file and adds the flag). Adapt the three
-   paths for your machine; users can still override everything in
-   Preferences (they are defaults, not locks).
+   paths for your machine; users can still override these in Preferences -
+   they are defaults, not locks (unlike the `-Dopencode.repo` pin, which
+   beats them all).
 
 Either way, the Server view's description line shows the active scope
 (`scoped to: ...`) so an empty MCP list is never silently misleading, and a
@@ -147,8 +158,10 @@ user-typed store root that is really a repo root descends into its
   running in Eclipse).
 - **Store looks empty:** projects are subdirectories; tickets at the store
   root are out of scope. Check the project name spelling in the tools' call.
-- **Fleet does nothing:** it is disabled by design until you Enable it; and
-  it needs git (worktrees) plus a claimable ticket in `sprint-backlog`.
+- **Fleet does nothing:** it is disabled by design until you Enable it (the
+  Fleet view's *Enable Fleet* button, or `"disabled": false` in
+  `opencode.json`); and it needs git (worktrees) plus a claimable ticket in
+  `sprint-backlog`.
 - **Readiness shows WAIT_UPSTREAM forever:** upstream stages need `done`
   tickets with matching epics; unstaged tickets always read NOT_APPLICABLE
   and are never re-dispatched.

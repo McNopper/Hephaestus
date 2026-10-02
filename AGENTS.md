@@ -23,8 +23,10 @@ the TUI already covers.)*
 - **A whole initiative / project** → the **PM agent** (`project-manager`) runs the Scrum workflow
   over tickets in the task store (one subdirectory per project; multiple projects
   coexist). The human is Product Owner: writes the brief/goal, prioritizes the backlog,
-  accepts at Sprint Review. Issues bubble up to the PM and only human-worthy ones are
-  escalated.
+  and resolves the NEEDS-HUMAN escalations — tickets whose blocked flag is set with no
+  live fleet job retrying them. Acceptance itself is the engine's review pass: a PASS
+  verdict moves the ticket to done. Issues bubble up to the PM and only human-worthy
+  ones are escalated.
 - **A software change inside a project** → a ticket of the right `role` is claimed by a
   worker, which uses the matching `software-*` / `test-software-*` skill, and records
   its artifact back on the ticket.
@@ -63,34 +65,46 @@ criteria, architecture -> library tests, design -> component tests,
 implementation -> unit tests - so that by the time the V reaches the right
 leg, the tests already exist and decide done / not-done. The pair is written
 at stage ENTRY, not at review time: link the criteria as artifacts on the
-ticket (`task_add_artifact`), and `task_traceability` audits exactly these
-pairs (the `project-manager-audit-traceability` skill). A definition stage
-without its linked verification counterpart is incomplete work.
+ticket (`task_add_artifact`). `task_traceability` audits what the store holds
+today: it pairs a `tester` ticket to the definition it `verifies` by **role +
+epic link only** (definition roles: `architect`, `developer`) — it reads
+neither artifacts nor the V level, and `pm`-role requirements tickets are not
+audited as definitions (D-001 may widen this; the
+`project-manager-audit-traceability` skill drives the audit). A definition
+stage without its linked verification counterpart is incomplete work.
 
 **V-model execution:** a staged ticket wanders
 through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
 feature (e.g. no architecture-level change needed) is a **pass-through**:
 the ticket advances with a recorded rationale ("no architecture impact:
 local change") instead of a full dispatch. Every stage is visited; not
-every stage does work. (U-029 implements the pass-through semantics.)
+every stage does work. (Pass-through is library-level only —
+`TaskStore.passStage`, no tool and no production caller; the wiring is
+tracked by U-049.)
 
-**Pump strategy:** every wave tick tries to
-RESOLVE BLOCKED ITEMS FIRST — route a blocked ticket to the previous stage
-(vertical send-back on the definition chain) or report it horizontally
-(the verification-definition pair at the same V level) — and only then
-plans new launches. NEEDS-HUMAN is the last resort after agents had their
-attempt. (U-031 implements the resolution-first tick order.)
+**Pump strategy (library-level only):** the intended tick order resolves
+BLOCKED ITEMS FIRST — route a blocked ticket to the previous stage (vertical
+send-back on the definition chain) or report it horizontally (the
+verification-definition pair at the same V level) — and only then plans new
+launches, NEEDS-HUMAN as the last resort after agents had their attempt.
+This exists as `DispatchScheduler.withResolution` (routes picked by
+`ResolutionPolicy`) with no production wiring — both live schedulers (the
+Board's and the fleet's) omit it; the wiring is tracked by U-050. Today a
+blocked ticket stays put until its blocker is cleared.
 
 **The repo works as one:** skills, agents, docs,
 store and engine form a single system - after behavior changes, the
-corresponding skills/agents/docs are revisited in the same flow (the pump
-runs coherence passes; U-030). Divergence between what the engine does and
-what the skills prescribe is a defect, not cosmetics.
+corresponding skills/agents/docs are revisited in the same flow (coherence
+passes run as tickets, e.g. U-030). Divergence between what the engine does and
+what the skills prescribe is a defect, not cosmetics. Known divergences that are
+not fixed yet are listed in `ROADMAP.md` (*Coherence debt*) - where an entry there
+contradicts this file, the entry is right.
 
 **Autonomy target:** waves run themselves on a
 recurring basis — agents execute, review, accept and advance; the human's
-ONLY regular duty is resolving **blocked items agents could not resolve**
-(NEEDS-HUMAN escalation). Everything else should need zero end-user action.
+ONLY regular duty is resolving **NEEDS-HUMAN items** — tickets whose blocked
+flag is set with no live fleet job retrying them; clearing the blocker
+returns them to the pump. Everything else should need zero end-user action.
 U-021 (reviewer auto-accept + auto-advance), U-022 (recurring waves +
 escalation surface) and U-023 (clarification loop: agents pass back to the
 originator agent; round-trip limits escalate to the human) implement this —
@@ -126,11 +140,27 @@ blocked = orthogonal flag (blocked:bool + blocker:str) at any active state
 stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason)
 ```
 
+**Write discipline.** Store writes go through the `task_*` tools (or the engine API),
+never through scripts or bulk hand edits: the engine keeps the invariants (a done ticket
+is never blocked, every change leaves a history event, every ticket file stays
+parseable) that direct writes silently break - `task_doctor` reports unparsable ticket
+files. Where the API has no verb (correcting a wrong artifact ref), make the smallest
+hand edit, verify it with `task_get` + `task_doctor`, and record a comment on the
+ticket. Text files are UTF-8: never round-trip them through Windows PowerShell 5.1
+`Get-Content`/`Set-Content` (it re-encodes through the ANSI code page); use the editor
+tools or byte-level UTF-8 I/O - the quality gate rejects the resulting mojibake.
+
+**Chunk small.** One ticket = one independently verifiable change (one file lane,
+one mechanism, one doc pass). If a ticket would grow past ~3 story points or mixes
+concerns, split it — smaller chunks are easier to track, verify, review and re-run.
+Todos list the steps *within* one change; they are not a substitute for decomposition.
+
 Readiness machinery (H6 dataflow): `task_readiness` reports, per ticket, whether its
 stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no stage,
-or already done with fresh inputs — never re-dispatched) — upstream done AND inputs
-unchanged since the last run — and the store records `inputs changed:` history markers
-when an upstream moves after a downstream ran. The PM agent can use it to ask "what's
+or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
+all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
+run; STALE means an epic-chain upstream was updated after the downstream ran (any write
+to the upstream counts). The PM agent can use it to ask "what's
 runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
 (*Auto ▶*: launches every runnable sprint ticket under a concurrency + cost-budget cap).
 
@@ -141,7 +171,11 @@ runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
 - When a worker produces an artifact (file, git commit/branch, doc), it records it with
   `task_add_artifact(kind=file|git|path|url|doc, ref=…)` **before** moving to `in-review` —
   the ticket is the hand-off contract.
-- Review/verification failure sends the ticket back to `in-progress` (rework loop).
+- A review FAIL routes by stage: `task_send_back` to the **previous stage's
+  backlog**, blocked with the reviewer's reasons (the human-escalation signal) — the
+  first stage and unstaged tickets have nowhere to go back to and are blocked in
+  place. An UNCLEAR verdict round-trips the doubt to the originator (one retry per
+  stage visit); an unstaged ticket stays in `in-review` with the doubt as a comment.
 - See `project-manager-operating-model` for Scrum events, the Definition of Done, and the
   bubble-up → escalation rule; `project-manager-create-ticket` for how to fill a ticket; `project-manager-route-request`
   when the next step is ambiguous; `project-manager-audit-traceability` for the definition→verification matrix.
@@ -185,7 +219,7 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
 
 - **C++**: the `cpp-tools` **agent** runs CMake configure/build, clang-format, cppcheck,
   clang-tidy, clang-scan-deps via bash and reads their reports (methodology in the
-  `cpp-tools` skill). The old `cpp/mcp` server is gone.
+  `cpp-tools` skill); there is no separate C++ MCP server.
 - **Graphics**: window capture, RenderDoc capture, and render comparison are **MCP tools**
   in `mcp.graphics` (`graphics_screenshot`, `graphics_renderdoc_capture`,
   `graphics_renderdoc_frame`, `graphics_compare_renders`). The `graphics-expert` agent
@@ -208,7 +242,10 @@ several agents in parallel on a project without anyone blocking anyone.
 Concretely, a chat agent can already:
 
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
-- **dispatch the fleet** via the `fleet` server: `fleet_fleet_dispatch` (async launch for
+- **dispatch the fleet** via the `fleet` server — which ships **disabled** in
+  `opencode.json` (`"disabled": true`); enable it for TUI sessions by flipping that
+  to `false`, or reconnect at runtime with `POST /api/experimental/mcp/fleet/connect`:
+  `fleet_fleet_dispatch` (async launch for
   one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
   ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
   residue itself (B-006) — "branch already exists" now means real unmerged work, never
@@ -224,6 +261,12 @@ Concretely, a chat agent can already:
   per run. The reviewer pass stays on the server default.
   `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
   progress probe: busy/messages/complete — "are we moving?"),
+  `fleet_fleet_job_activity` (deep live observation of one job's session: current
+  activity, tools used, shell commands, subagents, tokens/cost),
+  `fleet_fleet_reset` (consume a settled run's worktree/branch residue and release
+  the ticket to sprint-backlog), `fleet_fleet_shutdown` (the one graceful maintenance
+  stop: parks admissions and the loops, checkpoints in-flight workers, pauses their
+  tickets, kills the spawned serve),
   `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer
   permission asks of unattended runs — once/always/reject),
   `fleet_fleet_sync_store` / `fleet_fleet_status_store` / `fleet_fleet_recover_store`
@@ -235,9 +278,11 @@ Concretely, a chat agent can already:
   **opencode** (its service already executes requests and shells in the
   background) or in **Eclipse** (the JobManager runs every task as a Job in
   one fixed `JobGroup`) — anything else is reinventing the wheel. The
-  automatic fleet pump (auto-dispatch / recurring waves) lives in Eclipse;
-  when Eclipse is closed the fleet does not pump, by design. The former V-006
-  detached daemon (TCP core + proxy + pidfile + launcher) is retired.
+  automatic fleet pump (auto-dispatch / recurring waves) runs in **whichever
+  host starts it**: the Eclipse Board, or the fleet stdio JVM when a chat
+  session calls `fleet_fleet_auto_start` / `fleet_fleet_waves_start` — the
+  loop pumps in that host's `FleetControl` for as long as that host runs.
+  There is no detached fleet daemon and no third host.
 - **Strict reuse policy** (full matrix in
   `docs/opencode-v2-adoption.md`): a capability comes from the FIRST tier
   that has it — **opencode v2** (sessions, shells, PTYs, worktrees, VCS,
@@ -261,7 +306,7 @@ automatically from the prioritized backlog (top-priority READY tickets) — no h
 click between waves. The loop parks while NEEDS-HUMAN tickets wait (clearing a
 blocker resumes it automatically; the Board's readiness badge carries the
 needs-me count) and stops cleanly on budget exhaustion or when nothing is
-plannable. OFF by default; under the fleet daemon it survives client disconnects.
+plannable. OFF by default.
 
 Not yet chat-triggerable: *proactive* ask-surfacing inside
 the dispatching chat (answering works via `fleet_fleet_permissions*`) and
@@ -294,8 +339,8 @@ headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake build
   default — keep the system responsive), and each test bundle boots its own OSGi test
   runtime (Tycho) — that startup dominates short builds.
   **Quality gate** (`eclipse/QUALITY.md`): every `verify` runs Checkstyle
-  (clean-code lint, enforced) and the clean-architecture exec check
-  (dependency direction + no fixed paths, enforced); `verify -Pquality` adds
+  (clean-code lint, enforced) and, once per reactor, the clean-architecture exec check
+  (dependency direction + no fixed paths + no mojibake, enforced); `verify -Pquality` adds
   SpotBugs (report-only) and PMD-CPD duplication checks — the release gate is
   `.\build.ps1 clean verify -Pquality`.
 - **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
@@ -332,6 +377,17 @@ Lean, flat, model-neutral (except `graphics-expert`):
   (cross-vendor critic; edit-denied), `research` (authoritative-source investigation;
   validated synthesis), `project-manager` (Scrum Master + PO proxy; always present).
 - **Domain agents:** `cpp-tools` (C++ execution), `graphics-expert` (very-high; graphics).
+
+## Debugging discipline
+
+- **Evidence before theory:** one decisive probe (grep the logs, dump the
+  state) before the first hypothesis.
+- **Fix the failure class, not the instance.**
+- **No source edits while a gate runs**; validate an edited script by running it.
+- **Every engine outcome that is not success is logged where it happens.**
+- **Tests assert contracts, not implementation details** (ordering or
+  "last-ness" is an implementation detail unless the contract says so).
+- **Status claims cite tool output, never intent.**
 
 ## opencode feature usage (recommended)
 

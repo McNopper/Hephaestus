@@ -8,8 +8,5 @@
   },
   "devDependencies": {
     "puppeteer-core": "^24.0.0"
-  },
-  "dependencies": {
-    "puppeteer-core": "^25.7.0"
   }
 }

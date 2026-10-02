@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 import com.google.gson.JsonArray;
@@ -18,7 +20,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * MCP-surface checks over the dispatcher: the 22 task_* tools are advertised
+ * MCP-surface checks over the dispatcher: the 23 task_* tools are advertised
  * with input schemas, results are pretty JSON with the pm field names, a
  * claim with nothing to do returns the JSON literal null, domain errors are
  * isError text results (not protocol errors) and missing parameters map to
@@ -29,8 +31,8 @@ public class TaskToolsDispatchTest {
     private static final List<String> EXPECTED_TOOLS = List.of(
             "task_create", "task_get", "task_list", "task_update", "task_advance", "task_send_back",
             "task_set_blocked", "task_clear_blocked", "task_claim", "task_release", "task_add_comment",
-            "task_add_artifact", "task_add_todo", "task_toggle_todo", "task_remove_todo",
-            "task_backlog", "task_board", "task_plan_sprint", "task_close_sprint",
+            "task_add_artifact", "task_remove_artifact", "task_add_todo", "task_toggle_todo",
+            "task_remove_todo", "task_backlog", "task_board", "task_plan_sprint", "task_close_sprint",
             "task_traceability", "task_readiness", "task_doctor");
 
     @Rule
@@ -45,9 +47,13 @@ public class TaskToolsDispatchTest {
     }
 
     private JsonObject call(String tool, String argsJson) {
+        return call(dispatcher, tool, argsJson);
+    }
+
+    private JsonObject call(McpDispatcher d, String tool, String argsJson) {
         String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\""
                 + tool + "\",\"arguments\":" + argsJson + "}}";
-        JsonObject response = JsonParser.parseString(dispatcher.handle(body)).getAsJsonObject();
+        JsonObject response = JsonParser.parseString(d.handle(body)).getAsJsonObject();
         assertFalse("domain errors must be isError results, not protocol errors", response.has("error"));
         JsonObject result = response.getAsJsonObject("result");
         assertEquals(1, result.getAsJsonArray("content").size());
@@ -56,7 +62,11 @@ public class TaskToolsDispatchTest {
     }
 
     private JsonObject callOk(String tool, String argsJson) {
-        JsonObject result = call(tool, argsJson);
+        return callOk(dispatcher, tool, argsJson);
+    }
+
+    private JsonObject callOk(McpDispatcher d, String tool, String argsJson) {
+        JsonObject result = call(d, tool, argsJson);
         assertFalse(result.get("isError").getAsBoolean());
         return JsonParser.parseString(result.getAsJsonArray("content").get(0)
                 .getAsJsonObject().get("text").getAsString()).getAsJsonObject();
@@ -67,11 +77,11 @@ public class TaskToolsDispatchTest {
     }
 
     @Test
-    public void toolsListAdvertisesAllTwentyTwoToolsWithSchemas() {
+    public void toolsListAdvertisesAllTwentyThreeToolsWithSchemas() {
         JsonObject response = JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")).getAsJsonObject();
         JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-        assertEquals(22, tools.size());
+        assertEquals(23, tools.size());
         for (int i = 0; i < tools.size(); i++) {
             JsonObject tool = tools.get(i).getAsJsonObject();
             assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -158,6 +168,44 @@ public class TaskToolsDispatchTest {
         assertTrue(t.getAsJsonArray("todos").get(0).getAsJsonObject().get("done").getAsBoolean());
         t = callOk("task_remove_todo", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"index\":0}");
         assertEquals(0, t.getAsJsonArray("todos").size());
+    }
+
+    @Test
+    public void artifactRemoveThroughTools() {
+        callOk("task_create", "{\"project\":\"p\",\"title\":\"a\"}");
+        JsonObject t = callOk("task_add_artifact",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"kind\":\"file\",\"ref\":\"docs/wrong.md\"}");
+        assertEquals(1, t.getAsJsonArray("artifacts").size());
+        t = callOk("task_remove_artifact", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"index\":0,\"by\":\"dev\"}");
+        assertEquals(0, t.getAsJsonArray("artifacts").size());
+        JsonArray history = t.getAsJsonArray("history");
+        assertEquals("artifact removed:file:docs/wrong.md",
+                history.get(history.size() - 1).getAsJsonObject().get("action").getAsString());
+        assertTrue("out-of-range index is an isError result, not a protocol error",
+                call("task_remove_artifact", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"index\":3}")
+                        .get("isError").getAsBoolean());
+        assertEquals("a missing index parameter is a -32602 protocol error", -32602,
+                JsonParser.parseString(dispatcher.handle(
+                        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+                                + "{\"name\":\"task_remove_artifact\",\"arguments\":"
+                                + "{\"project\":\"p\",\"ticket_id\":\"T-001\"}}}"))
+                        .getAsJsonObject().getAsJsonObject("error").get("code").getAsInt());
+    }
+
+    @Test
+    public void doctorReportsUnresolvableArtifactRefsThroughTools() throws IOException {
+        // a store shaped like production (<repo>/.opencode/tasks) - only then
+        // can the doctor derive the repo root and check refs against it
+        Path repo = tmp.newFolder("repo").toPath();
+        McpDispatcher inRepo = new McpDispatcher(
+                new TaskToolProvider(repo.resolve(".opencode").resolve("tasks")));
+        callOk(inRepo, "task_create", "{\"project\":\"p\",\"title\":\"a\"}");
+        callOk(inRepo, "task_add_artifact",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"kind\":\"file\",\"ref\":\"docs/missing.md\"}");
+        JsonObject doctor = callOk(inRepo, "task_doctor", "{\"project\":\"p\"}");
+        assertFalse(doctor.get("ok").getAsBoolean());
+        assertTrue(doctor.getAsJsonArray("inconsistencies").get(0).getAsString()
+                .contains("docs/missing.md"));
     }
 
     @Test

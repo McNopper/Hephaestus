@@ -1,11 +1,12 @@
 # History
 
-Chronological record of milestones, sessions and findings - **the changelog**.
-Current state and open work live in `ROADMAP.md`; this file is the only place
-the historical evolution is kept.
-
-**Kind:** `doc` / changelog. **Read by:** anyone reconstructing *why*
-the current state is what it is. **Related:** `ROADMAP.md` (current plan).
+## About this document
+- **Kind:** `doc` / changelog - the chronological record of milestones,
+  sessions and findings.
+- **Read by:** anyone reconstructing *why* the current state is what it is;
+  **written by:** maintainers.
+- **Related:** `ROADMAP.md` (current state and open work). Historical
+  evolution is kept **only** here.
 
 ## H0 — Consolidation ✅ 2026-08-17
 Full reactor build green (~181 Java + 105 JS). Root hygiene, path
@@ -95,14 +96,7 @@ BLOCKED>RUNNING + total-failure contract), R2 RepoGate, R3 (drain-then-kill
 reconciliation), F-003 (cross-engine dispatch guard via atomic marker file)
 — all landed, tested, pushed.
 
-## Standing rules (live)
-- Refactor cadence: every second session (due since 2026-08-18).
-- On opencode upgrade: rerun the endpoint smoke (assert the OpenAPI `/doc`
-  covers our whole surface), then bump `ServerVersionPin`.
-- Once work runs on the board again, the store — not the roadmap — is the
-  status source.
-
-## Session 2026-09-16 ? the board goes empty
+## Session 2026-09-16 — the board goes empty
 
 Parallel-wave session: four agent workstreams landed (peer-job Fleet view,
 pristine Board labels + icons, store hardening with line quarantine,
@@ -299,3 +293,131 @@ gate caught what unverified worker output hides (7 test bugs, all fixed in-revie
   forensically reversed with round-trip proof), the PTY-host finding (no TM
   Terminal in the target; no stdin REST route - parked), and a build.ps1
   3-arg Join-Path fix (PS 5.1 broke with JAVA_HOME set).
+
+## H12 - v0.1.1 and the coherence review - 2026-09-29 to 2026-10-02
+
+**v0.1.1** (annotated tag on `04f5013`, 2026-09-29) = v0.1.0 + the H8-H11 rounds
+(`98ad91b`) + **T-010**: the chat (and every `sendMessage` caller) settled a turn
+at the boundary BETWEEN two tool calls - the narration step was complete with
+`finish=tool-calls`, the first tool part terminal, and the 2 s quiet window
+elapsed while the second tool ran; the Eclipse panel rendered only the 68-char
+narration while the server held the full answer. `Turns.replyEvidence` now
+rejects evidence whose finish reason is tool-calls (the regression test replays
+the live wire shape).
+
+The **coherence review** of the released state (2026-10-02: three read-only
+review lanes plus an engine/store lane) found the release less consistent than
+its green gate suggested:
+
+- **Mojibake regression shipped in v0.1.1.** `BoardView.java` was clean at
+  v0.1.0 and double-encoded by a Windows PowerShell 5.1 edit later in the same
+  round that ran the H11 repair sweep - user-visible on the Board toolbar (the
+  Auto/Waves toggles), the readiness badge, the legend and the tooltips.
+  Repaired segment-wise (73 runs, plus a test comment and three fleet comments
+  in the store) and guarded: `check-architecture.ps1` layer 3 fails the gate on
+  double-encoded UTF-8 in the harness sources and docs.
+- **The task store had silently lost a ticket.** A direct store-write script
+  (2026-09-29) replaced every `ts` substring with its timestamp: U-045 became
+  unparsable (the `story_points` key, the Artifacts/Comments headers, the JSON
+  `ts` keys) and vanished from every read while `task_doctor` said ok; U-028 and
+  U-034 artifact refs were corrupted; U-030/U-034/U-036 stayed done-but-blocked.
+  Reversed exactly; `task_doctor` now reports unparsable ticket files; AGENTS.md
+  gained a write-discipline rule.
+- **Fabricated traceability removed.** The 2026-09-29 backfill had given two
+  implementation tickets (W-007/W-008) the tester role, inventing verification
+  pairs for W-001; corrected, together with W-005's invalid role.
+- **Readiness:** done tickets that entered the V pipeline mid-way no longer
+  read WAIT_UPSTREAM forever (now NOT_APPLICABLE); a done downstream of an
+  upstream in rework still waits, then goes STALE.
+- **Gate:** the architecture check runs once per reactor, as QUALITY.md always
+  said (it ran in all 27 modules); its path exclusions now work on Linux.
+- **Store hygiene:** three abandoned waves closed (U-037 back to the backlog),
+  wrong artifact paths fixed, unresolvable ones annotated on their tickets.
+- **Handed off, not fixed:** five documented mechanisms exist only as library
+  methods that tests call (stage pass-through, resolution-first ticks,
+  archive-aware readiness, auto-archive on close, the `inputs changed:`
+  markers); the fleet MCP server ships disabled while the docs present it as
+  ready; AGENTS.md, the audit skill and the tool define traceability three
+  different ways. The open work is in ROADMAP.md (*Coherence debt*) and the
+  store.
+
+## H13 - The coherence wave - 2026-10-02
+
+E-006 executed as **wave-2026-10-02**: 25 tickets across 12 parallel
+file-lane workers (subagents), one orchestrator running the single central
+gate - the repo's biggest parallel round. Every doc, skill and agent now
+describes what the engine actually does; the small engine defects the review
+found are fixed; the bigger wiring work is decomposed and queued
+(chunk-small rule, adopted this wave: one ticket = one independently
+verifiable change).
+
+**Engine and store gains:** `task_remove_artifact` (the 23rd `task_*` tool)
+and a task_doctor check that `file`/`path` artifact refs resolve under the
+repo root - its first run caught three wrong refs (B-012, H-001, H2-001).
+`RuntimeTuning` is seeded from `FleetTuning`, so `FLEET_STALL_TIMEOUT_MS` /
+`FLEET_TICKET_BUDGET_MS` finally take effect and abort messages name the knob
+that applied. One task-store root for the Board and the `eclipse-build`
+endpoint (`TasksRootResolution` moved to core, the activator bridges the
+resolved root). ui's mirrored view/command ids routed through
+`SessionViewIds`. MCP connect/disconnect/remove carry the repo location (they
+acted on the home instance before). Fleet sessions are titled
+`[<id>] …` / `[<id>] review: …`. The worker prompt teaches the
+`clarification:` loop before blocking. The clang-tidy lane clears its log per
+run; `build.ps1`'s JDK registry lookup works (the read-only `$home`
+assignment); the opencode-tasks mojo is invocable as documented;
+`plugin_customization.ini` ships no machine path (enforced by a new
+check-architecture layer).
+
+**Docs:** AGENTS.md truth pass (fleet ships disabled; pump runs in whichever
+host starts it; FAIL routing; NEEDS-HUMAN; traceability = role+epic today) +
+a **Debugging discipline** section (the 2026-09-23 retro's six rules, adopted
+- its 5 s output-drain window is 60 s now). READMEs, INSTALL, ARCHITECTURE,
+QUALITY, DISTRIBUTED-FLEETS, chat-web/mojo READMEs, the runbooks and the
+adoption matrix made current; `docs/status-quo-review.md` and
+`docs/process-retro-2026-09-23.md` deleted (history below);
+`eclipse/ROADMAP.md` retired into this file; every requirements doc carries a
+per-FR delivery status (delivered / not delivered with ticket / amended).
+
+**Recorded late** (folded from the retiring files and lane hand-offs):
+
+- **Releases as events:** v0.1.0 = `0e008e2` ("the platform does the
+  plumbing: JobManager everywhere, daemon retired" - the 2026-09-23 V-006
+  daemon retirement). T-004/T-005/T-009 were re-accepted in the 2026-09-29
+  review round. The `wip/slices-v2-adoption` branch named in H8 no longer
+  exists.
+- **2026-09-14, first real deploy-dev.ps1 deployment** (from
+  status-quo-review + the install-recovery runbook): a p2 reconciliation
+  interrupted mid-start left the Eclipse install with a damaged profile -
+  instant "Unable to acquire application service" exits, `bundles.info`
+  stripped, relative `reference:file:` entries in `config.ini`. Four bugs no
+  headless test caught, fixed the same day; the first: `CoreActivator.start()`
+  eagerly built `OpencodeConnection`/`ConnectionsManager` before the instance
+  area existed (fixed with lazy OSGi ServiceFactory registrations). The full
+  four-bug list is preserved on ticket T-018; the recovery steps live on in
+  `docs/eclipse-deploy-recovery.md`.
+- **2026-09-23 quality campaign** (from QUALITY.md): SpotBugs found the
+  weak-randomness trio (MCP token, spawn password, fleet password), a
+  hash-absolute-value hazard, floating-point equality, platform-default
+  encodings, a swallowed exception and a dead store; CPD found seven
+  copy-pasted blocks; the tests found a starve-the-pool defect in the then-new
+  worker conversion. All fixed at the root, zero suppressions.
+- **2026-08-15, M1-M3** (from ARCHITECTURE.md): M1 client split (69 tests
+  moved, core.tests deleted, the Eclipse-import ban); M2 chat-web extraction;
+  M3 the bridge contract checks.
+- **2026-09-25 adoption wave** (from the adoption matrix): six parallel
+  client methods were added and removed again as duplicates of the existing
+  surface - the lesson ("a capability audit MUST include our own layers")
+  survives as the doc's standing rule. Operational recipe kept: a server
+  stuck at `status:failed` revives via
+  `POST /api/experimental/mcp/{name}/connect?location[directory]=<repo>`.
+- **Phases 0-6, pre-H0** (from eclipse/ROADMAP.md, now retired): toolchain
+  presets; core/ui/cdt bundles; feature + p2 repo; spawn + connect modes;
+  readiness probe + retry; JVM shutdown hook (no orphaned servers); the
+  unified Server view (Agents/Sessions nested by parentID, live via SSE).
+
+**Interruptions during the wave:** the opencode service restarted mid-wave
+(2.0.19 -> **2.0.21**; endpoint smoke + pin bump = U-063) - the restarted
+`tasks` MCP server served the 23-tool jar before the gate even ran, a
+live dogfood of U-053. One worker started the quality gate itself; the run
+was terminated by the orchestrator (the gate is centralized per dispatch;
+a gate over a mid-edit tree measures noise).

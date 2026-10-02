@@ -56,6 +56,7 @@ public class SharedServiceAttachTest {
     public void setUp() throws IOException {
         // the instance-scope node is shared with other tests: start from the default
         prefs.raw().remove(OpencodePreferences.KEY_ATTACH_SHARED_SERVICE);
+        prefs.raw().remove(OpencodePreferences.KEY_ADVERTISE_RENDERING);
         registrationFile = temp.newFolder("state", "opencode").toPath().resolve("service.json");
         passwordFile = temp.newFolder("config", "opencode").toPath().resolve("service.json");
     }
@@ -63,6 +64,7 @@ public class SharedServiceAttachTest {
     @After
     public void tearDown() {
         prefs.raw().remove(OpencodePreferences.KEY_ATTACH_SHARED_SERVICE);
+        prefs.raw().remove(OpencodePreferences.KEY_ADVERTISE_RENDERING);
     }
 
     // ---------- the preference ----------
@@ -79,6 +81,21 @@ public class SharedServiceAttachTest {
         assertFalse(prefs.isAttachSharedService());
         prefs.setAttachSharedService(true);
         assertTrue(prefs.isAttachSharedService());
+    }
+
+    /**
+     * U-055: the "Advertise rendering" checkbox on the connection preference
+     * page binds to this preference (default ON — without it models answer
+     * in plain terminal style), persisting across restarts.
+     */
+    @Test
+    public void advertiseRenderingPreferenceDefaultsOnAndRoundTrips() {
+        assertTrue("default ON: every request tells the model what the chat can render",
+                prefs.isAdvertiseRendering());
+        prefs.setAdvertiseRendering(false);
+        assertFalse("unchecking must persist", prefs.isAdvertiseRendering());
+        prefs.setAdvertiseRendering(true);
+        assertTrue("re-checking must persist", prefs.isAdvertiseRendering());
     }
 
     // ---------- the attach → spawn decision ----------

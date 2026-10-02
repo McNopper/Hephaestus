@@ -238,6 +238,18 @@ public class TaskStoreSemanticsTest {
     }
 
     @Test
+    public void inconsistenciesReportsAnUnparsableTicketFileThatEveryOtherReadSkips() throws IOException {
+        Task kept = store.create("p", TaskStore.CreateSpec.of("kept"));
+        Files.writeString(store.root().resolve("p").resolve("X-001.md"), "not a ticket - no frontmatter fence\n");
+        assertEquals("list skips the broken file", List.of(kept.id),
+                store.list("p", null, null, null, null).stream().map(t -> t.id).toList());
+        List<String> drift = store.inconsistencies("p");
+        assertEquals("only the doctor makes the skipped file visible", 1, drift.size());
+        assertTrue(drift.get(0), drift.get(0).startsWith("X-001.md: unparsable ticket file"));
+        assertTrue(drift.get(0), drift.get(0).contains("frontmatter fence"));
+    }
+
+    @Test
     public void readsOnAMissingProjectNeverMaterializeIt() {
         // Review S5: task_doctor/task_list on a typo'd project used to
         // create the directory as a side effect of the read path.
@@ -380,6 +392,74 @@ public class TaskStoreSemanticsTest {
         } catch (TaskStore.Invalid expected) {
             assertTrue(expected.getMessage().contains("kind"));
         }
+    }
+
+    @Test
+    public void artifactRemoveWithIndexChecksAndHistory() {
+        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+        store.addArtifact("p", t.id, "file", "docs/wrong.md", "typo'd ref", "dev");
+        store.addArtifact("p", t.id, "git", "abc123", "the commit", "dev");
+        Task after = store.removeArtifact("p", t.id, 0, "dev");
+        assertEquals("the indexed artifact is gone, the other shifts down",
+                1, after.artifacts.size());
+        assertEquals("abc123", after.artifacts.get(0).ref());
+        assertEquals("the correction is history-recorded like every other mutation",
+                "artifact removed:file:docs/wrong.md",
+                after.history.get(after.history.size() - 1).action());
+        assertEquals("persisted, not just in-memory", 1, store.get("p", t.id).artifacts.size());
+        try {
+            store.removeArtifact("p", t.id, 9, null);
+            fail("expected Invalid");
+        } catch (TaskStore.Invalid expected) {
+            assertEquals("artifact index 9 out of range (have 1)", expected.getMessage());
+        }
+        try {
+            store.removeArtifact("p", t.id, -1, null);
+            fail("expected Invalid");
+        } catch (TaskStore.Invalid expected) {
+            assertTrue(expected.getMessage().contains("out of range"));
+        }
+    }
+
+    @Test
+    public void doctorReportsFileAndPathArtifactRefsThatDoNotResolveInTheRepo() throws IOException {
+        Path repo = tmp.newFolder("repo").toPath();
+        Files.createDirectories(repo.resolve("docs"));
+        Files.writeString(repo.resolve("docs").resolve("real.md"), "# real\n");
+        // the convention the doctor derives the repo root from: <repo>/.opencode/tasks
+        TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+        Task t = repoStore.create("p", TaskStore.CreateSpec.of("artifacts"));
+        repoStore.addArtifact("p", t.id, "file", "docs/real.md", "", "dev");
+        repoStore.addArtifact("p", t.id, "path", "docs/missing.md", "", "dev");
+        repoStore.addArtifact("p", t.id, "git", "abc123", "", "dev"); // not a path kind
+        repoStore.addArtifact("p", t.id, "url", "https://example.com/x", "", "dev"); // not a path kind
+        List<String> drift = repoStore.inconsistencies("p");
+        assertEquals(List.of(t.id + ": artifact path ref does not resolve under "
+                + repo.toAbsolutePath().normalize() + ": docs/missing.md"), drift);
+    }
+
+    @Test
+    public void doctorStaysQuietForGlobBraceAndProseArtifactRefs() throws IOException {
+        Path repo = tmp.newFolder("repo").toPath();
+        TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+        Task t = repoStore.create("p", TaskStore.CreateSpec.of("a"));
+        repoStore.addArtifact("p", t.id, "path", "docs/*.md", "", "dev");
+        repoStore.addArtifact("p", t.id, "path", "eclipse/{bundles,features}/**", "", "dev");
+        repoStore.addArtifact("p", t.id, "path", "see the docs folder", "", "dev");
+        repoStore.addArtifact("p", t.id, "file", "a.md,b.md", "", "dev");
+        repoStore.addArtifact("p", t.id, "file", "docs/vision?.md", "", "dev");
+        assertEquals("none of these is a plain path - nothing to report",
+                List.of(), repoStore.inconsistencies("p"));
+    }
+
+    @Test
+    public void doctorSkipsArtifactResolutionWhenTheRepoRootIsUnknown() {
+        // this fixture's root (<tmp>/tasks) does not match the
+        // <repo>/.opencode/tasks convention: the check must skip rather than
+        // resolve refs against an accidental parent directory
+        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+        store.addArtifact("p", t.id, "file", "docs/missing.md", "", "dev");
+        assertEquals(List.of(), store.inconsistencies("p"));
     }
 
     @Test

@@ -73,4 +73,42 @@ public class RuntimeTuningTest {
         assertEquals(Duration.ofMinutes(30), RuntimeTuning.ticketBudget());
         assertTrue(RuntimeTuning.summary().contains("poll"));
     }
+
+    /**
+     * B-015: the engine's env-parsed knob table (FleetTuning) seeds the
+     * DEFAULTS — the env knob takes effect on the default path, a later
+     * seed never clobbers an explicit runtime override, restore returns to
+     * the seeded default, and the test seam drops the seed entirely.
+     */
+    @Test
+    public void seededDefaultsApplyUntilOverriddenAndSurviveRestore() {
+        try {
+            RuntimeTuning.seedStallTimeout(Duration.ofSeconds(90));
+            RuntimeTuning.seedTicketBudget(Duration.ofMinutes(90));
+            assertEquals("the seeded default is live immediately", Duration.ofSeconds(90),
+                    RuntimeTuning.stallTimeout());
+            assertEquals(Duration.ofMinutes(90), RuntimeTuning.ticketBudget());
+
+            RuntimeTuning.setStallTimeout(Duration.ofSeconds(42)); // the dialog override
+            RuntimeTuning.seedStallTimeout(Duration.ofSeconds(120)); // a later seed must not clobber it
+            assertEquals("a runtime override wins over a later seed", Duration.ofSeconds(42),
+                    RuntimeTuning.stallTimeout());
+
+            RuntimeTuning.restoreDefaults();
+            assertEquals("restore returns to the SEEDED default, not the baseline", Duration.ofSeconds(120),
+                    RuntimeTuning.stallTimeout());
+            assertEquals(Duration.ofMinutes(90), RuntimeTuning.ticketBudget());
+
+            RuntimeTuning.restoreDefaults();
+            RuntimeTuning.seedStallTimeout(null); // ignored, like a null setter
+            RuntimeTuning.seedTicketBudget(Duration.ZERO); // ignored
+            assertEquals(Duration.ofSeconds(120), RuntimeTuning.stallTimeout());
+            assertEquals(Duration.ofMinutes(90), RuntimeTuning.ticketBudget());
+        } finally {
+            RuntimeTuning.clearSeededDefaults();
+        }
+        assertEquals("clear drops the seed back to the baseline", Duration.ofMinutes(5),
+                RuntimeTuning.stallTimeout());
+        assertEquals(Duration.ofMinutes(30), RuntimeTuning.ticketBudget());
+    }
 }

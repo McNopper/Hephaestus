@@ -37,8 +37,10 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 
 - **Base URL** — `opencode api get /api/info` → `{ version, pid, urls: ["http://127.0.0.1:<port>"], paths }`;
   take `urls[0]`. The old hard-coded `4096` default is gone.
-- **Auth** — username `opencode`, password from `~/.config/opencode/service.json`
-  (`{"password": "…"}`). `opencode api get <path>` resolves the port **and** authenticates
+- **Auth** — username `opencode`, password from
+  `~/.local/state/opencode/service.json` (`$XDG_STATE_HOME/opencode/service.json`;
+  `~/.config/opencode/service.json` is the legacy fallback) — the file holds
+  `{"password": "…"}`. `opencode api get <path>` resolves the port **and** authenticates
   for you; prefer it over raw HTTP.
 - When the Eclipse harness runs, the Server view / connection preferences hold the
   resolved URL.
@@ -78,7 +80,8 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
    PowerShell:
    ```powershell
    $base = (opencode api get /api/info | ConvertFrom-Json).urls[0]
-   $pw   = (Get-Content "$HOME/.config/opencode/service.json" -Raw | ConvertFrom-Json).password
+   $pw   = (Get-Content "$HOME/.local/state/opencode/service.json" -Raw | ConvertFrom-Json).password
+          # (legacy fallback: "$HOME/.config/opencode/service.json")
    $hdr  = @{ Authorization = "Basic " + [Convert]::ToBase64String(
                 [Text.Encoding]::UTF8.GetBytes("opencode:$pw")) }
    $sessions = (Invoke-RestMethod "$base/api/session" -Headers $hdr).data
@@ -86,20 +89,26 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
    bash:
    ```bash
    BASE=$(opencode api get /api/info | jq -r '.urls[0]')
-   PW=$(jq -r '.password' ~/.config/opencode/service.json)
+   PW=$(jq -r '.password' ~/.local/state/opencode/service.json)   # legacy fallback: ~/.config/opencode/service.json
    curl -s -u "opencode:$PW" "$BASE/api/session" | jq '[.data[] | select(.parentID == null)]'
    ```
-2. **Map session → ticket** — by convention the session `title` starts with the ticket id
-   (`[T-014] implement store locking`). Sessions without a ticket prefix are fleet overhead;
-   keep them in the aggregates, attribute them to `(unassigned)`.
-3. **Record actuals on each ticket** — append one structured comment (no schema change; a
-   first-class `cost` field waits until the data proves it):
+2. **Map session → ticket** — fleet sessions carry the ticket id in their
+   title: workers are `[<id>] <title>`, reviews `[<id>] review: <title>`
+   (U-054). Map by that prefix first; the belt-and-braces fallback is the
+   worktree directory: a fleet worker session's `location.directory` is
+   `<repoRoot>/.git/opencode-fleet/<ticket-id>` — the last path segment is the
+   ticket id. Sessions in the main checkout without a ticket id in their title
+   are overhead; keep them in the aggregates, attribute them to `(unassigned)`.
+3. **Record actuals on each ticket** — append one comment in the engine's
+   `fleet actuals:` format; the Board's cost overview and the dispatch budget
+   parse **only that prefix** (any other format, e.g. `telemetry: …`, is
+   invisible to them):
    ```
    task_add_comment(project, ticket_id,
-     comment: "telemetry: {\"session\":\"<id>\",\"agent\":\"build\",\"model\":\"<id>\","
-            + "\"tokens\":{\"input\":I,\"output\":O,\"reasoning\":R,\"cache_read\":CR,\"cache_write\":CW},"
-            + "\"cost_usd\":C,\"duration_min\":D}")
+     comment: "fleet actuals: cost <C> USD, tokens <T> (in <I> / out <O> / reasoning <R>), agent <name>, model <provider/model>")
    ```
+   (The engine's `FleetTelemetry` emits exactly this shape; omit the parts you
+   do not have — `cost 1.5 USD` alone parses.)
    Record once per session (check history first — idempotent re-runs must not double-count).
 4. **Aggregate** — produce the rollup:
    - per ticket: total cost, tokens, duration, attempts (sessions count)
@@ -127,6 +136,6 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 
 - Estimate needed before a run → `project-manager-estimate-costs` (this skill feeds it).
 - Wave close / review numbers → the `project-manager` agent consumes the report.
-- Fleet telemetry automation (TaskFleet recording `fleet actuals:` comments on mergeBack)
-  has landed (see ROADMAP "Standing"); this skill remains the manual path for ad-hoc
-  queries and calibration.
+- Fleet telemetry automation (TaskFleet recording `fleet actuals:` comments on
+  mergeBack) has landed; this skill remains the manual path for ad-hoc queries
+  and calibration.

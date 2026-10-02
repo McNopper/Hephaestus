@@ -1,24 +1,31 @@
-package com.opencode.ide.board.model;
+package com.opencode.ide.core;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
-import com.opencode.ide.core.OpencodeConnection;
+import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.Platform;
 
 /**
- * The SWT-free resolution order behind the Board's task-store root (B-002
- * AC-4 / O-001 parity): which {@code <something>/.opencode/tasks} directory
- * the board — and therefore its {@link TaskStoreWatcher} — actually watches.
+ * The ONE task-store root order (B-016): which {@code <something>/.opencode/tasks}
+ * directory the harness actually watches. Both surfaces resolve through this
+ * seam — the Board view (its toolbar override feeds {@link #resolveForWorkspace})
+ * and the {@code eclipse-build} MCP endpoint (the core activator bridges
+ * {@link #resolveForWorkspace(String)} with an empty override into the
+ * {@code opencode.tasks.root} system property) — so a workspace, its open
+ * projects and the preferences always yield ONE store for the Board, the
+ * fleet and the in-session {@code task_*} tools.
  *
  * <p>Order (first hit wins):
  * <ol>
- * <li><b>Explicit override</b> — the toolbar's Store field / its persisted
- * dialog setting. A user-typed path is honored as-is (relative resolves
- * against the workspace), even when it does not exist: the mistake stays
- * visible as the board's "Task store not found" notice instead of silently
- * watching a different store.</li>
+ * <li><b>Explicit override</b> — the Board toolbar's Store field / its
+ * persisted dialog setting. A user-typed path is honored as-is (relative
+ * resolves against the workspace), even when it does not exist: the mistake
+ * stays visible as the board's "Task store not found" notice instead of
+ * silently watching a different store.</li>
  * <li><b>Workspace climb</b> — walk up from the workspace location; the
  * first ancestor carrying {@code .opencode/tasks} (workspace nested in the
  * repo).</li>
@@ -39,10 +46,12 @@ import com.opencode.ide.core.OpencodeConnection;
  * not-found notice for it).</li>
  * </ol>
  *
- * <p>Extracted from BoardView so the order — especially adoption-beats-
- * preference — is unit-testable without the workbench. Pure Java: the view
- * feeds in the Eclipse-derived inputs (workspace location, open project
- * locations, preference supplier).</p>
+ * <p>Extracted from BoardView (originally B-002 AC-4 / O-001 parity) and
+ * moved into core (B-016) so the eclipse-build endpoint shares the exact
+ * same order instead of a preference-only fallback. The pure
+ * {@link #resolve} stays SWT/workbench-free and unit-testable; the view and
+ * the bridge feed it the Eclipse-derived inputs via
+ * {@link #resolveForWorkspace(String)}.</p>
  */
 public final class TasksRootResolution {
 
@@ -62,6 +71,7 @@ public final class TasksRootResolution {
      * @param preferenceRoot  supplies the {@code tasksRoot} preference text
      *                        (null/blank = unset); tolerant of a throwing
      *                        supplier (headless contexts)
+     * @return the resolved store root; never null
      */
     public static Path resolve(String override, Path workspace, List<Path> projectLocations,
             Supplier<String> preferenceRoot) {
@@ -87,6 +97,22 @@ public final class TasksRootResolution {
             }
         }
         return workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize();
+    }
+
+    /**
+     * The current workspace's store root: {@link #resolve} fed with the
+     * live Eclipse inputs — the Board view's entry point (its override
+     * text, empty for none) AND the value the core activator bridges into
+     * {@code opencode.tasks.root} for the eclipse-build endpoint (empty
+     * override: the endpoint has no Board-UI override). Both callers
+     * therefore see ONE store for the same workspace and preferences.
+     *
+     * @param override the Board's explicit override text (blank = none)
+     * @return the resolved store root; never null
+     */
+    public static Path resolveForWorkspace(String override) {
+        return resolve(override, workspaceRoot(), workspaceProjectLocations(),
+                TasksRootResolution::preferenceTasksRoot);
     }
 
     /**
@@ -146,6 +172,60 @@ public final class TasksRootResolution {
         } catch (RuntimeException e) {
             // headless/test contexts without the preferences node
             return null;
+        }
+    }
+
+    /**
+     * The {@code tasksRoot} workspace preference text (Preferences →
+     * OpenCode); {@code null} when unset or unreadable (headless/test
+     * contexts) — {@link #resolve} treats null as no preference.
+     */
+    static String preferenceTasksRoot() {
+        try {
+            String configured = new OpencodePreferences().getTasksRoot();
+            return configured == null || configured.isBlank() ? null : configured.trim();
+        } catch (RuntimeException | LinkageError e) {
+            return null;
+        }
+    }
+
+    /**
+     * O-001/B-002 adoption candidates: the locations of the open workspace
+     * projects. A project imported from inside a repo makes that repo's
+     * {@code .opencode/tasks} adoptable even when the workspace directory
+     * itself is outside every repo. Empty when the resources plugin is
+     * unavailable (tests, non-workbench hosts) — the climb still runs.
+     */
+    static List<Path> workspaceProjectLocations() {
+        try {
+            var projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+            List<Path> locations = new ArrayList<>();
+            for (var project : projects) {
+                var location = project.getLocation();
+                if (location != null) {
+                    locations.add(location.toFile().toPath().toAbsolutePath().normalize());
+                }
+            }
+            return locations;
+        } catch (LinkageError | RuntimeException e) {
+            // no resources plugin / no workbench: adoption falls back to the climb
+            return List.of();
+        }
+    }
+
+    /**
+     * The workspace location (the climb start and the base for relative
+     * overrides); the process working directory when the platform location
+     * is not yet set (the Board's historical fallback).
+     */
+    static Path workspaceRoot() {
+        try {
+            var location = Platform.getLocation();
+            return location == null ? Path.of(".").toAbsolutePath().normalize()
+                    : location.toFile().toPath().toAbsolutePath().normalize();
+        } catch (LinkageError | RuntimeException e) {
+            // no workbench: the climb starts at the working directory
+            return Path.of(".").toAbsolutePath().normalize();
         }
     }
 }

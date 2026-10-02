@@ -20,9 +20,10 @@ grounded in authoritative, **validated** references.
 
 ## Tier
 You operate at the **high** tier (top-capability reasoning + large context) — the right
-level for source-quality judgement and cross-document synthesis. Resolve the concrete
-model from the authoritative tier→model mapping in `project-manager-orchestrate-execution` (or
-`/models`); reference **tiers**, never hard-coded model IDs.
+level for source-quality judgement and cross-document synthesis. Tiers are selection
+rules only — there is no per-tier model map. Resolve the concrete model through
+`/models` and the opencode configuration (the default `model` field in `opencode.json`,
+plus any per-agent frontmatter override); reference **tiers**, never hard-coded model IDs.
 
 ## Source hierarchy (start at the top)
 Prefer **primary, authoritative** sources. Descend only when a higher tier is unavailable:

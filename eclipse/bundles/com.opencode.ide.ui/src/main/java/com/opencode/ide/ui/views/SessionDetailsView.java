@@ -1,7 +1,5 @@
 package com.opencode.ide.ui.views;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -157,12 +155,13 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     private static final String DEFAULT_TEXT_EDITOR_ID = "org.eclipse.ui.DefaultTextEditor";
 
     /**
-     * The chat view opened after a fork, by id (registry lookup — the chat
-     * bundle is NOT a compile-time dependency of this bundle, same pattern as
-     * {@link #DEFAULT_TEXT_EDITOR_ID}). Its secondary id convention
-     * ({@code ses_…}) makes it resume the forked session with its history.
+     * The chat view opened after a fork, by id from the ONE seam
+     * {@link SessionViewIds#CHAT_VIEW_ID} (registry lookup — the chat
+     * bundle is NOT a compile-time dependency of this bundle, same pattern
+     * as {@link #DEFAULT_TEXT_EDITOR_ID}). Its secondary id convention
+     * ({@code ses_…}, built by {@link SessionViewIds#secondaryId(String)})
+     * makes it resume the forked session with its history.
      */
-    private static final String CHAT_VIEW_ID = "com.opencode.ide.chat.views.ChatView";
 
     private static final int AUTO_REFRESH_MILLIS = 5000;
     private static final int PREVIEW_LENGTH = 120;
@@ -1159,9 +1158,9 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
             return false;
         }
         try {
-            String secondary = URLEncoder.encode(forkSessionId, StandardCharsets.UTF_8);
             IWorkbenchPage page = getSite().getPage();
-            page.showView(CHAT_VIEW_ID, secondary, IWorkbenchPage.VIEW_ACTIVATE);
+            page.showView(SessionViewIds.CHAT_VIEW_ID, SessionViewIds.secondaryId(forkSessionId),
+                    IWorkbenchPage.VIEW_ACTIVATE);
             return true;
         } catch (PartInitException e) {
             showStatus("Opening the fork in chat failed");

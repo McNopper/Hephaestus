@@ -21,7 +21,10 @@ import com.opencode.ide.ui.model.McpServerRows;
  * Manage the MCP servers registered with one opencode server - connect,
  * disconnect, remove over the v2 {@code experimental.mcp.*} verbs (Wave A,
  * 2026-09-25). Acts on the snapshot the view already loaded; the view's
- * refresh cycle picks up the resulting state.
+ * refresh cycle picks up the resulting state. Every action carries the
+ * location scope that snapshot was listed with, so the buttons act on the
+ * same server instance the table shows (B-023: v2 resolves an unscoped
+ * call to the home location, a different instance than the listed one).
  */
 public final class McpServersDialog extends Dialog {
 
@@ -31,14 +34,22 @@ public final class McpServersDialog extends Dialog {
 
     private final OpencodeClient client;
     private final List<McpServerInfo> servers;
+    private final String directory;
     private Table table;
     private Label feedback;
 
-    /** @param servers the already-loaded MCP server snapshot of one connection */
-    public McpServersDialog(Shell parent, OpencodeClient client, List<McpServerInfo> servers) {
+    /**
+     * @param servers   the already-loaded MCP server snapshot of one connection
+     * @param directory the location scope that snapshot was LISTED with - the
+     *                  actions must act on the same instance the table shows
+     *                  (v2 resolves an unscoped call to the home location)
+     */
+    public McpServersDialog(Shell parent, OpencodeClient client, List<McpServerInfo> servers,
+            String directory) {
         super(parent);
         this.client = client;
         this.servers = servers == null ? List.of() : servers;
+        this.directory = directory;
     }
 
     @Override
@@ -85,13 +96,13 @@ public final class McpServersDialog extends Dialog {
 
     private void act(int buttonId, String name) throws Exception {
         if (buttonId == CONNECT) {
-            client.connectMcp(name);
+            client.connectMcp(name, directory);
             feedback.setText("connected " + name);
         } else if (buttonId == DISCONNECT) {
-            client.disconnectMcp(name);
+            client.disconnectMcp(name, directory);
             feedback.setText("disconnected " + name);
         } else if (buttonId == REMOVE) {
-            client.removeMcp(name);
+            client.removeMcp(name, directory);
             feedback.setText("removed " + name);
         }
     }

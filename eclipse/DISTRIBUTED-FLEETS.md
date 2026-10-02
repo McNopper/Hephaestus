@@ -3,7 +3,7 @@
 ## About this document
 - **Kind:** doc / design note for the distributed-fleet operating mode.
 - **Read by:** anyone planning to run Hephaestus with several opencode servers on different machines against one task store; **written by:** maintainers.
-- **Related:** `ROADMAP.md` (the confirmed design principle), `eclipse/README.md` (bundle map), `eclipse/ARCHITECTURE.md` (single-machine architecture). Records the sharding-vs-single-repo decision and the sync discipline the tooling implements.
+- **Related:** `../ROADMAP.md` ("Parked / non-goals": distributed fleets are done-and-dormant), `README.md` (bundle map), `ARCHITECTURE.md` (single-machine architecture). Records the sharding-vs-single-repo decision and the sync discipline the tooling implements.
 
 ## The model
 
@@ -55,8 +55,10 @@ cannot see.
 ## Operating checklist
 
 1. One bare repo (any git host or a shared drive) holding `.opencode/tasks/`.
-2. Each machine: clone it, point the Board's *Store* input (or the tasks-root
-   preference) at the clone, configure its own `remote.origin` push access.
+2. Each machine: clone it, point the Board's *Store* input at the clone (the
+   recommended per-machine setting — an explicit override, honored as-is and
+   winning over every derived root; the tasks-root preference is the
+   fallback), configure its own `remote.origin` push access.
 3. Rhythm: **pull → claim → push** — press *Sync store* before claiming
    (dispatch actions claim), sync again after a sprint-planning or
    bulk-edit change; pull conflicts are rebase conflicts — abort, pull fresh,

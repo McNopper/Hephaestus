@@ -564,6 +564,42 @@ public class HttpOpencodeClientComponentTest {
         assertEquals("/api/experimental/mcp/tools/disconnect", lastPath.get());
     }
 
+    /**
+     * REGRESSION (B-023: the dialog's buttons acted on a different instance
+     * than the one shown): v2 resolves an UNSCOPED management call to the
+     * home location, while the dialog's list is repo-scoped. Connect/
+     * disconnect/remove must therefore emit the same
+     * {@code location[directory]=…} bracket syntax the list call does.
+     */
+    @Test
+    public void mcpManagementActionsCarryTheLocationScope() throws Exception {
+        String dir = "C:\\Development\\GitHub\\Hephaestus";
+
+        client.connectMcp("tools", dir);
+        assertEquals("/api/experimental/mcp/tools/connect", lastPath.get());
+        String connectQuery = queriesByPath.get("/api/experimental/mcp/tools/connect");
+        assertTrue("connect must scope like the list call: " + connectQuery,
+                connectQuery != null && connectQuery.startsWith("location%5Bdirectory%5D=")
+                        && connectQuery.contains("Hephaestus"));
+
+        client.disconnectMcp("tools", dir);
+        String disconnectQuery = queriesByPath.get("/api/experimental/mcp/tools/disconnect");
+        assertTrue("disconnect must scope like the list call: " + disconnectQuery,
+                disconnectQuery != null && disconnectQuery.startsWith("location%5Bdirectory%5D="));
+
+        client.removeMcp("tools", dir);
+        assertEquals("/api/experimental/mcp/tools", lastPath.get());
+        String removeQuery = queriesByPath.get("/api/experimental/mcp/tools");
+        assertTrue("remove must scope like the list call: " + removeQuery,
+                removeQuery != null && removeQuery.startsWith("location%5Bdirectory%5D="));
+
+        // the single-arg variants stay UNSCOPED (the remote-node list is
+        // unscoped; a null query REMOVES the path's queriesByPath entry)
+        client.connectMcp("tools");
+        assertNull("unscoped variant must not emit a location param",
+                queriesByPath.get("/api/experimental/mcp/tools/connect"));
+    }
+
     @Test
     public void moveSessionPostsTheDirectory() throws Exception {
         client.moveSession("ses_123", "C:/other");

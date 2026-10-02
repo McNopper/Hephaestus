@@ -7,7 +7,8 @@
 > real agent sessions per dispatched ticket (a worker run, and a reviewer pass
 > per merged ticket when autonomous acceptance is on), and long waves multiply
 > that fast. The fleet is therefore **disabled by default** - arm it
-> deliberately (Fleet view -> Enable), keep the concurrency and cost budgets
+> deliberately (Fleet view -> Enable in Eclipse, or `"disabled": false` on the
+> `fleet` server in `opencode.json` for TUI sessions), keep the concurrency and cost budgets
 > set, and use the ticket `model` field as the cost lever (small,
 > well-specified tickets deserve cheap models). Dispatch by hand where you
 > can; let the fleet run only what pays for itself.
@@ -67,7 +68,7 @@ repository, two ways to use it:
 |---|---|---|
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
-| **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
+| **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`; **disabled by default** — enable in `opencode.json`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
 | **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
 | `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
@@ -77,14 +78,17 @@ repository, two ways to use it:
 | Building this harness itself | `eclipse/build.ps1` (JDK 21, Maven/Tycho reactor) | same |
 
 The split is deliberate architecture, not happenstance: the `client`, `tools`,
-`tasks`, `git` and `fleet` bundles are **platform-free (UI/runtime; the JobManager runtime `org.eclipse.core.jobs`+`equinox.common` is allowed since 2026-09-23 - "we do not reinvent everything from scratch", and both run in a plain JVM)** — the IDE
+`tasks`, `git` and `fleet` bundles are **platform-free (UI/runtime)** — with one
+deliberate exception: the Eclipse **JobManager** runtime (`org.eclipse.core.jobs` +
+`equinox.common`) is allowed because both run in a plain JVM, and the engine uses the
+same work scheduler (`WorkerPools`) in every host — the IDE
 consumes them, never owns them (see `eclipse/ARCHITECTURE.md`).
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `opencode.json` (repo root) | project config — default `model`, `AGENTS.md`, and the `tasks` + `fleet` (stdio launchers) + `graphics` MCP servers. |
+| `opencode.json` (repo root) | project config — default `model`, `AGENTS.md`, and the `tasks` + `fleet` (stdio launchers; `fleet` ships **disabled**) + `graphics` MCP servers. |
 | `AGENTS.md` (repo root) | opencode-first workflow conventions and routing. |
 | `.opencode/skills/*/SKILL.md` | the skill library, flat by domain. |
 | `.opencode/agent/*.md` | lean custom agents (coordination + domain). |
@@ -147,7 +151,10 @@ Key rules:
 - **Record artifacts.** When a worker produces a file, git commit/branch, or doc, it
   records it with `task_add_artifact(kind=file|git|path|url|doc, ref=…)` *before* moving to
   `in-review` — the ticket is the hand-off contract.
-- **Rework loop.** Review/verification failure returns the ticket to `in-progress`.
+- **Rework loop.** A review FAIL routes by stage: `task_send_back` to the previous
+  stage's backlog, blocked with the reviewer's reasons (the human-escalation signal);
+  first-stage and unstaged tickets have nowhere to send back to and are blocked in place.
+  An UNCLEAR verdict round-trips the doubt to the originator (one retry per stage visit).
 - **Bubble-up → escalation.** A blocked worker sets `blocked` + a `blocker`; the PM resolves
   internally or escalates only human-worthy decisions.
 
@@ -177,8 +184,9 @@ a ticket), `project-manager-route-request` (ambiguous next step), `project-manag
 ## C++ and graphics
 
 - **C++**: the `cpp-tools` *agent* runs CMake configure/build, clang-format, cppcheck,
-  clang-tidy and reads their reports (methodology in the `cpp-tools` skill). The old
-  `cpp/mcp` server is gone — C++ is an agent now.
+  clang-tidy and reads their reports (methodology in the `cpp-tools` skill); there is
+  no separate C++ MCP server (the structured C++ tool pack ships in the
+  `eclipse-build` endpoint — see the table above).
 - **Graphics**: `mcp.graphics` exposes `graphics_screenshot`, `graphics_renderdoc_capture`,
   `graphics_renderdoc_frame`, `graphics_compare_renders`. `graphics-expert` (very-high tier) drives
   them; `graphics-render-comparison` is the thin methodology skill.
@@ -207,7 +215,12 @@ selector row) reverts — only an opened-dropdown pick or Enter commits.
 2. **Sprint planning:** `task_plan_sprint` commits tickets to a sprint (`sprint-backlog`).
 3. **Execute:** workers `task_claim(role=…)`, use the matching `software-*` /
    `test-software-*` skill, record artifacts, and move tickets to `in-review`.
-4. **Review & accept:** `reviewer` / test skills verify; the `project-manager` agent accepts → `done`.
+4. **Review & accept:** the `reviewer` / test skills verify; acceptance is the
+   **engine's review pass** — after a merged launch the fleet dispatches a read-only
+   review session and applies its verdict (U-021): PASS → `done` (and advance into the
+   next stage's backlog), FAIL → staged send-back, UNCLEAR → stays `in-review` for the
+   human. The human's regular duty is resolving NEEDS-HUMAN escalations and accepting
+   at Sprint Review.
 5. **Iterate:** defects rework; `task_close_sprint` returns unfinished tickets to the backlog.
 
 Use **Plan mode** (`Tab`) for multi-file changes; `/agents` to pick an agent; `/models` to
@@ -216,35 +229,45 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 
 ## Install & Use (opencode)
 
-1. [Install opencode](https://opencode.ai/v2/docs/) (e.g. `npm install -g opencode-ai`).
-2. Connect providers via `/connect` (e.g. Z.AI, GitHub Copilot, OpenAI —
+1. [Install opencode v2](https://opencode.ai/v2/docs/) — `npm install -g @opencode/cli`
+   (the old `opencode-ai` package is the v1 line).
+2. **PowerShell 7 (`pwsh`) on PATH** — `opencode.json` launches the bundled MCP
+   servers through `pwsh`, and the launchers use PowerShell 7 syntax.
+3. Connect providers via `/connect` (e.g. Z.AI, GitHub Copilot, OpenAI —
    whichever you use).
-3. Install the graphics MCP deps: `pip install -r mcp/graphics/requirements.txt`.
-4. Build the tool jars once (JDK 21) — this covers both stdio servers:
-   `cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks
-   -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.fleet
-   -pl bundles/com.opencode.ide.client -pl bundles/com.opencode.ide.git clean package`
-   (the launchers also resolve gson from the local Tycho cache).
-5. Run `opencode` from this repo. Skills, agents, and `AGENTS.md` auto-load; the `tasks`
-   and `fleet` stdio launchers and the `graphics` MCP server start from `opencode.json`.
-6. Your first headless fleet dispatch: see **`docs/fleet-quickstart.md`** (seed
+4. Install the graphics MCP deps: `pip install -r mcp/graphics/requirements.txt`.
+5. Build the tool jars once (JDK 21): `cd eclipse; .\build.ps1 clean verify` —
+   the **full reactor**; isolated `-pl` builds fail Tycho resolution of the
+   sibling SNAPSHOT bundles unless you add `-am`. One build also fills the local
+   Tycho p2 cache the stdio launchers resolve gson (and the JobManager jars)
+   from.
+6. Run `opencode` from this repo. Skills, agents, and `AGENTS.md` auto-load; the
+   `tasks` stdio launcher and the `graphics` MCP server start from `opencode.json`.
+   The `fleet` stdio server is registered but **disabled by default**
+   (`"disabled": true` in `opencode.json`) — enable it by setting that to
+   `"false"`, or reconnect at runtime with
+   `POST /api/experimental/mcp/fleet/connect?location[directory]=<repo>`.
+7. Your first headless fleet dispatch: see **`docs/fleet-quickstart.md`** (seed
    ticket → `fleet_dispatch` → poll → merge → actuals — the whole engine works
-   without Eclipse). Note the host discipline (2026-09-23): the AUTOMATIC
-   pump (auto-dispatch / waves) lives in Eclipse and is off when Eclipse is
-   closed, by design; the V-006 detached daemon is retired.
+   without Eclipse). Host discipline for the automatic pump (auto-dispatch /
+   recurring waves): it runs in **whichever host starts it** — the Eclipse Board,
+   or the fleet stdio JVM when a chat session calls `fleet_auto_start` /
+   `fleet_waves_start` — and pumps for as long as that host runs. There is no
+   detached fleet daemon and no third host.
 
 > **MCP scope:** the bundled servers implement a deliberately minimal JSON-RPC surface
-> (`initialize`, `tools/list`, `tools/call`, plus `ping` on the Java `tasks`/`eclipse-build`
-> servers). The `tasks` launcher (Java, stdio) and the
-> Eclipse-hosted `eclipse-build` endpoint (Streamable HTTP) expose the same `task_*` tool
-> set — one surface, two transports; `graphics` is stdio. None implement `resources`,
-> `prompts`, cancellation, or progress. That is sufficient for opencode tool calls.
+> (`initialize`, `tools/list`, `tools/call`, plus `ping` on all three Java servers —
+> `tasks`, `fleet` and `eclipse-build` share one dispatcher). The `tasks` and `fleet`
+> launchers (Java, stdio) and the Eclipse-hosted `eclipse-build` endpoint (Streamable
+> HTTP, serving the `task_*` **and** C++ tool packs) expose their tool sets over the
+> same surface — one surface, two transports; `graphics` is stdio. None implement
+> `resources`, `prompts`, cancellation, or progress. That is sufficient for opencode
+> tool calls.
 
-> **Local plugin deps:** `.opencode/` carries a local `.opencode/package.json` that is
-> **git-ignored** along with its `node_modules` — it is a per-clone convenience, not part
-> of the template. A fresh clone starts without it. The old V1 `@opencode-ai/plugin`
-> dependency has been **removed** (this repo ships no plugin sources; opencode v2's plugin
-> package is `@opencode/plugin` and V1 plugins do not run in V2).
+> **No plugin sources ship.** `.opencode/` carries only skills, agents, docs and
+> the task store — there is no `package.json` and no `node_modules` under it;
+> a fresh clone needs no `npm install` there. The harness integrates with
+> opencode via MCP servers, skills and agents, not Node plugins.
 
 ### Reuse as a template
 
@@ -261,10 +284,11 @@ cp -R /path/to/Hephaestus/.opencode/agent/*  .opencode/agent/
 cp -R /path/to/Hephaestus/mcp/graphics       mcp/
 cp    /path/to/Hephaestus/opencode.json .
 cp    /path/to/Hephaestus/AGENTS.md .
-# task board: copy the launcher + build the bundles (or point opencode.json's
-# "tasks" entry at your own build of eclipse/tasks-tools.ps1)
-mkdir -p eclipse
-cp    /path/to/Hephaestus/eclipse/tasks-tools.ps1 eclipse/
+# task board: point opencode.json's "tasks" entry at the Hephaestus
+# CHECKOUT's launcher (absolute path) — do NOT copy tasks-tools.ps1 into your
+# repo: it resolves the built jars relative to itself (falling back to this
+# repo's git common-dir for worktrees); a copy in a foreign repo finds no jars.
+# -Root defaults to .opencode/tasks under the directory opencode runs in.
 ```
 
 Trim to what you need (e.g. drop `graphics-*` / `mcp.graphics` if unused). Set the
@@ -304,9 +328,8 @@ Windows host without Clang/Ninja, use `cmake --preset windows`.
 The bundled graphics MCP server depends on **Pillow** (HPND) and **numpy**
 (BSD-3-Clause) — all permissive and compatible with MIT. Their
 full license texts and copyright notices are in
-[`THIRD-PARTY.md`](THIRD-PARTY.md). The local opencode Node plugin
-(`.opencode/`, git-ignored) and the `cpp/` template's test-only GoogleTest
-(BSD-3-Clause, fetched on demand) are not redistributed and are documented there
+[`THIRD-PARTY.md`](THIRD-PARTY.md). The `cpp/` template's test-only GoogleTest
+(BSD-3-Clause, fetched on demand) is not redistributed and is documented there
 as well. The Eclipse chat view additionally vendors **markdown-it**, **mermaid**,
-**KaTeX**, and **highlight.js** into its plugin jar; their notices are also in
+**KaTeX**, and **highlight.js** into its bundle jar; their notices are also in
 [`THIRD-PARTY.md`](THIRD-PARTY.md).
