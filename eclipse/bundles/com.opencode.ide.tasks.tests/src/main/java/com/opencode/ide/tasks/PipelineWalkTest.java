@@ -68,7 +68,7 @@ public class PipelineWalkTest {
             assertEquals("the next stage's backlog is fed by the previous stage",
                     "product-backlog", advanced.status);
             assertNull("each hand-forward clears the assignee", advanced.assignee);
-            assertFalse(advanced.blocked);
+            assertFalse(advanced.isBlocked());
             Task.HistoryEvent last = advanced.history.get(advanced.history.size() - 1);
             assertEquals("advanced to " + next, last.action());
             assertEquals("walker", last.by());
@@ -114,16 +114,17 @@ public class PipelineWalkTest {
             Task back = store.sendBack("p", id, "hop " + from, "reviewer");
             assertEquals(prev, back.stage);
             assertEquals(VStages.roleOf(prev), back.role);
-            assertEquals("product-backlog", back.status);
+            assertEquals("blocked", back.status);
+            assertEquals("product-backlog", back.resumeTo);
             assertNull("the hand-back clears the assignee", back.assignee);
-            assertTrue("every hop raises the blocked flag", back.blocked);
+            assertTrue("every hop enters the blocked state", back.isBlocked());
             assertEquals("sent back from " + from + ": hop " + from, back.blocker);
             Task.HistoryEvent last = back.history.get(back.history.size() - 1);
             assertEquals("sent back to " + prev + ": hop " + from, last.action());
             assertEquals("reviewer", last.by());
 
             Task cleared = store.clearBlocked("p", id, prev + "-owner");
-            assertFalse("the flag clears without moving the ticket", cleared.blocked);
+            assertFalse("the flag clears without moving the ticket", cleared.isBlocked());
             assertNull(cleared.blocker);
             assertEquals(prev, cleared.stage);
             assertEquals(VStages.roleOf(prev), cleared.role);
@@ -138,7 +139,7 @@ public class PipelineWalkTest {
         assertEquals("requirements", fin.stage);
         assertEquals("pm", fin.role);
         assertEquals("product-backlog", fin.status);
-        assertFalse("the chain ends unblocked", fin.blocked);
+        assertFalse("the chain ends unblocked", fin.isBlocked());
         assertNull(fin.blocker);
         assertEquals("requirements", reopened(id).stage);
     }
@@ -151,8 +152,9 @@ public class PipelineWalkTest {
             Task back = store.sendBack("p", id, "rework", null);
             assertEquals("sendBack is allowed from any status (the implementation has no status gate)",
                     "requirements", back.stage);
-            assertEquals("product-backlog", back.status);
-            assertTrue(back.blocked);
+            assertEquals("blocked", back.status);
+            assertEquals("product-backlog", back.resumeTo);
+            assertTrue(back.isBlocked());
         }
     }
 }

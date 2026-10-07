@@ -64,7 +64,7 @@ public class StagedDispatchTest extends FleetTestHarness {
         assertEquals("in-review", after.status);
         assertEquals("fleet", after.assignee);
         assertEquals("launch never moves the stage", "design", after.stage);
-        assertFalse("no blocker on the happy path: " + after.blocker, after.blocked);
+        assertFalse("no blocker on the happy path: " + after.blocker, after.isBlocked());
     }
 
     @Test

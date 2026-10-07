@@ -124,7 +124,7 @@ public final class StageReadiness {
         // BLOCKED outranks RUNNING (F-001): the fleet releases failed claims,
         // so a blocked ticket never has live work on it - and a blocked claim
         // that was never released must read as failed, not as running
-        if (t.blocked) {
+        if (t.isBlocked()) {
             return new Readiness(Kind.BLOCKED,
                     "ticket is blocked" + (t.blocker == null ? "" : ": " + t.blocker));
         }

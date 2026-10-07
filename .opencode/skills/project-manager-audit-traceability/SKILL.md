@@ -34,14 +34,15 @@ This skill **owns**:
 
 ## What `task_traceability` computes (engine truth)
 
-The `task_traceability` **tool** is role+epic based: a `tester`-role ticket
-whose `epic` points at another ticket counts as verifying it, and a
-definition is a ticket with role `architect` or `developer` that some
-`tester` ticket points back at (`Task.DEFINITION_ROLES` /
-`Task.VERIFICATION_ROLES`). It reads **neither artifacts nor V levels**, and
-`pm`-role requirements tickets are not audited as definitions — so a ticket
-that walks the V alone shows up as an "orphan". D-001 tracks the decision to
-widen this.
+The `task_traceability` **tool** pairs with three signals (D-001/U-070): a
+`tester`-role ticket whose `epic` points at another ticket counts as
+verifying it; a definition is a ticket with role `architect`, `developer` or
+`pm` (`Task.DEFINITION_ROLES` / `Task.VERIFICATION_ROLES`); and a
+definition self-verifies through its **own journey when it walked both legs**
+(a definition entry and a `test-*` stage)
+or a **test-shaped artifact** (`*.tests/` path). Rows report `via`/
+`self_verified`, so a genuine pair is distinguishable from inflation, and a
+definition with no signal still reports as an orphan.
 
 This skill's audit is the **manual, artifact-level** complement: walk the
 recorded artifacts (FR/AC/IT/LT/CT/UT ids) and the store's epic links,

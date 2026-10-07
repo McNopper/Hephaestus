@@ -37,7 +37,7 @@ public class ReviewDoubtRoutingTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.MERGED, job.state());
         Task after = store.get(PROJECT, id);
-        assertFalse("FR-009/011: doubt never blocks as the first outcome", after.blocked);
+        assertFalse("FR-009/011: doubt never blocks as the first outcome", after.isBlocked());
         assertEquals("the originator retries in its own stage", "system", after.stage);
         assertEquals("product-backlog", after.status);
         assertTrue("the retry is recorded (FR-012)",
@@ -51,14 +51,14 @@ public class ReviewDoubtRoutingTest extends FleetTestHarness {
         workerCompletesAndReviewReplies(
                 "still unclear.\nVERDICT: UNCLEAR - missing evidence for criterion 2");
         fleet.launch(PROJECT, id, REPO, TIMEOUT);
-        assertFalse(store.get(PROJECT, id).blocked);
+        assertFalse(store.get(PROJECT, id).isBlocked());
 
         workerCompletesAndReviewReplies(
                 "still unclear.\nVERDICT: UNCLEAR - missing evidence for criterion 2");
         fleet.launch(PROJECT, id, REPO, TIMEOUT);
 
         Task after = store.get(PROJECT, id);
-        assertTrue("FR-010: blocked only after the one retry is consumed", after.blocked);
+        assertTrue("FR-010: blocked only after the one retry is consumed", after.isBlocked());
         assertTrue(after.blocker, after.blocker.startsWith("review doubt unresolved after 1 originator retries"));
     }
 
@@ -76,7 +76,7 @@ public class ReviewDoubtRoutingTest extends FleetTestHarness {
         fleet.launch(PROJECT, id, REPO, TIMEOUT);
 
         Task after = store.get(PROJECT, id);
-        assertFalse("a new stage visit gets a fresh retry budget", after.blocked);
+        assertFalse("a new stage visit gets a fresh retry budget", after.isBlocked());
         assertEquals("architecture", after.stage);
         assertTrue(after.history.stream().anyMatch(h -> h.action()
                 .equals("review doubt retry (1/1) for stage architecture: doubt at the next stage")));
@@ -94,7 +94,7 @@ public class ReviewDoubtRoutingTest extends FleetTestHarness {
         assertEquals(FleetJob.State.MERGED, job.state());
         Task after = store.get(PROJECT, t.id);
         assertEquals("U-021 behavior stands: waits in in-review", "in-review", after.status);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue(after.comments.stream()
                 .anyMatch(c -> "reviewer".equals(c.by()) && c.text().contains("review: UNCLEAR")));
     }

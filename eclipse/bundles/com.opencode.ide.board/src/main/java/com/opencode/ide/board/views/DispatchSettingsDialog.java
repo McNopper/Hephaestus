@@ -11,14 +11,19 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.tasks.VStages;
 import com.opencode.ide.board.model.DispatchPolicyStore;
 import com.opencode.ide.board.model.DispatchPolicyStore.DispatchSettings;
 
 /**
  * The dispatch policy editor (the Board's "Dispatch settings…" toolbar
- * action): the three {@link AutoDispatch} values plus the bootstrap agent and
- * command. Validation errors surface in a red status line and keep the dialog
+ * action): the three {@link AutoDispatch} values, the bootstrap agent and
+ * command, and the per-stage model policy (U-072: one model per V-stage,
+ * blank = server default). Validation errors surface in a red status line and keep the dialog
  * open; Save persists through the {@link DispatchPolicyStore} — both
  * auto-dispatch actions re-read the store at action time, so edits apply
  * without a restart. The dialog only renders and saves; every rule lives in
@@ -33,6 +38,8 @@ final class DispatchSettingsDialog extends Dialog {
     private Button includeStaleButton;
     private Text bootstrapAgentText;
     private Text bootstrapCommandText;
+    /** One model field per V-stage (insertion order = the V ladder). */
+    private final Map<String, Text> stageModelTexts = new LinkedHashMap<>();
     private Label statusLine;
 
     DispatchSettingsDialog(Shell parentShell, DispatchPolicyStore store) {
@@ -72,6 +79,25 @@ final class DispatchSettingsDialog extends Dialog {
         bootstrapCommandText = field(body, "Bootstrap command:", current.bootstrapCommand(), 340,
                 "Shell command run in every new fleet session before the prompt (blank = none)");
 
+        // U-072: the per-stage model policy - one row per V-stage, blank = server default
+        Label stageHeader = new Label(body, SWT.NONE);
+        stageHeader.setText("Stage models (provider/model#variant; blank = server default):");
+        stageHeader.setToolTipText("Which model each V-stage's workers run on - consulted as the "
+                + "last launch fallback (per-run and per-ticket overrides still win)");
+        stageHeader.setLayoutData(spanning(new GridData(SWT.BEGINNING, SWT.CENTER, true, false)));
+        Map<String, String> stageModels = store.loadStageModels();
+        for (String stage : VStages.STAGES) {
+            Label stageLabel = new Label(body, SWT.NONE);
+            stageLabel.setText(stage + ":");
+            stageLabel.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+            Text stageText = new Text(body, SWT.BORDER);
+            stageText.setText(stageModels.getOrDefault(stage, ""));
+            stageText.setToolTipText("model for V-stage " + stage + " - e.g. z.ai/glm-4.7#high "
+                    + "(blank keeps the server default for this stage)");
+            stageText.setLayoutData(fixedWidth(340));
+            stageModelTexts.put(stage, stageText);
+        }
+
         statusLine = new Label(body, SWT.WRAP);
         statusLine.setLayoutData(spanning(new GridData(SWT.FILL, SWT.CENTER, true, false)));
         return body;
@@ -99,8 +125,22 @@ final class DispatchSettingsDialog extends Dialog {
                 AutoDispatch.of(maxConcurrent, budget, includeStaleButton.getSelection()),
                 bootstrapAgentText.getText(),
                 bootstrapCommandText.getText());
+        Map<String, String> stageModels = new LinkedHashMap<>();
+        for (Map.Entry<String, Text> entry : stageModelTexts.entrySet()) {
+            String value = entry.getValue().getText().strip();
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (!DispatchPolicyStore.plausibleModel(value)) {
+                error("Stage " + entry.getKey() + ": '" + value
+                        + "' must be provider/model or provider/model#variant.");
+                return;
+            }
+            stageModels.put(entry.getKey(), value);
+        }
         try {
             store.save(settings);
+            store.saveStageModels(stageModels);
         } catch (RuntimeException e) {
             error("Cannot save: " + e.getMessage());
             return;

@@ -314,7 +314,8 @@ public class TaskToolsDispatchTest {
                 "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"goals contradict\",\"by\":\"architect\"}");
         assertEquals("requirements", sentBack.get("stage").getAsString());
         assertEquals("pm", sentBack.get("role").getAsString());
-        assertEquals("product-backlog", sentBack.get("status").getAsString());
+        assertEquals("blocked", sentBack.get("status").getAsString());
+        assertEquals("product-backlog", sentBack.get("resume_to").getAsString());
         assertTrue("send back raises the blocked flag", sentBack.get("blocked").getAsBoolean());
         assertEquals("sent back from system: goals contradict", sentBack.get("blocker").getAsString());
         JsonObject cleared = callOk("task_clear_blocked", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}");

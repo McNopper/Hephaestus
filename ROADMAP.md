@@ -87,7 +87,7 @@ are closed as indexes; the work lives in the rows below):
 | D-002 | release versioning (both tags built as `0.1.0-SNAPSHOT`) | set the version on the release commit, tag, bump to next `-SNAPSHOT` |
 | D-003 | which upstream writes make downstream work STALE (today: any write) | only status/stage/artifact changes |
 | D-004 | tier→model mapping + the rubberduck's cross-vendor model (none pinned today) | tiers stay guidance; pin a named other-vendor rubberduck model |
-| U-043 | "blocked" as a store state instead of an orthogonal flag | needs the owner's design call |
+| U-043 | "blocked" as a store state instead of an orthogonal flag | DECIDED + LANDED 2026-10-07 (U-067/U-068/U-069) |
 
 ## Human actions
 

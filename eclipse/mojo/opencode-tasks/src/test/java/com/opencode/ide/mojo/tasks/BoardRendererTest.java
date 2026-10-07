@@ -17,14 +17,15 @@ import org.junit.rules.TemporaryFolder;
 import com.opencode.ide.tasks.TaskStore;
 
 /**
- * Board rendering from a real fixture store: goal line, all five canonical
- * columns with correct counts, blocked marker, epics, totals; plus the
+ * Board rendering from a real fixture store: goal line, the canonical
+ * status columns with correct counts, blocked marker, epics, totals; plus the
  * no-sprint fallback, the explicit sprint parameter, and HTML escaping.
  */
 public class BoardRendererTest {
 
     private static final List<String> STATUSES = List.of(
-            "product-backlog", "sprint-backlog", "in-progress", "in-review", "done");
+            "product-backlog", "sprint-backlog", "in-progress", "in-review",
+            "paused", "done", "blocked");
 
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
@@ -63,10 +64,13 @@ public class BoardRendererTest {
             assertEquals(headerCount(md, status), ticketCount(md, status));
         }
         assertEquals(0, ticketCount(md, "product-backlog"));
-        assertEquals(1, ticketCount(md, "sprint-backlog"));
+        // U-067: the blocked ticket left sprint-backlog for the blocked column
+        assertEquals(0, ticketCount(md, "sprint-backlog"));
         assertEquals(0, ticketCount(md, "in-progress"));
         assertEquals(1, ticketCount(md, "in-review"));
         assertEquals(1, ticketCount(md, "done"));
+        assertEquals(0, ticketCount(md, "paused"));
+        assertEquals(1, ticketCount(md, "blocked"));
 
         assertTrue(md.contains("- [T-001] Epic: ship the capacitor — developer, 5 points, "
                 + "⚠ blocked: waiting on parts"));

@@ -85,7 +85,7 @@ public class StageReadinessTest {
         Task untracked = ticket("T-900", null, "product-backlog");
         Task running = ticket("T-901", "system", "in-progress");
         Task blocked = ticket("T-902", "architecture", "product-backlog");
-        blocked.blocked = true;
+        blocked.status = "blocked";
         blocked.blocker = "waiting on legal";
         Task waiting = ticket("T-903", "system", "product-backlog");
         Task fresh = ticket("T-904", "requirements", "sprint-backlog");
@@ -111,7 +111,7 @@ public class StageReadinessTest {
     @Test
     public void precedenceBlockedOutranksRunning() {
         Task t = ticket("T-001", "system", "in-progress");
-        t.blocked = true;
+        t.status = "blocked";
         t.blocker = "hit a wall mid-work";
         assertEquals("F-001: the fleet releases failed claims, so a blocked ticket has no live"
                         + " work - and a stale blocked claim must read as failed, never running",
@@ -121,7 +121,7 @@ public class StageReadinessTest {
     @Test
     public void precedenceBlockedOutranksWaitUpstream() {
         Task t = ticket("T-001", "system", "product-backlog");
-        t.blocked = true;
+        t.status = "blocked";
         t.blocker = "sent back from design: interface unclear";
         StageReadiness.Readiness r = StageReadiness.evaluate(List.of(t)).get("T-001");
         assertEquals(StageReadiness.Kind.BLOCKED, r.kind());

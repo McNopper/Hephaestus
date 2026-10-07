@@ -332,7 +332,7 @@ public final class RecurringWaves implements AutoCloseable {
     /** Whether any ticket of the snapshot carries the blocked flag (at the human, or under a live retry). */
     private static boolean anyBlocked(List<Task> all) {
         for (Task t : all) {
-            if (t != null && t.blocked) {
+            if (t != null && t.isBlocked()) {
                 return true;
             }
         }

@@ -3,6 +3,9 @@ package com.opencode.ide.board.model;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.VStages;
 
+import java.util.Comparator;
+import java.util.Locale;
+
 /**
  * One row of the kanban board: a pure, SWT-free projection of a
  * {@link Task} for display (mapping only, no store access). Carries the
@@ -20,7 +23,7 @@ public record TicketRow(String id, String title, String type, String role, int p
             return null;
         }
         return new TicketRow(task.id, task.title, task.type, task.role, task.storyPoints,
-                task.assignee, task.blocked, task.blocker, task.status, task.stage, task.priority,
+                task.assignee, task.isBlocked(), task.blocker, task.status, task.stage, task.priority,
                 task.epic);
     }
 
@@ -139,20 +142,107 @@ public record TicketRow(String id, String title, String type, String role, int p
      * 2026-09-18: glyphs read faster than bracket codes; the view colors
      * them - done green, running blue, review amber, backlog gray):
      * <pre>
-     * product-backlog  ▭  outlined box (idea, not yet in a wave)
-     * sprint-backlog   ○  queued (in a wave, waiting to run)
-     * in-progress      ▶  running
-     * in-review        ◐  half-full (being judged)
-     * done             ✓  done
+     * product-backlog  📌  outlined box (idea, not yet in a wave)
+     * sprint-backlog   📋  queued (in a wave, waiting to run)
+     * in-progress      🏃  running
+     * in-review        👀  half-full (being judged)
+     * done             ✅  done
      * </pre>
      */
     public static String statusSymbol(String status) {
         return switch (status == null ? "" : status) {
-            case "product-backlog" -> "\u25AD"; // ▭
-            case "sprint-backlog" -> "\u25CB";  // ○
-            case "in-progress" -> "\u25B6";     // ▶
-            case "in-review" -> "\u25D0";       // ◐
-            case "done" -> "\u2713";            // ✓
+            case "product-backlog" -> "\uD83D\uDCCC"; // 📌
+            case "sprint-backlog" -> "\uD83D\uDCCB";  // 📋
+            case "in-progress" -> "\uD83C\uDFC3";     // 🏃
+            case "in-review" -> "\uD83D\uDC40";       // 👀
+            case "done" -> "\u2705";            // ✅
+            case "blocked" -> "\uD83D\uDEAB";  // no-entry sign (the state)
+            default -> "";
+        };
+    }
+
+
+    /**
+     * The type emoji for the board's type column (U-065 owner direction:
+     * emoji where possible - colored, visible, DPI-proof; no image files).
+     * Unknown/blank reads as "" (untagged, no stray spaces).
+     */
+    public static String typeEmoji(String type) {
+        return switch (type == null ? "" : type.trim().toLowerCase()) {
+            case "bug" -> "\uD83D\uDC1E";         // lady beetle
+            case "story" -> "\uD83D\uDCD6";       // open book
+            case "task" -> "\uD83D\uDEE0\uFE0F"; // hammer and wrench
+            case "spike" -> "\u26A1\uFE0F";       // high voltage
+            default -> "";
+        };
+    }
+
+    /**
+     * The click-to-sort comparator for the board's card columns (owner
+     * direction 2026-10-07: sorting on the cards). Keys: {@code status}
+     * (pipeline order), {@code type} and {@code title} (case-insensitive),
+     * {@code points} (numeric). An unset key - unknown status, blank value,
+     * zero points - sorts LAST in both directions, the ticket id breaks ties
+     * ascending (stable in either direction); unknown keys sort like points.
+     */
+    public static Comparator<TicketRow> cardComparator(String column, boolean ascending) {
+        String key = column == null ? "" : column;
+        Comparator<TicketRow> unsetLast =
+                Comparator.comparingInt(row -> sortUnset(key, row) ? 1 : 0);
+        Comparator<TicketRow> value = switch (key) {
+            case "status" -> Comparator.comparingInt(
+                    row -> row.status() == null ? -1 : Task.VALID_STATUSES.indexOf(row.status()));
+            case "type" -> Comparator.comparing(row -> sortKey(row.type()));
+            case "title" -> Comparator.comparing(row -> sortKey(row.title()));
+            default -> Comparator.comparingInt(TicketRow::points);
+        };
+        return unsetLast
+                .thenComparing(ascending ? value : value.reversed())
+                .thenComparing(row -> row.id() == null ? "" : row.id());
+    }
+
+    /** True when the column's key carries no sortable content for this row. */
+    private static boolean sortUnset(String column, TicketRow row) {
+        return switch (column) {
+            case "status" -> row.status() == null
+                    || !Task.VALID_STATUSES.contains(row.status());
+            case "type" -> row.type() == null || row.type().isBlank();
+            case "title" -> row.title() == null || row.title().isBlank();
+            default -> row.points() == 0;
+        };
+    }
+
+    /** The case-insensitive sort key for a nullable text field. */
+    private static String sortKey(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * The status column header text (U-065): the status pictograph first -
+     * the same glyph the cards' status column shows - then the status name,
+     * so every group header carries its kind's marker in all three Group-by
+     * modes.
+     */
+    public static String statusHeaderText(String status) {
+        String symbol = statusSymbol(status);
+        String name = status == null ? "" : status;
+        return symbol.isEmpty() ? name : symbol + " " + name;
+    }
+
+    /**
+     * The one-line meaning of a status for tooltips (owner direction
+     * 2026-10-07: hover help on the board's group headers). Blank for a
+     * null/unknown status - the caller then shows no tooltip at all.
+     */
+    public static String statusHelp(String status) {
+        return switch (status == null ? "" : status) {
+            case "product-backlog" -> "not yet planned into a wave";
+            case "sprint-backlog" -> "planned into the wave, ready to claim";
+            case "in-progress" -> "claimed - a worker is running";
+            case "in-review" -> "worker finished - awaiting acceptance";
+            case "paused" -> "parked for maintenance (never blocked)";
+            case "done" -> "accepted - shipped";
+            case "blocked" -> "waiting on a human or an input - clearing returns it to resume";
             default -> "";
         };
     }
@@ -185,7 +275,7 @@ public record TicketRow(String id, String title, String type, String role, int p
         return sb.toString();
     }
 
-    /** The compact pipeline column text: {@code ▶ [BLOCKED] [type] title}. */
+    /** The compact pipeline column text: {@code 🏃 [BLOCKED] [type] title}. */
     public String pipelineLabel() {
         StringBuilder sb = new StringBuilder();
         String symbol = statusSymbol(status);

@@ -3,7 +3,7 @@
 ## About this document
 - **Kind:** `doc` / repo-level workflow convention (auto-loaded by opencode from the git root).
 - **Read by:** any agent operating in this repo; **written by:** maintainers.
-- **Related:** pairs with `README.md`; tiers and selection rules live in the `project-manager-orchestrate-execution` skill, concrete models in `opencode.json` and per-agent overrides.
+- **Related:** pairs with `README.md`; tiers and selection rules live in the `project-manager-orchestrate-execution` skill; concrete models are setup-local (`opencode.json` default + agent frontmatter — none committed).
 
 Repository-level conventions for agentic work in this repository. Hephaestus is an
 **opencode-native**, **domain-organized** system: skills and agents are flat under
@@ -23,7 +23,8 @@ the TUI already covers.)*
 - **A whole initiative / project** → the **PM agent** (`project-manager`) runs the Scrum workflow
   over tickets in the task store (one subdirectory per project; multiple projects
   coexist). The human is Product Owner: writes the brief/goal, prioritizes the backlog,
-  and resolves the NEEDS-HUMAN escalations — tickets whose blocked flag is set with no
+  and resolves the NEEDS-HUMAN escalations - tickets that are blocked
+  (status=blocked) with no
   live fleet job retrying them. Acceptance itself is the engine's review pass: a PASS
   verdict moves the ticket to done. Issues bubble up to the PM and only human-worthy
   ones are escalated.
@@ -65,13 +66,33 @@ criteria, architecture -> library tests, design -> component tests,
 implementation -> unit tests - so that by the time the V reaches the right
 leg, the tests already exist and decide done / not-done. The pair is written
 at stage ENTRY, not at review time: link the criteria as artifacts on the
-ticket (`task_add_artifact`). `task_traceability` audits what the store holds
-today: it pairs a `tester` ticket to the definition it `verifies` by **role +
-epic link only** (definition roles: `architect`, `developer`) — it reads
-neither artifacts nor the V level, and `pm`-role requirements tickets are not
-audited as definitions (D-001 may widen this; the
-`project-manager-audit-traceability` skill drives the audit). A definition
+ticket (`task_add_artifact`). `task_traceability` pairs with THREE signals
+(D-001, implemented as U-070): the **role + epic link** (`tester` verifying a
+definition), its **own journey when it walked both legs** (a definition entry
+then a `test-*` stage - `advance()` flips the role on entry to the test leg,
+so the wandered ticket pairs with itself), and a
+**test-shaped artifact** (`*.tests/` path) - `pm` requirements count as
+definitions; the row reports `via`/`self_verified` so a genuine pair is
+distinguishable from inflation, and a definition with no signal still reports
+as an orphan (the `project-manager-audit-traceability` skill drives the
+manual artifact-level audit). A definition
 stage without its linked verification counterpart is incomplete work.
+
+**How work moves (the reporting lines):** the flow is either **along the
+V** or **horizontal for validation** - nothing moves any other way. When a
+stage succeeds, it **divides its result and passes it further**: outputs
+feed the next stage down/up the V (and the epic chain when a ticket
+decomposes). When something **blocks, it goes back to the origin** - the
+stage it came from, where a **requirement can clarify it** (a new or
+updated requirement upstream answers the implementation question, then the
+work flows down again; horizontally, a failed validation returns to the
+definition that produced it). The loop is automatable to a degree:
+clarification round-trips run between agents up to their limit, and every
+outcome is **tracked as effort** - `fleet actuals:` carry cost/tokens and
+the ticket's artifacts carry the results - which is exactly why links to
+results and artifacts live ON the tickets: the human tracks effort and
+evidence without reading code, and escalates (NEEDS-HUMAN) only when the
+round-trips are exhausted.
 
 **V-model execution:** a staged ticket wanders
 through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
@@ -136,7 +157,8 @@ inside a fleet worktree — worktrees carry no `target/` build output); opencode
 product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
    (incomplete on sprint close ──────────────────────────────────────────────────────────────┘)
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
-blocked = orthogonal flag (blocked:bool + blocker:str) at any active state
+blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
+  returns to resume_to (default sprint-backlog); done and paused can never be blocked
 stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason)
 ```
 
@@ -258,7 +280,10 @@ Concretely, a chat agent can already:
   selection is a **cost lever on the ticket**: the optional `model` field
   (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run costs —
   small well-specified tickets deserve cheap models; `fleet_dispatch(model=…)` overrides
-  per run. The reviewer pass stays on the server default.
+  per run. The reviewer pass stays on the server default. The launch
+  precedence is: `fleet_dispatch(model=...)` > ticket `model` > the **per-stage
+  policy** (Dispatch settings -> stage models, U-072: one `provider/model[#variant]`
+  per V-stage) > server default.
   `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
   progress probe: busy/messages/complete — "are we moving?"),
   `fleet_fleet_job_activity` (deep live observation of one job's session: current
@@ -284,12 +309,16 @@ Concretely, a chat agent can already:
   loop pumps in that host's `FleetControl` for as long as that host runs.
   There is no detached fleet daemon and no third host.
 - **Strict reuse policy** (full matrix in
-  `docs/opencode-v2-adoption.md`): a capability comes from the FIRST tier
-  that has it — **opencode v2** (sessions, shells, PTYs, worktrees, VCS,
-  permissions, forms, MCP management: check `GET /openapi.json` first), then
-  **Eclipse** (Jobs, Progress, preferences, scheduling rules), and our own
-  code only where neither host has the thing (task store, V-pipeline
-  steering). Building a parallel mechanism is a defect.
+  `docs/opencode-v2-adoption.md`) - decide EVERY capability in this order:
+  1. **the opencode harness** - if opencode v2 already provides it (sessions,
+     shells, PTYs, worktrees, VCS, permissions, forms, MCP management:
+     check `GET /openapi.json` first), do it WITH opencode - adopt the verb,
+     never reimplement it.
+  2. **the Eclipse harness** - otherwise use what the platform gives (Jobs,
+     Progress, preferences, scheduling rules, views, editors).
+  3. **ours only** where neither host has the thing (task store, V-pipeline
+     steering) - and never a parallel mechanism for something a tier above
+     already does: that is a defect, not an extension.
 - capture/compare renders via `mcp.graphics`.
 
 The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
@@ -348,10 +377,11 @@ headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake build
 
 ## Model tiers (model-neutral agents)
 
-Agents and docs reference **tiers**, never hard-coded model IDs. The concrete
-model for each tier is configured in `opencode.json` (the default `model`) and
-in any per-agent override (only `graphics-expert` overrides, pinning to
-`very-high`); resolve through `/models`. The Eclipse chat's selector combos
+Agents and docs reference **tiers**, never hard-coded model IDs. No default
+model and no per-agent model override are committed (owner decision D-004,
+revised 2026-10-07: contributors use different providers) - each setup
+configures its own `opencode.json` default and, where needed, an agent
+frontmatter `model:`; resolve the concrete model through `/models`. The Eclipse chat's selector combos
 commit deliberately: un-armed drift (wheel/pointer traffic over the selector
 row) reverts; only an opened-dropdown pick or Enter changes the model. Tiers and their selection rules are
 defined in `project-manager-orchestrate-execution`.
@@ -383,6 +413,11 @@ Lean, flat, model-neutral (except `graphics-expert`):
 - **Evidence before theory:** one decisive probe (grep the logs, dump the
   state) before the first hypothesis.
 - **Fix the failure class, not the instance.**
+- **No hacks - always the proper solution.** Fix at the layer that owns the
+  problem; never paper over a wrong model with a special case, a derived
+  mirror or a transitional band-aid. If the domain says X (e.g. "blocked is
+  a state"), implement X - everywhere, in one motion (owner, 2026-10-07:
+  "No hacks! Put this somewhere! Always proper solutions.").
 - **No source edits while a gate runs**; validate an edited script by running it.
 - **Every engine outcome that is not success is logged where it happens.**
 - **Tests assert contracts, not implementation details** (ordering or

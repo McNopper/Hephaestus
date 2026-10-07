@@ -47,7 +47,7 @@ public final class NeedsHuman {
             return out;
         }
         for (Task t : tickets) {
-            if (t == null || t.id == null || !t.blocked) {
+            if (t == null || t.id == null || !t.isBlocked()) {
                 continue;
             }
             if (inFlight.contains(t.id)) {

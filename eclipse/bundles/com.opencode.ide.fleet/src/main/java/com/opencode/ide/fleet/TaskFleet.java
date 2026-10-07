@@ -286,6 +286,25 @@ public final class TaskFleet {
     }
 
     /**
+     * The U-072 launch-model precedence, the ONE place a launch model is
+     * decided: the per-run {@code fleet_dispatch} override, else the ticket's
+     * own {@code model} field, else the host's per-stage policy
+     * ({@link StageModels}), else {@code null} - which lets the session run
+     * on the server default. PUBLIC: the precedence test lives in the
+     * separate fleet.tests bundle, and OSGi classloaders deny package-private
+     * access across bundles (it compiled, then failed at runtime).
+     */
+    public static String effectiveModel(String modelOverride, String ticketModel, String stage) {
+        if (modelOverride != null && !modelOverride.isBlank()) {
+            return modelOverride;
+        }
+        if (ticketModel != null && !ticketModel.isBlank()) {
+            return ticketModel;
+        }
+        return StageModels.forStage(stage);
+    }
+
+    /**
      * The launch lifecycle, one named stage per method: validation
      * ({@link #launchableTicket}) &rarr; pre-claim on the main branch
      * ({@link #claimAndCommit}) &rarr; submit + watchdog
@@ -308,8 +327,10 @@ public final class TaskFleet {
         // writes - only later store writes can be the run's store-side
         // stage evidence
         java.time.Instant claimedAt = java.time.Instant.now();
-        // cost lever: the ticket's model field, unless this run overrides it
-        String model = modelOverride != null && !modelOverride.isBlank() ? modelOverride : ticket.model;
+        // cost lever (U-072 precedence): the per-run override, else the
+        // ticket's model field, else the host's per-stage policy, else the
+        // server default (null)
+        String model = effectiveModel(modelOverride, ticket.model, ticket.stage);
         FleetTask task = new FleetTask(
                 ticket.id,
                 // U-054: the session title carries the ticket id prefix so
@@ -364,7 +385,7 @@ public final class TaskFleet {
      */
     private Task launchableTicket(String project, String taskId) {
         Task ticket = store.get(project, taskId);
-        if (ticket.blocked) {
+        if (ticket.isBlocked()) {
             throw new IllegalStateException(
                     "ticket " + taskId + " is blocked: " + ticket.blocker);
         }
@@ -1290,21 +1311,27 @@ public final class TaskFleet {
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "recording the fleet failure comment on " + taskId + " failed", e);
         }
+        // F-001 + U-067: release the claim FIRST (status -> sprint-backlog,
+        // assignee cleared), THEN enter the blocked state - so resume_to
+        // remembers sprint-backlog: clearing the reason makes the ticket
+        // claimable again instead of stranding a zombie in-progress claim
+        releaseClaim(project, taskId);
         try {
             store.setBlocked(project, taskId, blocker, ASSIGNEE);
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "blocking " + taskId + " failed", e);
         }
-        releaseClaim(project, taskId);
         jobsByTask.put(taskId, job);
         return job;
     }
 
     /**
      * F-001: a failed run must read as FAILED, never RUNNING. The fleet
-     * releases its own in-progress claim back to sprint-backlog (the blocked
-     * flag + reason stay as the retry contract), so readiness, the board and
-     * any future auto-dispatcher see the truth instead of a zombie claim.
+     * releases its own in-progress claim back to sprint-backlog BEFORE the
+     * ticket enters the blocked state, so U-067's resume_to remembers
+     * sprint-backlog (clearing the reason makes it claimable again) and
+     * readiness, the board and any future auto-dispatcher see the truth
+     * instead of a zombie claim.
      */
     private void releaseClaim(String project, String taskId) {
         try {

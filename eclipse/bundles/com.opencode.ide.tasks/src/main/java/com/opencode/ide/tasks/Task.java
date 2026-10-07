@@ -28,16 +28,22 @@ public final class Task {
     /** Task types accepted by create/update (mirrors the pm server's VALID_TYPES). */
     public static final List<String> VALID_TYPES = List.of("story", "task", "bug", "spike");
 
-    /** The status machine. Update is deliberately lax (any of these, no transition graph), as in the pm server. */
+    /**
+     * The status machine (U-067: {@code blocked} is a STATE - the ticket sits
+     * in it while something outside its control is unresolved, and
+     * {@link #resumeTo} remembers where clearing returns it). Update is
+     * deliberately lax (any of these, no transition graph), as in the pm server.
+     */
     public static final List<String> VALID_STATUSES = List.of(
-            "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done");
+            "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done",
+            "blocked");
 
     /** Priority weight for claim/backlog ordering (higher = first). */
     public static final Map<String, Integer> PRIORITY_ORDER = Map.of(
             "low", 0, "medium", 1, "high", 2, "critical", 3);
 
     /** Definition-side roles (traceability pairs these with VERIFICATION_ROLES). */
-    public static final Set<String> DEFINITION_ROLES = Set.of("architect", "developer");
+    public static final Set<String> DEFINITION_ROLES = Set.of("architect", "developer", "pm");
 
     /** Verification-side roles. */
     public static final Set<String> VERIFICATION_ROLES = Set.of("tester");
@@ -86,7 +92,12 @@ public final class Task {
     public String description = "";
     public String type = "task";
     public String status = "product-backlog";
-    public boolean blocked;
+    /**
+     * U-067: the status a {@code clear-blocked} returns to - only meaningful
+     * while {@code status == "blocked"}; {@code null} defaults the resume to
+     * {@code sprint-backlog}.
+     */
+    public String resumeTo;
     public String blocker;
     public String sprint;
     public int storyPoints;
@@ -132,6 +143,42 @@ public final class Task {
         history.add(new HistoryEvent(Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS), action, by));
     }
 
+    /**
+     * The blocked STATE (U-067): blocked is a status, not a flag - one state
+     * machine, nothing to keep in sync. {@code true} iff the ticket sits in
+     * {@code status == "blocked"}.
+     */
+    public boolean isBlocked() {
+        return "blocked".equals(status);
+    }
+
+    /**
+     * U-067: the ONE door into the blocked state - remembers where clearing
+     * returns (the status at entry) and records the reason. Re-entering an
+     * already-blocked ticket only updates the reason.
+     */
+    public void enterBlocked(String reason) {
+        if (!isBlocked()) {
+            resumeTo = status;
+            status = "blocked";
+        }
+        blocker = reason;
+    }
+
+    /**
+     * U-067: the ONE door out of the blocked state - returns to
+     * {@code resumeTo} (default {@code sprint-backlog} when unset or no
+     * longer valid) and forgets the reason.
+     */
+    public void leaveBlocked() {
+        if (isBlocked()) {
+            status = resumeTo != null && VALID_STATUSES.contains(resumeTo)
+                    && !"blocked".equals(resumeTo) ? resumeTo : "sprint-backlog";
+        }
+        resumeTo = null;
+        blocker = null;
+    }
+
     /** Serializes with the pm server's ticket field names and order (nulls included). */
     public JsonObject toJson() {
         JsonObject o = new JsonObject();
@@ -140,7 +187,8 @@ public final class Task {
         o.addProperty("description", description);
         o.addProperty("type", type);
         o.addProperty("status", status);
-        o.addProperty("blocked", blocked);
+        o.addProperty("blocked", isBlocked());
+        o.addProperty("resume_to", resumeTo);
         o.addProperty("blocker", blocker);
         o.addProperty("sprint", sprint);
         o.addProperty("story_points", storyPoints);

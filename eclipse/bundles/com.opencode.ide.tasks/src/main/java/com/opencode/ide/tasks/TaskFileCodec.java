@@ -217,7 +217,7 @@ public final class TaskFileCodec {
         fm(b, "sprint", t.sprint);
         fm(b, "epic", t.epic);
         fm(b, "assignee", t.assignee);
-        fm(b, "blocked", t.blocked);
+        fm(b, "resume_to", t.resumeTo);
         fm(b, "blocker", t.blocker);
         fm(b, "labels", t.labels);
         fm(b, "acceptance_criteria", t.acceptanceCriteria);
@@ -309,8 +309,18 @@ public final class TaskFileCodec {
         t.sprint = scalarString(raw.remove("sprint"));
         t.epic = scalarString(raw.remove("epic"));
         t.assignee = scalarString(raw.remove("assignee"));
-        Boolean blocked = scalarBool(raw.remove("blocked"));
-        t.blocked = blocked != null && blocked;
+        // U-067: blocked is a STATE. The legacy boolean flag migrates once,
+        // at read: status -> "blocked", resume_to remembers the old status,
+        // and a history entry records the conversion (the next write stores
+        // status + resume_to only - the flag key disappears from the file).
+        Boolean legacyBlocked = scalarBool(raw.remove("blocked"));
+        t.resumeTo = scalarString(raw.remove("resume_to"));
+        if (legacyBlocked != null && legacyBlocked && !"blocked".equals(t.status)) {
+            t.resumeTo = t.status;
+            t.status = "blocked";
+            t.history("migrated: blocked flag became the blocked state (resume_to="
+                    + (t.resumeTo == null ? "sprint-backlog" : t.resumeTo) + ")", "migration");
+        }
         t.blocker = scalarString(raw.remove("blocker"));
         t.labels = stringListValue(raw.remove("labels"));
         t.acceptanceCriteria = stringListValue(raw.remove("acceptance_criteria"));

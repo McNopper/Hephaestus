@@ -157,9 +157,9 @@ public class FleetServeLifecycleTest {
             String failed = sprintTicket();
             control.dispatch(PROJECT, failed, TIMEOUT);
 
-            await("the failed ticket is blocked and released",
-                    () -> store.get(PROJECT, failed).blocked
-                            && "sprint-backlog".equals(store.get(PROJECT, failed).status));
+            await("the failed ticket is blocked with the backlog as resume (U-067)",
+                    () -> store.get(PROJECT, failed).isBlocked()
+                            && "sprint-backlog".equals(store.get(PROJECT, failed).resumeTo));
             await("the engine (and with it the serve) is recycled after the failure",
                     () -> !control.engineStarted());
 
@@ -285,7 +285,7 @@ public class FleetServeLifecycleTest {
                 return job != null && job.state() == FleetJob.State.FAILED;
             });
             await("the failed run's bookkeeping landed",
-                    () -> store.get(PROJECT, failed).blocked);
+                    () -> store.get(PROJECT, failed).isBlocked());
 
             assertEquals("no respawn while the sibling runs", 1, engines.size());
             assertFalse("the sibling's serve was NOT killed by the sibling failure",
@@ -394,7 +394,7 @@ public class FleetServeLifecycleTest {
                     result.text().contains("worktree+branch removed"));
             assertTrue("the leaked serve was killed", engines.get(0).closed);
             Task after = store.get(PROJECT, id);
-            assertFalse("blocker cleared", after.blocked);
+            assertFalse("blocker cleared", after.isBlocked());
             assertEquals("sprint-backlog", after.status);
         }
     }

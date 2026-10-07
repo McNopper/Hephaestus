@@ -125,7 +125,7 @@ public class FleetToolProviderTest {
         try (DispatchGuard guard = DispatchGuard.acquire(repo, id)) {
             McpToolResult result = provider.call("fleet_reset", args("project", PROJECT, "ticket_id", id));
             assertTrue(result.text(), result.isError());
-            assertTrue(store.get(PROJECT, id).blocked);
+            assertTrue(store.get(PROJECT, id).isBlocked());
             assertTrue(DispatchGuard.runningIds(repo).contains(id));
         }
     }
@@ -141,7 +141,7 @@ public class FleetToolProviderTest {
         assertOk(provider.call("fleet_auto_stop", null));
         assertFalse(JsonParser.parseString(provider.call("fleet_auto_status", null).text())
                 .getAsJsonObject().get("running").getAsBoolean());
-        assertTrue(store.get(PROJECT, id).blocked);
+        assertTrue(store.get(PROJECT, id).isBlocked());
     }
 
     /** A requirements-stage ticket in the product backlog (the waves loop's fuel). */

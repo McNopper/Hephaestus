@@ -32,7 +32,7 @@ public class TaskFileCodecTest {
         t.sprint = "S-01";
         t.epic = "T-001";
         t.assignee = "agent-7";
-        t.blocked = true;
+        t.status = "blocked";
         t.blocker = "waiting on API";
         t.labels = List.of("ui", "p1");
         t.acceptanceCriteria = List.of("GIVEN a user", "WHEN they click");
@@ -63,7 +63,7 @@ public class TaskFileCodecTest {
         assertEquals(t.sprint, back.sprint);
         assertEquals(t.epic, back.epic);
         assertEquals(t.assignee, back.assignee);
-        assertEquals(t.blocked, back.blocked);
+        assertEquals(t.isBlocked(), back.isBlocked());
         assertEquals(t.blocker, back.blocker);
         assertEquals(t.labels, back.labels);
         assertEquals(t.acceptanceCriteria, back.acceptanceCriteria);

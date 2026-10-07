@@ -1418,14 +1418,18 @@ public final class ChatSessionController {
     // ---------- late replies (POST budget exceeded) ----------
 
     /**
-     * True when the failure is the blocking prompt/command POST exceeding its
-     * HTTP budget ({@code ClientTuning.PROMPT_TIMEOUT}, 5 minutes by default)
-     * rather than a server error: a healthy run may legitimately stream for
-     * longer than the budget, and its reply keeps arriving over SSE.
+     * True when the failure is a timeout of the asynchronous prompt
+     * round-trip rather than a server error: the prompt/command POST's HTTP
+     * budget ({@code HttpTimeoutException}) or the reply wait's budget /
+     * no-progress window ({@code OpencodeException.ReplyTimeout}, B-024 -
+     * default cap 60 minutes, stall window 10 minutes). A healthy run may
+     * legitimately stream far longer than the old fixed budget, and its
+     * reply keeps arriving over SSE.
      */
     private static boolean isPromptTimeout(Throwable failure) {
         for (Throwable t = failure; t != null; t = t.getCause() == t ? null : t.getCause()) {
-            if (t instanceof java.net.http.HttpTimeoutException) {
+            if (t instanceof java.net.http.HttpTimeoutException
+                    || t instanceof OpencodeException.ReplyTimeout) {
                 return true;
             }
         }

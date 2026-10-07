@@ -56,8 +56,9 @@ public class BoardModelTest {
         model.setSprint("S-01");
         BoardSnapshot snapshot = model.refresh();
 
-        assertEquals(6, snapshot.columns().size());
-        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"),
+        assertEquals(7, snapshot.columns().size());
+        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review",
+                "paused", "done", "blocked"),
                 List.copyOf(snapshot.columns().keySet()));
         assertEquals(1, snapshot.column("sprint-backlog").size());
         assertEquals(1, snapshot.column("in-progress").size());
@@ -79,9 +80,7 @@ public class BoardModelTest {
         BoardSnapshot snapshot = model.refresh();
 
         assertEquals(1, snapshot.blockedCount());
-        TicketRow row = snapshot.column("in-progress").isEmpty()
-                ? snapshot.column("sprint-backlog").get(0)
-                : snapshot.column("in-progress").get(0);
+        TicketRow row = snapshot.column("blocked").get(0);
         assertTrue(row.blocked());
         assertEquals("waiting on other agent", row.blocker());
         assertTrue(row.label().startsWith("[BLOCKED] " + id));
@@ -160,7 +159,7 @@ public class BoardModelTest {
         BoardSnapshot snapshot = model.refresh();
 
         assertNotNull(snapshot.error());
-        assertEquals(6, snapshot.columns().size());
+        assertEquals(7, snapshot.columns().size());
         assertEquals(0, snapshot.total());
         assertTrue(snapshot.column("in-progress").isEmpty());
         assertEquals(List.of(BoardModel.BACKLOG), model.sprints());

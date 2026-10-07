@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -174,29 +175,33 @@ public class TaskStoreSemanticsTest {
         store.setBlocked("p", t.id, "waiting on review", null);
         Task done = store.update("p", t.id, Map.of("status", "done"));
         assertEquals("done", done.status);
-        assertFalse(done.blocked);
+        assertFalse(done.isBlocked());
         assertNull(done.blocker);
         assertTrue(done.history.stream().anyMatch(e -> "unblocked (done)".equals(e.action())));
         Task reloaded = new TaskStore(store.root()).get("p", t.id);
-        assertFalse("the clear is persisted, not just in-memory", reloaded.blocked);
+        assertFalse("the clear is persisted, not just in-memory", reloaded.isBlocked());
         assertNull(reloaded.blocker);
-        // legacy drift (set_blocked after done) heals on the next update touch
-        store.setBlocked("p", t.id, "drift", null);
-        Task touched = store.update("p", t.id, Map.of("title", "renamed"));
-        assertFalse(touched.blocked);
-        assertNull(touched.blocker);
+        // U-067: done is terminal - the state refuses entry (the old
+        // "drift heals on the next write" case became structurally impossible)
+        TaskStore.Invalid refused = assertThrows(TaskStore.Invalid.class,
+                () -> store.setBlocked("p", t.id, "drift", null));
+        assertTrue(refused.getMessage().contains("done"));
+        assertFalse(store.get("p", t.id).isBlocked());
     }
 
     @Test
-    public void closeSprintClearsBlockedOnDoneTickets() {
+    public void closeSprintKeepsDoneTicketsUnblocked() {
         String id = mkSprintBacklog("developer", "high");
         store.update("p", id, Map.of("status", "done"));
-        store.setBlocked("p", id, "stale flag", null);
+        // U-067: done is terminal - entering the blocked state is refused
+        TaskStore.Invalid refused = assertThrows(TaskStore.Invalid.class,
+                () -> store.setBlocked("p", id, "stale flag", null));
+        assertTrue(refused.getMessage().contains("done"));
         store.closeSprint("p", "S-01");
         Task after = store.get("p", id);
         assertEquals("done", after.status);
         assertEquals("done tickets keep their sprint on close", "S-01", after.sprint);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertNull(after.blocker);
     }
 
@@ -219,20 +224,16 @@ public class TaskStoreSemanticsTest {
 
     @Test
     public void inconsistenciesReportsDriftAndGoesQuietWhenHealed() {
-        Task doneBlocked = store.create("p", TaskStore.CreateSpec.of("done but blocked"));
-        store.update("p", doneBlocked.id, Map.of("status", "done"));
-        store.setBlocked("p", doneBlocked.id, "worker produced no changes", null);
+        // U-067: done-but-blocked no longer exists as a pair (structural);
+        // the live drift is sprint-with-product-backlog
         Task sprintPb = store.create("p", TaskStore.CreateSpec.of("sprint but pb"));
         store.planSprint("p", "S-05", List.of(sprintPb.id), "g");
         store.update("p", sprintPb.id, Map.of("status", "product-backlog"));
         Task clean = store.create("p", TaskStore.CreateSpec.of("clean"));
         store.update("p", clean.id, Map.of("status", "done"));
         List<String> drift = store.inconsistencies("p");
-        assertEquals(2, drift.size());
-        assertEquals(doneBlocked.id + ": status=done but blocked (blocker: worker produced no changes)",
-                drift.get(0));
-        assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(1));
-        store.clearBlocked("p", doneBlocked.id, null);
+        assertEquals(1, drift.size());
+        assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(0));
         store.update("p", sprintPb.id, Map.of("status", "in-progress"));
         assertEquals(List.of(), store.inconsistencies("p"));
     }
@@ -555,6 +556,49 @@ public class TaskStoreSemanticsTest {
             }
             if (test.id.equals(row.get("id"))) {
                 assertEquals(parent.id, row.get("verifies"));
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void traceabilityCountsOwnJourneyAndTestArtifactsAndPmDefinitions() {
+        // signal 2 (D-001): a ticket that walked into a test-* stage verifies itself
+        Task walked = store.create("p", TaskStore.CreateSpec.of("walked the V"), "requirements");
+        while (!"test-implementation".equals(store.get("p", walked.id).stage)) {
+            store.update("p", walked.id, Map.of("status", "in-review"));
+            walked = store.advance("p", walked.id, "walker");
+        }
+        // signal 3 (D-001): a recorded test-shaped artifact counts as verification evidence
+        Task withTests = store.create("p", TaskStore.CreateSpec.of("records its tests"));
+        store.addArtifact("p", withTests.id, "file",
+                "eclipse/bundles/com.opencode.ide.tasks.tests/src/main/java/com/opencode/ide/tasks/ProbeTest.java",
+                "unit probe", null);
+        // pm requirements are definitions now (D-001), but signals still decide pairing
+        Task pmReq = store.create("p", TaskStore.CreateSpec.of("pm requirements"));
+        store.update("p", pmReq.id, Map.of("role", "pm"));
+        Task bare = store.create("p", TaskStore.CreateSpec.of("no signal at all"));
+
+        Map<String, Object> out = store.traceability("p");
+        List<String> orphans = (List<String>) out.get("orphan_definitions");
+        assertTrue("journey self-verification must not orphan: " + orphans,
+                !orphans.contains(walked.id));
+        assertTrue("test artifact must not orphan: " + orphans, !orphans.contains(withTests.id));
+        assertTrue("a pm definition with no signal stays an orphan: " + orphans,
+                orphans.contains(pmReq.id));
+        assertTrue("a definition with no signal stays an orphan: " + orphans, orphans.contains(bare.id));
+
+        List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
+        for (Map<String, Object> row : matrix) {
+            if (walked.id.equals(row.get("id"))) {
+                assertTrue("walked row must be self_verified", (Boolean) row.get("self_verified"));
+                assertTrue("via must carry the journey signal: " + row.get("via"),
+                        ((List<String>) row.get("via")).contains("journey"));
+            }
+            if (withTests.id.equals(row.get("id"))) {
+                assertTrue("artifact row must be self_verified", (Boolean) row.get("self_verified"));
+                assertTrue("via must carry the artifact signal: " + row.get("via"),
+                        ((List<String>) row.get("via")).contains("artifacts"));
             }
         }
     }

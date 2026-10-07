@@ -171,15 +171,17 @@ one-time setup:
     (**ENTER** sends, **Shift+ENTER** = newline). Replies render markdown, **LaTeX math**
     (`$x^2$`, `$$…$$`), **mermaid diagrams**, and **syntax-highlighted code** (c/cpp/cmake/…)
     with streaming text while the model works; tool invocations render as compact
-    `tool: name — state` lines and every code fence carries a **Copy** button. Toolbar:
+    `tool: name - state` lines and every code fence carries a **Copy** button. Toolbar:
     **New Session**, **Abort** (stops an in-flight reply; also Ctrl+Alt+Shift+A; new chat
-    window Ctrl+Alt+Shift+N). Double-clicking a model in Providers or a session in
-    the Server view opens a chat window pre-set to it / resuming it.
+    window Ctrl+Alt+Shift+N), **Background** (pushes the session's long-running work to the
+    background and keeps you working - Ctrl+B in the composer, Ctrl+Alt+Shift+B globally;
+    backgrounded sessions live in the **Background** view). Double-clicking a model in
+    Providers or a session in the Server view opens a chat window pre-set to it / resuming it.
     - Requires **WebView2**; the view shows a hint if unavailable.
     - The plugin tells the model what the view can render (markdown, LaTeX math, mermaid,
       highlighted code fences) via a per-request system prompt
-      (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; there is no
-      preference-page toggle for it yet (U-055).
+      (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; toggle:
+      *Preferences -> OpenCode -> Advertise rendering* (U-055).
 5. The **Board** view (PM kanban over the repo's `.opencode/tasks/` store: six status
     columns — *paused* included — or the ten V-stage pipeline columns, sprint selector
     + goal, blocked flags, ticket details with artifact links, live refresh) and the

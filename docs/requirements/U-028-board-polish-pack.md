@@ -51,7 +51,7 @@ cheap answers to two standing reading questions, nothing more.
 *System name used in EARS below:* **the board** = the PM Board view plus its SWT-free
 model projections in the `com.opencode.ide.board` bundle. **WIP count** = the number of
 tickets with status `in-progress` (exactly the tickets the board already marks with the
-▶ row glyph). **Reading order** = the canonical stage ladder `VStages.STAGES`
+runner row emoji). **Reading order** = the canonical stage ladder `VStages.STAGES`
 (1 `requirements` … 5 `implementation`, 6 `test-implementation` … 10 `test-requirements`),
 whose geometry `VStageLayout` renders as two arms with the vertex turn at the bottom.
 

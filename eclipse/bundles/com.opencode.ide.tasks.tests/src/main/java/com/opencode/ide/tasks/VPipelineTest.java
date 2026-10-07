@@ -28,7 +28,7 @@ public class VPipelineTest extends StoreTestHarness {
         assertEquals("architect", advanced.role);
         assertEquals("product-backlog", advanced.status);
         assertNull(advanced.assignee);
-        assertFalse(advanced.blocked);
+        assertFalse(advanced.isBlocked());
         Task.HistoryEvent last = advanced.history.get(advanced.history.size() - 1);
         assertEquals("advanced to system", last.action());
         assertEquals("pm", last.by());
@@ -47,12 +47,18 @@ public class VPipelineTest extends StoreTestHarness {
     }
 
     @Test
-    public void advanceKeepsTheBlockedFlagAsIs() {
+    public void advanceIsRejectedWhileBlocked() {
         String id = staged("requirements", "in-review");
         store.setBlocked("p", id, "waiting on legal", null);
-        Task advanced = store.advance("p", id, "pm");
-        assertTrue("the blocked flag survives an advance untouched", advanced.blocked);
-        assertEquals("waiting on legal", advanced.blocker);
+        try {
+            store.advance("p", id, "pm");
+            fail("expected Invalid: blocked is a frozen state (U-067)");
+        } catch (TaskStore.Invalid expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("blocked"));
+        }
+        Task still = store.get("p", id);
+        assertEquals("blocked", still.status);
+        assertEquals("waiting on legal", still.blocker);
     }
 
     @Test
@@ -98,9 +104,10 @@ public class VPipelineTest extends StoreTestHarness {
         Task back = store.sendBack("p", id, "interface unclear", "architect");
         assertEquals("architecture", back.stage);
         assertEquals("architect", back.role);
-        assertEquals("product-backlog", back.status);
+        assertEquals("blocked", back.status);
+        assertEquals("product-backlog", back.resumeTo);
         assertNull(back.assignee);
-        assertTrue(back.blocked);
+        assertTrue(back.isBlocked());
         assertEquals("sent back from design: interface unclear", back.blocker);
         Task.HistoryEvent last = back.history.get(back.history.size() - 1);
         assertEquals("sent back to architecture: interface unclear", last.action());
@@ -156,7 +163,7 @@ public class VPipelineTest extends StoreTestHarness {
         String id = staged("system", "in-review");
         store.sendBack("p", id, "conflicting goals", "architect");
         Task cleared = store.clearBlocked("p", id, "pm");
-        assertFalse(cleared.blocked);
+        assertFalse(cleared.isBlocked());
         assertNull(cleared.blocker);
         assertEquals("the stage stays where the ticket was sent back to", "requirements", cleared.stage);
     }

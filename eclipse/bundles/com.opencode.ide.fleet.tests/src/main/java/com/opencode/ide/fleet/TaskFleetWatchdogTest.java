@@ -80,7 +80,7 @@ public class TaskFleetWatchdogTest {
         assertEquals(FleetJob.State.MERGED, job.state());
         Task after = store.get(PROJECT, id);
         assertEquals("in-review", after.status);
-        assertFalse("no blocker on success", after.blocked);
+        assertFalse("no blocker on success", after.isBlocked());
         assertTrue(after.artifacts.stream().anyMatch(a ->
                 "git".equals(a.kind()) && ("opencode/" + id).equals(a.ref())));
         assertEquals(List.of(id), worktrees.mergedTaskIds);
@@ -128,7 +128,7 @@ public class TaskFleetWatchdogTest {
         assertTrue(job.detail(), job.detail().contains("timeout"));
         assertTrue(job.detail(), job.detail().contains("without observed progress"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("timeout"));
         assertTrue("no merge must be attempted", worktrees.mergedTaskIds.isEmpty());
     }
@@ -146,7 +146,7 @@ public class TaskFleetWatchdogTest {
         assertEquals(FleetJob.State.FAILED, job.state());
         assertTrue(job.detail(), job.detail().contains("event stream broken"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("event stream broken"));
     }
 
@@ -173,7 +173,7 @@ public class TaskFleetWatchdogTest {
         assertTrue(job.detail(), job.detail().contains("last tool call"));
         assertTrue(job.detail(), job.detail().contains("pending request"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("stalled"));
         assertTrue("the snapshot is visible in the blocker", after.blocker.contains("diagnostic:"));
     }
@@ -611,7 +611,7 @@ public class TaskFleetWatchdogTest {
         assertTrue(job.detail(), job.detail().contains("without observed progress"));
         assertTrue("the wait was attempted before falling back", client.waitCalls.contains("ses_1"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue("no merge must be attempted", worktrees.mergedTaskIds.isEmpty());
     }
 

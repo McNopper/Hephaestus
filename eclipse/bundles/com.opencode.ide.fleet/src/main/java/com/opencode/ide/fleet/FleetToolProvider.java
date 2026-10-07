@@ -207,7 +207,7 @@ public final class FleetToolProvider implements ToolProvider {
         String ticketId = reqStr(a, "ticket_id");
         com.opencode.ide.tasks.Task task =
                 new com.opencode.ide.tasks.TaskStore(root).get(project, ticketId);
-        if (task.blocked) {
+        if (task.isBlocked()) {
             return McpToolResult.error("ticket " + ticketId + " is blocked: " + task.blocker
                     + " - clear the blocker (task_clear_blocked) before dispatching");
         }
@@ -456,7 +456,7 @@ public final class FleetToolProvider implements ToolProvider {
         // P1-1: the update() switch silently drops blocked/blocker — use the
         // dedicated clearBlocked (which also writes the history marker)
         try {
-            if (taskStore.get(project, ticketId).blocked) {
+            if (taskStore.get(project, ticketId).isBlocked()) {
                 taskStore.clearBlocked(project, ticketId, "fleet");
                 report.append("blocked flag cleared");
             } else {

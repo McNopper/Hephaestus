@@ -164,6 +164,10 @@ consumer in the table above would be a lie.
 
 `experimental.generate.text` (a context-free LLM text call;
 `session/generate` - adopted above - covers our need with session context).
+`experimental.integration.wellknown.add` (POST; registers a custom well-known
+integration - enterprise/server config, we consume the catalog).
+`experimental.fs.write` (POST; the harness edits files locally - a
+server-side write verb has no consumer here).
 
 ## Compliance status
 
@@ -173,11 +177,17 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.0.19, 138 operations)
+## Current contract cross-check (live v2.0.21, 141 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.21.txt` next to this file)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
-every wave and diff it against this matrix. New surface classes need a tier
-decision before they land:
+every wave and diff it against this matrix (the committed snapshot makes the
+diff mechanical). New surface classes need a tier decision before they land:
+
+| New since v2.0.19 (live 2.0.21) | Operations | Decision |
+|---|---|---|
+| **Well-known integration registration** | `POST experimental/integration/wellknown` (`integration.wellknown.add`) | **Not for us** - server/enterprise config; we consume the catalog |
+| **Server-side file write** | `POST experimental/fs/write` | **Not for us** - the harness edits locally |
+| **PTY connect token + persistent-PTY lifecycle** (`shutdown`, `handoff` between clients, `connect-token`) | `POST pty/{id}/connect-token`; `experimental/persistent-pty/*` (3) | **Evaluate with the parked PTY host** (ROADMAP upstream-blocked): these are the WebSocket stdin handshake and session-to-client handoff verbs the interactive terminal would need |
 
 | New since the matrix | Operations | Decision |
 |---|---|---|

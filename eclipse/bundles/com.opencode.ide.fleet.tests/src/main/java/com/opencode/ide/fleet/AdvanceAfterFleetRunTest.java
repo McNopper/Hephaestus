@@ -62,7 +62,7 @@ public class AdvanceAfterFleetRunTest extends FleetTestHarness {
         assertEquals("the next stage's backlog is fed by the previous stage",
                 "product-backlog", advanced.status);
         assertNull("assignee cleared for the next claim", advanced.assignee);
-        assertFalse(advanced.blocked);
+        assertFalse(advanced.isBlocked());
         assertNotNull(advanced.history.stream()
                 .filter(h -> "advanced to system".equals(h.action()))
                 .findAny().orElse(null));
@@ -103,17 +103,19 @@ public class AdvanceAfterFleetRunTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
-        assertEquals("F-001: a failed run is released to sprint-backlog, never a zombie claim",
-                "sprint-backlog", after.status);
+        assertTrue(after.isBlocked());
+        assertEquals("F-001: a failed run is released - blocked with the claim's retry state",
+                "blocked", after.status);
+        assertEquals("F-001: clearing the reason makes it claimable again",
+                "sprint-backlog", after.resumeTo);
 
         // a RELEASED failed run can still not advance: advance requires
-        // in-review/done - sprint-backlog+blocked is just as non-advanceable
+        // in-review/done - the blocked STATE is just as non-advanceable
         try {
             store.advance(PROJECT, id, "pm");
             fail("expected Invalid: an unfinished stage never advances");
         } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage(), expected.getMessage().contains("sprint-backlog"));
+            assertTrue(expected.getMessage(), expected.getMessage().contains("blocked"));
             assertTrue(expected.getMessage(), expected.getMessage().contains("in-review"));
         }
         assertEquals("the rejected advance changes nothing",

@@ -35,7 +35,7 @@ public class StageAwareAcceptanceTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.MERGED, job.state());
         Task after = store.get(PROJECT, id);
-        assertFalse("the definition-leg output is never blocked", after.blocked);
+        assertFalse("the definition-leg output is never blocked", after.isBlocked());
         assertFalse("no analysis-only refusal for doc/store paths",
                 after.comments.stream().anyMatch(c -> c.text().contains("analysis-only")));
     }
@@ -59,7 +59,7 @@ public class StageAwareAcceptanceTest extends FleetTestHarness {
         assertEquals(FleetJob.State.MERGED, job.state());
         assertTrue("the settle-check allowance travelled to the merge seam",
                 worktrees.mergeAllowEmptyFlags.contains(Boolean.TRUE));
-        assertFalse(store.get(PROJECT, id).blocked);
+        assertFalse(store.get(PROJECT, id).isBlocked());
     }
 
     /** FR-006 negative: no store evidence at all keeps the settle refusal - but FR-011 routes it. */
@@ -80,7 +80,7 @@ public class StageAwareAcceptanceTest extends FleetTestHarness {
         assertTrue("the settle-check allowance was correctly NOT granted",
                 worktrees.mergeAllowEmptyFlags.contains(Boolean.FALSE));
         Task after = store.get(PROJECT, id);
-        assertFalse("FR-011: a heuristic refusal is not the blocked first outcome", after.blocked);
+        assertFalse("FR-011: a heuristic refusal is not the blocked first outcome", after.isBlocked());
         assertEquals("the originator retry runs in the same stage", "requirements", after.stage);
         assertEquals("product-backlog", after.status);
         assertTrue("the refusal routes through the doubt path (retry 1/1)",
@@ -99,7 +99,7 @@ public class StageAwareAcceptanceTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
-        assertTrue("the established contract: blocked with the reason", after.blocked);
+        assertTrue("the established contract: blocked with the reason", after.isBlocked());
         assertTrue(after.blocker, after.blocker.startsWith("analysis-only run:"));
         assertTrue("the refusal never merges", worktrees.mergedTaskIds.isEmpty());
     }
@@ -120,6 +120,6 @@ public class StageAwareAcceptanceTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
     }
 }

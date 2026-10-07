@@ -75,8 +75,8 @@ public class BoardColumnOrderTest {
 
         List<String> keys = new ArrayList<>(model.refresh().columns().keySet());
 
-        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"),
-                keys);
+        assertEquals(List.of("product-backlog", "sprint-backlog", "in-progress", "in-review",
+                "paused", "done", "blocked"), keys);
         assertEquals("flat order IS the workflow-progress order", Task.VALID_STATUSES, keys);
     }
 
@@ -130,8 +130,9 @@ public class BoardColumnOrderTest {
 
         Task moved = store.get("p", id);
         assertEquals("requirements", moved.stage);
-        assertEquals("product-backlog", moved.status);
-        assertTrue(moved.blocked);
+        assertEquals("blocked", moved.status);
+        assertEquals("product-backlog", moved.resumeTo);
+        assertTrue(moved.isBlocked());
         assertEquals("sent back from design: spec changed", moved.blocker);
     }
 
@@ -145,7 +146,7 @@ public class BoardColumnOrderTest {
 
         Task moved = store.get("p", id);
         assertEquals("test-design", moved.stage);
-        assertFalse(moved.blocked);
+        assertFalse(moved.isBlocked());
     }
 
     @Test

@@ -243,7 +243,7 @@ public final class DispatchScheduler {
         BiConsumer<String, ResolutionPolicy.Route> resolver = resolution;
         if (resolver != null) {
             for (Task task : sprint) {
-                if (task == null || task.id == null || !task.blocked || occupied.contains(task.id)) {
+                if (task == null || task.id == null || !task.isBlocked() || occupied.contains(task.id)) {
                     continue;
                 }
                 int spent = resolutionAttempts.getOrDefault(task.id, 0);
@@ -416,7 +416,7 @@ public final class DispatchScheduler {
 
     private static String revision(Task task) {
         return task.updatedAt + "|" + task.status + "|" + task.stage + "|" + task.sprint
-                + "|" + task.blocked + "|" + task.history;
+                + "|" + task.isBlocked() + "|" + task.history;
     }
 
 }

@@ -43,9 +43,11 @@ public class AutoDispatchPreparationTest {
         rejectUnchanged(store, true);
         store.update("p", "T-1", Map.of("status", "product-backlog"));
         rejectUnchanged(store, true); // upstream unavailable
+        // U-067: a done ticket refuses the state - block from an active one
+        store.update("p", "T-2", Map.of("status", "in-progress"));
         store.setBlocked("p", "T-2", "human hold", "human");
         rejectUnchanged(store, true);
-        store.clearBlocked("p", "T-2", "human");
+        store.clearBlocked("p", "T-2", "human"); // resumes in-progress
         store.update("p", "T-2", Map.of("status", "in-progress"));
         rejectUnchanged(store, true);
         assertThrows(TaskStore.NotFound.class,

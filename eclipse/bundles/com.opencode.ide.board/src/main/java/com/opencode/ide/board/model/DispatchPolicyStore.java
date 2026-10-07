@@ -1,7 +1,10 @@
 package com.opencode.ide.board.model;
 
 import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.tasks.VStages;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
@@ -38,6 +41,8 @@ public final class DispatchPolicyStore {
     public static final String KEY_INCLUDE_STALE = "includeStale";
     public static final String KEY_BOOTSTRAP_AGENT = "bootstrapAgent";
     public static final String KEY_BOOTSTRAP_COMMAND = "bootstrapCommand";
+    /** U-072: the per-stage model policy, one pipe-serialized value (see {@link #loadStageModels()}). */
+    public static final String KEY_STAGE_MODELS = "stageModels";
 
     /** The default concurrency (also the fallback of a corrupt {@link #KEY_MAX_CONCURRENT}). */
     public static final int DEFAULT_MAX_CONCURRENT = 4;
@@ -161,6 +166,68 @@ public final class DispatchPolicyStore {
         backend.put(KEY_BOOTSTRAP_AGENT, value.bootstrapAgent());
         backend.put(KEY_BOOTSTRAP_COMMAND, value.bootstrapCommand());
         backend.flush();
+    }
+
+    /**
+     * The per-stage model policy (U-072): {@code V-stage -> provider/model[#variant]},
+     * empty when unset. Load sanitizes: entries for stages outside
+     * {@link com.opencode.ide.tasks.VStages#STAGES} and values without the
+     * {@code provider/model} shape (or carrying whitespace/separator
+     * characters) are dropped - a broken stored value never breaks dispatch.
+     */
+    public Map<String, String> loadStageModels() {
+        try {
+            return parseStageModels(backend.get(KEY_STAGE_MODELS));
+        } catch (RuntimeException e) {
+            return Map.of();
+        }
+    }
+
+    /** Persists the whole map under one key (blank when empty); flush failure propagates like {@link #save}. */
+    public void saveStageModels(Map<String, String> stageModels) {
+        backend.put(KEY_STAGE_MODELS, serializeStageModels(stageModels));
+        backend.flush();
+    }
+
+    /** Parses {@code stage=model|stage=model}, keeping only known stages with plausible models. */
+    static Map<String, String> parseStageModels(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        Map<String, String> parsed = new LinkedHashMap<>();
+        for (String entry : raw.split("\\|")) {
+            int eq = entry.indexOf('=');
+            if (eq <= 0 || eq == entry.length() - 1) {
+                continue;
+            }
+            String stage = entry.substring(0, eq).strip();
+            String model = entry.substring(eq + 1).strip();
+            if (VStages.STAGES.contains(stage) && plausibleModel(model)) {
+                parsed.put(stage, model);
+            }
+        }
+        return parsed;
+    }
+
+    /** Serializes deterministically (sorted by stage); null/blank entries and implausible values are skipped. */
+    static String serializeStageModels(Map<String, String> stageModels) {
+        if (stageModels == null || stageModels.isEmpty()) {
+            return "";
+        }
+        return stageModels.entrySet().stream()
+                .filter(e -> e.getKey() != null && VStages.STAGES.contains(e.getKey()))
+                .filter(e -> plausibleModel(e.getValue()))
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(java.util.stream.Collectors.joining("|"));
+    }
+
+    /** {@code provider/modelId} or {@code provider/modelId#variant} - one slash, no whitespace, no separators. */
+    public static boolean plausibleModel(String value) {
+        if (value == null || value.isBlank() || !value.contains("/")) {
+            return false;
+        }
+        return !value.matches(".*[\\s|=].*");
     }
 
     /** An {@code int >= 1} or the default (see class doc). */

@@ -37,7 +37,7 @@ public class ClarificationLoopTest extends StoreTestHarness {
         Task after = store.sendBack("p", requester.id,
                 "clarification: which interface wins?", "agent");
 
-        assertFalse("a question never blocks for the human", after.blocked);
+        assertFalse("a question never blocks for the human", after.isBlocked());
         String origin = store.get("p", originator.id).toJson().toString();
         assertTrue("the originator got the question: " + origin,
                 origin.contains("clarification from design (" + requester.id + "): which interface wins?"));
@@ -64,7 +64,7 @@ public class ClarificationLoopTest extends StoreTestHarness {
 
         Task after = store.clarify("p", lone.id, "what now?", "agent");
 
-        assertTrue("no agent route: NEEDS-HUMAN", after.blocked);
+        assertTrue("no agent route: NEEDS-HUMAN", after.isBlocked());
         assertTrue(after.blocker.contains("NEEDS-HUMAN"));
     }
 
@@ -78,13 +78,13 @@ public class ClarificationLoopTest extends StoreTestHarness {
         for (int i = 0; i < TaskStore.CLARIFICATION_LIMIT; i++) {
             after = store.clarify("p", requester.id, "question " + i, "agent");
         }
-        assertFalse("three round-trips are still agent work", after.blocked);
+        assertFalse("three round-trips are still agent work", after.isBlocked());
 
         after = store.clarify("p", requester.id, "one too many", "agent");
-        assertTrue("the stuck pair escalates", after.blocked);
+        assertTrue("the stuck pair escalates", after.isBlocked());
         assertTrue(after.blocker.contains("NEEDS-HUMAN"));
         assertFalse("the originator is not blocked by the escalation",
-                store.get("p", originator.id).blocked);
+                store.get("p", originator.id).isBlocked());
     }
 
     @Test
@@ -95,7 +95,7 @@ public class ClarificationLoopTest extends StoreTestHarness {
 
         Task after = store.sendBack("p", requester.id, "the design is wrong", "agent");
 
-        assertTrue("a defect keeps today's semantics", after.blocked);
+        assertTrue("a defect keeps today's semantics", after.isBlocked());
         assertTrue(after.blocker.startsWith("sent back from design: "));
     }
 

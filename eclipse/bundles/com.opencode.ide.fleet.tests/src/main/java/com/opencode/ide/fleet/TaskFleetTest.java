@@ -103,7 +103,7 @@ public class TaskFleetTest extends FleetTestHarness {
         // F-002: a MERGED job consumes its worktree+branch - re-dispatches
         // never hit "branch already exists"
         assertTrue("merged worktree reaped", worktrees.removedTaskIds.contains("force:" + id));
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue(after.comments.stream().anyMatch(c ->
                 "fleet".equals(c.by()) && c.text().contains("opencode/" + id)));
         assertTrue(after.artifacts.stream().anyMatch(a ->
@@ -127,12 +127,13 @@ public class TaskFleetTest extends FleetTestHarness {
         assertEquals(FleetJob.State.FAILED, job.state());
         assertNotNull("worktree kept for post-mortem", job.worktree());
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("merge conflicts"));
         assertTrue(after.blocker, after.blocker.contains("src/A.java"));
         assertTrue(after.blocker, after.blocker.contains("README.md"));
         assertEquals("F-001: a failed run releases the claim - never a zombie in-progress",
-                "sprint-backlog", after.status);
+                "blocked", after.status);
+        assertEquals("F-001: resume_to carries the released claim", "sprint-backlog", after.resumeTo);
         assertNull("the fleet assignee is released with the claim", after.assignee);
     }
 
@@ -147,9 +148,10 @@ public class TaskFleetTest extends FleetTestHarness {
         assertEquals(FleetJob.State.FAILED, job.state());
         assertTrue(job.detail(), job.detail().contains("git killed mid-merge"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("git killed mid-merge"));
-        assertEquals("sprint-backlog", after.status);
+        assertEquals("blocked", after.status);
+        assertEquals("sprint-backlog", after.resumeTo);
         assertNull(after.assignee);
     }
 
@@ -171,7 +173,7 @@ public class TaskFleetTest extends FleetTestHarness {
                 worktrees.commitMessages.stream().anyMatch(m -> m.contains("auto-committed at merge-back")));
         Task after = store.get(PROJECT, id);
         assertEquals("the ticket settles to in-review", "in-review", after.status);
-        assertFalse("no blocker on the auto-commit path", after.blocked);
+        assertFalse("no blocker on the auto-commit path", after.isBlocked());
     }
 
     /**
@@ -194,10 +196,11 @@ public class TaskFleetTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("worker produced no changes"));
         assertTrue(after.blocker, after.blocker.contains("check the main checkout"));
-        assertEquals("F-001: the claim is released - with the reason", "sprint-backlog", after.status);
+        assertEquals("F-001: the claim is released - with the reason", "blocked", after.status);
+        assertEquals("F-001: resume_to carries the released claim", "sprint-backlog", after.resumeTo);
         assertNull("the fleet assignee is released with the claim", after.assignee);
         assertTrue("B-011: a comment carries the failure: " + after.comments,
                 after.comments.toString().contains("fleet failed"));
@@ -216,7 +219,7 @@ public class TaskFleetTest extends FleetTestHarness {
         assertEquals(FleetJob.State.FAILED, job.state());
         assertTrue(job.detail(), job.detail().contains("timeout"));
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("timeout"));
         assertTrue("no merge must be attempted", worktrees.mergedTaskIds.isEmpty());
         assertEquals(FleetJob.State.FAILED, fleet.jobs().get(id).state());
@@ -231,7 +234,7 @@ public class TaskFleetTest extends FleetTestHarness {
 
         assertEquals(FleetJob.State.FAILED, job.state());
         Task after = store.get(PROJECT, id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("session create failed"));
         assertTrue("worktree kept for post-mortem", job.worktree() != null);
     }
@@ -345,9 +348,10 @@ public class TaskFleetTest extends FleetTestHarness {
         assertTrue(job.detail(), job.detail().contains("src/main/java/Foo.java"));
         assertTrue(job.detail(), job.detail().contains("src/main/java/Y.java"));
         Task after = store.get(PROJECT, t.id);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("analysis-only run"));
-        assertEquals("sprint-backlog", after.status);
+        assertEquals("blocked", after.status);
+        assertEquals("sprint-backlog", after.resumeTo);
         assertNull("the fleet assignee is released with the claim", after.assignee);
         assertTrue("refused BEFORE the merge - main stays clean", worktrees.mergedTaskIds.isEmpty());
         assertFalse("worktree kept for post-mortem", worktrees.removedTaskIds.contains("force:" + t.id));
@@ -382,7 +386,7 @@ public class TaskFleetTest extends FleetTestHarness {
         assertEquals(FleetJob.State.FAILED, result.state());
         assertTrue(result.detail().contains("cannot verify"));
         assertTrue(worktrees.mergedTaskIds.isEmpty());
-        assertTrue(store.get(PROJECT, t.id).blocked);
+        assertTrue(store.get(PROJECT, t.id).isBlocked());
     }
 
     /** Behavioral criteria (no path-like strings) never trip the gate. */
@@ -493,8 +497,9 @@ public class TaskFleetTest extends FleetTestHarness {
         assertEquals("only the orphaned FLEET claim is released", 1, released);
         assertEquals("live claim untouched", "in-progress", store.get(PROJECT, live).status);
         Task after = store.get(PROJECT, dead);
-        assertEquals("sprint-backlog", after.status);
-        assertTrue(after.blocked);
+        assertEquals("blocked", after.status);
+        assertEquals("released orphan claim carries resume", "sprint-backlog", after.resumeTo);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.contains("reconciled"));
         assertEquals("human claim untouched", "norbe", store.get(PROJECT, human).assignee);
     }
@@ -507,10 +512,10 @@ public class TaskFleetTest extends FleetTestHarness {
             store.update(PROJECT, id, Map.of("status", "in-progress", "assignee", "fleet"));
             assertEquals(0, fleet.reconcileOrphanedClaims(PROJECT));
             assertEquals("in-progress", store.get(PROJECT, id).status);
-            assertFalse(store.get(PROJECT, id).blocked);
+            assertFalse(store.get(PROJECT, id).isBlocked());
         }
         assertEquals(1, fleet.reconcileOrphanedClaims(PROJECT));
         assertEquals(0, fleet.reconcileOrphanedClaims(PROJECT));
-        assertTrue(store.get(PROJECT, id).blocked);
+        assertTrue(store.get(PROJECT, id).isBlocked());
     }
 }

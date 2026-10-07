@@ -758,12 +758,21 @@ public final class HttpOpencodeClient implements OpencodeClient {
     @Override
     public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, String delivery)
             throws OpencodeException {
+        return sendMessage(chatRequest, promptTimeout, ClientTuning.REPLY_STALL_WINDOW, delivery);
+    }
+
+    @Override
+    public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, Duration replyStallWindow,
+            String delivery) throws OpencodeException {
         // v2 split v1's single blocking POST /message. The agent and the model
         // are session state set before the turn, the per-request system prompt
         // becomes a synthetic message, and POST /prompt is ASYNCHRONOUS: it
         // returns the queued user message, so the reply has to be polled.
         // delivery (T-005 send-time parity): "queue" parks the prompt in the
         // session inbox instead of steering the active run (v2 Alt+Enter).
+        // B-024: the reply wait additionally fails fast when the message list
+        // stops changing for the stall window instead of waiting out the whole
+        // budget on a dead session.
         String sessionId = chatRequest.sessionId();
         postIfPresent("/session/" + sessionId + "/agent", ChatRequests.agentBody(chatRequest));
         postIfPresent("/session/" + sessionId + "/model", ChatRequests.modelBody(chatRequest));
@@ -782,7 +791,10 @@ public final class HttpOpencodeClient implements OpencodeClient {
         Duration budget = promptTimeout == null || promptTimeout.isNegative() || promptTimeout.isZero()
                 ? ClientTuning.PROMPT_TIMEOUT
                 : promptTimeout;
-        return awaitReply(sessionId, budget, promptedAt);
+        Duration stall = replyStallWindow == null || replyStallWindow.isNegative() || replyStallWindow.isZero()
+                ? ClientTuning.REPLY_STALL_WINDOW
+                : replyStallWindow;
+        return awaitReply(sessionId, budget, stall, promptedAt);
     }
 
     /** The queued user message's server timestamp ({@code data.time.created}); now as fallback. */
@@ -821,13 +833,22 @@ public final class HttpOpencodeClient implements OpencodeClient {
      *
      * <p>B-008 / rubberduck F-2/F-3: one turn produces MULTIPLE assistant
      * messages (one per agentic step), each stamped {@code time.completed}
-     * when its own step finishes — the former "first stamped assistant wins"
+     * when its own step finishes - the former "first stamped assistant wins"
      * return therefore fired at every inter-step boundary and force-settled
      * the fleet's watchdog mid-run (F-005 live: five workers falsely
      * completed). {@code Turns} is the single judge now.</p>
+     *
+     * <p>B-024: the budget is the absolute CAP; the no-progress window trips
+     * first on a dead session. Any change to the message list (a new entry or
+     * growing streamed text) counts as progress and resets the window, so a
+     * long healthy turn never fails either way.</p>
      */
-    private ChatEntry awaitReply(String sessionId, Duration budget, long promptedAt) throws OpencodeException {
+    private ChatEntry awaitReply(String sessionId, Duration budget, Duration stallWindow, long promptedAt)
+            throws OpencodeException {
         long deadline = System.nanoTime() + budget.toNanos();
+        long lastProgress = System.nanoTime();
+        int lastObservedSize = -1;
+        int lastObservedLength = -1;
         long quietSince = 0;
         int lastSize = -1;
         int lastLength = -1;
@@ -864,6 +885,24 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 }
             } else {
                 quietSince = 0;
+                // B-024: while NOTHING looks done, an unchanged message list
+                // for the stall window means the turn is dead or hung - fail
+                // fast instead of waiting out the whole budget. (Once
+                // evidence exists, the deliberate quiet-confirm window above
+                // owns the wait and must not be disturbed.)
+                int observedSize = messages.size();
+                ChatEntry lastEntry = observedSize == 0 ? null : messages.get(observedSize - 1);
+                int observedLength = lastEntry == null || lastEntry.text() == null ? 0
+                        : lastEntry.text().length();
+                if (observedSize != lastObservedSize || observedLength != lastObservedLength) {
+                    lastProgress = System.nanoTime();
+                    lastObservedSize = observedSize;
+                    lastObservedLength = observedLength;
+                } else if (System.nanoTime() - lastProgress >= stallWindow.toNanos()) {
+                    throw new OpencodeException.ReplyTimeout("opencode " + sessionId + ": no reply progress for "
+                            + stallWindow.toSeconds() + "s - the turn may still be working and stays alive in"
+                            + " the background; check whether the session is stuck busy");
+                }
             }
             try {
                 Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
@@ -872,9 +911,9 @@ public final class HttpOpencodeClient implements OpencodeClient {
                 throw new OpencodeException("opencode " + sessionId + ": interrupted while awaiting the reply", e);
             }
         }
-        throw new OpencodeException("opencode " + sessionId + ": no completed reply within "
-                + budget.toSeconds() + "s (the server may still be working - raise the budget"
-                + " or check whether the session is stuck busy)");
+        throw new OpencodeException.ReplyTimeout("opencode " + sessionId + ": no completed reply within "
+                + budget.toSeconds() + "s (the server may still be working - the turn stays alive in the"
+                + " background; raise the budget or check whether the session is stuck busy)");
     }
 
     /** THIS turn's entries ({@code created >= promptedAt}; unknown stamps count in). */

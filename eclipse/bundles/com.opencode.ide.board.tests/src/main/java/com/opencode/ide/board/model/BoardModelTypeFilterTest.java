@@ -104,8 +104,8 @@ public class BoardModelTypeFilterTest {
         BoardSnapshot snapshot = model.refresh();
 
         assertEquals(1, snapshot.total());
-        assertEquals(blockedBug, snapshot.column("sprint-backlog").get(0).id());
-        assertFalse(openBug.equals(snapshot.column("sprint-backlog").get(0).id()));
+        assertEquals(blockedBug, snapshot.column("blocked").get(0).id());
+        assertFalse(openBug.equals(snapshot.column("blocked").get(0).id()));
     }
 
     @Test

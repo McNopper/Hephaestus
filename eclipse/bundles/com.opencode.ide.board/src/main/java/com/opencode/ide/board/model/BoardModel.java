@@ -26,7 +26,7 @@ import com.opencode.ide.tasks.VStages;
  * unreadable store — a snapshot with an {@code error} comes back instead of an
  * exception.
  *
- * <p>Two layouts: {@link BoardMode#FLAT} (the six status columns (paused included)) and
+ * <p>Two layouts: {@link BoardMode#FLAT} (the seven status columns (paused and blocked included)) and
  * {@link BoardMode#PIPELINE} (the ten V-model stage columns plus a trailing
  * untracked group — tickets land in their {@link TicketRow#effectiveStage()},
  * legacy tickets by role fallback). The {@code blockedOnly} filter applies in

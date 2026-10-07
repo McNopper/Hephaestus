@@ -48,7 +48,7 @@ public class FleetOwnershipAndReworkTest {
             assertThrows(IllegalStateException.class, () -> fleet.launch("b", id, repo, Duration.ofSeconds(5)));
             assertEquals("keep me", Files.readString(work));
             assertEquals("sprint-backlog", store.get("b", id).status);
-            assertFalse(store.get("b", id).blocked);
+            assertFalse(store.get("b", id).isBlocked());
             args.addProperty("project", "a");
             assertFalse(new FleetToolProvider(store.root(), control).call("fleet_reset", args).isError());
             assertFalse(Files.exists(work));

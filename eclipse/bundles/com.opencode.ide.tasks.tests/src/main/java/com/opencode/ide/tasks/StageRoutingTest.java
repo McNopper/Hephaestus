@@ -80,7 +80,7 @@ public class StageRoutingTest extends StoreTestHarness {
 
         assertEquals("a test-design failure reports to design", "design", reported.stage);
         assertEquals(VStages.roleOf("design"), reported.role);
-        assertTrue("the report is unmissable", reported.blocked);
+        assertTrue("the report is unmissable", reported.isBlocked());
         assertTrue("the blocker names the source stage: " + reported.blocker,
                 reported.blocker.startsWith("reported from test-design: "));
         String history = reported.toJson().toString();

@@ -244,7 +244,7 @@ public final class TaskStore {
             out.removeIf(t -> !sprint.equals(t.sprint));
         }
         if (blocked != null) {
-            out.removeIf(t -> t.blocked != blocked);
+            out.removeIf(t -> t.isBlocked() != blocked);
         }
         return out;
     }
@@ -254,9 +254,11 @@ public final class TaskStore {
      * ({@code id}, {@code created_at}, {@code history}, {@code comments}) are
      * silently dropped, explicit nulls clear the nullable fields, only
      * {@code role} and {@code status} are validated, and no transition graph
-     * is enforced. One rule beyond validation: an update that leaves the
-     * ticket {@code done} clears the blocked flag/blocker - a done ticket is
-     * never blocked (live incident W-006/W-007). Divergence: unknown fields
+     * is enforced. One rule beyond validation: {@code status} and
+     * {@code blocked} move as ONE state transition (U-067) - blocked=true
+     * enters the blocked state (resume = the requested or current status),
+     * blocked=false leaves it, and a ticket left {@code done} can never be
+     * blocked (structural - live incidents W-006/W-007). Divergence: unknown fields
      * are dropped rather than stored (the file format keeps unknown
      * <em>keys</em> from hand edits, but tool updates cannot introduce new
      * ones).
@@ -267,6 +269,8 @@ public final class TaskStore {
         return transaction(project, data -> {
             Task t = require(data, project, id);
             List<String> applied = new ArrayList<>();
+            String requestedStatus = null;
+            Boolean requestedBlocked = null;
             for (Map.Entry<String, Object> e : changes.entrySet()) {
                 switch (e.getKey()) {
                     case "title" -> {
@@ -310,7 +314,7 @@ public final class TaskStore {
                         if (status == null || !Task.VALID_STATUSES.contains(status)) {
                             throw new Invalid("status must be one of " + Task.VALID_STATUSES);
                         }
-                        t.status = status;
+                        requestedStatus = status;
                         applied.add(e.getKey());
                     }
                     case "story_points" -> {
@@ -321,10 +325,11 @@ public final class TaskStore {
                         t.assignee = string(e.getValue());
                         applied.add(e.getKey());
                     }
-                    // the blocked flag/blocker text are updatable like any other field (the board's
-                    // drag-and-drop stage move uses this for the send-back contract)
+                    // U-067: status/blocked form ONE state move - stashed in
+                    // the loop, applied coherently after it (order-free, so
+                    // the board's send-back drop contract works in any key order)
                     case "blocked" -> {
-                        t.blocked = truthy(e.getValue());
+                        requestedBlocked = truthy(e.getValue());
                         applied.add(e.getKey());
                     }
                     case "blocker" -> {
@@ -350,10 +355,28 @@ public final class TaskStore {
                     default -> { /* protected or unknown: silently dropped (pm parity) */ }
                 }
             }
+            // U-067: the state door - one coherent move regardless of the
+            // key order the caller used (enter with a retargeted resume, or
+            // leave back to resume_to; a plain status move leaves cleanup to
+            // the commit-time invariant)
+            if (requestedBlocked != null && requestedBlocked) {
+                if ("done".equals(t.status)) {
+                    throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+                }
+                String resume = requestedStatus != null && !"blocked".equals(requestedStatus)
+                        ? requestedStatus : t.status;
+                t.enterBlocked(t.blocker);
+                if (!"blocked".equals(resume)) {
+                    t.resumeTo = resume;
+                }
+            } else if (requestedBlocked != null && t.isBlocked()) {
+                t.leaveBlocked();
+            } else if (requestedStatus != null) {
+                t.status = requestedStatus;
+            }
             if (!applied.isEmpty()) {
                 t.updatedAt = now();
                 t.history("updated:" + String.join(",", applied), null);
-                clearBlockedWhenDone(t);
                 data.changed.add(id);
             }
             return t;
@@ -366,7 +389,9 @@ public final class TaskStore {
      * {@code in-review} or {@code done} - an unfinished stage never advances.
      * One transaction: stage and role move to the next stage's, status resets
      * to {@code product-backlog} (the next stage's backlog is fed by the
-     * previous stage), the assignee is cleared, the blocked flag stays as-is.
+     * previous stage), the assignee is cleared. A blocked ticket cannot advance at all: the
+     * status guard below admits only in-review/done (U-067 - blocked is a
+     * state; clear it first).
      *
      * @throws Invalid when the ticket has no (valid) stored stage - legacy
      *                 tickets must be staged explicitly, no guessing; when the
@@ -402,10 +427,10 @@ public final class TaskStore {
     /**
      * The V-model feedback loop: sends a ticket back to the <em>previous</em>
      * stage with a reason. The hand-back is unmissable: the ticket lands in
-     * the previous stage's product backlog with the blocked flag raised and
-     * the blocker text {@code "sent back from <old stage>: <reason>"} (the
-     * flag clears via {@link #clearBlocked} once the previous stage resolves
-     * it). The assignee is cleared; role follows the previous stage.
+     * the BLOCKED state with {@code resume_to=product-backlog} - clearing it
+     * returns to the previous stage's backlog (U-067), carrying the blocker
+     * text {@code "sent back from <old stage>: <reason>"}. The assignee is
+     * cleared; role follows the previous stage.
      *
      * @throws Invalid when the ticket has no (valid) stored stage, when the
      *                 reason is blank, or when the ticket sits at
@@ -433,10 +458,11 @@ public final class TaskStore {
             String from = t.stage;
             t.stage = prev;
             t.role = VStages.roleOf(prev);
-            t.status = "product-backlog";
             t.assignee = null;
-            t.blocked = true;
-            t.blocker = "sent back from " + from + ": " + reason;
+            // U-067: the hand-back IS the blocked state - clearing returns to
+            // the previous stage's product backlog (resume_to)
+            t.enterBlocked("sent back from " + from + ": " + reason);
+            t.resumeTo = "product-backlog";
             t.updatedAt = now();
             t.history("sent back to " + prev + ": " + reason, by);
             data.changed.add(id);
@@ -507,10 +533,11 @@ public final class TaskStore {
             String pair = VStages.pairOf(from);
             t.stage = pair;
             t.role = VStages.roleOf(pair);
-            t.status = "product-backlog";
             t.assignee = null;
-            t.blocked = true;
-            t.blocker = "reported from " + from + ": " + reason;
+            // U-067: sideways hand-back is the blocked state too - clearing
+            // returns to the pair stage's product backlog
+            t.enterBlocked("reported from " + from + ": " + reason);
+            t.resumeTo = "product-backlog";
             t.updatedAt = now();
             t.history("reported to " + pair + ": " + reason, by);
             data.changed.add(id);
@@ -553,8 +580,7 @@ public final class TaskStore {
                     : "round-trip limit " + CLARIFICATION_LIMIT + " exceeded";
             return transaction(project, data -> {
                 Task t = require(data, project, id);
-                t.blocked = true;
-                t.blocker = "clarification escalated to NEEDS-HUMAN (" + why + "): " + question;
+                t.enterBlocked("clarification escalated to NEEDS-HUMAN (" + why + "): " + question);
                 t.updatedAt = now();
                 t.history("clarification escalated to NEEDS-HUMAN: " + question, by);
                 data.changed.add(id);
@@ -634,9 +660,8 @@ public final class TaskStore {
         return transaction(project, data -> {
             Task t = require(data, project, id);
             if (consumed >= REVIEW_DOUBT_RETRY_LIMIT) {
-                t.blocked = true;
-                t.blocker = "review doubt unresolved after " + REVIEW_DOUBT_RETRY_LIMIT
-                        + " originator retries: " + reason;
+                t.enterBlocked("review doubt unresolved after " + REVIEW_DOUBT_RETRY_LIMIT
+                        + " originator retries: " + reason);
                 t.updatedAt = now();
                 t.comments.add(new Task.Comment(now(), by,
                         "review doubt escalated to NEEDS-HUMAN (stage " + t.stage + "): " + reason));
@@ -815,7 +840,6 @@ public final class TaskStore {
             Task t = require(data, project, id);
             t.status = "paused";
             t.assignee = null;
-            t.blocked = false;
             t.updatedAt = now();
             t.history("paused: " + (reason == null || reason.isBlank() ? "maintenance" : reason), by);
             data.changed.add(id);
@@ -823,12 +847,14 @@ public final class TaskStore {
         });
     }
 
-    /** Marks a task blocked with a reason (orthogonal flag). */
+    /** Enters the blocked STATE with a reason (U-067: resume remembers the current status). */
     public Task setBlocked(String project, String id, String blocker, String by) {
         return transaction(project, data -> {
             Task t = require(data, project, id);
-            t.blocked = true;
-            t.blocker = blocker;
+            if ("done".equals(t.status)) {
+                throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+            }
+            t.enterBlocked(blocker);
             t.updatedAt = now();
             t.history("blocked:" + blocker, by);
             data.changed.add(id);
@@ -836,12 +862,11 @@ public final class TaskStore {
         });
     }
 
-    /** Clears the blocked flag. */
+    /** Leaves the blocked STATE back to resume_to (U-067; default sprint-backlog). */
     public Task clearBlocked(String project, String id, String by) {
         return transaction(project, data -> {
             Task t = require(data, project, id);
-            t.blocked = false;
-            t.blocker = null;
+            t.leaveBlocked();
             t.updatedAt = now();
             t.history("unblocked", by);
             data.changed.add(id);
@@ -864,7 +889,7 @@ public final class TaskStore {
         return transaction(project, data -> {
             List<Task> candidates = new ArrayList<>();
             for (Task t : data.tasks.values()) {
-                if (role.equals(t.role) && want.equals(t.status) && !t.blocked) {
+                if (role.equals(t.role) && want.equals(t.status) && !t.isBlocked()) {
                     candidates.add(t);
                 }
             }
@@ -1082,6 +1107,10 @@ public final class TaskStore {
             if (ticketIds != null) {
                 for (String tid : ticketIds) {
                     Task t = data.tasks.get(tid);
+                    if (t == null || t.isBlocked()) {
+                        throw new Invalid("cannot plan ticket " + tid
+                                + (t == null ? " (not found)" : " - it is blocked; clear it first"));
+                    }
                     t.sprint = sid;
                     t.status = "sprint-backlog";
                     t.updatedAt = now();
@@ -1221,9 +1250,6 @@ public final class TaskStore {
                     continue;
                 }
                 if ("done".equals(t.status)) {
-                    if (clearBlockedWhenDone(t)) {
-                        data.changed.add(t.id);
-                    }
                     // NOT archived here (U-025 lesson, live 2026-09-19:
                     // archiving on wave close orphaned WAIT_UPSTREAM
                     // children). The opt-in overload closeSprint(project,
@@ -1234,9 +1260,16 @@ public final class TaskStore {
                     continue;
                 }
                 t.sprint = null;
-                t.status = "product-backlog";
+                if (t.isBlocked()) {
+                    // U-067: a blocked ticket stays blocked on wave close -
+                    // clearing it later returns it to the product backlog
+                    t.resumeTo = "product-backlog";
+                    t.history("returned from " + sprintId + " (stays blocked)", null);
+                } else {
+                    t.status = "product-backlog";
+                    t.history("returned from " + sprintId, null);
+                }
                 t.updatedAt = now();
-                t.history("returned from " + sprintId, null);
                 data.changed.add(t.id);
                 returned.add(t.id);
             }
@@ -1251,7 +1284,14 @@ public final class TaskStore {
         });
     }
 
-    /** The definition&lt;-&gt;verification traceability matrix (role-based pairing + orphans). */
+    /**
+     * The definition&lt;-&gt;verification traceability matrix (D-001 decision:
+     * THREE pairing signals - a role+epic link, the ticket's own V-journey,
+     * and test-shaped artifacts; pm requirements count as definitions). The
+     * matrix row reports the signals ({@code via}) so the audit can tell a
+     * real pair from inflation; a definition with no signal at all stays an
+     * orphan.
+     */
     public Map<String, Object> traceability(String project) {
         List<Task> tickets = list(project, null, null, null, null);
         Map<String, Task> byId = new HashMap<>();
@@ -1270,19 +1310,35 @@ public final class TaskStore {
             }
             String verifies = null;
             List<String> verifiedBy = new ArrayList<>();
+            List<String> via = new ArrayList<>();
+            // signal 2: the ticket itself walked BOTH legs (a definition entry
+            // then a test-* stage). advance() rewrites the role on the way into
+            // the test leg, so this is a verification-role row pairing with its
+            // own definition history - not an orphan.
+            boolean bothLegs = enteredDefinitionLeg(t) && reachedTestStage(t);
             if (Task.VERIFICATION_ROLES.contains(t.role)) {
-                verifies = t.epic != null && byId.containsKey(t.epic) ? t.epic : null;
+                verifies = t.epic != null && byId.containsKey(t.epic) ? t.epic
+                        : (bothLegs ? t.id : null);
                 if (verifies == null) {
                     orphanVerifications.add(t.id);
+                } else {
+                    via.add(t.id.equals(verifies) ? "journey" : "epic:" + verifies);
                 }
             }
+            boolean selfVerified = via.contains("journey");
             if (Task.DEFINITION_ROLES.contains(t.role)) {
                 for (Task other : tickets) {
                     if (t.id.equals(other.epic) && Task.VERIFICATION_ROLES.contains(other.role)) {
                         verifiedBy.add(other.id);
+                        via.add("epic:" + other.id);
                     }
                 }
-                if (verifiedBy.isEmpty()) {
+                // signal 3: it recorded a test-shaped artifact (*.tests/ path)
+                if (hasTestArtifact(t)) {
+                    selfVerified = true;
+                    via.add("artifacts");
+                }
+                if (verifiedBy.isEmpty() && !selfVerified) {
                     orphanDefinitions.add(t.id);
                 }
             }
@@ -1294,6 +1350,8 @@ public final class TaskStore {
             row.put("links", links);
             row.put("verifies", verifies);
             row.put("verified_by", verifiedBy);
+            row.put("self_verified", selfVerified);
+            row.put("via", via);
             matrix.add(row);
         }
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1302,6 +1360,49 @@ public final class TaskStore {
         out.put("orphan_definitions", orphanDefinitions);
         out.put("orphan_verifications", orphanVerifications);
         return out;
+    }
+
+    /** U-070: a recorded test-shaped artifact (a {@code *.tests/} path). */
+    private static boolean hasTestArtifact(Task t) {
+        if (t.artifacts == null) {
+            return false;
+        }
+        for (Task.Artifact a : t.artifacts) {
+            if (a != null && a.ref() != null && a.ref().contains(".tests/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** U-070: the ticket's own journey entered a test-* stage. */
+    private static boolean reachedTestStage(Task t) {
+        if (t.history == null) {
+            return false;
+        }
+        for (Task.HistoryEvent e : t.history) {
+            if (e != null && e.action() != null && e.action().startsWith("advanced to test-")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** U-070: the journey entered the definition leg (advanced past requirements). */
+    private static boolean enteredDefinitionLeg(Task t) {
+        if (t.history == null) {
+            return false;
+        }
+        for (Task.HistoryEvent e : t.history) {
+            if (e == null || e.action() == null || !e.action().startsWith("advanced to ")) {
+                continue;
+            }
+            String target = e.action().substring("advanced to ".length());
+            if (!target.startsWith("test-") && VStages.isValid(target)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1398,10 +1499,7 @@ public final class TaskStore {
             return data.unparsable;
         }));
         for (Task t : tasks) {
-            if ("done".equals(t.status) && t.blocked) {
-                out.add(t.id + ": status=done but blocked"
-                        + (t.blocker == null ? "" : " (blocker: " + t.blocker + ")"));
-            } else if (t.sprint != null && "product-backlog".equals(t.status)) {
+            if (t.sprint != null && "product-backlog".equals(t.status)) {
                 out.add(t.id + ": status=product-backlog but sprint=" + t.sprint);
             }
         }
@@ -1588,6 +1686,12 @@ public final class TaskStore {
             try {
                 ProjectData data = load(dir);
                 T result = work.apply(data);
+                for (String changedId : data.changed) {
+                    Task changed = data.tasks.get(changedId);
+                    if (changed != null) {
+                        normalizeBlockedState(changed);
+                    }
+                }
                 if (!data.changed.isEmpty() || data.metaDirty) {
                     persist(data);
                 }
@@ -1738,20 +1842,25 @@ public final class TaskStore {
     }
 
     /**
-     * A done ticket is never blocked: any path that leaves a ticket in
-     * {@code done} clears a stale blocked flag (live incident W-006/W-007).
-     *
-     * @return whether the flag was cleared.
+     * U-067 invariant layer, applied on commit to every changed ticket:
+     * resume_to exists ONLY while the ticket is in the blocked state (and a
+     * done ticket never keeps stale blocker text - W-006/W-007). Entering
+     * the state is a semantic decision (Task.enterBlocked); this only
+     * removes what the state forbids.
      */
-    private static boolean clearBlockedWhenDone(Task t) {
-        if (!"done".equals(t.status) || !t.blocked) {
-            return false;
+    private static void normalizeBlockedState(Task t) {
+        if (!t.isBlocked()) {
+            t.resumeTo = null;
+        } else if (t.resumeTo != null && (!Task.VALID_STATUSES.contains(t.resumeTo)
+                || "blocked".equals(t.resumeTo))) {
+            t.resumeTo = null;
         }
-        t.blocked = false;
-        t.blocker = null;
-        t.updatedAt = now();
-        t.history("unblocked (done)", null);
-        return true;
+        if ("done".equals(t.status) && t.blocker != null) {
+            // the engine outcome is visible in history (the old
+            // clearBlockedWhenDone contract, live incident W-006)
+            t.blocker = null;
+            t.history("unblocked (done)", null);
+        }
     }
 
     private static String nextId(ProjectData data, String prefixRaw) {
@@ -1880,7 +1989,15 @@ public final class TaskStore {
         t.description = orEmpty(strOrNull(o, "description"));
         t.type = orDefault(strOrNull(o, "type"), "task");
         t.status = orDefault(strOrNull(o, "status"), "product-backlog");
-        t.blocked = o.has("blocked") && !o.get("blocked").isJsonNull() && o.get("blocked").getAsBoolean();
+        t.resumeTo = o.has("resume_to") && !o.get("resume_to").isJsonNull()
+                ? o.get("resume_to").getAsString() : null;
+        if (o.has("blocked") && !o.get("blocked").isJsonNull() && o.get("blocked").getAsBoolean()
+                && !"blocked".equals(t.status)) {
+            // U-067: the pm server still sends the legacy flag - migrate on
+            // import exactly like TaskFileCodec does on file read
+            t.resumeTo = t.status;
+            t.status = "blocked";
+        }
         t.blocker = strOrNull(o, "blocker");
         t.sprint = strOrNull(o, "sprint");
         t.storyPoints = o.has("story_points") && !o.get("story_points").isJsonNull()

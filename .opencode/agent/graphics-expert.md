@@ -3,9 +3,10 @@ description: >
   Graphics domain expert agent, pinned to the very-high tier. Owns deep
   rendering/graphics work and drives the mcp.graphics tools (screenshot, RenderDoc
   capture, render comparison). Use for non-trivial graphics tasks that warrant the
-  frontier tier; keep dormant otherwise.
+  frontier tier; keep dormant otherwise. The tier resolves to a concrete model
+  through /models on YOUR setup - no model ids are committed (contributors
+  use different providers).
 mode: all
-model: opencode/kimi-k3
 ---
 
 ## About this document

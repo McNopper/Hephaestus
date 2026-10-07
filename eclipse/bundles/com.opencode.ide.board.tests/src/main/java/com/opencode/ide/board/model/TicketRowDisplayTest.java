@@ -26,22 +26,48 @@ public class TicketRowDisplayTest {
 
     @Test
     public void statusPrefixMapsEveryValidStatusPlusUnknown() {
-        assertEquals("▭", TicketRow.statusSymbol("product-backlog"));
-        assertEquals("○", TicketRow.statusSymbol("sprint-backlog"));
-        assertEquals("▶", TicketRow.statusSymbol("in-progress"));
-        assertEquals("◐", TicketRow.statusSymbol("in-review"));
-        assertEquals("✓", TicketRow.statusSymbol("done"));
+        assertEquals("📌", TicketRow.statusSymbol("product-backlog"));
+        assertEquals("📋", TicketRow.statusSymbol("sprint-backlog"));
+        assertEquals("🏃", TicketRow.statusSymbol("in-progress"));
+        assertEquals("👀", TicketRow.statusSymbol("in-review"));
+        assertEquals("✅", TicketRow.statusSymbol("done"));
         assertEquals("", TicketRow.statusSymbol("unknown-status"));
         assertEquals("", TicketRow.statusSymbol(""));
     }
 
     @Test
+    public void statusHeaderTextCarriesTheGlyphBeforeTheName() {
+        // U-065: every group header carries its kind's marker - the same
+        // pictograph the cards' status column shows, then the status name
+        for (String status : new String[] {"product-backlog", "sprint-backlog",
+                "in-progress", "in-review", "done"}) {
+            String expected = TicketRow.statusSymbol(status) + " " + status;
+            assertEquals(expected, TicketRow.statusHeaderText(status));
+            assertTrue("the header must carry a marker glyph for " + status,
+                    !TicketRow.statusSymbol(status).isEmpty());
+        }
+        assertEquals("unknown-status", TicketRow.statusHeaderText("unknown-status"));
+        assertEquals("", TicketRow.statusHeaderText(null));
+    }
+
+    @Test
+    public void statusHelpExplainsEveryValidStatus() {
+        for (String status : new String[] {"product-backlog", "sprint-backlog",
+                "in-progress", "in-review", "paused", "done"}) {
+            assertTrue("tooltip copy for " + status,
+                    !TicketRow.statusHelp(status).isBlank());
+        }
+        assertEquals("", TicketRow.statusHelp(null));
+        assertEquals("", TicketRow.statusHelp("mystery"));
+    }
+
+    @Test
     public void pipelineLabelSeparatesPrefixBlockedAndTitle() {
-        assertEquals("◐ [BLOCKED] rework", row("rework", null, "developer", true, "in-review", "design")
+        assertEquals("👀 [BLOCKED] rework", row("rework", null, "developer", true, "in-review", "design")
                 .pipelineLabel());
-        assertEquals("✓ shipped", row("shipped", null, "developer", false, "done", null)
+        assertEquals("✅ shipped", row("shipped", null, "developer", false, "done", null)
                 .pipelineLabel());
-        assertEquals("▶ plain", row("plain", null, "pm", false, "in-progress", "requirements")
+        assertEquals("🏃 plain", row("plain", null, "pm", false, "in-progress", "requirements")
                 .pipelineLabel());
     }
 
@@ -55,9 +81,9 @@ public class TicketRowDisplayTest {
 
     @Test
     public void pipelineLabelSkipsMissingPiecesWithoutStraySpaces() {
-        assertEquals("◐ [BLOCKED]", row(null, null, "developer", true, "in-review", "design")
+        assertEquals("👀 [BLOCKED]", row(null, null, "developer", true, "in-review", "design")
                 .pipelineLabel());
-        assertEquals("✓", row("  ", null, "developer", true, "done", null)
+        assertEquals("✅", row("  ", null, "developer", true, "done", null)
                 .pipelineLabel());
     }
 
@@ -66,7 +92,7 @@ public class TicketRowDisplayTest {
         TicketRow drifted = row("shipped long ago", null, "developer", true, "done", "test-system");
         assertFalse(drifted.displayBlocked());
         assertEquals("T-001 shipped long ago · test-system", drifted.label());
-        assertEquals("✓ shipped long ago", drifted.pipelineLabel());
+        assertEquals("✅ shipped long ago", drifted.pipelineLabel());
     }
 
     @Test
@@ -81,7 +107,7 @@ public class TicketRowDisplayTest {
     public void pipelineLabelTrimsSurroundingTitleWhitespace() {
         TicketRow padded = new TicketRow("T-9", "  padded  ", null, "developer", 1, null,
                 false, null, "in-progress", null, "medium", null);
-        assertEquals("▶ padded", padded.pipelineLabel());
+        assertEquals("🏃 padded", padded.pipelineLabel());
     }
 
     @Test
@@ -100,7 +126,7 @@ public class TicketRowDisplayTest {
                 false, null, "in-progress", "design", "medium", null);
 
         assertEquals("T-42 " + longTitle + " · design", longRow.label());
-        assertEquals(longTitle.length() + "▶ ".length(), longRow.pipelineLabel().length());
+        assertEquals(longTitle.length() + "🏃 ".length(), longRow.pipelineLabel().length());
     }
 
     @Test
@@ -140,7 +166,7 @@ public class TicketRowDisplayTest {
     public void bugRowsCarryTheTypeTagInBothLayouts() {
         TicketRow bug = row("crash on start", "bug", "developer", false, "in-progress", "design");
         assertTrue(bug.isBug());
-        assertEquals("▶ [bug] crash on start", bug.pipelineLabel());
+        assertEquals("🏃 [bug] crash on start", bug.pipelineLabel());
         assertEquals("T-001 [bug] crash on start · design", bug.label());
     }
 
@@ -160,8 +186,8 @@ public class TicketRowDisplayTest {
         assertFalse(task.label().contains("[bug]"));
         assertFalse(spike.label().contains("[bug]"));
         // neutral types render uncolored: they carry no bug tag anywhere
-        assertEquals("▭ [story] as a user", story.pipelineLabel());
-        assertEquals("○ [task] do work", task.pipelineLabel());
+        assertEquals("📌 [story] as a user", story.pipelineLabel());
+        assertEquals("📋 [task] do work", task.pipelineLabel());
     }
 
     @Test
@@ -172,7 +198,7 @@ public class TicketRowDisplayTest {
         assertEquals(title, bug.title()); // the stored title is untouched
         // the decoration is a prefix on the rendered label; the title's own
         // "[bug]" text stays part of the title, the decoration separate
-        assertEquals("▶ " + "[bug] " + title, bug.pipelineLabel());
+        assertEquals("🏃 " + "[bug] " + title, bug.pipelineLabel());
         assertEquals("T-001 [bug] " + title, bug.label());
     }
 
@@ -181,7 +207,7 @@ public class TicketRowDisplayTest {
         TicketRow blockedBug = row("hotfix", "bug", "developer", true, "in-review", "design");
         assertTrue(blockedBug.displayBlocked()); // keeps the bold red blocked rendering
         assertTrue(blockedBug.isBug()); // ...plus the bug accent
-        assertEquals("◐ [BLOCKED] [bug] hotfix", blockedBug.pipelineLabel());
+        assertEquals("👀 [BLOCKED] [bug] hotfix", blockedBug.pipelineLabel());
         assertEquals("[BLOCKED] T-001 [bug] hotfix · design", blockedBug.label());
     }
 
@@ -189,7 +215,7 @@ public class TicketRowDisplayTest {
     public void missingTypeRendersUntaggedWithoutStraySpaces() {
         TicketRow legacy = row("old ticket", null, "developer", false, "in-progress", null);
         assertEquals("", legacy.typeTag());
-        assertEquals("▶ old ticket", legacy.pipelineLabel());
+        assertEquals("🏃 old ticket", legacy.pipelineLabel());
         assertEquals("T-001 old ticket", legacy.label());
     }
 }

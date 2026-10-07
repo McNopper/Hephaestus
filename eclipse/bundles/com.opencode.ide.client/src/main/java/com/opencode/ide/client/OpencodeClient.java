@@ -86,6 +86,27 @@ public interface OpencodeClient {
         return getSessions();
     }
 
+    /**
+     * {@code GET /api/session[?directory=…][&limit=…]} - the session list with
+     * an explicit result cap (U-066's machine-wide overview).
+     * {@code directory} scopes exactly like {@link #getSessions(String)}
+     * ({@code null} = every project on this machine); {@code limit} raises
+     * the server's default cap of the newest 50 sessions, which truncates a
+     * machine-wide list on a busy box (2026-10-07 live probe on 2.0.24:
+     * 135 sessions across 7 project directories, 50 without the parameter;
+     * the directory rides {@code location.directory} on each session).
+     * {@code limit <= 0} omits the parameter, staying byte-identical with
+     * {@link #getSessions(String)}.
+     *
+     * <p>Wire note: unlike the auxiliary lists, this route scopes by the
+     * PLAIN {@code directory} parameter - the bracket form
+     * {@code location[directory]=…} is accepted but silently IGNORED here
+     * (same probe: HTTP 200 with the full cross-location list).</p>
+     */
+    default List<Session> getSessions(String directory, int limit) throws OpencodeException {
+        return getSessions(directory);
+    }
+
     /** {@code GET /api/session/active} - active sessions mapped to client status; absent means idle. */
     Map<String, SessionStatus> getSessionStatus() throws OpencodeException;
 
@@ -503,6 +524,16 @@ public interface OpencodeClient {
     default ChatEntry sendMessage(ChatRequest request, java.time.Duration promptTimeout, String delivery)
             throws OpencodeException {
         return sendMessage(request, promptTimeout);
+    }
+
+    /**
+     * {@link #sendMessage(ChatRequest, java.time.Duration, String)} with an
+     * explicit no-progress window for the reply wait (B-024); the default is
+     * {@code ClientTuning.REPLY_STALL_WINDOW}.
+     */
+    default ChatEntry sendMessage(ChatRequest request, java.time.Duration promptTimeout,
+            java.time.Duration replyStallWindow, String delivery) throws OpencodeException {
+        return sendMessage(request, promptTimeout, delivery);
     }
 
     /**

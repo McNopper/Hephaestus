@@ -421,3 +421,48 @@ per-FR delivery status (delivered / not delivered with ticket / amended).
 live dogfood of U-053. One worker started the quality gate itself; the run
 was terminated by the orchestrator (the gate is centralized per dispatch;
 a gate over a mid-edit tree measures noise).
+
+## H14 - The decisions round - 2026-10-07
+
+The owner decided the four parked questions and the flow doctrine, and the
+batch implemented what is testable now:
+
+- **Decisions:** D-001 traceability = three signals (role+epic, own V-journey,
+  test artifacts; `pm` counts as a definition) - **landed as U-070** with
+  `via`/`self_verified` rows and anti-inflation tests; D-002 release versioning
+  = set the real version on the release commit, tag, bump (T-030 queued);
+  D-003 STALE = structured-input changes only, folded into U-052; D-004
+  **revised the same day** - NO model ids are committed anywhere (the k3 pins
+  for rubberduck and graphics-expert were removed; agents reference tiers and
+  each setup resolves via `/models`).
+- **Flow doctrine recorded in AGENTS.md:** the flow is either **along the V**
+  or **horizontal for validation** - the reporting lines. Success divides the
+  result and passes it further; a block returns to the origin where a
+  requirement can clarify it; the loop is automatable to a degree because the
+  harness tracks effort (`fleet actuals:`) and results (ticket artifacts).
+- **Research:** `docs/spice-alignment.md` maps the harness onto ISO/IEC 15504
+  / Automotive SPICE - process x capability dimensions, work products as
+  evidence, problem-resolution loops - and states what is deliberately not
+  adopted (assessor bureaucracy).
+- **Landed and deployed this round:** U-064 (background from the composer),
+  B-024 (progress-aware reply budget - no more "Send failed 300s"), U-063
+  (pin 2.0.21 + surface snapshot), U-065 (columnar cards in every Group-by
+  mode - status/type/blocked all emoji, no card images, click-to-sort
+  on every card column - replacing
+  the composed-string cards). Also this round: hover tooltips across the
+  board (status definitions, lane/blocked counts, column sort help), the
+  chat queue as a numbered table with emoji actions (U-071/U-074, plus
+  docs/emoji-vocabulary.md), the per-stage model policy with dialog
+  pickers (U-072/U-073: run override > ticket model > stage > server
+  default), a competitive-landscape review plus the
+  animated V-model GIF embedded in the README (docs, U-076/U-077), and
+  **blocked is now a STATE** (U-067/U-068/U-069: 7-status enum with
+  resume_to, legacy flag files migrate on read, every transition runs
+  through Task.enterBlocked/leaveBlocked, commit enforces the invariant,
+  surfaces read the state - pulled forward mid-round by the owner, who
+  also fixed the standing rule into AGENTS.md: 'No hacks - always the
+  proper solution').
+- **Queued next round:** U-052 (inputs-changed stamp),
+  T-030 (release script), U-075 (why the TUI feels faster - a measured
+  investigation), the tester guide (`docs/TESTING.md`) that this round
+  added for the owner's external testers.

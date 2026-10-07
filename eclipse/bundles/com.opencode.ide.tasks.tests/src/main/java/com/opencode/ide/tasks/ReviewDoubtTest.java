@@ -50,7 +50,7 @@ public class ReviewDoubtTest {
 
         Task after = store.routeReviewDoubt(PROJECT, t.id, "cannot determine X", "reviewer");
 
-        assertFalse("doubt is never the first-outcome block (FR-011)", after.blocked);
+        assertFalse("doubt is never the first-outcome block (FR-011)", after.isBlocked());
         assertEquals("the stage keeps the originator (FR-009: the stage's own backlog)",
                 "system", after.stage);
         assertEquals("product-backlog", after.status);
@@ -70,7 +70,7 @@ public class ReviewDoubtTest {
 
         Task after = store.routeReviewDoubt(PROJECT, t.id, "still cannot determine X", "reviewer");
 
-        assertTrue("FR-010: blocked is the needs-a-human signal after the retry", after.blocked);
+        assertTrue("FR-010: blocked is the needs-a-human signal after the retry", after.isBlocked());
         assertTrue(after.blocker, after.blocker
                 .startsWith("review doubt unresolved after " + TaskStore.REVIEW_DOUBT_RETRY_LIMIT
                         + " originator retries: still cannot determine X"));
@@ -87,7 +87,7 @@ public class ReviewDoubtTest {
 
         Task after = store.routeReviewDoubt(PROJECT, t.id, "doubt at the next stage", "reviewer");
 
-        assertFalse("a new stage visit gets a fresh retry budget (C-004)", after.blocked);
+        assertFalse("a new stage visit gets a fresh retry budget (C-004)", after.isBlocked());
         assertEquals("architecture", after.stage);
         assertTrue(after.history.stream()
                 .anyMatch(h -> h.action().equals("review doubt retry (1/1) for stage architecture: doubt at the next stage")));

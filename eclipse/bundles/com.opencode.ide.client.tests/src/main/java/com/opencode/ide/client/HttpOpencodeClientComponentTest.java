@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -12,6 +13,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -1076,6 +1078,54 @@ public class HttpOpencodeClientComponentTest {
         assertTrue("the poll kept going past the quiet inter-step boundary",
                 count("GET", "/api/session/ses_new/message") >= 5);
     }
+
+    /**
+     * B-024: the reply wait fails fast when the message list stops changing -
+     * the no-progress window trips long before the absolute budget, as the
+     * marker subtype the chat recovers from instead of failing the send.
+     */
+    @Test
+    public void stalledReplyWaitThrowsReplyTimeoutQuickly() {
+        promptAck.set("""
+                {"data":{"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1}}}
+                """);
+        serveMessages(STREAMING_TURN); // never completes, never changes
+
+        long started = System.currentTimeMillis();
+        OpencodeException failure = assertThrows(OpencodeException.ReplyTimeout.class,
+                () -> client.sendMessage(ChatRequest.of("ses_new", "go"),
+                        Duration.ofSeconds(30), Duration.ofMillis(300), null));
+        assertTrue(failure.getMessage(), failure.getMessage().contains("no reply progress"));
+        assertTrue("the 300ms stall window beats the 30s budget (took "
+                        + (System.currentTimeMillis() - started) + "ms)",
+                System.currentTimeMillis() - started < 15000);
+    }
+
+    /**
+     * B-024: progress resets the stall window - a turn whose transcript keeps
+     * growing outlives the window several times over and settles normally
+     * (the deliberate quiet-confirm wait on the final evidence is not a
+     * stall).
+     */
+    @Test
+    public void progressResetsTheStallWindow() throws Exception {
+        promptAck.set("""
+                {"data":{"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1}}}
+                """);
+        serveMessages(GROWING_1, GROWING_2, GROWING_3, COMPLETED_TURN);
+
+        ChatEntry reply = client.sendMessage(ChatRequest.of("ses_new", "What is 2+2?"),
+                Duration.ofSeconds(30), Duration.ofMillis(300), null);
+
+        assertEquals("The answer is $4$.", reply.text());
+        assertTrue("the turn lived through several stall windows",
+                count("GET", "/api/session/ses_new/message") >= 4);
+    }
+
+    /** Mid-stream variants of {@link #STREAMING_TURN} with growing text. */
+    private static final String GROWING_1 = STREAMING_TURN;
+    private static final String GROWING_2 = STREAMING_TURN.replace("\"The answer\"", "\"The answer is\"");
+    private static final String GROWING_3 = STREAMING_TURN.replace("\"The answer\"", "\"The answer is $4$\"");
 
     /**
      * REGRESSION (the Eclipse chat returned an empty bubble ~200ms after every

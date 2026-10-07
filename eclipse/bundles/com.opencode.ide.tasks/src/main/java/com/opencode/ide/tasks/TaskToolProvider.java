@@ -492,7 +492,7 @@ public final class TaskToolProvider implements ToolProvider {
                     obj.add("project", strP());
                     obj.add("sprint_id", strP());
                 })));
-        out.add(new McpTool("task_traceability", "Build a definition<->verification traceability matrix for a project.",
+        out.add(new McpTool("task_traceability", "Build a definition<->verification traceability matrix for a project: pairs by role+epic link, a ticket that walked both legs of the V (self-pair) and test-shaped artifacts; pm counts as a definition; rows carry via/self_verified.",
                 schema(new String[]{"project"}, obj -> obj.add("project", strP()))));
         out.add(new McpTool("task_readiness",
                 "Per-ticket V-model dispatch readiness (H6): one {id, stage, kind, reason} row per ticket, ordered "

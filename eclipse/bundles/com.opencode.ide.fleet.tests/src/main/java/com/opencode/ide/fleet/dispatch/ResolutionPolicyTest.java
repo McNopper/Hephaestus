@@ -19,7 +19,7 @@ public class ResolutionPolicyTest {
         Task task = new Task();
         task.id = "T-1";
         task.stage = stage;
-        task.blocked = true;
+        task.status = "blocked";
         task.blocker = "stalled: the worker hung";
         return task;
     }

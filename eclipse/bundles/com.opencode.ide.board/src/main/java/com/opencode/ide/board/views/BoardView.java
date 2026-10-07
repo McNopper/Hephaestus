@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +64,7 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.Table;
+import org.eclipse.swt.widgets.TableColumn;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.ToolBar;
 import org.eclipse.ui.IViewPart;
@@ -185,7 +187,7 @@ public class BoardView extends ViewPart {
 
     /** The compact status-prefix legend (tooltip text on pipeline rows). */
     private static final String STATUS_LEGEND =
-            "\u25AD product-backlog · \u25CB sprint-backlog · \u25B6 in-progress · \u25D0 in-review · \u2713 done";
+            "\uD83D\uDCCC product-backlog · \uD83D\uDCCB sprint-backlog · \uD83C\uDFC3 in-progress · \uD83D\uDC40 in-review · \u2705 done \u00b7 \uD83D\uDEAB blocked";
 
     /** The background loop's tick period (H6 piece 4; calibrated later). */
     private static final Duration AUTO_DISPATCH_PERIOD = Duration.ofSeconds(30);
@@ -231,9 +233,6 @@ public class BoardView extends ViewPart {
      * the column, the other layouts drop the cards.
      */
     private java.util.Set<String> hiddenStatuses = java.util.Set.of();
-    /** Cached ticket-type images (bug/story/task/spike); disposed with the view. */
-    private final java.util.Map<String, org.eclipse.swt.graphics.Image> typeImages =
-            new java.util.HashMap<>();
     /** Container that holds whichever layout the current mode builds. */
     private Composite boardArea;
     private Composite flatArea;
@@ -353,6 +352,12 @@ public class BoardView extends ViewPart {
         initModel();
         try {
             dispatchStore = DispatchPolicyStore.eclipse();
+        // U-072: the per-stage model policy reaches every in-process launch -
+        // the fleet's launch precedence (TaskFleet.effectiveModel) consults
+        // StageModels as its LAST fallback; uninstalled hosts (no board) keep
+        // today's behavior
+        com.opencode.ide.fleet.StageModels.install(stage ->
+                dispatchStore == null ? null : dispatchStore.loadStageModels().get(stage));
         } catch (RuntimeException e) {
             logError("Dispatch settings persistence unavailable; dispatch runs on the defaults", e);
         }
@@ -447,12 +452,17 @@ public class BoardView extends ViewPart {
         for (Map.Entry<String, List<TicketRow>> lane : lanes.entrySet()) {
             Label laneHeader = new Label(flatArea, SWT.NONE);
             List<TicketRow> rows = lane.getValue();
-            laneHeader.setText(lane.getKey() + "  (" + rows.size() + ")");
+            // text markers only (owner feedback 2026-10-07): every group
+            // header uses the same medium - font-sized glyphs - so no header
+            // icon renders smaller than another header's marker
+            laneHeader.setText("\u25A4 " + lane.getKey() + "  (" + rows.size() + ")");
             laneHeader.setFont(boldFont());
+            laneHeader.setToolTipText("epic swimlane " + lane.getKey() + ": " + rows.size()
+                    + " ticket(s) - click a card column header to sort");
             laneHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-            // swimlane cards are status-prefixed (the lane mixes statuses);
-            // readiness chips ride along via the shared label registry
-            TableViewer viewer = createTicketViewer(flatArea, true);
+            // swimlane cards share the ONE column set with every other mode
+            // (U-065) - readiness chips ride along via the label registry
+            TableViewer viewer = createTicketViewer(flatArea);
             // lane tables size to their content (capped), not FILL_BOTH -
             // every lane stays visible in one scrollable stack
             GridData laneTable = new GridData(SWT.FILL, SWT.CENTER, true, false);
@@ -591,7 +601,7 @@ public class BoardView extends ViewPart {
             refresh();
         });
 
-        archiveViewer = createTicketViewer(archiveRow, true);
+        archiveViewer = createTicketViewer(archiveRow);
         archiveViewer.getTable().getParent().setLayoutData(untrackedTableData());
         applyArchiveVisibility();
 
@@ -618,11 +628,12 @@ public class BoardView extends ViewPart {
         headerLine.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
         Label header = new Label(headerLine, SWT.NONE);
-        header.setText(status + " (0)");
+        header.setText(TicketRow.statusHeaderText(status) + " (0)");
         header.setFont(boldFont());
+        header.setToolTipText(TicketRow.statusHelp(status));
         header.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, true, false));
 
-        TableViewer viewer = createTicketViewer(column, false);
+        TableViewer viewer = createTicketViewer(column);
         hookStatusDrop(viewer.getTable(), status);
         return new ColumnUi(header, viewer);
     }
@@ -671,6 +682,8 @@ public class BoardView extends ViewPart {
                 : "Tickets without a V stage");
         Label blockedLabel = new Label(header, SWT.NONE);
         blockedLabel.setFont(bold);
+        blockedLabel.setToolTipText("tickets blocked with a reason in this stage "
+                + "(the needs-human surface: cleared blockers re-enter the pump)");
         // U-028 FR-001..FR-005: the WIP count beside total/blocked - a plain
         // count of status in-progress, recomputed per snapshot; deliberately
         // no WIP-limit concept
@@ -689,11 +702,8 @@ public class BoardView extends ViewPart {
         viewer.getTable().setLinesVisible(true);
         viewer.setContentProvider(ArrayContentProvider.getInstance());
         hookViewerBehavior(viewer);
-        TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
-        BoardRowLabel pipelineRowLabel = new BoardRowLabel(true);
-        ticket.setLabelProvider(pipelineRowLabel);
-        rowLabels.add(pipelineRowLabel);
-        tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
+        // U-065: stage cards share the ONE column set with every other mode
+        addCardColumns(viewer, tableLayout);
         hookStageDrop(viewer.getTable(), stage);
 
         return new PipelineColumnUi(stage, headerLabel, wipLabel, blockedLabel, viewer);
@@ -739,26 +749,14 @@ public class BoardView extends ViewPart {
     }
 
     /**
-     * Shared flat-column ticket viewer. {@code statusPrefixedLabels} picks
-     * the card style: plain (status kanban) or status-prefixed (epic
-     * swimlanes, which mix statuses inside a lane).
+     * Shared ticket viewer for EVERY Group-by mode (U-065): one card column
+     * set - status emoji | type emoji | styled title | points - built by
+     * {@link #addCardColumns}, so the card shape cannot drift between the
+     * Progress kanban, the V-model stage columns, the Epic swimlanes and the
+     * archive row (the 2026-09-18 Progress-only columns became the whole
+     * board's contract on 2026-10-07).
      */
-    /**
-     * Shared flat-area ticket viewer. {@code statusPrefixedLabels} picks the
-     * card style for LANES (epic swimlanes: one styled card column); the
-     * Progress layout ({@code false}) gets REAL columns instead of composed
-     * strings (user direction 2026-09-18): status glyph | type icon |
-     * title | points - sortable, no string building.
-     */
-    /** The cached type image (created once per type; null for unknown types). */
-    private org.eclipse.swt.graphics.Image typeImage(String type) {
-        return typeImages.computeIfAbsent(type, t -> {
-            org.eclipse.jface.resource.ImageDescriptor descriptor = icon("type-" + t);
-            return descriptor == null ? null : descriptor.createImage();
-        });
-    }
-
-    private TableViewer createTicketViewer(Composite column, boolean statusPrefixedLabels) {
+    private TableViewer createTicketViewer(Composite column) {
         Composite tableComposite = new Composite(column, SWT.NONE);
         TableColumnLayout tableLayout = new TableColumnLayout();
         tableComposite.setLayout(tableLayout);
@@ -771,89 +769,59 @@ public class BoardView extends ViewPart {
         viewer.getTable().setLinesVisible(true);
         viewer.setContentProvider(ArrayContentProvider.getInstance());
         hookViewerBehavior(viewer);
+        addCardColumns(viewer, tableLayout);
+        return viewer;
+    }
 
-        if (!statusPrefixedLabels) {
-            // Progress layout: glyph | type icon | title | points
-            TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
-            status.getColumn().setToolTipText("status glyph");
-            status.setLabelProvider(new ColumnLabelProvider() {
-                @Override
-                public String getText(Object element) {
-                    TicketRow row = asRow(element);
-                    return row == null ? "" : TicketRow.statusSymbol(row.status());
-                }
+    /**
+     * U-065: THE card column set every Group-by mode renders - status emoji |
+     * type emoji | styled title (readiness chips, stage journey, blocker ride
+     * in the cell) | points. Progress (flat), V-model stages, Epic swimlanes
+     * and the archive row all go through this one builder, so the card shape
+     * cannot drift between modes (the 2026-09-18 Progress-only columns
+     * became the whole board's contract on 2026-10-07; owner direction the
+     * same day: emoji where possible - colored, visible, DPI-proof, no
+     * image files for cards).
+     */
+    private void addCardColumns(TableViewer viewer, TableColumnLayout tableLayout) {
+        TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
+        status.setLabelProvider(new ColumnLabelProvider() {
+            @Override
+            public String getText(Object element) {
+                TicketRow row = asRow(element);
+                return row == null ? "" : TicketRow.statusSymbol(row.status());
+            }
 
-                @Override
-                public Color getForeground(Object element) {
-                    TicketRow row = asRow(element);
-                    Display display = Display.getCurrent();
-                    if (row == null || display == null) {
-                        return null;
-                    }
-                    return switch (row.status() == null ? "" : row.status()) {
-                        case "done" -> display.getSystemColor(SWT.COLOR_DARK_GREEN);
-                        case "in-progress" -> display.getSystemColor(SWT.COLOR_BLUE);
-                        case "in-review" -> display.getSystemColor(SWT.COLOR_DARK_YELLOW);
-                        default -> display.getSystemColor(SWT.COLOR_DARK_GRAY);
-                    };
+            @Override
+            public org.eclipse.swt.graphics.Color getForeground(Object element) {
+                // U-067: the blocked icon lives HERE (the status cell) - and
+                // it is RED (owner 2026-10-07); tints the monochrome glyph,
+                // the color-emoji font is red anyway
+                TicketRow row = asRow(element);
+                if (row != null && "blocked".equals(row.status())) {
+                    return Display.getCurrent().getSystemColor(SWT.COLOR_RED);
                 }
-            });
-            tableLayout.setColumnData(status.getColumn(), new ColumnWeightData(8, 26, false));
+                return null;
+            }
+        });
+        tableLayout.setColumnData(status.getColumn(), new ColumnWeightData(12, 32, false));
 
-            TableViewerColumn type = new TableViewerColumn(viewer, SWT.CENTER);
-            type.getColumn().setToolTipText("ticket type");
-            type.setLabelProvider(new ColumnLabelProvider() {
-                @Override
-                public org.eclipse.swt.graphics.Image getImage(Object element) {
-                    TicketRow row = asRow(element);
-                    if (row == null || row.type() == null || row.type().isBlank()) {
-                        return null;
-                    }
-                    return typeImage(row.type().trim().toLowerCase());
-                }
-            });
-            tableLayout.setColumnData(type.getColumn(), new ColumnWeightData(8, 26, false));
+        TableViewerColumn type = new TableViewerColumn(viewer, SWT.CENTER);
+        type.setLabelProvider(new ColumnLabelProvider() {
+            @Override
+            public String getText(Object element) {
+                TicketRow row = asRow(element);
+                return row == null ? "" : TicketRow.typeEmoji(row.type());
+            }
+        });
+        tableLayout.setColumnData(type.getColumn(), new ColumnWeightData(12, 32, false));
 
             TableViewerColumn title = new TableViewerColumn(viewer, SWT.NONE);
-            title.setLabelProvider(new ColumnLabelProvider() {
-                @Override
-                public String getText(Object element) {
-                    TicketRow row = asRow(element);
-                    if (row == null) {
-                        return "";
-                    }
-                    String base = row.title() == null || row.title().isBlank()
-                            ? safe(row.id()) : row.title().trim();
-                    return row.displayBlocked() ? "[BLOCKED] " + base : base;
-                }
-
-                @Override
-                public Color getForeground(Object element) {
-                    TicketRow row = asRow(element);
-                    Display display = Display.getCurrent();
-                    return row != null && row.displayBlocked() && display != null
-                            ? display.getSystemColor(SWT.COLOR_RED) : null;
-                }
-
-                @Override
-                public String getToolTipText(Object element) {
-                    TicketRow row = asRow(element);
-                    if (row == null) {
-                        return null;
-                    }
-                    StringBuilder sb = new StringBuilder(safe(row.id()))
-                            .append(" \u2014 ").append(safe(row.title()));
-                    sb.append("\nstatus: ").append(safe(row.status()))
-                            .append(" · type: ").append(row.type() == null ? "(none)" : row.type())
-                            .append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage())
-                            .append(" · priority: ").append(row.priority() == null
-                                    || row.priority().isBlank() ? "medium" : row.priority());
-                    if (row.displayBlocked()) {
-                        sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
-                    }
-                    return sb.toString();
-                }
-            });
+            // U-065: the styled title cell keeps the readiness chips, stage
+            // journey and blocker tail that the composed cards used to render
+            BoardRowLabel titleCell = new BoardRowLabel();
+            rowLabels.add(titleCell);
+            title.setLabelProvider(titleCell);
             tableLayout.setColumnData(title.getColumn(), new ColumnWeightData(100, 110, true));
 
             TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
@@ -865,25 +833,53 @@ public class BoardView extends ViewPart {
                 }
             });
             tableLayout.setColumnData(points.getColumn(), new ColumnWeightData(12, 26, false));
-            return viewer;
-        }
 
-        TableViewerColumn ticket = new TableViewerColumn(viewer, SWT.NONE);
-        BoardRowLabel rowLabel = new BoardRowLabel(statusPrefixedLabels);
-        ticket.setLabelProvider(rowLabel);
-        rowLabels.add(rowLabel);
-        tableLayout.setColumnData(ticket.getColumn(), new ColumnWeightData(100, 110, true));
+        // Owner direction 2026-10-07: the card columns SORT - a header click
+        // cycles ascending, descending and back to the snapshot order; the
+        // comparator itself is model-side (TicketRow.cardComparator) so the
+        // ordering contract stays unit-tested SWT-free
+        viewer.getTable().setHeaderVisible(true);
+        hookColumnSort(viewer, status.getColumn(), "status", "status emoji");
+        hookColumnSort(viewer, type.getColumn(), "type", "type emoji");
+        hookColumnSort(viewer, title.getColumn(), "title", "ticket title");
+        hookColumnSort(viewer, points.getColumn(), "points", "story points");
+    }
 
-        TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
-        points.setLabelProvider(new ColumnLabelProvider() {
-            @Override
-            public String getText(Object element) {
-                TicketRow row = asRow(element);
-                return row == null ? "" : row.pointsLabel();
+    /**
+     * Click-to-sort on one card column (owner direction 2026-10-07): the
+     * header cycles ascending, descending and back to the snapshot order,
+     * and the marker in the header shows the state. The marker IS the whole
+     * header text - the icon columns are too narrow for labels; the tooltip
+     * carries the column's meaning plus the sort behavior. JFace's
+     * ViewerComparator constructor takes a Comparator over STRING keys, so
+     * the row comparator rides in via the compare override instead.
+     */
+    private void hookColumnSort(TableViewer viewer, TableColumn column, String key, String meaning) {
+        final int[] step = {0}; // 0 snapshot order, 1 ascending, 2 descending
+        column.setText("\u21C5");
+        column.setToolTipText(meaning + " - click to sort: ascending, descending, snapshot order");
+        column.addListener(SWT.Selection, e -> {
+            step[0] = (step[0] + 1) % 3;
+            if (step[0] == 0) {
+                viewer.setComparator(null);
+                column.setText("\u21C5");
+                return;
             }
+            boolean ascending = step[0] == 1;
+            Comparator<TicketRow> order = TicketRow.cardComparator(key, ascending);
+            viewer.setComparator(new org.eclipse.jface.viewers.ViewerComparator() {
+                @Override
+                public int compare(org.eclipse.jface.viewers.Viewer viewer, Object left, Object right) {
+                    TicketRow a = asRow(left);
+                    TicketRow b = asRow(right);
+                    if (a == null || b == null) {
+                        return a == null ? (b == null ? 0 : 1) : -1;
+                    }
+                    return order.compare(a, b);
+                }
+            });
+            column.setText(ascending ? "\u25B2" : "\u25BC");
         });
-        tableLayout.setColumnData(points.getColumn(), new ColumnWeightData(14, 26, true));
-        return viewer;
     }
 
     private void hookViewerBehavior(TableViewer viewer) {
@@ -1234,14 +1230,13 @@ public class BoardView extends ViewPart {
      * Blocked rows render their [BLOCKED] tag red bold, bug rows carry a red [bug] tag; readiness chips
      * (· stale / · waiting) ride on the tail. Uses {@link StyledString} so the glyph and tags carry
      * their own colors inside one cell (user direction 2026-09-18: pictographs over [IP]-style codes). */
-    private static final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
-        private final boolean pipeline;
+    private final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
         private Map<String, StageReadiness.Readiness> readiness = Map.of();
         /** U-026: per-ticket stage journeys (progress + send-back marker). */
         private Map<String, StageJourney> journeys = Map.of();
 
-        BoardRowLabel(boolean pipeline) {
-            this.pipeline = pipeline;
+        /** U-065: the styled TITLE cell of every card column (all modes). */
+        BoardRowLabel() {
         }
 
         /** Latest per-ticket dispatch verdicts (UI thread, before setInput). */
@@ -1264,21 +1259,13 @@ public class BoardView extends ViewPart {
             }
             Display display = cell.getControl().getDisplay();
             org.eclipse.jface.viewers.StyledString text = new org.eclipse.jface.viewers.StyledString();
-            if (pipeline) {
-                String symbol = TicketRow.statusSymbol(row.status());
-                if (!symbol.isEmpty()) {
-                    text.append(symbol + " ", colorStyler(symbolColor(display, row.status())));
-                }
-            }
-            if (row.displayBlocked()) {
-                text.append("[BLOCKED] ", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
-            }
-            if (row.isBug()) {
-                text.append(row.typeTag() + " ", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
-            } else if (row.typeTag() != null && !row.typeTag().isEmpty()) {
-                text.append(row.typeTag() + " ", colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
-            }
-            text.append(safe(row.title()));
+            // U-067: the blocked STATE owns its presentation (status column +
+            // readiness chip) - the title cell stays CLEAN: no status-derived
+            // prefix that doubles the information or goes stale on a status
+            // change (owner 2026-10-07: "still the cross symbol in the text -
+            // this is double information")
+            text.append(row.title() == null || row.title().isBlank()
+                    ? safe(row.id()) : row.title().trim());
             // cross-mode awareness + readiness chips in quiet gray
             String tail = row.labelTail();
             if (!tail.isEmpty()) {
@@ -1314,15 +1301,6 @@ public class BoardView extends ViewPart {
         }
 
         /** The status glyph's color: done green, running blue, review amber, backlog gray. */
-        private static Color symbolColor(Display display, String status) {
-            return switch (status == null ? "" : status) {
-                case "done" -> display.getSystemColor(SWT.COLOR_DARK_GREEN);
-                case "in-progress" -> display.getSystemColor(SWT.COLOR_BLUE);
-                case "in-review" -> display.getSystemColor(SWT.COLOR_DARK_YELLOW);
-                default -> display.getSystemColor(SWT.COLOR_DARK_GRAY);
-            };
-        }
-
         /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
         private static String chipOf(StageReadiness.Readiness verdict) {
             if (verdict == null) {
@@ -1650,7 +1628,7 @@ public class BoardView extends ViewPart {
                 "Plan over the current sprint (readiness + cost budget) and launch every admitted ticket as a fleet agent");
         autoDispatchAction.setImageDescriptor(icon("auto-dispatch"));
 
-        autoLoopAction = new Action("Auto ▶", Action.AS_CHECK_BOX) {
+        autoLoopAction = new Action("Auto \u25B6", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 toggleDispatchLoop();
@@ -1660,7 +1638,7 @@ public class BoardView extends ViewPart {
                 + "launches admitted tickets until it drains (stops on uncheck or view close)");
         autoLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        wavesLoopAction = new Action("Waves ▶", Action.AS_CHECK_BOX) {
+        wavesLoopAction = new Action("Waves \u25B6", Action.AS_CHECK_BOX) {
             @Override
             public void run() {
                 toggleWavesLoop();
@@ -2011,7 +1989,8 @@ public class BoardView extends ViewPart {
     private void applyFlatSnapshot(BoardSnapshot snapshot) {        for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
             List<TicketRow> rows = snapshot.column(entry.getKey());
             entry.getValue().viewer.setInput(rows);
-            entry.getValue().header.setText(entry.getKey() + " (" + rows.size() + ")");
+            entry.getValue().header.setText(
+                TicketRow.statusHeaderText(entry.getKey()) + " (" + rows.size() + ")");
         }
     }
 
@@ -2025,7 +2004,7 @@ public class BoardView extends ViewPart {
             List<TicketRow> rows = column == null ? List.of() : column.rows();
             int blockedCount = column == null ? 0 : column.blockedCount();
             // keep the numbered snake header (set at creation); append count
-            ui.headerLabel.setText(numberedStageHeader(ui.stage) + " (" + rows.size());
+            ui.headerLabel.setText(numberedStageHeader(ui.stage) + " (" + rows.size() + ")");
             // U-028: the WIP count beside total/blocked (plain count, no limits)
             int wip = PipelineSnapshot.wipCount(rows);
             ui.wipLabel.setText(wip > 0 ? " \u00b7 " + wip + " WIP" : "");
@@ -2310,7 +2289,7 @@ public class BoardView extends ViewPart {
             return;
         }
         boolean on = autoLoopAction.isChecked();
-        autoLoopAction.setText(on ? "Auto \u25A0" : "Auto \u25B6");
+        autoLoopAction.setText(on ? "Auto \u25A0" : "Auto \uD83C\uDFC3");
         if (on) {
             startDispatchLoop();
         } else {
@@ -2368,7 +2347,7 @@ public class BoardView extends ViewPart {
                         } else {
                             stopDispatchLoop(null);
                             autoLoopAction.setChecked(false);
-                            autoLoopAction.setText("Auto \u25B6");
+                            autoLoopAction.setText("Auto \uD83C\uDFC3");
                             MessageDialog.openError(getSite().getShell(), name, String.valueOf(error.getMessage()));
                         }
                     }
@@ -2385,12 +2364,12 @@ public class BoardView extends ViewPart {
     private void cancelDispatchForSelection() {
         stopDispatchLoop(null);
         autoLoopAction.setChecked(false);
-        autoLoopAction.setText("Auto ▶");
+        autoLoopAction.setText("Auto \u25B6");
         // a project/root/sprint switch invalidates the waves loop's context
         // exactly like the one-sprint loop's — turn it off with the toggle
         stopWavesLoop(null);
         wavesLoopAction.setChecked(false);
-        wavesLoopAction.setText("Waves ▶");
+        wavesLoopAction.setText("Waves \u25B6");
     }
 
     /**
@@ -2483,7 +2462,7 @@ public class BoardView extends ViewPart {
             return;
         }
         boolean on = wavesLoopAction.isChecked();
-        wavesLoopAction.setText(on ? "Waves ■" : "Waves ▶");
+        wavesLoopAction.setText(on ? "Waves ■" : "Waves \u25B6");
         if (on) {
             startWavesLoop();
         } else {
@@ -2494,7 +2473,7 @@ public class BoardView extends ViewPart {
     private void startWavesLoop() {
         if (model == null || launcher == null || dispatchPending) {
             wavesLoopAction.setChecked(false);
-            wavesLoopAction.setText("Waves ▶");
+            wavesLoopAction.setText("Waves \u25B6");
             return;
         }
         stopWavesLoop(null);
@@ -2968,8 +2947,6 @@ public class BoardView extends ViewPart {
         saveSettings();
         stopDispatchLoop(null);
         stopWavesLoop(null);
-        typeImages.values().forEach(org.eclipse.swt.graphics.Image::dispose);
-        typeImages.clear();
         if (watcher != null) {
             watcher.stop();
             watcher = null;

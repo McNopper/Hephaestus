@@ -221,6 +221,29 @@ public class ChatSessionControllerTest {
     }
 
     @Test
+    public void replyWaitTimeoutHandsOffToTheLateReplyWatcher() {
+        // B-024: the reply-wait budget/no-progress expiry
+        // (OpencodeException.ReplyTimeout) takes the same recovery path as
+        // the POST HTTP timeout - no "Send failed" notice, the late-reply
+        // watcher settles the reply from history once the session goes idle.
+        ChatSessionController tight = new ChatSessionController(connection, renderer, host,
+                Duration.ofMillis(1), Duration.ofMinutes(30));
+        connection.client.sendFailure = new OpencodeException.ReplyTimeout(
+                "opencode ses_1: no reply progress for 600s - the turn may still be working");
+        connection.client.busyPolls = 1; // recovery probe sees busy, watcher poll sees idle
+        connection.client.history = List.of(entry("u1", "user", "hi"),
+                entry("msg_9", "assistant", "late done"));
+        tight.send(new ChatSessionController.OutgoingMessage(
+                null, "prov", "m1", null, null, "hi"));
+
+        assertTrue("no failure notice expected, got: " + renderer.notices,
+                renderer.notices.stream().noneMatch(n -> n.contains("Send failed")));
+        assertTrue("late final render expected, got: " + renderer.assistants,
+                renderer.assistants.contains("final:msg_9:late done||prov/mod|"));
+        assertFalse(tight.isSending());
+    }
+
+    @Test
     public void sendTimeoutStuckBusyIsAbortedAtTheCap() {
         ChatSessionController tight = new ChatSessionController(connection, renderer, host,
                 Duration.ofMillis(1), Duration.ofMillis(20));

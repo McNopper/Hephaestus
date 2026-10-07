@@ -20,6 +20,19 @@
 
 > *[Hephaestus](https://en.wikipedia.org/wiki/Hephaestus) — Greek god of the forge, and the one who built automatons: Talos, the golden mechanical attendants.*
 
+![Hephaestus V-model animation: ten stages in a V, agent crews coming and going, one ticket flowing, labeled send-back lines](docs/assets/v-model-agents.gif)
+
+*What you see: the ten-stage V-model - the blue **definition leg (1-5)** steps down,
+the amber **build/review vertex (5-6)** joins them, the green **verification leg (6-10)**
+climbs back up. **One ticket** walks the whole V while **agent crews** (the mascots)
+appear and disappear where the work is; a six-bot **fleet** waits at the bottom to
+dispatch the next wave. The dashed connectors march in the direction of travel, and
+the gray lines are the **send-back paths** (the pair lines name the failing
+check, e.g. "system test failed - send back"; the legend keys the gray
+dashes - rejection at the vertex included). The same flow drives the
+Eclipse Board's
+V-pipeline and the fleet's waves.*
+
 ## Overview
 
 Hephaestus is an **opencode-native** template for **agentic project management and
@@ -48,8 +61,9 @@ Three ideas hold it together:
   store. The store is version-controlled Markdown — the seam the Maven mojos
   (`opencode-tasks:sync`/`plan`) and the Eclipse Board view build on.
 - **Model-neutral by default.** Agents reference a *tier*; the concrete model
-  resolves from `opencode.json` (default) and any per-agent overrides. Only `graphics-expert`
-  is pinned (to `very-high`).
+  resolves from YOUR `opencode.json` default and agent frontmatter — **no
+  model ids are committed** (contributors use different providers; set your
+  own, resolve via `/models`).
 
 > **The PM/ticket system is optional.** Any skill or agent can be used **directly** by a
 > human (or another agent) with no ticket or sprint — just invoke the skill or pick an
@@ -84,11 +98,25 @@ deliberate exception: the Eclipse **JobManager** runtime (`org.eclipse.core.jobs
 same work scheduler (`WorkerPools`) in every host — the IDE
 consumes them, never owns them (see `eclipse/ARCHITECTURE.md`).
 
+## With or without the fleet
+
+The harness works **with and without the fleet**.
+
+- **Without the fleet (default):** you trigger every step yourself - via
+  **chat** or the **Eclipse UI** (Board, *Launch task*). No fleet needed
+  anywhere, Eclipse included.
+- **With the fleet:** the same steps run **automated** - unattended waves
+  claim, run, merge and accept on their own, inside the cost/concurrency
+  budgets. That is the **token burner** from the warning above, so the fleet
+  is **disabled by default**: enable it deliberately (Fleet view -> *Enable*,
+  or `"disabled": false` on the `fleet` server in `opencode.json`) and keep
+  the budgets set.
+
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `opencode.json` (repo root) | project config — default `model`, `AGENTS.md`, and the `tasks` + `fleet` (stdio launchers; `fleet` ships **disabled**) + `graphics` MCP servers. |
+| `opencode.json` (repo root) | project config - your `model` (set locally; none is committed), `AGENTS.md`, and the `tasks` + `fleet` (stdio launchers; `fleet` ships **disabled**) + `graphics` MCP servers. |
 | `AGENTS.md` (repo root) | opencode-first workflow conventions and routing. |
 | `.opencode/skills/*/SKILL.md` | the skill library, flat by domain. |
 | `.opencode/agent/*.md` | lean custom agents (coordination + domain). |
@@ -193,10 +221,10 @@ a ticket), `project-manager-route-request` (ambiguous next step), `project-manag
 
 ## Model tiers
 
-Agents/docs reference **tiers**, never hard-coded model IDs. The concrete model
-behind each tier is configured in `opencode.json` (the default `model` field)
-and in any per-agent override (only `graphics-expert` overrides, pinning to
-`very-high`); resolve through `/models`. In the Eclipse chat, selector changes
+Agents/docs reference **tiers**, never hard-coded model IDs, and **no model
+ids are committed** (decision D-004: contributors use different providers) —
+each setup configures its `opencode.json` default and agent frontmatter, and
+resolves tiers through `/models`. In the Eclipse chat, selector changes
 are deliberate by design: un-armed drift (mouse-wheel/pointer traffic over the
 selector row) reverts — only an opened-dropdown pick or Enter commits.
 
@@ -297,8 +325,8 @@ providers.
 
 ### What *not* to do
 
-- ❌ Don't hard-code a model in an agent beyond the default — reference a **tier**; only
-  `graphics-expert` pins a model.
+- ❌ Don't commit a model id anywhere (`opencode.json` default or agent
+  frontmatter) — reference a **tier**; every setup decides its providers.
 - ❌ Don't rename `SKILL.md` or rely on the folder name — identity is the front-matter
   `name:` (must match its folder).
 - ❌ Don't put two `AGENTS.md` in the same folder — opencode loads one per git-root/cwd.

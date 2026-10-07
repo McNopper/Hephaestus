@@ -146,7 +146,7 @@ final class TicketDetailsDialog extends Dialog {
         if (task.assignee != null) {
             sb.append("  •  @").append(task.assignee);
         }
-        if (task.blocked) {
+        if (task.isBlocked()) {
             sb.append("  •  BLOCKED: ").append(safe(task.blocker));
         }
         return sb.toString();

@@ -44,7 +44,7 @@ enforce the Definition of Done. Worker agents are dispatched (by the
 product-backlog --wave planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
       ^                                          |                       |                    |
       `--- on wave close, incomplete <---'     `--- review FAIL: send-back / blocked in place --'   |
-blocked = orthogonal flag (blocked:bool + blocker:str) at any active state; a blocked ticket is
+blocked = a state (status:blocked + resume_to:str + blocker:str); a blocked ticket is
           NEEDS-HUMAN once no agent retry is in flight (blocked is reached only after agents
           had their attempt)
 paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update

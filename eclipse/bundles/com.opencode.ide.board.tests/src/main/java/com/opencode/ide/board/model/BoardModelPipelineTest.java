@@ -160,7 +160,7 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
         assertEquals(1, snapshot.blockedCount());
         int rows = snapshot.columns().values().stream().mapToInt(List::size).sum();
         assertEquals(1, rows);
-        assertEquals(blockedId, snapshot.column("sprint-backlog").get(0).id());
+        assertEquals(blockedId, snapshot.column("blocked").get(0).id());
     }
 
     @Test
@@ -190,7 +190,7 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
         BoardSnapshot snapshot = model.refresh();
 
         assertNull(snapshot.pipeline());
-        assertEquals("flat columns = the valid statuses (incl. U-038's paused)", 6,
+        assertEquals("flat columns = the valid statuses (incl. U-038's paused and U-067's blocked)", 7,
                 snapshot.columns().size());
         assertTrue(snapshot.column("product-backlog").isEmpty());
         assertEquals(1, snapshot.column("sprint-backlog").size());

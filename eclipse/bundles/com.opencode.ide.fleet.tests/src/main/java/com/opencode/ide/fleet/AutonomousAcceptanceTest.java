@@ -81,7 +81,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         assertEquals("tester", after.role);
         assertEquals("product-backlog", after.status);
         assertNull("assignee cleared for the next stage's claim", after.assignee);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertNotNull("the advance is the reviewer's (from the done the verdict set)",
                 after.history.stream()
                         .filter(h -> "advanced to test-implementation".equals(h.action())
@@ -103,8 +103,9 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("FAIL -> task_send_back to the previous stage", "design", after.stage);
         assertEquals("developer", after.role);
-        assertEquals("product-backlog", after.status);
-        assertTrue("blocked is the human-escalation signal", after.blocked);
+        assertEquals("blocked (state) with the backlog as resume", "blocked", after.status);
+        assertEquals("product-backlog", after.resumeTo);
+        assertTrue("blocked is the human-escalation signal", after.isBlocked());
         assertTrue(after.blocker.startsWith("sent back from implementation: "));
         assertTrue("the reviewer's reasons ride on the blocker",
                 after.blocker.contains("criterion 1 unmet"));
@@ -128,8 +129,10 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("requirements has no previous stage to send back to",
                 VStages.first(), after.stage);
-        assertEquals("a first-stage FAIL stays at the accept gate", "in-review", after.status);
-        assertTrue("blocked in place is the human-escalation signal", after.blocked);
+        assertEquals("a first-stage FAIL stays at the accept gate (as the blocked state)",
+                "blocked", after.status);
+        assertEquals("clearing returns to the accept gate", "in-review", after.resumeTo);
+        assertTrue("blocked in place is the human-escalation signal", after.isBlocked());
         assertTrue(after.blocker.startsWith("review failed: "));
         assertTrue("the reviewer's reasons ride on the blocker",
                 after.blocker.contains("no goals captured"));
@@ -156,7 +159,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("doubt returns to the stage backlog (retry 1/1)", "product-backlog", after.status);
         assertEquals("design", after.stage);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue(after.comments.stream()
                 .anyMatch(c -> "reviewer".equals(c.by())
                         && c.text().contains("verification gate unreachable")));
@@ -172,7 +175,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("the V tip has no task_advance: PASS ends in done", "done", after.status);
         assertEquals(VStages.last(), after.stage);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
     }
 
     @Test
@@ -188,7 +191,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("accepted and done", "done", after.status);
         assertNull("an unstaged ticket has no pipeline to advance", after.stage);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue(after.comments.stream()
                 .anyMatch(c -> "reviewer".equals(c.by()) && c.text().startsWith("review: PASS")));
     }
@@ -211,7 +214,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
                 "test-implementation".equals(after.stage));
         assertEquals("the doubt routes to the originator's own stage", "implementation", after.stage);
         assertEquals("product-backlog", after.status);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue(after.comments.stream()
                 .anyMatch(c -> c.text().contains("no parseable verdict")));
     }
@@ -288,7 +291,7 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
         Task after = store.get(PROJECT, id);
         assertEquals("the ticket waits for a human accept", "in-review", after.status);
         assertEquals("implementation", after.stage);
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
         assertTrue("the not-performed comment names the failure",
                 after.comments.stream()
                         .anyMatch(c -> "reviewer".equals(c.by())

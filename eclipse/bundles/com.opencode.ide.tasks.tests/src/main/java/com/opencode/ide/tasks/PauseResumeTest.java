@@ -26,7 +26,7 @@ public class PauseResumeTest extends StoreTestHarness {
         Task paused = store.setPaused("p", t.id, "JDK upgrade on the host", "shutdown");
 
         assertEquals("paused", paused.status);
-        assertFalse("paused is never blocked (and never NEEDS-HUMAN)", paused.blocked);
+        assertFalse("paused is never blocked (and never NEEDS-HUMAN)", paused.isBlocked());
         String history = paused.toJson().toString();
         assertTrue("the reason is recorded: " + history,
                 history.contains("paused: JDK upgrade on the host"));

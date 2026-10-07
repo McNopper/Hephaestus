@@ -91,23 +91,24 @@ public class AdvanceGateTest extends StoreTestHarness {
     }
 
     @Test
-    public void advanceClearsTheAssigneeButKeepsTheBlockedFlagAsIs() {
+    public void advanceClearsTheAssigneeAfterTheStateIsLeft() {
         String id = staged("system", "in-review");
         store.sendBack("p", id, "spec contradicts itself", "architect");
         Task sentBack = store.get("p", id);
         assertEquals("requirements", sentBack.stage);
-        assertTrue(sentBack.blocked);
+        assertTrue(sentBack.isBlocked());
+        // U-067: leave the state explicitly, then the pipeline continues
+        store.clearBlocked("p", id, null);
         store.update("p", id, Map.of("status", "in-review", "assignee", "pm-agent"));
 
         Task advanced = store.advance("p", id, "pm");
         assertEquals("system", advanced.stage);
         assertEquals("architect", advanced.role);
         assertNull("the assignee is cleared", advanced.assignee);
-        // V-001 semantics: "blocked stays as-is" on advance — the flag is
-        // orthogonal to the pipeline and only clearBlocked lowers it.
-        assertTrue("the blocked flag intentionally persists across an advance", advanced.blocked);
-        assertEquals("sent back from system: spec contradicts itself", advanced.blocker);
-        assertTrue("and it persisted to the file", store.get("p", id).blocked);
+        assertTrue("U-067: the advance ran after leaving the state",
+                !advanced.isBlocked());
+        assertNull(advanced.blocker);
+        assertTrue("and it stayed unblocked on disk", !store.get("p", id).isBlocked());
     }
 
     @Test

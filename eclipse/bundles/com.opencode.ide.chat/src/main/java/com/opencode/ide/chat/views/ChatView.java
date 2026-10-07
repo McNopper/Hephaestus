@@ -69,6 +69,12 @@ import com.opencode.ide.core.OpencodePreferences;
  * Both fork paths open the fork here in the chat (resumed, history rendered);
  * the original session stays untouched.</p>
  *
+ * <p>U-064 backgrounding (TUI parity): the composer takes the TUI's Ctrl+B,
+ * the input row carries an always-visible <i>Background</i> button, the view
+ * toolbar its Background action, and Ctrl+Alt+Shift+B is the global binding
+ * ({@code com.opencode.ide.chat.background} + {@code BackgroundSessionHandler}).
+ * Backgrounded sessions keep running and are listed in the Background view.</p>
+ *
  * <p>TUI-parity undo/redo: the toolbar Undo/Redo actions and the built-in
  * {@code /undo} / {@code /redo} slash commands revert the last exchange
  * (user message plus replies) through the server's revert endpoint and
@@ -129,6 +135,11 @@ public class ChatView extends ViewPart {
     /** Visible rows of the pending-message queue. */
     private static final int QUEUE_ROWS = 4;
 
+    /** The queue table's resting tooltip (row hover replaces it with the full prompt). */
+    private static final String QUEUE_HELP =
+            "Pending messages - sent automatically when the current reply finishes.\n"
+            + "ENTER while a reply streams queues the typed message here.";
+
     private ChatPage page;
     private ChatSessionController controller;
     private CommandComposer composer;
@@ -136,6 +147,7 @@ public class ChatView extends ViewPart {
     private Composite inputRow;
     private Button sendButton;
     private Button stopButton;
+    private Button backgroundButton;
     private Action abortAction;
     private Action undoAction;
     private Action redoAction;
@@ -150,7 +162,7 @@ public class ChatView extends ViewPart {
     private SelectorGuard modelGuard;
     private SelectorGuard variantGuard;
     private org.eclipse.swt.widgets.List commandPicker;
-    private org.eclipse.swt.widgets.List queueList;
+    private org.eclipse.swt.widgets.Table queueTable;
 
     /** Current picker proposals (empty = picker hidden). */
     private List<CommandInfo> pickerMatches = List.of();
@@ -482,22 +494,49 @@ public class ChatView extends ViewPart {
         queueRow.setLayoutData(queueRowData);
         queueRow.setVisible(false);
 
-        queueList = new org.eclipse.swt.widgets.List(queueRow, SWT.BORDER | SWT.V_SCROLL);
-        queueList.setToolTipText(
-                "Pending messages - sent automatically when the current reply finishes.\nENTER while a reply streams queues the typed message here.");
-        queueList.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        // U-071: the queue is a numbered TABLE, not a squeezed list - header
+        // (# + message with the live count), grid lines, send order visible,
+        // full-text tooltip per row (cells truncate inline)
+        queueTable = new org.eclipse.swt.widgets.Table(queueRow,
+                SWT.SINGLE | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
+        queueTable.setLinesVisible(true);
+        queueTable.setHeaderVisible(true);
+        org.eclipse.swt.widgets.TableColumn orderColumn =
+                new org.eclipse.swt.widgets.TableColumn(queueTable, SWT.NONE);
+        orderColumn.setText("#");
+        orderColumn.setWidth(26);
+        orderColumn.setResizable(false);
+        org.eclipse.swt.widgets.TableColumn messageColumn =
+                new org.eclipse.swt.widgets.TableColumn(queueTable, SWT.NONE);
+        messageColumn.setText("message");
+        messageColumn.setWidth(360);
+        queueTable.setToolTipText(QUEUE_HELP);
+        queueTable.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        // the message column follows the row width (the table fills its cell)
+        queueTable.addListener(SWT.Resize, e -> messageColumn.setWidth(Math.max(120,
+                queueTable.getClientArea().width - orderColumn.getWidth() - 8)));
         // Enter / double-click edits the selected pending message (remove +
         // load into the input; ENTER re-queues or sends it)
-        queueList.addListener(SWT.DefaultSelection, e -> editSelectedQueued());
+        queueTable.addListener(SWT.DefaultSelection, e -> editSelectedQueued());
+        // full text on hover: SWT TableItem has no tooltip API, so the row
+        // UNDER THE CURSOR supplies the table tooltip (help text otherwise)
+        queueTable.addListener(SWT.MouseMove, e -> {
+            org.eclipse.swt.widgets.TableItem under =
+                    queueTable.getItem(new org.eclipse.swt.graphics.Point(e.x, e.y));
+            String full = under == null ? QUEUE_HELP : under.getText(1);
+            if (!full.equals(queueTable.getToolTipText())) {
+                queueTable.setToolTipText(full);
+            }
+        });
 
         Button queueEditButton = new Button(queueRow, SWT.PUSH);
-        queueEditButton.setText("Edit");
+        queueEditButton.setText("\u270F\uFE0F Edit");
         queueEditButton.setToolTipText("Edit the selected pending message");
         queueEditButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
         queueEditButton.addListener(SWT.Selection, e -> editSelectedQueued());
 
         Button queueRemoveButton = new Button(queueRow, SWT.PUSH);
-        queueRemoveButton.setText("Remove");
+        queueRemoveButton.setText("\uD83D\uDDD1\uFE0F Remove");
         queueRemoveButton.setToolTipText("Drop the selected pending message");
         queueRemoveButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
         queueRemoveButton.addListener(SWT.Selection, e -> removeSelectedQueued());
@@ -506,15 +545,15 @@ public class ChatView extends ViewPart {
         // the session at its current head and MOVES the queued prompt into the
         // fork's input, before it is dispatched here.
         Button queueForkButton = new Button(queueRow, SWT.PUSH);
-        queueForkButton.setText("Fork");
+        queueForkButton.setText("\uD83D\uDD00 Fork");
         queueForkButton.setToolTipText(
                 "Fork the session at its current head and move this queued prompt into the fork (it is sent there, never here)");
         queueForkButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
         queueForkButton.addListener(SWT.Selection, e -> forkSelectedQueued());
 
-        // row 2: prompt input + send/stop buttons (separate row below the transcript)
+        // row 2: prompt input + send/stop/background buttons (separate row below the transcript)
         inputRow = new Composite(outer, SWT.NONE);
-        GridLayout inputLayout = new GridLayout(3, false);
+        GridLayout inputLayout = new GridLayout(4, false);
         inputLayout.marginWidth = 0;
         inputLayout.marginHeight = 0;
         inputRow.setLayout(inputLayout);
@@ -560,6 +599,9 @@ public class ChatView extends ViewPart {
                         && pickerHasMatches()) {
                     e.doit = false;
                     movePickerSelection(e.keyCode == SWT.ARROW_DOWN ? 1 : -1);
+                } else if (com.opencode.ide.chat.BackgroundKeys.isBackgroundKey(e.stateMask, e.keyCode)) {
+                    e.doit = false;
+                    backgroundRequested();
                 } else if (plainEnter) {
                     e.doit = false;
                     send();
@@ -583,6 +625,17 @@ public class ChatView extends ViewPart {
         stopButton.setLayoutData(stopData);
         stopButton.setVisible(false);
         stopButton.addListener(SWT.Selection, e -> abortRequested());
+
+        // U-064: the Background affordance sits in the input row (always
+        // visible) - same path as the toolbar action and the Ctrl+B /
+        // Ctrl+Alt+Shift+B bindings.
+        backgroundButton = new Button(inputRow, SWT.PUSH);
+        backgroundButton.setText("⤵ Background");
+        backgroundButton.setToolTipText("Background this session (Ctrl+B in the composer, "
+                + "Ctrl+Alt+Shift+B globally): it keeps working while you do other things "
+                + "- watch it in the Background view");
+        backgroundButton.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, false, false));
+        backgroundButton.addListener(SWT.Selection, e -> backgroundRequested());
 
         contributeActions();
         page.load();
@@ -680,7 +733,8 @@ public class ChatView extends ViewPart {
                 backgroundSession();
             }
         };
-        backgroundAction.setToolTipText("Background this session's blocking tools and keep working (v2 Ctrl+B)");
+        backgroundAction.setToolTipText("Background this session's blocking tools and keep working "
+                + "(Ctrl+B in the composer, Ctrl+Alt+Shift+B globally)");
         Action queueSendAction = new Action("Send to Queue") {
             @Override
             public void run() {
@@ -704,6 +758,16 @@ public class ChatView extends ViewPart {
         if (controller != null) {
             controller.abort();
         }
+    }
+
+    /**
+     * Backgrounds this session's long-running work (U-064): the inline
+     * Background button in the input row, the composer's Ctrl+B, the toolbar
+     * Background action and the {@code Ctrl+Alt+Shift+B} binding all end up
+     * here. The session keeps running; the Background view lists it.
+     */
+    public void backgroundRequested() {
+        backgroundSession();
     }
 
     /** @return true while a reply is being generated (used by the abort handler). */
@@ -1242,27 +1306,32 @@ public class ChatView extends ViewPart {
 
     /** Rebuilds the pending list from the controller (hidden while empty). */
     private void refreshQueue() {
-        if (queueList == null || queueList.isDisposed() || controller == null) {
+        if (queueTable == null || queueTable.isDisposed() || controller == null) {
             return;
         }
         List<String> pending = controller.queuedPrompts();
-        int keep = queueList.getSelectionIndex();
-        queueList.removeAll();
-        for (String text : pending) {
-            queueList.add(text);
+        int keep = queueTable.getSelectionIndex();
+        queueTable.removeAll();
+        for (int i = 0; i < pending.size(); i++) {
+            String text = pending.get(i);
+            org.eclipse.swt.widgets.TableItem item =
+                    new org.eclipse.swt.widgets.TableItem(queueTable, SWT.NONE);
+            item.setText(new String[] {String.valueOf(i + 1), text});
         }
+        queueTable.getColumn(1).setText("message (" + pending.size() + " queued)");
         boolean show = !pending.isEmpty();
         if (show) {
-            int itemHeight = Math.max(queueList.getItemHeight(), 18);
-            ((GridData) queueList.getLayoutData()).heightHint =
-                    Math.min(pending.size(), QUEUE_ROWS) * itemHeight + 4;
+            int itemHeight = Math.max(queueTable.getItemHeight(), 18);
+            // header + up to QUEUE_ROWS rows (the header must not eat row one)
+            ((GridData) queueTable.getLayoutData()).heightHint =
+                    (Math.min(pending.size(), QUEUE_ROWS) + 1) * itemHeight + 8;
             if (keep >= 0 && keep < pending.size()) {
-                queueList.setSelection(keep);
+                queueTable.setSelection(keep);
             }
         }
-        boolean visibilityChanged = show != queueList.isVisible();
-        Composite row = queueList.getParent();
-        queueList.setVisible(show);
+        boolean visibilityChanged = show != queueTable.isVisible();
+        Composite row = queueTable.getParent();
+        queueTable.setVisible(show);
         ((GridData) row.getLayoutData()).exclude = !show;
         row.setVisible(show);
         if (show || visibilityChanged) {
@@ -1274,7 +1343,7 @@ public class ChatView extends ViewPart {
 
     /** Edit: takes the selected pending message back into the input (ENTER re-queues or sends it). */
     private void editSelectedQueued() {
-        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        int index = queueTable == null || queueTable.isDisposed() ? -1 : queueTable.getSelectionIndex();
         if (index < 0) {
             return;
         }
@@ -1289,7 +1358,7 @@ public class ChatView extends ViewPart {
 
     /** Remove: drops the selected pending message. */
     private void removeSelectedQueued() {
-        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        int index = queueTable == null || queueTable.isDisposed() ? -1 : queueTable.getSelectionIndex();
         if (index >= 0) {
             controller.removeQueuedPrompt(index);
         }
@@ -1304,7 +1373,7 @@ public class ChatView extends ViewPart {
      * loaded into its input.
      */
     private void forkSelectedQueued() {
-        int index = queueList == null || queueList.isDisposed() ? -1 : queueList.getSelectionIndex();
+        int index = queueTable == null || queueTable.isDisposed() ? -1 : queueTable.getSelectionIndex();
         if (index >= 0 && controller != null) {
             controller.forkQueued(index);
         }
@@ -1531,7 +1600,8 @@ public class ChatView extends ViewPart {
             String message;
             try {
                 com.opencode.ide.core.OpencodeConnection.getInstance().getClient().backgroundSession(sid);
-                message = "session backgrounded - long tools keep running while you work";
+                message = "session backgrounded - long tools keep running while you work "
+                        + "- watch it in the Background view (Window > Show View > Other... > Background)";
             } catch (Exception e) {
                 message = "background failed: " + e.getMessage();
             }

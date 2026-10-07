@@ -91,7 +91,7 @@ public class AutoDeployTest {
         assertTrue("the user is told 'restart Eclipse' only when jars landed",
                 after.comments.stream().anyMatch(c -> AutoDeploy.BY.equals(c.by())
                         && c.text().contains("deploy: jars refreshed - restart Eclipse")));
-        assertFalse(after.blocked);
+        assertFalse(after.isBlocked());
     }
 
     /** AC: red builds do NOT deploy and surface as NEEDS-HUMAN (blocked). */
@@ -106,7 +106,7 @@ public class AutoDeployTest {
         observer.merged(PROJECT, ticketId, List.of("eclipse/bundles/x/src/main/java/A.java"));
 
         Task after = store.get(PROJECT, ticketId);
-        assertTrue("blocked is the needs-a-human signal", after.blocked);
+        assertTrue("blocked is the needs-a-human signal", after.isBlocked());
         assertTrue(after.blocker, after.blocker.startsWith("auto-deploy: RED build"));
     }
 
@@ -121,7 +121,7 @@ public class AutoDeployTest {
         observer.merged(PROJECT, ticketId, List.of("eclipse/build.ps1"));
 
         Task after = store.get(PROJECT, ticketId);
-        assertTrue(after.blocked);
+        assertTrue(after.isBlocked());
         assertTrue(after.blocker, after.blocker.startsWith("auto-deploy failed:"));
     }
 
@@ -138,6 +138,6 @@ public class AutoDeployTest {
         observer.merged(PROJECT, ticketId, List.of("README.md", "docs/requirements/x.md"));
 
         assertTrue("no build for doc/store-only merges", calls.isEmpty());
-        assertFalse(store.get(PROJECT, ticketId).blocked);
+        assertFalse(store.get(PROJECT, ticketId).isBlocked());
     }
 }

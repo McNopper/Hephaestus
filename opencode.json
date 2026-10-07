@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "kimi-code-plan-global/k3-256k",
   "instructions": ["AGENTS.md"],
   "mcp": {
     "servers": {

@@ -225,7 +225,7 @@ public class DispatchSchedulerTest {
     /** A blocked sprint-backlog ticket — BLOCKED. */
     private static Task blocked(String id) {
         Task t = ready(id);
-        t.blocked = true;
+        t.status = "blocked";
         t.blocker = "no server";
         return t;
     }

@@ -240,14 +240,16 @@ public class FleetControlTest {
         });
         try {
             assertEquals(FleetJob.State.FAILED, fleet.launch(PROJECT, id, repo, TIMEOUT).state());
-            assertTrue(store.get(PROJECT, id).blocked);
-            assertEquals("sprint-backlog", store.get(PROJECT, id).status);
+            assertTrue(store.get(PROJECT, id).isBlocked());
+            assertEquals("blocked", store.get(PROJECT, id).status);
+            assertEquals("F-001 retry contract via U-067 resume_to",
+                    "sprint-backlog", store.get(PROJECT, id).resumeTo);
             com.google.gson.JsonObject args = new com.google.gson.JsonObject();
             args.addProperty("project", PROJECT);
             args.addProperty("ticket_id", id);
             var reset = new FleetToolProvider(store.root(), control).call("fleet_reset", args);
             assertFalse(reset.text(), reset.isError());
-            assertFalse(store.get(PROJECT, id).blocked);
+            assertFalse(store.get(PROJECT, id).isBlocked());
             client.failSessionCreation = false;
             client.replyOnSend = "done";
             client.sessionType = "idle";
@@ -404,7 +406,7 @@ public class FleetControlTest {
         }
         // the loser touched NOTHING: ticket still sprint-backlog
         assertEquals("sprint-backlog", store.get(PROJECT, id).status);
-        assertFalse("no bogus blocked marker", store.get(PROJECT, id).blocked);
+        assertFalse("no bogus blocked marker", store.get(PROJECT, id).isBlocked());
         first.close();
         second.close();
     }

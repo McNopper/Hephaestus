@@ -20,9 +20,22 @@ public final class ClientTuning {
     public static final Duration REQUEST_TIMEOUT = duration(
             "CLIENT_REQUEST_TIMEOUT_MS", Duration.ofSeconds(30));
 
-    /** Default prompt-POST timeout. Env: CLIENT_PROMPT_TIMEOUT_MS. */
+    /**
+     * Absolute reply-wait cap (B-024): the backstop of the asynchronous
+     * prompt round-trip. Turns that keep making progress never hit it - the
+     * no-progress window ({@link #REPLY_STALL_WINDOW}) trips first on a
+     * stalled session. Env: CLIENT_PROMPT_TIMEOUT_MS.
+     */
     public static final Duration PROMPT_TIMEOUT = duration(
-            "CLIENT_PROMPT_TIMEOUT_MS", Duration.ofMinutes(5));
+            "CLIENT_PROMPT_TIMEOUT_MS", Duration.ofMinutes(60));
+    /**
+     * Reply no-progress window (B-024): how long the reply poll tolerates an
+     * UNCHANGED message list before giving up - any change (new entry,
+     * growing streamed text) resets it, so long healthy turns are never cut.
+     * Env: CLIENT_REPLY_STALL_MS.
+     */
+    public static final Duration REPLY_STALL_WINDOW = duration(
+            "CLIENT_REPLY_STALL_MS", Duration.ofMinutes(10));
 
     /** Reply poll interval: v2's POST /prompt is async, so the reply is polled
      *  off GET /session/:id/message. Env: CLIENT_REPLY_POLL_MS. */

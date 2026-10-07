@@ -216,7 +216,7 @@ public final class BoardRenderer {
         if (t.assignee != null && !t.assignee.isBlank()) {
             b.append(", ").append(t.assignee);
         }
-        if (t.blocked) {
+        if (t.isBlocked()) {
             b.append(", ⚠ blocked: ")
                     .append(t.blocker == null || t.blocker.isBlank() ? "unspecified" : t.blocker);
         }
@@ -319,7 +319,7 @@ public final class BoardRenderer {
         if (t.assignee != null && !t.assignee.isBlank()) {
             b.append(", ").append(esc(t.assignee));
         }
-        if (t.blocked) {
+        if (t.isBlocked()) {
             b.append(", <span class=\"blocked\">⚠ blocked: ")
                     .append(esc(t.blocker == null || t.blocker.isBlank() ? "unspecified" : t.blocker))
                     .append("</span>");

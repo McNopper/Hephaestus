@@ -92,6 +92,45 @@ public class DispatchPolicyStoreTest {
     }
 
     // ------------------------------------------------------------------
+    // Per-stage model policy (U-072)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void stageModelsRoundTripSortedUnderOneKey() {
+        FakeBackend backend = new FakeBackend();
+        Map<String, String> models = new LinkedHashMap<>();
+        models.put("implementation", "z.ai/glm-4.7#high");
+        models.put("requirements", "openai/gpt-5.1#low");
+
+        new DispatchPolicyStore(backend).saveStageModels(models);
+
+        assertEquals("implementation=z.ai/glm-4.7#high|requirements=openai/gpt-5.1#low",
+                backend.values.get(DispatchPolicyStore.KEY_STAGE_MODELS));
+        assertEquals(models, new DispatchPolicyStore(backend).loadStageModels());
+        assertEquals("saveStageModels flushes", 1, backend.flushes);
+    }
+
+    @Test
+    public void stageModelsDropUnknownStagesAndImplausibleValues() {
+        FakeBackend backend = new FakeBackend();
+        backend.values.put(DispatchPolicyStore.KEY_STAGE_MODELS,
+                "implementation=z.ai/glm-4.7|no-such-stage=provider/model"
+                        + "|design=not-a-model|design=has spaces|x=y=z");
+
+        Map<String, String> loaded = new DispatchPolicyStore(backend).loadStageModels();
+        assertEquals(Map.of("implementation", "z.ai/glm-4.7"), loaded);
+    }
+
+    @Test
+    public void emptyStageModelsWriteBlankAndReadEmpty() {
+        FakeBackend backend = new FakeBackend();
+        new DispatchPolicyStore(backend).saveStageModels(Map.of());
+        assertEquals("", backend.values.get(DispatchPolicyStore.KEY_STAGE_MODELS));
+        assertEquals(Map.of(), new DispatchPolicyStore(backend).loadStageModels());
+        assertEquals(Map.of(), new DispatchPolicyStore(new FakeBackend()).loadStageModels());
+    }
+
+    // ------------------------------------------------------------------
     // Load validation rules
     // ------------------------------------------------------------------
 

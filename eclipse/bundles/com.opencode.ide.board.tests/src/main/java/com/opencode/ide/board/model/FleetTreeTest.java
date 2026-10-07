@@ -189,7 +189,7 @@ public class FleetTreeTest {
     @Test
     public void blockedTicketsCarryTheBlockedBadge() {
         Task ticket = ticket("T-1", "S-01", "story", "in-progress");
-        ticket.blocked = true;
+        ticket.status = "blocked";
         ticket.blocker = "waiting";
         List<Node> roots = FleetTree.compose(List.of(job("T-1", null, State.RUNNING)),
                 id -> ticket, null, OWN, null);

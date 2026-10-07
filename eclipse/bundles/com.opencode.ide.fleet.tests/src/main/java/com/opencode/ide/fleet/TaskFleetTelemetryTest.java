@@ -126,7 +126,7 @@ public class TaskFleetTelemetryTest {
 
         assertEquals(FleetJob.State.MERGED, job.state());
         Task after = store.get(PROJECT, id);
-        assertFalse("telemetry failure must not block the ticket", after.blocked);
+        assertFalse("telemetry failure must not block the ticket", after.isBlocked());
         assertEquals("in-review", after.status);
         assertEquals("no actuals comment could be built", null, actualsComment(after));
     }

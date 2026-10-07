@@ -42,6 +42,10 @@
           id="com.opencode.ide.chat.abort"
           name="Abort Chat Reply"
           description="Abort the reply currently being generated in the active chat view"/>
+    <command
+          id="com.opencode.ide.chat.background"
+          name="Background Chat Session"
+          description="Background the active chat session's long-running work and keep working (the composer also takes the TUI's Ctrl+B)"/>
   </extension>
 
   <extension point="org.eclipse.ui.handlers">
@@ -54,6 +58,9 @@
     <handler
           commandId="com.opencode.ide.chat.abort"
           class="com.opencode.ide.chat.handlers.AbortChatHandler"/>
+    <handler
+          commandId="com.opencode.ide.chat.background"
+          class="com.opencode.ide.chat.handlers.BackgroundSessionHandler"/>
   </extension>
 
   <extension point="org.eclipse.ui.bindings">
@@ -71,6 +78,11 @@
           contextId="org.eclipse.ui.contexts.window"
           schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
           sequence="CTRL+ALT+SHIFT+A"/>
+    <key
+          commandId="com.opencode.ide.chat.background"
+          contextId="org.eclipse.ui.contexts.window"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+B"/>
   </extension>
 
 </plugin>
