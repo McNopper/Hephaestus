@@ -2,11 +2,13 @@ package com.opencode.ide.fleet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import com.opencode.ide.tasks.Task;
+import com.opencode.ide.tasks.TaskStore;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,426 +17,484 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.opencode.ide.tasks.Task;
-import com.opencode.ide.tasks.TaskStore;
-
 /**
- * Tests for the {@link FleetControl} seams around the fleet engine: the
- * permission queue before the engine exists (cheap listing, never a server
- * spawn), the generated server password ({@link FleetControl#resolvePassword}
- * - P-002), and the best-effort store auto-sync after a headless launch
- * (H-003) against a real temp git repo, using the same in-memory
- * client/worktree fakes as the other fleet tests.
+ * Tests for the {@link FleetControl} seams around the fleet engine: the permission queue before the
+ * engine exists (cheap listing, never a server spawn), the generated server password ({@link
+ * FleetControl#resolvePassword} - P-002), and the best-effort store auto-sync after a headless
+ * launch (H-003) against a real temp git repo, using the same in-memory client/worktree fakes as
+ * the other fleet tests.
  */
 public class FleetControlTest {
 
-    private static final String PROJECT = "p";
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
+  private static final String PROJECT = "p";
+  private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
-    private Path base;
+  private Path base;
 
-    @Before
-    public void setUp() throws Exception {
-        base = Files.createTempDirectory("opencode-fleet-control").toAbsolutePath().normalize();
+  @Before
+  public void setUp() throws Exception {
+    base = Files.createTempDirectory("opencode-fleet-control").toAbsolutePath().normalize();
+  }
+
+  @After
+  public void tearDown() {
+    if (base != null && Files.isDirectory(base)) {
+      deleteRecursively(base);
     }
+  }
 
-    @After
-    public void tearDown() {
-        if (base != null && Files.isDirectory(base)) {
-            deleteRecursively(base);
-        }
+  @Test
+  public void permissionsBeforeEngineStartIsAnEmptyObservationalQueue() {
+    FleetControl control =
+        new FleetControl(
+            base.resolve("repo/.opencode/tasks"),
+            root -> {
+              throw new IllegalStateException("listing asks must never spawn the engine");
+            });
+
+    PermissionQueue queue = control.permissions();
+
+    assertTrue(queue.pending().isEmpty());
+    assertFalse(
+        "nothing is answerable before the first dispatch",
+        queue.answer("per_1", PermissionQueue.Response.ONCE, false).success());
+    assertFalse("the engine is deliberately not spawned", control.engineStarted());
+    assertSame("the stand-in is shared, not rebuilt per call", queue, control.permissions());
+    control.close();
+  }
+
+  @Test
+  public void missingServerPasswordBecomesAFresh64CharHexValue() {
+    for (String missing : new String[] {null, "", "   "}) {
+      String one = FleetControl.resolvePassword(missing);
+      String two = FleetControl.resolvePassword(missing);
+
+      assertEquals(64, one.length());
+      assertTrue(one + " is not lowercase hex", one.matches("[0-9a-f]{64}"));
+      assertNotEquals("a fresh password per spawn", one, two);
     }
+  }
 
-    @Test
-    public void permissionsBeforeEngineStartIsAnEmptyObservationalQueue() {
-        FleetControl control = new FleetControl(base.resolve("repo/.opencode/tasks"), root -> {
-            throw new IllegalStateException("listing asks must never spawn the engine");
-        });
+  @Test
+  public void dispatchAfterCloseCannotSpawnOrLeaveAReservation() {
+    Path root = base.resolve("repo/.opencode/tasks");
+    FleetControl control =
+        new FleetControl(
+            root,
+            ignored -> {
+              throw new AssertionError("closed control must not spawn");
+            });
+    control.close();
+    org.junit.Assert.assertThrows(
+        IllegalStateException.class, () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
+    assertTrue(DispatchGuard.runningIds(FleetControl.repoRootOf(root)).isEmpty());
+  }
 
-        PermissionQueue queue = control.permissions();
+  @Test
+  public void setServerPasswordPassesThroughExactly() {
+    assertEquals("s3cret pass", FleetControl.resolvePassword("s3cret pass"));
+    assertEquals("x", FleetControl.resolvePassword("x"));
+  }
 
-        assertTrue(queue.pending().isEmpty());
-        assertFalse("nothing is answerable before the first dispatch",
-                queue.answer("per_1", PermissionQueue.Response.ONCE, false).success());
-        assertFalse("the engine is deliberately not spawned", control.engineStarted());
-        assertSame("the stand-in is shared, not rebuilt per call", queue, control.permissions());
-        control.close();
-    }
-
-    @Test
-    public void missingServerPasswordBecomesAFresh64CharHexValue() {
-        for (String missing : new String[] { null, "", "   " }) {
-            String one = FleetControl.resolvePassword(missing);
-            String two = FleetControl.resolvePassword(missing);
-
-            assertEquals(64, one.length());
-            assertTrue(one + " is not lowercase hex", one.matches("[0-9a-f]{64}"));
-            assertNotEquals("a fresh password per spawn", one, two);
-        }
-    }
-
-    @Test
-    public void dispatchAfterCloseCannotSpawnOrLeaveAReservation() {
-        Path root = base.resolve("repo/.opencode/tasks");
-        FleetControl control = new FleetControl(root, ignored -> {
-            throw new AssertionError("closed control must not spawn");
-        });
-        control.close();
-        org.junit.Assert.assertThrows(IllegalStateException.class,
-                () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
-        assertTrue(DispatchGuard.runningIds(FleetControl.repoRootOf(root)).isEmpty());
-    }
-
-    @Test
-    public void setServerPasswordPassesThroughExactly() {
-        assertEquals("s3cret pass", FleetControl.resolvePassword("s3cret pass"));
-        assertEquals("x", FleetControl.resolvePassword("x"));
-    }
-
-    @Test(timeout = 15000)
-    public void closeCanDrainAWorkerWhoseCompletionReadsControlState() throws Exception {
-        TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
-        FakeClient client = new FakeClient();
-        client.replyOnSend = "done";
-        client.sessionType = "idle";
-        FleetControl control = controlOver(store, client);
-        var entered = new java.util.concurrent.CountDownLatch(1);
-        var resume = new java.util.concurrent.CountDownLatch(1);
-        client.onSessionCreated = () -> {
-            entered.countDown();
-            try {
-                assertTrue(resume.await(5, java.util.concurrent.TimeUnit.SECONDS));
-                control.autoStatus(); // close must not retain the monitor while draining
-            } catch (InterruptedException e) {
-                throw new AssertionError(e);
-            }
+  @Test(timeout = 15000)
+  public void closeCanDrainAWorkerWhoseCompletionReadsControlState() throws Exception {
+    TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
+    FakeClient client = new FakeClient();
+    client.replyOnSend = "done";
+    client.sessionType = "idle";
+    FleetControl control = controlOver(store, client);
+    var entered = new java.util.concurrent.CountDownLatch(1);
+    var resume = new java.util.concurrent.CountDownLatch(1);
+    client.onSessionCreated =
+        () -> {
+          entered.countDown();
+          try {
+            assertTrue(resume.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            control.autoStatus(); // close must not retain the monitor while draining
+          } catch (InterruptedException e) {
+            throw new AssertionError(e);
+          }
         };
-        String id = sprintTicket(store);
-        control.dispatch(PROJECT, id, TIMEOUT);
-        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
-        try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
-            var closing = pool.submit(control::close);
-            resume.countDown();
-            closing.get(5, java.util.concurrent.TimeUnit.SECONDS);
-            assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
-            assertEquals(FleetJob.State.MERGED, control.jobs().get(id).state());
-        } finally {
-            resume.countDown();
-            control.close();
-        }
+    String id = sprintTicket(store);
+    control.dispatch(PROJECT, id, TIMEOUT);
+    assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+    try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+      var closing = pool.submit(control::close);
+      resume.countDown();
+      closing.get(5, java.util.concurrent.TimeUnit.SECONDS);
+      assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+      assertEquals(FleetJob.State.MERGED, control.jobs().get(id).state());
+    } finally {
+      resume.countDown();
+      control.close();
     }
+  }
 
-    @Test
-    public void rejectedEngineCreationReleasesReservationAndCanBeRetried() {
-        var attempts = new java.util.concurrent.atomic.AtomicInteger();
-        FleetControl control = new FleetControl(base.resolve("repo/.opencode/tasks"), root -> {
-            attempts.incrementAndGet();
-            throw new IllegalStateException("spawn failed");
-        });
-        try (control) {
-            for (int i = 0; i < 2; i++) {
-                org.junit.Assert.assertThrows(IllegalStateException.class,
-                        () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
-                assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+  @Test
+  public void rejectedEngineCreationReleasesReservationAndCanBeRetried() {
+    var attempts = new java.util.concurrent.atomic.AtomicInteger();
+    FleetControl control =
+        new FleetControl(
+            base.resolve("repo/.opencode/tasks"),
+            root -> {
+              attempts.incrementAndGet();
+              throw new IllegalStateException("spawn failed");
+            });
+    try (control) {
+      for (int i = 0; i < 2; i++) {
+        org.junit.Assert.assertThrows(
+            IllegalStateException.class, () -> control.dispatch(PROJECT, "T-1", TIMEOUT));
+        assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+      }
+      assertEquals(2, attempts.get());
+    }
+  }
+
+  @Test(timeout = 15000)
+  public void stopAndCloseDoNotWaitOnPeerAdmissionOrSpawnAfterItReleases() throws Exception {
+    TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
+    String id = sprintTicket(store);
+    store.update(PROJECT, id, java.util.Map.of("stage", "requirements"));
+    var held = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    FleetControl control =
+        new FleetControl(
+            store.root(),
+            root -> {
+              throw new AssertionError("stopped auto loop must not spawn");
+            });
+    try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+      var peer =
+          pool.submit(
+              () ->
+                  DispatchGuard.exclusive(
+                      control.repoRoot(),
+                      () -> {
+                        held.countDown();
+                        try {
+                          assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                        } catch (InterruptedException e) {
+                          throw new AssertionError(e);
+                        }
+                        return null;
+                      }));
+      assertTrue(held.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      control.startAuto(PROJECT, "S-01", 1, 0, false);
+      assertEquals(true, control.autoStatus().get("running"));
+      control.stopAuto();
+      control.close();
+      assertEquals(false, control.autoStatus().get("running"));
+      release.countDown();
+      peer.get(5, java.util.concurrent.TimeUnit.SECONDS);
+      assertFalse(control.engineStarted());
+      assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
+    } finally {
+      release.countDown();
+      control.close();
+    }
+  }
+
+  @Test
+  public void dispatchAutoSyncsTheStoreAfterTheLaunchSettles() throws Exception {
+    Assume.assumeTrue("git not available", gitAvailable());
+    Path repo = newRepo();
+    TaskStore store = storeIn(repo);
+    FakeClient client = new FakeClient();
+    client.replyOnSend = "done";
+    client.sessionType = "idle";
+    FleetControl control = controlOver(store, client);
+
+    String id = sprintTicket(store);
+    control.dispatch(PROJECT, id, TIMEOUT);
+
+    assertTrue(
+        "the launch's bookkeeping was auto-synced into a commit",
+        storeClean(repo, "opencode fleet: store sync after " + id, id));
+    control.close();
+  }
+
+  @Test
+  public void dispatchSyncsAndNeverPropagatesWhenTheLaunchThrows() throws Exception {
+    Assume.assumeTrue("git not available", gitAvailable());
+    Path repo = newRepo();
+    TaskStore store = storeIn(repo);
+    FleetControl control = controlOver(store, new FakeClient());
+
+    String id = sprintTicket(store);
+    store.setBlocked(PROJECT, id, "waiting on upstream", "test");
+
+    control.dispatch(PROJECT, id, TIMEOUT);
+
+    assertTrue(
+        "bookkeeping was synced although the launch threw",
+        storeClean(repo, "opencode fleet: store sync after " + id, id));
+    control.close();
+  }
+
+  /** A store root at {@code <repo>/.opencode/tasks} (the fleet's layout). */
+  private static TaskStore storeIn(Path repo) {
+    return new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+  }
+
+  @Test
+  public void realGitFailureResetAndRetryMergesTheWorkerArtifact() throws Exception {
+    Assume.assumeTrue("git not available", gitAvailable());
+    Path repo = newRepo();
+    TaskStore store = storeIn(repo);
+    String id = sprintTicket(store);
+    FakeClient client = new FakeClient();
+    client.failSessionCreation = true;
+    TaskFleet fleet =
+        new TaskFleet(
+            new FleetRunner(client, com.opencode.ide.git.FleetGit.defaultManager()), store);
+    FleetControl control =
+        new FleetControl(
+            store.root(),
+            root ->
+                new FleetControl.Engine() {
+                  public TaskFleet fleet() {
+                    return fleet;
+                  }
+
+                  public PermissionQueue permissions() {
+                    return new PermissionQueue(null);
+                  }
+
+                  public void close() {}
+                });
+    try {
+      assertEquals(FleetJob.State.FAILED, fleet.launch(PROJECT, id, repo, TIMEOUT).state());
+      assertTrue(store.get(PROJECT, id).isBlocked());
+      assertEquals("blocked", store.get(PROJECT, id).status);
+      assertEquals(
+          "F-001 retry contract via U-067 resume_to",
+          "sprint-backlog",
+          store.get(PROJECT, id).resumeTo);
+      com.google.gson.JsonObject args = new com.google.gson.JsonObject();
+      args.addProperty("project", PROJECT);
+      args.addProperty("ticket_id", id);
+      var reset = new FleetToolProvider(store.root(), control).call("fleet_reset", args);
+      assertFalse(reset.text(), reset.isError());
+      assertFalse(store.get(PROJECT, id).isBlocked());
+      client.failSessionCreation = false;
+      client.replyOnSend = "done";
+      client.sessionType = "idle";
+      client.onSessionCreated =
+          () -> {
+            try {
+              Files.writeString(
+                  client.sessionDirectories.getLast().resolve("result.txt"), "verified retry\n");
+            } catch (IOException e) {
+              throw new IllegalStateException(e);
             }
-            assertEquals(2, attempts.get());
-        }
+          };
+      FleetJob retried = fleet.launch(PROJECT, id, repo, TIMEOUT);
+      assertEquals(retried.detail(), FleetJob.State.MERGED, retried.state());
+      assertEquals("verified retry", Files.readString(repo.resolve("result.txt")).strip());
+      assertEquals("in-review", store.get(PROJECT, id).status);
+    } finally {
+      control.close();
     }
+  }
 
-    @Test(timeout = 15000)
-    public void stopAndCloseDoNotWaitOnPeerAdmissionOrSpawnAfterItReleases() throws Exception {
-        TaskStore store = new TaskStore(base.resolve("repo/.opencode/tasks"));
-        String id = sprintTicket(store);
-        store.update(PROJECT, id, java.util.Map.of("stage", "requirements"));
-        var held = new java.util.concurrent.CountDownLatch(1);
-        var release = new java.util.concurrent.CountDownLatch(1);
-        FleetControl control = new FleetControl(store.root(), root -> {
-            throw new AssertionError("stopped auto loop must not spawn");
-        });
-        try (var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
-            var peer = pool.submit(() -> DispatchGuard.exclusive(control.repoRoot(), () -> {
-                held.countDown();
-                try {
-                    assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
-                } catch (InterruptedException e) {
-                    throw new AssertionError(e);
-                }
-                return null;
-            }));
-            assertTrue(held.await(5, java.util.concurrent.TimeUnit.SECONDS));
-            control.startAuto(PROJECT, "S-01", 1, 0, false);
-            assertEquals(true, control.autoStatus().get("running"));
-            control.stopAuto();
-            control.close();
-            assertEquals(false, control.autoStatus().get("running"));
-            release.countDown();
-            peer.get(5, java.util.concurrent.TimeUnit.SECONDS);
-            assertFalse(control.engineStarted());
-            assertTrue(DispatchGuard.runningIds(control.repoRoot()).isEmpty());
-        } finally {
-            release.countDown();
-            control.close();
-        }
-    }
+  /**
+   * A control whose engine is a real {@link TaskFleet} on the in-memory fakes over the given store.
+   */
+  private static FleetControl controlOver(TaskStore store, FakeClient client) {
+    return new FleetControl(
+        store.root(),
+        root ->
+            new FleetControl.Engine() {
 
-    @Test
-    public void dispatchAutoSyncsTheStoreAfterTheLaunchSettles() throws Exception {
-        Assume.assumeTrue("git not available", gitAvailable());
-        Path repo = newRepo();
-        TaskStore store = storeIn(repo);
-        FakeClient client = new FakeClient();
-        client.replyOnSend = "done";
-        client.sessionType = "idle";
-        FleetControl control = controlOver(store, client);
+              private final TaskFleet fleet =
+                  new TaskFleet(
+                      new FleetRunner(client, new FakeWorktreeManager(), () -> {}), store);
+              private final PermissionQueue queue = new PermissionQueue(null);
 
-        String id = sprintTicket(store);
-        control.dispatch(PROJECT, id, TIMEOUT);
-
-        assertTrue("the launch's bookkeeping was auto-synced into a commit",
-                storeClean(repo, "opencode fleet: store sync after " + id, id));
-        control.close();
-    }
-
-    @Test
-    public void dispatchSyncsAndNeverPropagatesWhenTheLaunchThrows() throws Exception {
-        Assume.assumeTrue("git not available", gitAvailable());
-        Path repo = newRepo();
-        TaskStore store = storeIn(repo);
-        FleetControl control = controlOver(store, new FakeClient());
-
-        String id = sprintTicket(store);
-        store.setBlocked(PROJECT, id, "waiting on upstream", "test");
-
-        control.dispatch(PROJECT, id, TIMEOUT);
-
-        assertTrue("bookkeeping was synced although the launch threw",
-                storeClean(repo, "opencode fleet: store sync after " + id, id));
-        control.close();
-    }
-
-    /** A store root at {@code <repo>/.opencode/tasks} (the fleet's layout). */
-    private static TaskStore storeIn(Path repo) {
-        return new TaskStore(repo.resolve(".opencode").resolve("tasks"));
-    }
-
-    @Test
-    public void realGitFailureResetAndRetryMergesTheWorkerArtifact() throws Exception {
-        Assume.assumeTrue("git not available", gitAvailable());
-        Path repo = newRepo();
-        TaskStore store = storeIn(repo);
-        String id = sprintTicket(store);
-        FakeClient client = new FakeClient();
-        client.failSessionCreation = true;
-        TaskFleet fleet = new TaskFleet(new FleetRunner(client,
-                com.opencode.ide.git.FleetGit.defaultManager()), store);
-        FleetControl control = new FleetControl(store.root(), root -> new FleetControl.Engine() {
-            public TaskFleet fleet() { return fleet; }
-            public PermissionQueue permissions() { return new PermissionQueue(null); }
-            public void close() { }
-        });
-        try {
-            assertEquals(FleetJob.State.FAILED, fleet.launch(PROJECT, id, repo, TIMEOUT).state());
-            assertTrue(store.get(PROJECT, id).isBlocked());
-            assertEquals("blocked", store.get(PROJECT, id).status);
-            assertEquals("F-001 retry contract via U-067 resume_to",
-                    "sprint-backlog", store.get(PROJECT, id).resumeTo);
-            com.google.gson.JsonObject args = new com.google.gson.JsonObject();
-            args.addProperty("project", PROJECT);
-            args.addProperty("ticket_id", id);
-            var reset = new FleetToolProvider(store.root(), control).call("fleet_reset", args);
-            assertFalse(reset.text(), reset.isError());
-            assertFalse(store.get(PROJECT, id).isBlocked());
-            client.failSessionCreation = false;
-            client.replyOnSend = "done";
-            client.sessionType = "idle";
-            client.onSessionCreated = () -> {
-                try {
-                    Files.writeString(client.sessionDirectories.getLast().resolve("result.txt"), "verified retry\n");
-                } catch (IOException e) {
-                    throw new IllegalStateException(e);
-                }
-            };
-            FleetJob retried = fleet.launch(PROJECT, id, repo, TIMEOUT);
-            assertEquals(retried.detail(), FleetJob.State.MERGED, retried.state());
-            assertEquals("verified retry", Files.readString(repo.resolve("result.txt")).strip());
-            assertEquals("in-review", store.get(PROJECT, id).status);
-        } finally {
-            control.close();
-        }
-    }
-
-    /** A control whose engine is a real {@link TaskFleet} on the in-memory fakes over the given store. */
-    private static FleetControl controlOver(TaskStore store, FakeClient client) {
-        return new FleetControl(store.root(), root -> new FleetControl.Engine() {
-
-            private final TaskFleet fleet = new TaskFleet(
-                    new FleetRunner(client, new FakeWorktreeManager(), () -> { }), store);
-            private final PermissionQueue queue = new PermissionQueue(null);
-
-            @Override
-            public TaskFleet fleet() {
+              @Override
+              public TaskFleet fleet() {
                 return fleet;
-            }
+              }
 
-            @Override
-            public PermissionQueue permissions() {
+              @Override
+              public PermissionQueue permissions() {
                 return queue;
-            }
+              }
 
-            @Override
-            public void close() {
+              @Override
+              public void close() {
                 // nothing to release in the fake engine
-            }
-        });
-    }
+              }
+            });
+  }
 
-    private static String sprintTicket(TaskStore store) {
-        Task t = store.create(PROJECT, new TaskStore.CreateSpec(
-                "Fix the widget", "Do the thing.", "task", "developer", "high", 3,
-                List.of("ac one"), List.of(), null, "H1"));
-        store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
-        return t.id;
-    }
+  private static String sprintTicket(TaskStore store) {
+    Task t =
+        store.create(
+            PROJECT,
+            new TaskStore.CreateSpec(
+                "Fix the widget",
+                "Do the thing.",
+                "task",
+                "developer",
+                "high",
+                3,
+                List.of("ac one"),
+                List.of(),
+                null,
+                "H1"));
+    store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
+    return t.id;
+  }
 
-    /**
-     * Polls until the repo's working copy is clean and the newest commit
-     * carries the expected message - i.e. the auto-sync ran and committed.
-     */
-    private static boolean storeClean(Path repo, String expectedLastMessage, String ticketId) throws Exception {
-        // generous deadline: git spawns on a machine without the Defender
-        // exclusions (T-006) run 10-100x slower in fresh temp repos - the
-        // 2026-09-23 "flake" was the sync simply still mid-flight at 90s
-        // (its git steps ran ~90s apart). The poll waits for the REAL
-        // condition, so patience is honest here; T-006 removes the cost.
-        long deadline = System.currentTimeMillis() + FleetTestHarness.SETTLE_WAIT.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            // the exclude keeps the store's transient .lock out of the verdict
-            // (an in-flight transaction must not read as store dirt). BOTH
-            // conditions must hold: the tree settles AND the expected sync
-            // commit has LANDED - it need not be the newest commit, because
-            // the engine's own claim/merge commitAll may legitimately follow
-            // or coalesce it (2026-09-23 flake #2: the old last-message check
-            // over-pinned ordering, not the contract).
-            // the CONTRACT is "the bookkeeping landed IN A COMMIT": the sync
-            // commit is the usual carrier, but the engine's claim/merge
-            // commitAll may legitimately carry it instead (then no sync
-            // commit exists at all, 2026-09-23 flake #3)
-            String committed = gitOut(repo, "log", "-10", "--format=%s")
-                    + gitOut(repo, "log", "-10", "--name-only", "--format=");
-            if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()
-                    && (committed.contains(expectedLastMessage) || committed.contains(ticketId))) {
-                return true;
-            }
-            Thread.sleep(100);
-        }
-        System.err.println("[storeClean] TIMEOUT diagnostics for " + repo);
-        System.err.println("[storeClean] status: " + gitOut(repo, "status", "--porcelain"));
-        System.err.println("[storeClean] log: " + gitOut(repo, "log", "--oneline", "-5"));
-        Thread.getAllStackTraces().forEach((thread, frames) -> {
-            // every thread: the 2026-09-23 wedge lived on a thread the old
-            // name filter skipped, which made the timeout undiagnosable
-            System.err.println("[storeClean] thread " + thread.getName() + " state=" + thread.getState());
-            for (int i = 0; i < Math.min(6, frames.length); i++) {
+  /**
+   * Polls until the repo's working copy is clean and the newest commit carries the expected message
+   * - i.e. the auto-sync ran and committed.
+   */
+  private static boolean storeClean(Path repo, String expectedLastMessage, String ticketId)
+      throws Exception {
+    // generous deadline: git spawns on a machine without the Defender
+    // exclusions (T-006) run 10-100x slower in fresh temp repos - the
+    // 2026-09-23 "flake" was the sync simply still mid-flight at 90s
+    // (its git steps ran ~90s apart). The poll waits for the REAL
+    // condition, so patience is honest here; T-006 removes the cost.
+    long deadline = System.currentTimeMillis() + FleetTestHarness.SETTLE_WAIT.toMillis();
+    while (System.currentTimeMillis() < deadline) {
+      // the exclude keeps the store's transient .lock out of the verdict
+      // (an in-flight transaction must not read as store dirt). BOTH
+      // conditions must hold: the tree settles AND the expected sync
+      // commit has LANDED - it need not be the newest commit, because
+      // the engine's own claim/merge commitAll may legitimately follow
+      // or coalesce it (2026-09-23 flake #2: the old last-message check
+      // over-pinned ordering, not the contract).
+      // the CONTRACT is "the bookkeeping landed IN A COMMIT": the sync
+      // commit is the usual carrier, but the engine's claim/merge
+      // commitAll may legitimately carry it instead (then no sync
+      // commit exists at all, 2026-09-23 flake #3)
+      String committed =
+          gitOut(repo, "log", "-10", "--format=%s")
+              + gitOut(repo, "log", "-10", "--name-only", "--format=");
+      if (gitOut(repo, "status", "--porcelain", "--", ".", ":(exclude)*.lock").isBlank()
+          && (committed.contains(expectedLastMessage) || committed.contains(ticketId))) {
+        return true;
+      }
+      Thread.sleep(100);
+    }
+    System.err.println("[storeClean] TIMEOUT diagnostics for " + repo);
+    System.err.println("[storeClean] status: " + gitOut(repo, "status", "--porcelain"));
+    System.err.println("[storeClean] log: " + gitOut(repo, "log", "--oneline", "-5"));
+    Thread.getAllStackTraces()
+        .forEach(
+            (thread, frames) -> {
+              // every thread: the 2026-09-23 wedge lived on a thread the old
+              // name filter skipped, which made the timeout undiagnosable
+              System.err.println(
+                  "[storeClean] thread " + thread.getName() + " state=" + thread.getState());
+              for (int i = 0; i < Math.min(6, frames.length); i++) {
                 System.err.println("[storeClean]   at " + frames[i]);
-            }
-        });
-        return false;
+              }
+            });
+    return false;
+  }
+
+  /**
+   * A fresh git repo with an initial commit, on branch {@code main} (the StoreSyncTest pattern).
+   */
+  private Path newRepo() throws Exception {
+    Path repo = base.resolve("repo");
+    Files.createDirectories(repo);
+    git(repo, "init");
+    git(repo, "config", "user.email", "a@b.c");
+    git(repo, "config", "user.name", "Test");
+    Files.writeString(repo.resolve("README.md"), "store repo\n", StandardCharsets.UTF_8);
+    git(repo, "add", ".");
+    git(repo, "commit", "-m", "initial");
+    git(repo, "branch", "-M", "main");
+    return repo;
+  }
+
+  private static String gitOut(Path dir, String... args) throws Exception {
+    List<String> command = new ArrayList<>();
+    command.add("git");
+    command.add("-C");
+    command.add(dir.toString());
+    command.addAll(List.of(args));
+    Process p = new ProcessBuilder(command).start();
+    String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+    int code = p.waitFor();
+    if (code != 0) {
+      throw new IllegalStateException(
+          "git " + List.of(args) + " failed (exit " + code + "): " + err);
     }
+    return out;
+  }
 
-    /** A fresh git repo with an initial commit, on branch {@code main} (the StoreSyncTest pattern). */
-    private Path newRepo() throws Exception {
-        Path repo = base.resolve("repo");
-        Files.createDirectories(repo);
-        git(repo, "init");
-        git(repo, "config", "user.email", "a@b.c");
-        git(repo, "config", "user.name", "Test");
-        Files.writeString(repo.resolve("README.md"), "store repo\n", StandardCharsets.UTF_8);
-        git(repo, "add", ".");
-        git(repo, "commit", "-m", "initial");
-        git(repo, "branch", "-M", "main");
-        return repo;
+  /**
+   * F-003: two engines over ONE repo can never double-dispatch the same ticket — the loser's atomic
+   * marker-create fails with a clean refusal that touches nothing (no pre-claim, no bogus blocked
+   * marker).
+   */
+  @Test
+  public void secondEngineCannotDoubleDispatchTheSameTicket() throws Exception {
+    Assume.assumeTrue("git not available", gitAvailable());
+    Path repo = newRepo();
+    TaskStore store = storeIn(repo);
+    FakeClient client = new FakeClient();
+    client.sessionType = "busy"; // keep the first launch in flight
+    FleetControl first = controlOver(store, client);
+    FleetControl second = controlOver(store, new FakeClient());
+    String id = sprintTicket(store);
+    // pre-create the marker by hand: the first engine "owns" the dispatch
+    java.nio.file.Path marker =
+        repo.resolve(".git").resolve("opencode-fleet").resolve(id + ".dispatch");
+    java.nio.file.Files.createDirectories(marker.getParent());
+    java.nio.file.Files.writeString(marker, "pid=other at test\n");
+
+    try {
+      second.dispatch(PROJECT, id, TIMEOUT);
+      fail("the second engine must refuse a marker-owned dispatch");
+    } catch (IllegalStateException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("another engine"));
     }
+    // the loser touched NOTHING: ticket still sprint-backlog
+    assertEquals("sprint-backlog", store.get(PROJECT, id).status);
+    assertFalse("no bogus blocked marker", store.get(PROJECT, id).isBlocked());
+    first.close();
+    second.close();
+  }
 
-    private static String gitOut(Path dir, String... args) throws Exception {
-        List<String> command = new ArrayList<>();
-        command.add("git");
-        command.add("-C");
-        command.add(dir.toString());
-        command.addAll(List.of(args));
-        Process p = new ProcessBuilder(command).start();
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int code = p.waitFor();
-        if (code != 0) {
-            throw new IllegalStateException("git " + List.of(args) + " failed (exit " + code + "): " + err);
-        }
-        return out;
+  private static void git(Path dir, String... args) throws Exception {
+    gitOut(dir, args);
+  }
+
+  private static boolean gitAvailable() {
+    try {
+      Process p = new ProcessBuilder("git", "--version").start();
+      p.getErrorStream().readAllBytes();
+      return p.waitFor() == 0;
+    } catch (Exception e) {
+      return false;
     }
+  }
 
-    /**
-     * F-003: two engines over ONE repo can never double-dispatch the same
-     * ticket — the loser's atomic marker-create fails with a clean refusal
-     * that touches nothing (no pre-claim, no bogus blocked marker).
-     */
-    @Test
-    public void secondEngineCannotDoubleDispatchTheSameTicket() throws Exception {
-        Assume.assumeTrue("git not available", gitAvailable());
-        Path repo = newRepo();
-        TaskStore store = storeIn(repo);
-        FakeClient client = new FakeClient();
-        client.sessionType = "busy"; // keep the first launch in flight
-        FleetControl first = controlOver(store, client);
-        FleetControl second = controlOver(store, new FakeClient());
-        String id = sprintTicket(store);
-        // pre-create the marker by hand: the first engine "owns" the dispatch
-        java.nio.file.Path marker = repo.resolve(".git").resolve("opencode-fleet")
-                .resolve(id + ".dispatch");
-        java.nio.file.Files.createDirectories(marker.getParent());
-        java.nio.file.Files.writeString(marker, "pid=other at test\n");
-
-        try {
-            second.dispatch(PROJECT, id, TIMEOUT);
-            fail("the second engine must refuse a marker-owned dispatch");
-        } catch (IllegalStateException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("another engine"));
-        }
-        // the loser touched NOTHING: ticket still sprint-backlog
-        assertEquals("sprint-backlog", store.get(PROJECT, id).status);
-        assertFalse("no bogus blocked marker", store.get(PROJECT, id).isBlocked());
-        first.close();
-        second.close();
-    }
-
-    private static void git(Path dir, String... args) throws Exception {
-        gitOut(dir, args);
-    }
-
-    private static boolean gitAvailable() {
-        try {
-            Process p = new ProcessBuilder("git", "--version").start();
-            p.getErrorStream().readAllBytes();
-            return p.waitFor() == 0;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private static void deleteRecursively(Path root) {
-        try (var walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+  private static void deleteRecursively(Path root) {
+    try (var walk = Files.walk(root)) {
+      walk.sorted(Comparator.reverseOrder())
+          .forEach(
+              p -> {
                 try {
-                    p.toFile().setWritable(true);
-                    Files.deleteIfExists(p);
+                  p.toFile().setWritable(true);
+                  Files.deleteIfExists(p);
                 } catch (IOException ignored) {
                 }
-            });
-        } catch (IOException ignored) {
-        }
+              });
+    } catch (IOException ignored) {
     }
+  }
 }

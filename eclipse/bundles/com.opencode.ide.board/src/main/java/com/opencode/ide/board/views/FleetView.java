@@ -1,5 +1,28 @@
 package com.opencode.ide.board.views;
 
+import com.opencode.ide.board.fleet.FleetJobHandle;
+import com.opencode.ide.board.fleet.TaskFleetLauncher;
+import com.opencode.ide.board.internal.BoardPlugin;
+import com.opencode.ide.board.internal.GitCli;
+import com.opencode.ide.board.model.DiffSource;
+import com.opencode.ide.board.model.EventsFeed;
+import com.opencode.ide.board.model.FleetJobsModel;
+import com.opencode.ide.board.model.FleetTree;
+import com.opencode.ide.board.model.PeerJobReconstructor;
+import com.opencode.ide.board.model.SessionDiffSides;
+import com.opencode.ide.board.model.SessionDiffText;
+import com.opencode.ide.board.model.TakeoverRouter;
+import com.opencode.ide.client.OpencodeException;
+import com.opencode.ide.client.activity.SessionObservation;
+import com.opencode.ide.client.activity.SessionObserver;
+import com.opencode.ide.client.model.FileDiff;
+import com.opencode.ide.core.ConnectionsManager;
+import com.opencode.ide.core.ManagedConnection;
+import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.fleet.GlobalEventsAggregator;
+import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
+import com.opencode.ide.tasks.Task;
+import com.opencode.ide.tasks.TaskStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,7 +35,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jface.action.Action;
@@ -45,1303 +67,1374 @@ import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.part.ViewPart;
 
-import com.opencode.ide.board.fleet.FleetJobHandle;
-import com.opencode.ide.board.fleet.TaskFleetLauncher;
-import com.opencode.ide.board.internal.BoardPlugin;
-import com.opencode.ide.board.internal.GitCli;
-import com.opencode.ide.board.model.DiffSource;
-import com.opencode.ide.board.model.SessionDiffSides;
-import com.opencode.ide.board.model.EventsFeed;
-import com.opencode.ide.board.model.FleetJobsModel;
-import com.opencode.ide.board.model.FleetTree;
-import com.opencode.ide.board.model.PeerJobReconstructor;
-import com.opencode.ide.board.model.SessionDiffText;
-import com.opencode.ide.board.model.TakeoverRouter;
-import com.opencode.ide.client.OpencodeException;
-import com.opencode.ide.client.activity.SessionObservation;
-import com.opencode.ide.client.activity.SessionObserver;
-import com.opencode.ide.client.model.FileDiff;
-import com.opencode.ide.core.ConnectionsManager;
-import com.opencode.ide.core.ManagedConnection;
-import com.opencode.ide.core.OpencodeConnection;
-import com.opencode.ide.fleet.GlobalEventsAggregator;
-import com.opencode.ide.fleet.GlobalEventsAggregator.ObservedEvent;
-import com.opencode.ide.tasks.Task;
-import com.opencode.ide.tasks.TaskStore;
-
 /**
- * The Fleet view (U-040): a TREE of the fleet, engine → wave → job
- * (ticket) → worker session → subagent sessions → console/shell tasks,
- * composed SWT-free by {@link FleetTree} from the shared
- * {@link FleetJobsModel} (fed by the Board view's "Launch task"), the task
- * store (badges + wave grouping), and per-session observations
- * ({@link SessionObserver}: live activity, shells, subagents, tokens/cost
- * rolled up the tree). Every node shows the ticket state/type in the
- * Board's badge language; actions are level-appropriate — job nodes keep
- * the flat view's Watch live / Open diff / Open folder / Take over / Abort
- * actions, session nodes open live/transcript, shell nodes open their
- * output tail.
- * "Watch live" (U-015, also on double-click of a session-carrying node)
- * opens the worker session in the Session Details view (opened by plain
- * view id, secondary id = session id — no ui-bundle dependency); while the
- * job is RUNNING the secondary id carries the live-watch segment
- * {@code SessionViewIds.secondaryId(sessionId, true)}, so the freshly
- * created view opens with Auto Refresh armed (see {@link #openLiveWatch}),
- * and the user can toggle that off once the job settles. Takeover
- * is TUI-first: the
- * session is handed to the attached opencode TUI via {@link TakeoverRouter}
- * when one answers, else the worktree opens and the job is marked taken
- * over). Refreshes automatically on
- * model changes ({@code asyncExec} from the model listener); a refresh
- * renders the jobs immediately and then upgrades the tree with the
- * store/client reads from a background scan (generation-guarded, never on
- * the UI thread). "Open diff"
- * shows the server's authoritative session diff when the job carries a
- * session id ({@link DiffSource}), falling back to the local git branch
- * diff; both run on a background thread (the client may spawn/wait for the
- * server, git can block for up to a minute) and open the dialog from
- * {@code asyncExec}; the action stays disabled while a diff is running.
+ * The Fleet view (U-040): a TREE of the fleet, engine → wave → job (ticket) → worker session →
+ * subagent sessions → console/shell tasks, composed SWT-free by {@link FleetTree} from the shared
+ * {@link FleetJobsModel} (fed by the Board view's "Launch task"), the task store (badges + wave
+ * grouping), and per-session observations ({@link SessionObserver}: live activity, shells,
+ * subagents, tokens/cost rolled up the tree). Every node shows the ticket state/type in the Board's
+ * badge language; actions are level-appropriate — job nodes keep the flat view's Watch live / Open
+ * diff / Open folder / Take over / Abort actions, session nodes open live/transcript, shell nodes
+ * open their output tail. "Watch live" (U-015, also on double-click of a session-carrying node)
+ * opens the worker session in the Session Details view (opened by plain view id, secondary id =
+ * session id — no ui-bundle dependency); while the job is RUNNING the secondary id carries the
+ * live-watch segment {@code SessionViewIds.secondaryId(sessionId, true)}, so the freshly created
+ * view opens with Auto Refresh armed (see {@link #openLiveWatch}), and the user can toggle that off
+ * once the job settles. Takeover is TUI-first: the session is handed to the attached opencode TUI
+ * via {@link TakeoverRouter} when one answers, else the worktree opens and the job is marked taken
+ * over). Refreshes automatically on model changes ({@code asyncExec} from the model listener); a
+ * refresh renders the jobs immediately and then upgrades the tree with the store/client reads from
+ * a background scan (generation-guarded, never on the UI thread). "Open diff" shows the server's
+ * authoritative session diff when the job carries a session id ({@link DiffSource}), falling back
+ * to the local git branch diff; both run on a background thread (the client may spawn/wait for the
+ * server, git can block for up to a minute) and open the dialog from {@code asyncExec}; the action
+ * stays disabled while a diff is running.
  *
- * <p>F-004: every refresh also shows jobs launched by a PEER engine (a chat
- * session's fleet server), rebuilt from the shared on-disk truth — store
- * claims plus fleet worktrees — by {@link PeerJobReconstructor}. Peer jobs
- * group under their own named engine root, are grey in every column and
- * view-only: no Abort, no Take over; Open diff / Open folder / Copy
- * ticket id still work. Part activation re-reads them ({@link #setFocus}),
- * so no extra poller thread is introduced.</p>
+ * <p>F-004: every refresh also shows jobs launched by a PEER engine (a chat session's fleet
+ * server), rebuilt from the shared on-disk truth — store claims plus fleet worktrees — by {@link
+ * PeerJobReconstructor}. Peer jobs group under their own named engine root, are grey in every
+ * column and view-only: no Abort, no Take over; Open diff / Open folder / Copy ticket id still
+ * work. Part activation re-reads them ({@link #setFocus}), so no extra poller thread is introduced.
  *
- * <p>The "Permissions (n)" toolbar action (enabled when n &gt; 0, count kept
- * live via the shared permission queue's listener) opens
- * {@link FleetPermissionsDialog} where unattended sessions' permission
- * requests are answered (approve once / always / reject).</p>
+ * <p>The "Permissions (n)" toolbar action (enabled when n &gt; 0, count kept live via the shared
+ * permission queue's listener) opens {@link FleetPermissionsDialog} where unattended sessions'
+ * permission requests are answered (approve once / always / reject).
  *
- * <p>The "Events" toolbar action (live {@code n connections (m failed)}
- * suffix) opens {@link EventsDialog}: the merged global event feed of
- * every configured connection (primary + remotes). The view owns one
- * {@link GlobalEventsAggregator} — all configured connections subscribed
- * on a background thread (the primary's client may block while spawning
- * the server), re-synced when the connection set changes, unsubscribed
- * when removed, closed with the view.</p>
+ * <p>The "Events" toolbar action (live {@code n connections (m failed)} suffix) opens {@link
+ * EventsDialog}: the merged global event feed of every configured connection (primary + remotes).
+ * The view owns one {@link GlobalEventsAggregator} — all configured connections subscribed on a
+ * background thread (the primary's client may block while spawning the server), re-synced when the
+ * connection set changes, unsubscribed when removed, closed with the view.
  */
 public class FleetView extends ViewPart {
 
-    public static final String ID = "com.opencode.ide.board.views.FleetView";
+  public static final String ID = "com.opencode.ide.board.views.FleetView";
 
-    private static final String SESSION_DETAILS_VIEW_ID =
-            com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID;
+  private static final String SESSION_DETAILS_VIEW_ID =
+      com.opencode.ide.core.context.SessionViewIds.SESSION_DETAILS_VIEW_ID;
 
-    private static final String EMPTY_STATE =
-            "No fleet jobs yet — launch from the Board view or a chat session's fleet server.";
+  private static final String EMPTY_STATE =
+      "No fleet jobs yet — launch from the Board view or a chat session's fleet server.";
 
-    /** Root labels of the two engine groups (U-040: the engine is named explicitly). */
-    private static final String OWN_ENGINE = "This Eclipse (board fleet)";
-    private static final String PEER_ENGINE = "Peer engines (shared store)";
+  /** Root labels of the two engine groups (U-040: the engine is named explicitly). */
+  private static final String OWN_ENGINE = "This Eclipse (board fleet)";
 
-    private TreeViewer viewer;
-    private Composite treeComposite;
-    private Label emptyLabel;
-    private Action watchLiveAction;
-    private Action openDiffAction;
-    private Action openFolderAction;
-    private Action takeOverAction;
-    private Action permissionsAction;
-    private Action eventsAction;
-    /** Single daemon thread for git diff processes (OSGi-light, never blocks the UI thread). */
-    private ExecutorService diffExecutor;
-    /** Single daemon thread for TUI takeover routing (blocking client POSTs). */
-    private ExecutorService takeoverExecutor;
-    /** Single daemon thread for global-event subscriptions (the primary client may block spawning the server). */
-    private ExecutorService eventsExecutor;
-    /** The view-owned merged global event feed over all configured connections. */
-    private GlobalEventsAggregator events;
-    /** SWT-free row/badge formatting for the Events action and dialog. */
-    private EventsFeed eventsFeed;
-    private final AtomicBoolean diffRunning = new AtomicBoolean();
-    /**
-     * Peer-scan generation: incremented by every refreshFromModel, so a
-     * background peer scan applies its rows only while it is still the
-     * newest refresh (review M1 — the scan runs off the UI thread and must
-     * not race a newer refresh's rows into the viewer).
-     */
-    private final AtomicInteger refreshGeneration = new AtomicInteger();
-    private final Runnable modelListener = () -> {
+  private static final String PEER_ENGINE = "Peer engines (shared store)";
+
+  private TreeViewer viewer;
+  private Composite treeComposite;
+  private Label emptyLabel;
+  private Action watchLiveAction;
+  private Action openDiffAction;
+  private Action openFolderAction;
+  private Action takeOverAction;
+  private Action permissionsAction;
+  private Action eventsAction;
+
+  /** Single daemon thread for git diff processes (OSGi-light, never blocks the UI thread). */
+  private ExecutorService diffExecutor;
+
+  /** Single daemon thread for TUI takeover routing (blocking client POSTs). */
+  private ExecutorService takeoverExecutor;
+
+  /**
+   * Single daemon thread for global-event subscriptions (the primary client may block spawning the
+   * server).
+   */
+  private ExecutorService eventsExecutor;
+
+  /** The view-owned merged global event feed over all configured connections. */
+  private GlobalEventsAggregator events;
+
+  /** SWT-free row/badge formatting for the Events action and dialog. */
+  private EventsFeed eventsFeed;
+
+  private final AtomicBoolean diffRunning = new AtomicBoolean();
+
+  /**
+   * Peer-scan generation: incremented by every refreshFromModel, so a background peer scan applies
+   * its rows only while it is still the newest refresh (review M1 — the scan runs off the UI thread
+   * and must not race a newer refresh's rows into the viewer).
+   */
+  private final AtomicInteger refreshGeneration = new AtomicInteger();
+
+  private final Runnable modelListener =
+      () -> {
         Display display = Display.getDefault();
         if (display != null && !display.isDisposed()) {
-            display.asyncExec(this::refreshFromModel);
+          display.asyncExec(this::refreshFromModel);
         }
-    };
-    /** Live pending-count hint: the permission queue notifies on every change (SSE thread). */
-    private final Runnable permissionsListener = () -> {
+      };
+
+  /** Live pending-count hint: the permission queue notifies on every change (SSE thread). */
+  private final Runnable permissionsListener =
+      () -> {
         Display display = Display.getDefault();
         if (display != null && !display.isDisposed()) {
-            display.asyncExec(this::updatePermissionsAction);
+          display.asyncExec(this::updatePermissionsAction);
         }
-    };
-    /** Event delivered (any stream thread): timestamp it for row formatting (see {@link EventsFeed#remember}). */
-    private final Consumer<ObservedEvent> eventsListener = this::onGlobalEvent;
-    /** Connection set changed (any thread): re-sync the event subscriptions off the UI thread. */
-    private final Runnable connectionsListener = () -> {
+      };
+
+  /**
+   * Event delivered (any stream thread): timestamp it for row formatting (see {@link
+   * EventsFeed#remember}).
+   */
+  private final Consumer<ObservedEvent> eventsListener = this::onGlobalEvent;
+
+  /** Connection set changed (any thread): re-sync the event subscriptions off the UI thread. */
+  private final Runnable connectionsListener =
+      () -> {
         Display display = Display.getDefault();
         if (display != null && !display.isDisposed()) {
-            display.asyncExec(this::scheduleEventSync);
+          display.asyncExec(this::scheduleEventSync);
         }
-    };
+      };
 
-    @Override
-    public void createPartControl(Composite parent) {
-        diffExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-diff");
-        takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-takeover");
-        events = new GlobalEventsAggregator();
-        eventsFeed = new EventsFeed();
-        events.addListener(eventsListener);
-        eventsExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-events");
+  @Override
+  public void createPartControl(Composite parent) {
+    diffExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-diff");
+    takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-takeover");
+    events = new GlobalEventsAggregator();
+    eventsFeed = new EventsFeed();
+    events.addListener(eventsListener);
+    eventsExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-fleet-events");
 
-        Composite outer = new Composite(parent, SWT.NONE);
-        GridLayout layout = new GridLayout(1, false);
-        layout.marginWidth = 0;
-        layout.marginHeight = 0;
-        outer.setLayout(layout);
+    Composite outer = new Composite(parent, SWT.NONE);
+    GridLayout layout = new GridLayout(1, false);
+    layout.marginWidth = 0;
+    layout.marginHeight = 0;
+    outer.setLayout(layout);
 
-        // ---- the prominent fleet control (user requirement 2026-09-23): the
-        // fleet is DISABLED by default - enable / pause / stop live HERE ----
-        Composite fleetRow = new Composite(outer, SWT.NONE);
-        GridLayout fleetRowLayout = new GridLayout(4, false);
-        fleetRowLayout.marginWidth = 4;
-        fleetRowLayout.marginHeight = 4;
-        fleetRow.setLayout(fleetRowLayout);
-        fleetRow.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
-        org.eclipse.swt.widgets.Label fleetState = new org.eclipse.swt.widgets.Label(fleetRow, SWT.NONE);
-        fleetState.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        org.eclipse.swt.widgets.Button enableFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
-        enableFleet.setText("Enable Fleet");
-        enableFleet.setToolTipText(
-                "Arm the auto-dispatch pump (the recurring Waves mode stays the Board's opt-up). Disabled by default - the fleet is a token eater.");
-        org.eclipse.swt.widgets.Button pauseFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
-        pauseFleet.setText("Pause");
-        pauseFleet.setToolTipText("No NEW dispatches; running jobs settle normally (never killed)");
-        org.eclipse.swt.widgets.Button stopFleet = new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
-        stopFleet.setText("Stop");
-        stopFleet.setToolTipText("Pumps off and the engine down - back to the disabled default");
+    // ---- the prominent fleet control (user requirement 2026-09-23): the
+    // fleet is DISABLED by default - enable / pause / stop live HERE ----
+    Composite fleetRow = new Composite(outer, SWT.NONE);
+    GridLayout fleetRowLayout = new GridLayout(4, false);
+    fleetRowLayout.marginWidth = 4;
+    fleetRowLayout.marginHeight = 4;
+    fleetRow.setLayout(fleetRowLayout);
+    fleetRow.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, true, false));
+    org.eclipse.swt.widgets.Label fleetState =
+        new org.eclipse.swt.widgets.Label(fleetRow, SWT.NONE);
+    fleetState.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    org.eclipse.swt.widgets.Button enableFleet =
+        new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+    enableFleet.setText("Enable Fleet");
+    enableFleet.setToolTipText(
+        "Arm the auto-dispatch pump (the recurring Waves mode stays the Board's opt-up). Disabled by default - the fleet is a token eater.");
+    org.eclipse.swt.widgets.Button pauseFleet =
+        new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+    pauseFleet.setText("Pause");
+    pauseFleet.setToolTipText("No NEW dispatches; running jobs settle normally (never killed)");
+    org.eclipse.swt.widgets.Button stopFleet =
+        new org.eclipse.swt.widgets.Button(fleetRow, SWT.PUSH);
+    stopFleet.setText("Stop");
+    stopFleet.setToolTipText("Pumps off and the engine down - back to the disabled default");
 
-        com.opencode.ide.core.FleetLifecycle fleetControl = com.opencode.ide.core.FleetLifecycle.getDefault();
-        Runnable renderFleetState = () -> {
-            if (fleetState.isDisposed()) {
-                return;
-            }
-            fleetState.setText(fleetControl.label());
-            enableFleet.setEnabled(fleetControl.canEnable());
-            pauseFleet.setEnabled(fleetControl.canPause());
-            stopFleet.setEnabled(fleetControl.canStop());
+    com.opencode.ide.core.FleetLifecycle fleetControl =
+        com.opencode.ide.core.FleetLifecycle.getDefault();
+    Runnable renderFleetState =
+        () -> {
+          if (fleetState.isDisposed()) {
+            return;
+          }
+          fleetState.setText(fleetControl.label());
+          enableFleet.setEnabled(fleetControl.canEnable());
+          pauseFleet.setEnabled(fleetControl.canPause());
+          stopFleet.setEnabled(fleetControl.canStop());
         };
-        renderFleetState.run();
-        fleetControl.addListener(state -> getSite().getShell().getDisplay().asyncExec(renderFleetState));
-        enableFleet.addListener(SWT.Selection, e -> fleetControl.enable());
-        pauseFleet.addListener(SWT.Selection, e -> fleetControl.pause());
-        stopFleet.addListener(SWT.Selection, e -> fleetControl.stop());
-        // the pump switches live on the Board (sprint context): one bridge,
-        // wired here where the control lives; enabling brings the Board up
-        // first when it is closed
-        fleetControl.setActions(new com.opencode.ide.core.FleetLifecycle.Actions() {
-            @Override
-            public void startPumping() {
-                boardPumps("enable");
-            }
+    renderFleetState.run();
+    fleetControl.addListener(
+        state -> getSite().getShell().getDisplay().asyncExec(renderFleetState));
+    enableFleet.addListener(SWT.Selection, e -> fleetControl.enable());
+    pauseFleet.addListener(SWT.Selection, e -> fleetControl.pause());
+    stopFleet.addListener(SWT.Selection, e -> fleetControl.stop());
+    // the pump switches live on the Board (sprint context): one bridge,
+    // wired here where the control lives; enabling brings the Board up
+    // first when it is closed
+    fleetControl.setActions(
+        new com.opencode.ide.core.FleetLifecycle.Actions() {
+          @Override
+          public void startPumping() {
+            boardPumps("enable");
+          }
 
-            @Override
-            public void stopPumping() {
-                boardPumps("pause");
-            }
+          @Override
+          public void stopPumping() {
+            boardPumps("pause");
+          }
 
-            @Override
-            public void stopEngine() {
-                boardPumps("stop");
-            }
+          @Override
+          public void stopEngine() {
+            boardPumps("stop");
+          }
 
-            private void boardPumps(String command) {
-                getSite().getShell().getDisplay().asyncExec(() -> {
-                    org.eclipse.ui.IWorkbenchPage page = getSite().getPage();
-                    org.eclipse.ui.IViewPart board = page.findView(com.opencode.ide.board.views.BoardView.ID);
-                    if (board == null) {
+          private void boardPumps(String command) {
+            getSite()
+                .getShell()
+                .getDisplay()
+                .asyncExec(
+                    () -> {
+                      org.eclipse.ui.IWorkbenchPage page = getSite().getPage();
+                      org.eclipse.ui.IViewPart board =
+                          page.findView(com.opencode.ide.board.views.BoardView.ID);
+                      if (board == null) {
                         if (!"enable".equals(command)) {
-                            return; // no board open: nothing is pumping anyway
+                          return; // no board open: nothing is pumping anyway
                         }
                         try {
-                            board = page.showView(com.opencode.ide.board.views.BoardView.ID);
+                          board = page.showView(com.opencode.ide.board.views.BoardView.ID);
                         } catch (org.eclipse.ui.PartInitException e) {
-                            return;
+                          return;
                         }
-                    }
-                    if (board instanceof com.opencode.ide.board.views.BoardView boardView) {
+                      }
+                      if (board instanceof com.opencode.ide.board.views.BoardView boardView) {
                         boardView.applyFleetControl(command);
-                    }
-                });
-            }
+                      }
+                    });
+          }
         });
 
-        treeComposite = new Composite(outer, SWT.NONE);
-        TreeColumnLayout treeLayout = new TreeColumnLayout();
-        treeComposite.setLayout(treeLayout);
-        treeComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
+    treeComposite = new Composite(outer, SWT.NONE);
+    TreeColumnLayout treeLayout = new TreeColumnLayout();
+    treeComposite.setLayout(treeLayout);
+    treeComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-        viewer = new TreeViewer(treeComposite,
-                SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
-        viewer.getTree().setHeaderVisible(true);
-        viewer.getTree().setLinesVisible(true);
-        viewer.setContentProvider(new FleetTreeContentProvider());
-        viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
-        hookContextMenu();
-        TreeViewerColumn nodeColumn = new TreeViewerColumn(viewer, SWT.NONE);
-        nodeColumn.getColumn().setText("Fleet");
-        nodeColumn.setLabelProvider(new FleetTreeLabelProvider());
-        treeLayout.setColumnData(nodeColumn.getColumn(), new ColumnWeightData(60, 320, true));
-        TreeViewerColumn detailColumn = new TreeViewerColumn(viewer, SWT.NONE);
-        detailColumn.getColumn().setText("Activity · tokens · cost");
-        detailColumn.setLabelProvider(new FleetTreeDetailProvider());
-        treeLayout.setColumnData(detailColumn.getColumn(), new ColumnWeightData(40, 220, true));
+    viewer =
+        new TreeViewer(
+            treeComposite,
+            SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
+    viewer.getTree().setHeaderVisible(true);
+    viewer.getTree().setLinesVisible(true);
+    viewer.setContentProvider(new FleetTreeContentProvider());
+    viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
+    hookContextMenu();
+    TreeViewerColumn nodeColumn = new TreeViewerColumn(viewer, SWT.NONE);
+    nodeColumn.getColumn().setText("Fleet");
+    nodeColumn.setLabelProvider(new FleetTreeLabelProvider());
+    treeLayout.setColumnData(nodeColumn.getColumn(), new ColumnWeightData(60, 320, true));
+    TreeViewerColumn detailColumn = new TreeViewerColumn(viewer, SWT.NONE);
+    detailColumn.getColumn().setText("Activity · tokens · cost");
+    detailColumn.setLabelProvider(new FleetTreeDetailProvider());
+    treeLayout.setColumnData(detailColumn.getColumn(), new ColumnWeightData(40, 220, true));
 
-        // double-click a node that carries a session: watch the worker live
-        // (U-015 — same view as the Watch live action)
-        viewer.addDoubleClickListener(event -> {
-            Object selection = event.getSelection();
-            Object first = (selection instanceof IStructuredSelection structured)
-                    ? structured.getFirstElement()
-                    : null;
-            if (first instanceof FleetTree.Node node && node.sessionId() != null
-                    && !node.sessionId().isBlank()) {
-                openLiveWatch(node.sessionId(), node.running());
-            }
+    // double-click a node that carries a session: watch the worker live
+    // (U-015 — same view as the Watch live action)
+    viewer.addDoubleClickListener(
+        event -> {
+          Object selection = event.getSelection();
+          Object first =
+              (selection instanceof IStructuredSelection structured)
+                  ? structured.getFirstElement()
+                  : null;
+          if (first instanceof FleetTree.Node node
+              && node.sessionId() != null
+              && !node.sessionId().isBlank()) {
+            openLiveWatch(node.sessionId(), node.running());
+          }
         });
 
-        emptyLabel = new Label(outer, SWT.CENTER | SWT.WRAP);
-        emptyLabel.setText(EMPTY_STATE);
-        GridData emptyData = new GridData(GridData.FILL_BOTH);
-        emptyLabel.setLayoutData(emptyData);
+    emptyLabel = new Label(outer, SWT.CENTER | SWT.WRAP);
+    emptyLabel.setText(EMPTY_STATE);
+    GridData emptyData = new GridData(GridData.FILL_BOTH);
+    emptyLabel.setLayoutData(emptyData);
 
-        contributeActions();
-        FleetJobsModel.getDefault().addListener(modelListener);
-        TaskFleetLauncher.permissions().addListener(permissionsListener);
-        TaskFleetLauncher.connectChatPermissions();
-        ConnectionsManager.getDefault().addListener(connectionsListener);
-        scheduleEventSync();
-        refreshFromModel();
-        updatePermissionsAction();
+    contributeActions();
+    FleetJobsModel.getDefault().addListener(modelListener);
+    TaskFleetLauncher.permissions().addListener(permissionsListener);
+    TaskFleetLauncher.connectChatPermissions();
+    ConnectionsManager.getDefault().addListener(connectionsListener);
+    scheduleEventSync();
+    refreshFromModel();
+    updatePermissionsAction();
+  }
+
+  /**
+   * Walks the {@link FleetTree.Node} hierarchy. The viewer input is the root-node LIST (never a
+   * tree element itself — the repo's viewer rule).
+   */
+  private static final class FleetTreeContentProvider implements ITreeContentProvider {
+    @Override
+    public Object[] getElements(Object inputElement) {
+      return inputElement instanceof List<?> roots ? roots.toArray() : new Object[0];
     }
 
-    /**
-     * Walks the {@link FleetTree.Node} hierarchy. The viewer input is the
-     * root-node LIST (never a tree element itself — the repo's viewer rule).
-     */
-    private static final class FleetTreeContentProvider implements ITreeContentProvider {
-        @Override
-        public Object[] getElements(Object inputElement) {
-            return inputElement instanceof List<?> roots ? roots.toArray() : new Object[0];
-        }
-
-        @Override
-        public Object[] getChildren(Object parentElement) {
-            return parentElement instanceof FleetTree.Node node ? node.children().toArray()
-                    : new Object[0];
-        }
-
-        @Override
-        public Object getParent(Object element) {
-            return null; // upward navigation is unused (single-selection tree)
-        }
-
-        @Override
-        public boolean hasChildren(Object element) {
-            return element instanceof FleetTree.Node node && !node.children().isEmpty();
-        }
+    @Override
+    public Object[] getChildren(Object parentElement) {
+      return parentElement instanceof FleetTree.Node node
+          ? node.children().toArray()
+          : new Object[0];
     }
 
-    /**
-     * Node column: badge (the Board's state/type language) + label; the
-     * ticket TYPE icon (U-005, the core icon set) on job nodes; state colors
-     * (external grey, failed red, running blue).
-     */
-    private static final class FleetTreeLabelProvider extends ColumnLabelProvider {
-        @Override
-        public String getText(Object element) {
-            if (!(element instanceof FleetTree.Node node)) {
-                return "";
-            }
-            String badge = node.badge() == null || node.badge().isEmpty() ? "" : node.badge() + " ";
-            return badge + node.label();
-        }
-
-        @Override
-        public org.eclipse.swt.graphics.Image getImage(Object element) {
-            if (element instanceof FleetTree.Node node && node.isJob()
-                    && node.ticketType() != null && !node.ticketType().isBlank()) {
-                return typeImage(node.ticketType());
-            }
-            return null;
-        }
-
-        @Override
-        public Color getForeground(Object element) {
-            return foregroundOf(element);
-        }
-
-        /** The node color: external grey, failed red, running blue (shared by both columns). */
-        static Color foregroundOf(Object element) {
-            if (!(element instanceof FleetTree.Node node)) {
-                return null;
-            }
-            Display display = Display.getCurrent();
-            if (display == null) {
-                return null;
-            }
-            if (node.external()) {
-                return display.getSystemColor(SWT.COLOR_DARK_GRAY);
-            }
-            if (node.failed()) {
-                return display.getSystemColor(SWT.COLOR_RED);
-            }
-            if (node.running()) {
-                return display.getSystemColor(SWT.COLOR_DARK_BLUE);
-            }
-            return null;
-        }
+    @Override
+    public Object getParent(Object element) {
+      return null; // upward navigation is unused (single-selection tree)
     }
 
-    /**
-     * Detail column: the node's detail line (live activity / state /
-     * command+exit) plus the rolled-up tokens/cost totals when known.
-     */
-    private static final class FleetTreeDetailProvider extends ColumnLabelProvider {
-        @Override
-        public String getText(Object element) {
-            if (!(element instanceof FleetTree.Node node)) {
-                return "";
+    @Override
+    public boolean hasChildren(Object element) {
+      return element instanceof FleetTree.Node node && !node.children().isEmpty();
+    }
+  }
+
+  /**
+   * Node column: badge (the Board's state/type language) + label; the ticket TYPE icon (U-005, the
+   * core icon set) on job nodes; state colors (external grey, failed red, running blue).
+   */
+  private static final class FleetTreeLabelProvider extends ColumnLabelProvider {
+    @Override
+    public String getText(Object element) {
+      if (!(element instanceof FleetTree.Node node)) {
+        return "";
+      }
+      String badge = node.badge() == null || node.badge().isEmpty() ? "" : node.badge() + " ";
+      return badge + node.label();
+    }
+
+    @Override
+    public org.eclipse.swt.graphics.Image getImage(Object element) {
+      if (element instanceof FleetTree.Node node
+          && node.isJob()
+          && node.ticketType() != null
+          && !node.ticketType().isBlank()) {
+        return typeImage(node.ticketType());
+      }
+      return null;
+    }
+
+    @Override
+    public Color getForeground(Object element) {
+      return foregroundOf(element);
+    }
+
+    /** The node color: external grey, failed red, running blue (shared by both columns). */
+    static Color foregroundOf(Object element) {
+      if (!(element instanceof FleetTree.Node node)) {
+        return null;
+      }
+      Display display = Display.getCurrent();
+      if (display == null) {
+        return null;
+      }
+      if (node.external()) {
+        return display.getSystemColor(SWT.COLOR_DARK_GRAY);
+      }
+      if (node.failed()) {
+        return display.getSystemColor(SWT.COLOR_RED);
+      }
+      if (node.running()) {
+        return display.getSystemColor(SWT.COLOR_DARK_BLUE);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Detail column: the node's detail line (live activity / state / command+exit) plus the rolled-up
+   * tokens/cost totals when known.
+   */
+  private static final class FleetTreeDetailProvider extends ColumnLabelProvider {
+    @Override
+    public String getText(Object element) {
+      if (!(element instanceof FleetTree.Node node)) {
+        return "";
+      }
+      StringBuilder text = new StringBuilder(node.detail() == null ? "" : node.detail());
+      if (node.tokens() != null) {
+        append(text, compactTokens(node.tokens()) + " tok");
+      }
+      if (node.cost() != null && node.cost() > 0.0) {
+        append(text, String.format("$%.4f", node.cost()));
+      }
+      return text.toString();
+    }
+
+    @Override
+    public Color getForeground(Object element) {
+      return FleetTreeLabelProvider.foregroundOf(element);
+    }
+
+    private static void append(StringBuilder text, String part) {
+      if (text.length() > 0) {
+        text.append(" · ");
+      }
+      text.append(part);
+    }
+
+    /** 1234 -> "1.2k"; small counts stay exact. */
+    private static String compactTokens(long tokens) {
+      if (tokens < 1000) {
+        return Long.toString(tokens);
+      }
+      return String.format("%.1fk", tokens / 1000.0);
+    }
+  }
+
+  /** The type icon of a ticket node (U-005 language: icons/actions/type-*.png in core). */
+  private static org.eclipse.swt.graphics.Image typeImage(String type) {
+    org.eclipse.jface.resource.ImageDescriptor descriptor =
+        icon("type-" + type.trim().toLowerCase());
+    return descriptor == null ? null : descriptor.createImage();
+  }
+
+  /** The fleet-job view of a JOB node (the level the job actions act on); null otherwise. */
+  private static FleetJobHandle handleOf(FleetTree.Node node) {
+    return node != null && node.isJob()
+        ? new FleetJobHandle(
+            node.taskId(),
+            node.sessionId(),
+            node.worktree(),
+            node.jobState(),
+            node.detail(),
+            node.external())
+        : null;
+  }
+
+  /** The fleet-job view of the current selection, or null for non-job nodes/no selection. */
+  private FleetJobHandle selectedRow() {
+    return handleOf(selectedNode());
+  }
+
+  /** The currently selected tree node, or null. */
+  private FleetTree.Node selectedNode() {
+    IStructuredSelection selection = viewer.getStructuredSelection();
+    if (selection == null
+        || selection.isEmpty()
+        || !(selection.getFirstElement() instanceof FleetTree.Node node)) {
+      return null;
+    }
+    return node;
+  }
+
+  /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see BoardView#icon). */
+  private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+    return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+        "com.opencode.ide.core", "icons/actions/" + name + ".png");
+  }
+
+  private void contributeActions() {
+    watchLiveAction =
+        new Action("Watch live") {
+          @Override
+          public void run() {
+            watchLive();
+          }
+        };
+    watchLiveAction.setToolTipText(
+        "Open the job's worker session in Session Details and follow it live while it runs");
+    watchLiveAction.setImageDescriptor(icon("watch"));
+    watchLiveAction.setEnabled(false);
+
+    openDiffAction =
+        new Action("Open diff") {
+          @Override
+          public void run() {
+            openDiff();
+          }
+        };
+    openDiffAction.setToolTipText(
+        "Session diff from the opencode server; falls back to a git diff of the task branch");
+    openDiffAction.setImageDescriptor(icon("open-diff"));
+    openDiffAction.setEnabled(false);
+
+    openFolderAction =
+        new Action("Open folder") {
+          @Override
+          public void run() {
+            openFolder();
+          }
+        };
+    openFolderAction.setToolTipText("Open the job's worktree in the file explorer");
+    openFolderAction.setImageDescriptor(icon("open-folder"));
+    openFolderAction.setEnabled(false);
+
+    takeOverAction =
+        new Action("Take over") {
+          @Override
+          public void run() {
+            takeOver();
+          }
+        };
+    takeOverAction.setToolTipText(
+        "Hand the session to the attached opencode TUI; without one, open the worktree and mark the job as taken over");
+    takeOverAction.setImageDescriptor(icon("take-over"));
+    takeOverAction.setEnabled(false);
+
+    permissionsAction =
+        new Action("Permissions") {
+          @Override
+          public void run() {
+            new FleetPermissionsDialog(getSite().getShell(), TaskFleetLauncher.permissions())
+                .open();
+          }
+        };
+    permissionsAction.setToolTipText(
+        "Pending permission requests of unattended fleet sessions (approve once / always / reject)");
+    permissionsAction.setImageDescriptor(icon("permissions"));
+    permissionsAction.setEnabled(false);
+
+    eventsAction =
+        new Action("Events") {
+          @Override
+          public void run() {
+            GlobalEventsAggregator aggregator = events;
+            if (aggregator != null && eventsFeed != null) {
+              new EventsDialog(getSite().getShell(), aggregator, eventsFeed).open();
             }
-            StringBuilder text = new StringBuilder(node.detail() == null ? "" : node.detail());
-            if (node.tokens() != null) {
-                append(text, compactTokens(node.tokens()) + " tok");
-            }
-            if (node.cost() != null && node.cost() > 0.0) {
-                append(text, String.format("$%.4f", node.cost()));
-            }
-            return text.toString();
+          }
+        };
+    eventsAction.setToolTipText(
+        "The merged global event feed of all configured connections (newest 50, live while open)");
+    eventsAction.setImageDescriptor(icon("events"));
+
+    IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
+    toolbar.add(permissionsAction);
+    toolbar.add(eventsAction);
+    toolbar.add(watchLiveAction);
+    toolbar.add(openDiffAction);
+    toolbar.add(openFolderAction);
+    toolbar.add(takeOverAction);
+  }
+
+  /** Refreshes the "Permissions (n)" hint from the queue (UI thread). */
+  private void updatePermissionsAction() {
+    if (permissionsAction == null || viewer == null || viewer.getControl().isDisposed()) {
+      return;
+    }
+    int pending = TaskFleetLauncher.permissions().pendingCount();
+    permissionsAction.setText(pending == 0 ? "Permissions" : "Permissions (" + pending + ")");
+    permissionsAction.setEnabled(pending > 0);
+  }
+
+  /** Event delivered (any stream thread): timestamps it for row formatting. */
+  private void onGlobalEvent(ObservedEvent event) {
+    EventsFeed feed = eventsFeed;
+    if (feed != null) {
+      feed.remember(event);
+    }
+  }
+
+  /**
+   * Re-syncs event subscriptions off the UI thread (the primary client may block on server spawn).
+   */
+  private void scheduleEventSync() {
+    ExecutorService executor = eventsExecutor;
+    if (executor != null) {
+      executor.execute(this::syncEventSubscriptions);
+    }
+  }
+
+  /**
+   * Subscribes every configured connection (primary + remotes) to the merged event feed and
+   * unsubscribes removed ones. Runs on the events executor — the primary's {@code client()} may
+   * block while spawning the server; a refused subscribe only lands in the failed badge.
+   */
+  private void syncEventSubscriptions() {
+    GlobalEventsAggregator aggregator = events;
+    if (aggregator == null) {
+      return;
+    }
+    try {
+      Set<String> desired = new LinkedHashSet<>();
+      for (ManagedConnection connection : ConnectionsManager.getDefault().connections()) {
+        desired.add(connection.id());
+        if (!aggregator.connections().contains(connection.id())) {
+          try {
+            aggregator.subscribe(connection.id(), connection.client());
+          } catch (OpencodeException | RuntimeException e) {
+            logWarn(
+                "Subscribing global events of "
+                    + connection.label()
+                    + " failed: "
+                    + e.getMessage());
+          }
         }
-
-        @Override
-        public Color getForeground(Object element) {
-            return FleetTreeLabelProvider.foregroundOf(element);
+      }
+      for (String id : aggregator.connections()) {
+        if (!desired.contains(id)) {
+          aggregator.unsubscribe(id);
         }
-
-        private static void append(StringBuilder text, String part) {
-            if (text.length() > 0) {
-                text.append(" · ");
-            }
-            text.append(part);
-        }
-
-        /** 1234 -> "1.2k"; small counts stay exact. */
-        private static String compactTokens(long tokens) {
-            if (tokens < 1000) {
-                return Long.toString(tokens);
-            }
-            return String.format("%.1fk", tokens / 1000.0);
-        }
+      }
+    } finally {
+      Display display = Display.getDefault();
+      if (display != null && !display.isDisposed()) {
+        display.asyncExec(this::updateEventsAction);
+      }
     }
+  }
 
-    /** The type icon of a ticket node (U-005 language: icons/actions/type-*.png in core). */
-    private static org.eclipse.swt.graphics.Image typeImage(String type) {
-        org.eclipse.jface.resource.ImageDescriptor descriptor = icon("type-" + type.trim().toLowerCase());
-        return descriptor == null ? null : descriptor.createImage();
+  /** Refreshes the "Events · n connections (m failed)" liveness hint (UI thread). */
+  private void updateEventsAction() {
+    if (eventsAction == null
+        || events == null
+        || viewer == null
+        || viewer.getControl().isDisposed()) {
+      return;
     }
-
-    /** The fleet-job view of a JOB node (the level the job actions act on); null otherwise. */
-    private static FleetJobHandle handleOf(FleetTree.Node node) {
-        return node != null && node.isJob()
-                ? new FleetJobHandle(node.taskId(), node.sessionId(), node.worktree(),
-                        node.jobState(), node.detail(), node.external())
-                : null;
+    String badge =
+        EventsFeed.liveness(events.connections().size(), events.failedConnections().size());
+    String text = badge.isEmpty() ? "Events" : "Events \u00b7 " + badge;
+    if (!text.equals(eventsAction.getText())) {
+      eventsAction.setText(text);
     }
+  }
 
-    /** The fleet-job view of the current selection, or null for non-job nodes/no selection. */
-    private FleetJobHandle selectedRow() {
-        return handleOf(selectedNode());
-    }
+  /**
+   * Context menu on job rows (BoardView pattern): per-show enablement from the current selection.
+   */
+  private void hookContextMenu() {
+    MenuManager manager = new MenuManager();
+    manager.setRemoveAllWhenShown(true);
+    manager.addMenuListener(this::fillContextMenu);
+    viewer.getControl().setMenu(manager.createContextMenu(viewer.getControl()));
+  }
 
-    /** The currently selected tree node, or null. */
-    private FleetTree.Node selectedNode() {
-        IStructuredSelection selection = viewer.getStructuredSelection();
-        if (selection == null || selection.isEmpty()
-                || !(selection.getFirstElement() instanceof FleetTree.Node node)) {
-            return null;
-        }
-        return node;
-    }
-
-    /** Toolbar icon from the shared set in {@code com.opencode.ide.core} (see BoardView#icon). */
-    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
-        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
-                "com.opencode.ide.core", "icons/actions/" + name + ".png");
-    }
-
-    private void contributeActions() {
-        watchLiveAction = new Action("Watch live") {
+  /**
+   * Context menu: per-show enablement from the current selection, level-appropriate per node kind
+   * (U-040) — shell nodes get the output tail, session nodes the session openers, job nodes the job
+   * actions.
+   */
+  private void fillContextMenu(IContributionManager manager) {
+    FleetTree.Node node = selectedNode();
+    if (node != null && node.isShell()) {
+      Action outputTail =
+          new Action("Open output tail") {
             @Override
             public void run() {
-                watchLive();
+              openShellTail(node);
             }
-        };
-        watchLiveAction.setToolTipText(
-                "Open the job's worker session in Session Details and follow it live while it runs");
-        watchLiveAction.setImageDescriptor(icon("watch"));
-        watchLiveAction.setEnabled(false);
-
-        openDiffAction = new Action("Open diff") {
-            @Override
-            public void run() {
-                openDiff();
-            }
-        };
-        openDiffAction.setToolTipText(
-                "Session diff from the opencode server; falls back to a git diff of the task branch");
-        openDiffAction.setImageDescriptor(icon("open-diff"));
-        openDiffAction.setEnabled(false);
-
-        openFolderAction = new Action("Open folder") {
-            @Override
-            public void run() {
-                openFolder();
-            }
-        };
-        openFolderAction.setToolTipText("Open the job's worktree in the file explorer");
-        openFolderAction.setImageDescriptor(icon("open-folder"));
-        openFolderAction.setEnabled(false);
-
-        takeOverAction = new Action("Take over") {
-            @Override
-            public void run() {
-                takeOver();
-            }
-        };
-        takeOverAction.setToolTipText(
-                "Hand the session to the attached opencode TUI; without one, open the worktree and mark the job as taken over");
-        takeOverAction.setImageDescriptor(icon("take-over"));
-        takeOverAction.setEnabled(false);
-
-        permissionsAction = new Action("Permissions") {
-            @Override
-            public void run() {
-                new FleetPermissionsDialog(getSite().getShell(),
-                        TaskFleetLauncher.permissions()).open();
-            }
-        };
-        permissionsAction.setToolTipText(
-                "Pending permission requests of unattended fleet sessions (approve once / always / reject)");
-        permissionsAction.setImageDescriptor(icon("permissions"));
-        permissionsAction.setEnabled(false);
-
-        eventsAction = new Action("Events") {
-            @Override
-            public void run() {
-                GlobalEventsAggregator aggregator = events;
-                if (aggregator != null && eventsFeed != null) {
-                    new EventsDialog(getSite().getShell(), aggregator, eventsFeed).open();
-                }
-            }
-        };
-        eventsAction.setToolTipText(
-                "The merged global event feed of all configured connections (newest 50, live while open)");
-        eventsAction.setImageDescriptor(icon("events"));
-
-        IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
-        toolbar.add(permissionsAction);
-        toolbar.add(eventsAction);
-        toolbar.add(watchLiveAction);
-        toolbar.add(openDiffAction);
-        toolbar.add(openFolderAction);
-        toolbar.add(takeOverAction);
+          };
+      outputTail.setToolTipText("The captured output tail of this console/shell task");
+      manager.add(outputTail);
+      return;
     }
+    if (node != null && node.isSession()) {
+      Action watchLive =
+          new Action("Watch live") {
+            @Override
+            public void run() {
+              watchLive();
+            }
+          };
+      watchLive.setToolTipText(
+          "Open the session in Session Details and follow it live while it runs");
+      watchLive.setImageDescriptor(icon("watch"));
+      manager.add(watchLive);
+      Action copySessionId =
+          new Action("Copy session id") {
+            @Override
+            public void run() {
+              copyText(node.sessionId());
+            }
+          };
+      manager.add(copySessionId);
+      return;
+    }
+    FleetJobHandle row = selectedRow();
+    Action watchLive =
+        new Action("Watch live") {
+          @Override
+          public void run() {
+            watchLive();
+          }
+        };
+    watchLive.setToolTipText(
+        "Open the job's worker session in Session Details and follow it live while it runs");
+    watchLive.setImageDescriptor(icon("watch"));
+    watchLive.setEnabled(hasSession(row));
+    manager.add(watchLive);
+    Action openDiff =
+        new Action("Open diff") {
+          @Override
+          public void run() {
+            openDiff();
+          }
+        };
+    openDiff.setEnabled(row != null && !diffRunning.get());
+    manager.add(openDiff);
+    Action openFolder =
+        new Action("Open folder") {
+          @Override
+          public void run() {
+            openFolder();
+          }
+        };
+    openFolder.setEnabled(row != null);
+    manager.add(openFolder);
+    Action takeOver =
+        new Action("Take over") {
+          @Override
+          public void run() {
+            takeOver();
+          }
+        };
+    takeOver.setEnabled(row != null && !row.external());
+    manager.add(takeOver);
+    Action copyTicketId =
+        new Action("Copy ticket id") {
+          @Override
+          public void run() {
+            if (row != null) {
+              copyText(row.taskId());
+            }
+          }
+        };
+    copyTicketId.setEnabled(row != null);
+    manager.add(copyTicketId);
+    Action copySessionId =
+        new Action("Copy session id") {
+          @Override
+          public void run() {
+            if (row != null) {
+              copyText(row.sessionId());
+            }
+          }
+        };
+    copySessionId.setEnabled(row != null && row.sessionId() != null && !row.sessionId().isBlank());
+    manager.add(copySessionId);
+    manager.add(new Separator());
+    Action abort =
+        new Action("Abort\u2026") {
+          @Override
+          public void run() {
+            abortSelected(row);
+          }
+        };
+    abort.setEnabled(
+        row != null && !row.external() && row.sessionId() != null && !row.sessionId().isBlank());
+    manager.add(abort);
+  }
 
-    /** Refreshes the "Permissions (n)" hint from the queue (UI thread). */
-    private void updatePermissionsAction() {
-        if (permissionsAction == null || viewer == null || viewer.getControl().isDisposed()) {
+  /** Opens the captured output tail of a shell/console node in a text dialog. */
+  private void openShellTail(FleetTree.Node node) {
+    if (node == null || !node.isShell()) {
+      return;
+    }
+    String tail = node.shellTail();
+    new TextDialog(
+            getSite().getShell(),
+            node.label(),
+            tail == null || tail.isBlank() ? "(no output captured yet)" : tail)
+        .open();
+  }
+
+  /** Copies non-blank text to the clipboard (UI thread — the context menu). */
+  private void copyText(String text) {
+    if (text == null || text.isBlank() || viewer == null || viewer.getControl().isDisposed()) {
+      return;
+    }
+    Clipboard clipboard = new Clipboard(viewer.getControl().getDisplay());
+    try {
+      clipboard.setContents(new Object[] {text}, new Transfer[] {TextTransfer.getInstance()});
+    } finally {
+      clipboard.dispose();
+    }
+  }
+
+  /**
+   * Aborts the selected row's session: a confirm dialog, then the abort POST on the takeover
+   * executor (blocking client call, off the UI thread — the takeOver pattern); the outcome dialog
+   * opens via asyncExec.
+   */
+  private void abortSelected(FleetJobHandle row) {
+    if (row == null || row.sessionId() == null || row.sessionId().isBlank()) {
+      return;
+    }
+    String sessionId = row.sessionId();
+    boolean confirmed =
+        MessageDialog.openConfirm(
+            getSite().getShell(),
+            "Abort session",
+            "Abort the running agent of session " + sessionId + "?\n(ticket " + row.taskId() + ")");
+    if (!confirmed) {
+      return;
+    }
+    ExecutorService executor = takeoverExecutor;
+    if (executor == null) {
+      return;
+    }
+    executor.execute(
+        () -> {
+          String error = null;
+          try {
+            OpencodeConnection.getInstance().getClient().abortSession(sessionId);
+          } catch (OpencodeException | RuntimeException e) {
+            error = e.getMessage();
+          }
+          final String failure = error;
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        int pending = TaskFleetLauncher.permissions().pendingCount();
-        permissionsAction.setText(pending == 0 ? "Permissions" : "Permissions (" + pending + ")");
-        permissionsAction.setEnabled(pending > 0);
-    }
-
-    /** Event delivered (any stream thread): timestamps it for row formatting. */
-    private void onGlobalEvent(ObservedEvent event) {
-        EventsFeed feed = eventsFeed;
-        if (feed != null) {
-            feed.remember(event);
-        }
-    }
-
-    /** Re-syncs event subscriptions off the UI thread (the primary client may block on server spawn). */
-    private void scheduleEventSync() {
-        ExecutorService executor = eventsExecutor;
-        if (executor != null) {
-            executor.execute(this::syncEventSubscriptions);
-        }
-    }
-
-    /**
-     * Subscribes every configured connection (primary + remotes) to the
-     * merged event feed and unsubscribes removed ones. Runs on the events
-     * executor — the primary's {@code client()} may block while spawning
-     * the server; a refused subscribe only lands in the failed badge.
-     */
-    private void syncEventSubscriptions() {
-        GlobalEventsAggregator aggregator = events;
-        if (aggregator == null) {
-            return;
-        }
-        try {
-            Set<String> desired = new LinkedHashSet<>();
-            for (ManagedConnection connection : ConnectionsManager.getDefault().connections()) {
-                desired.add(connection.id());
-                if (!aggregator.connections().contains(connection.id())) {
-                    try {
-                        aggregator.subscribe(connection.id(), connection.client());
-                    } catch (OpencodeException | RuntimeException e) {
-                        logWarn("Subscribing global events of " + connection.label()
-                                + " failed: " + e.getMessage());
-                    }
-                }
-            }
-            for (String id : aggregator.connections()) {
-                if (!desired.contains(id)) {
-                    aggregator.unsubscribe(id);
-                }
-            }
-        } finally {
-            Display display = Display.getDefault();
-            if (display != null && !display.isDisposed()) {
-                display.asyncExec(this::updateEventsAction);
-            }
-        }
-    }
-
-    /** Refreshes the "Events · n connections (m failed)" liveness hint (UI thread). */
-    private void updateEventsAction() {
-        if (eventsAction == null || events == null || viewer == null || viewer.getControl().isDisposed()) {
-            return;
-        }
-        String badge = EventsFeed.liveness(events.connections().size(), events.failedConnections().size());
-        String text = badge.isEmpty() ? "Events" : "Events \u00b7 " + badge;
-        if (!text.equals(eventsAction.getText())) {
-            eventsAction.setText(text);
-        }
-    }
-
-    /** Context menu on job rows (BoardView pattern): per-show enablement from the current selection. */
-    private void hookContextMenu() {
-        MenuManager manager = new MenuManager();
-        manager.setRemoveAllWhenShown(true);
-        manager.addMenuListener(this::fillContextMenu);
-        viewer.getControl().setMenu(manager.createContextMenu(viewer.getControl()));
-    }
-
-    /**
-     * Context menu: per-show enablement from the current selection,
-     * level-appropriate per node kind (U-040) — shell nodes get the output
-     * tail, session nodes the session openers, job nodes the job actions.
-     */
-    private void fillContextMenu(IContributionManager manager) {
-        FleetTree.Node node = selectedNode();
-        if (node != null && node.isShell()) {
-            Action outputTail = new Action("Open output tail") {
-                @Override
-                public void run() {
-                    openShellTail(node);
-                }
-            };
-            outputTail.setToolTipText("The captured output tail of this console/shell task");
-            manager.add(outputTail);
-            return;
-        }
-        if (node != null && node.isSession()) {
-            Action watchLive = new Action("Watch live") {
-                @Override
-                public void run() {
-                    watchLive();
-                }
-            };
-            watchLive.setToolTipText(
-                    "Open the session in Session Details and follow it live while it runs");
-            watchLive.setImageDescriptor(icon("watch"));
-            manager.add(watchLive);
-            Action copySessionId = new Action("Copy session id") {
-                @Override
-                public void run() {
-                    copyText(node.sessionId());
-                }
-            };
-            manager.add(copySessionId);
-            return;
-        }
-        FleetJobHandle row = selectedRow();
-        Action watchLive = new Action("Watch live") {
-            @Override
-            public void run() {
-                watchLive();
-            }
-        };
-        watchLive.setToolTipText(
-                "Open the job's worker session in Session Details and follow it live while it runs");
-        watchLive.setImageDescriptor(icon("watch"));
-        watchLive.setEnabled(hasSession(row));
-        manager.add(watchLive);
-        Action openDiff = new Action("Open diff") {
-            @Override
-            public void run() {
-                openDiff();
-            }
-        };
-        openDiff.setEnabled(row != null && !diffRunning.get());
-        manager.add(openDiff);
-        Action openFolder = new Action("Open folder") {
-            @Override
-            public void run() {
-                openFolder();
-            }
-        };
-        openFolder.setEnabled(row != null);
-        manager.add(openFolder);
-        Action takeOver = new Action("Take over") {
-            @Override
-            public void run() {
-                takeOver();
-            }
-        };
-        takeOver.setEnabled(row != null && !row.external());
-        manager.add(takeOver);
-        Action copyTicketId = new Action("Copy ticket id") {
-            @Override
-            public void run() {
-                if (row != null) {
-                    copyText(row.taskId());
-                }
-            }
-        };
-        copyTicketId.setEnabled(row != null);
-        manager.add(copyTicketId);
-        Action copySessionId = new Action("Copy session id") {
-            @Override
-            public void run() {
-                if (row != null) {
-                    copyText(row.sessionId());
-                }
-            }
-        };
-        copySessionId.setEnabled(row != null && row.sessionId() != null && !row.sessionId().isBlank());
-        manager.add(copySessionId);
-        manager.add(new Separator());
-        Action abort = new Action("Abort\u2026") {
-            @Override
-            public void run() {
-                abortSelected(row);
-            }
-        };
-        abort.setEnabled(row != null && !row.external()
-                && row.sessionId() != null && !row.sessionId().isBlank());
-        manager.add(abort);
-    }
-
-    /** Opens the captured output tail of a shell/console node in a text dialog. */
-    private void openShellTail(FleetTree.Node node) {
-        if (node == null || !node.isShell()) {
-            return;
-        }
-        String tail = node.shellTail();
-        new TextDialog(getSite().getShell(), node.label(),
-                tail == null || tail.isBlank() ? "(no output captured yet)" : tail).open();
-    }
-
-    /** Copies non-blank text to the clipboard (UI thread — the context menu). */
-    private void copyText(String text) {
-        if (text == null || text.isBlank() || viewer == null || viewer.getControl().isDisposed()) {
-            return;
-        }
-        Clipboard clipboard = new Clipboard(viewer.getControl().getDisplay());
-        try {
-            clipboard.setContents(new Object[] { text }, new Transfer[] { TextTransfer.getInstance() });
-        } finally {
-            clipboard.dispose();
-        }
-    }
-
-    /**
-     * Aborts the selected row's session: a confirm dialog, then the abort
-     * POST on the takeover executor (blocking client call, off the UI thread
-     * — the takeOver pattern); the outcome dialog opens via asyncExec.
-     */
-    private void abortSelected(FleetJobHandle row) {
-        if (row == null || row.sessionId() == null || row.sessionId().isBlank()) {
-            return;
-        }
-        String sessionId = row.sessionId();
-        boolean confirmed = MessageDialog.openConfirm(getSite().getShell(), "Abort session",
-                "Abort the running agent of session " + sessionId + "?\n(ticket " + row.taskId() + ")");
-        if (!confirmed) {
-            return;
-        }
-        ExecutorService executor = takeoverExecutor;
-        if (executor == null) {
-            return;
-        }
-        executor.execute(() -> {
-            String error = null;
-            try {
-                OpencodeConnection.getInstance().getClient().abortSession(sessionId);
-            } catch (OpencodeException | RuntimeException e) {
-                error = e.getMessage();
-            }
-            final String failure = error;
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          display.asyncExec(
+              () -> {
                 if (viewer == null || viewer.getControl().isDisposed()) {
-                    return;
+                  return;
                 }
                 if (failure != null) {
-                    MessageDialog.openError(getSite().getShell(), "Abort session",
-                            "Aborting session " + sessionId + " failed: " + failure);
+                  MessageDialog.openError(
+                      getSite().getShell(),
+                      "Abort session",
+                      "Aborting session " + sessionId + " failed: " + failure);
                 } else {
-                    MessageDialog.openInformation(getSite().getShell(), "Abort session",
-                            "Abort sent for session " + sessionId + ".");
+                  MessageDialog.openInformation(
+                      getSite().getShell(),
+                      "Abort session",
+                      "Abort sent for session " + sessionId + ".");
                 }
-            });
+              });
         });
-    }
+  }
 
-    private void updateActionEnablement() {
-        FleetTree.Node node = selectedNode();
-        FleetJobHandle row = handleOf(node);
-        boolean hasSession = node != null && node.sessionId() != null && !node.sessionId().isBlank();
-        watchLiveAction.setEnabled(hasSession);
-        openDiffAction.setEnabled(row != null && !diffRunning.get());
-        openFolderAction.setEnabled(row != null);
-        // F-004: peer-engine nodes are view-only — no take-over
-        takeOverAction.setEnabled(row != null && !row.external());
-    }
+  private void updateActionEnablement() {
+    FleetTree.Node node = selectedNode();
+    FleetJobHandle row = handleOf(node);
+    boolean hasSession = node != null && node.sessionId() != null && !node.sessionId().isBlank();
+    watchLiveAction.setEnabled(hasSession);
+    openDiffAction.setEnabled(row != null && !diffRunning.get());
+    openFolderAction.setEnabled(row != null);
+    // F-004: peer-engine nodes are view-only — no take-over
+    takeOverAction.setEnabled(row != null && !row.external());
+  }
 
-    /** @return true when the row carries a (non-blank) worker session id — the live view needs one. */
-    private static boolean hasSession(FleetJobHandle row) {
-        return row != null && row.sessionId() != null && !row.sessionId().isBlank();
-    }
+  /**
+   * @return true when the row carries a (non-blank) worker session id — the live view needs one.
+   */
+  private static boolean hasSession(FleetJobHandle row) {
+    return row != null && row.sessionId() != null && !row.sessionId().isBlank();
+  }
 
-    /** Opens the SELECTED node's session live (the Watch live action; job or session node). */
-    private void watchLive() {
-        FleetTree.Node node = selectedNode();
-        if (node == null || node.sessionId() == null || node.sessionId().isBlank()) {
-            return;
-        }
-        openLiveWatch(node.sessionId(), node.running());
+  /** Opens the SELECTED node's session live (the Watch live action; job or session node). */
+  private void watchLive() {
+    FleetTree.Node node = selectedNode();
+    if (node == null || node.sessionId() == null || node.sessionId().isBlank()) {
+      return;
     }
+    openLiveWatch(node.sessionId(), node.running());
+  }
 
-    private void openLiveWatch(FleetJobHandle row) {
-        if (!hasSession(row)) {
-            return;
-        }
-        openLiveWatch(row.sessionId(), row.state() == FleetJobHandle.State.RUNNING);
+  private void openLiveWatch(FleetJobHandle row) {
+    if (!hasSession(row)) {
+      return;
     }
+    openLiveWatch(row.sessionId(), row.state() == FleetJobHandle.State.RUNNING);
+  }
 
-    /**
-     * Opens a session in the Session Details view by plain view id
-     * (secondary id = session id, exactly ServerView's openSessionDetails —
-     * no ui-bundle dependency); the shared primary client serves the
-     * details view its {@code GET /session/:id/message}, just as it serves
-     * this view's session diff. The secondary id carries the live-watch
-     * parameter explicitly (T-009 AC3 — no System property): when the node
-     * is RUNNING it is built by
-     * {@code SessionViewIds.secondaryId(sessionId, true)}, so the freshly
-     * created view opens with Auto Refresh armed (5s insurance on top of
-     * its always-on SSE reloads); the user can toggle it off once the job
-     * settles. A view for this session that is already open — plain or
-     * live — is focused instead of duplicated (AC2); focusing the plain
-     * variant of a RUNNING job matches the former hand-off, where arming
-     * only ever applied to a freshly created view.
-     */
-    private void openLiveWatch(String sessionId, boolean live) {
-        if (sessionId == null || sessionId.isBlank()) {
-            return;
-        }
-        IWorkbenchPage page = getSite().getPage();
-        // focus-first across both variants (showView on an existing
-        // primary+secondary pair activates it instead of duplicating); a
-        // fresh open of a RUNNING job arms the live variant
-        String plain = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId);
-        String liveId = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId, true);
-        String target = page.findViewReference(SESSION_DETAILS_VIEW_ID, plain) != null
+  /**
+   * Opens a session in the Session Details view by plain view id (secondary id = session id,
+   * exactly ServerView's openSessionDetails — no ui-bundle dependency); the shared primary client
+   * serves the details view its {@code GET /session/:id/message}, just as it serves this view's
+   * session diff. The secondary id carries the live-watch parameter explicitly (T-009 AC3 — no
+   * System property): when the node is RUNNING it is built by {@code
+   * SessionViewIds.secondaryId(sessionId, true)}, so the freshly created view opens with Auto
+   * Refresh armed (5s insurance on top of its always-on SSE reloads); the user can toggle it off
+   * once the job settles. A view for this session that is already open — plain or live — is focused
+   * instead of duplicated (AC2); focusing the plain variant of a RUNNING job matches the former
+   * hand-off, where arming only ever applied to a freshly created view.
+   */
+  private void openLiveWatch(String sessionId, boolean live) {
+    if (sessionId == null || sessionId.isBlank()) {
+      return;
+    }
+    IWorkbenchPage page = getSite().getPage();
+    // focus-first across both variants (showView on an existing
+    // primary+secondary pair activates it instead of duplicating); a
+    // fresh open of a RUNNING job arms the live variant
+    String plain = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId);
+    String liveId = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId, true);
+    String target =
+        page.findViewReference(SESSION_DETAILS_VIEW_ID, plain) != null
                 || page.findViewReference(SESSION_DETAILS_VIEW_ID, liveId) != null
-                        ? (page.findViewReference(SESSION_DETAILS_VIEW_ID, liveId) != null ? liveId : plain)
-                        : (live ? liveId : plain);
-        try {
-            page.showView(SESSION_DETAILS_VIEW_ID, target, IWorkbenchPage.VIEW_ACTIVATE);
-        } catch (PartInitException e) {
-            String message = e.getMessage() == null ? e.toString() : e.getMessage();
-            logWarn("Opening the live view of session " + sessionId + " failed: " + message);
-            MessageDialog.openError(getSite().getShell(), "Watch live",
-                    "Opening the live view of session " + sessionId + " failed:\n" + message);
-        }
+            ? (page.findViewReference(SESSION_DETAILS_VIEW_ID, liveId) != null ? liveId : plain)
+            : (live ? liveId : plain);
+    try {
+      page.showView(SESSION_DETAILS_VIEW_ID, target, IWorkbenchPage.VIEW_ACTIVATE);
+    } catch (PartInitException e) {
+      String message = e.getMessage() == null ? e.toString() : e.getMessage();
+      logWarn("Opening the live view of session " + sessionId + " failed: " + message);
+      MessageDialog.openError(
+          getSite().getShell(),
+          "Watch live",
+          "Opening the live view of session " + sessionId + " failed:\n" + message);
     }
+  }
 
-    private void refreshFromModel() {
-        if (viewer == null || viewer.getControl().isDisposed()) {
+  private void refreshFromModel() {
+    if (viewer == null || viewer.getControl().isDisposed()) {
+      return;
+    }
+    List<FleetJobHandle> own = FleetJobsModel.getDefault().jobs();
+    // Phase 1: the own-engine jobs render immediately as a jobs-only tree
+    // (no store or client reads on the UI thread). The store read and the
+    // peer scan hit the on-disk store, whose cross-process FileLock can be
+    // held by a writing peer engine for up to TaskStore.LOCK_TIMEOUT (30 s)
+    // — and the session observations are blocking client calls; all of it
+    // runs off the UI thread (review M1: a peer write froze the whole
+    // workbench). The scan merges back via asyncExec, guarded by a
+    // generation counter so a stale scan cannot overwrite a newer refresh.
+    applyTree(FleetTree.compose(own, null, null, OWN_ENGINE, PEER_ENGINE));
+    Set<String> liveAtScan = liveTaskIds(own);
+    int generation = refreshGeneration.incrementAndGet();
+    com.opencode.ide.client.WorkerPools.submit(
+        "fleet-tree-scan",
+        () -> {
+          List<FleetJobHandle> peer = peerRows(liveAtScan);
+          List<FleetJobHandle> ownNow = FleetJobsModel.getDefault().jobs();
+          Set<String> liveNow = liveTaskIds(ownNow);
+          List<FleetJobHandle> all = new ArrayList<>(ownNow);
+          for (FleetJobHandle row : peer) {
+            if (!liveNow.contains(row.taskId())) {
+              all.add(row);
+            }
+          }
+          Map<String, Task> tickets = readTickets();
+          Map<String, SessionObservation> observations = observeSessions(all);
+          List<FleetTree.Node> tree =
+              FleetTree.compose(all, tickets::get, observations::get, OWN_ENGINE, PEER_ENGINE);
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        List<FleetJobHandle> own = FleetJobsModel.getDefault().jobs();
-        // Phase 1: the own-engine jobs render immediately as a jobs-only tree
-        // (no store or client reads on the UI thread). The store read and the
-        // peer scan hit the on-disk store, whose cross-process FileLock can be
-        // held by a writing peer engine for up to TaskStore.LOCK_TIMEOUT (30 s)
-        // — and the session observations are blocking client calls; all of it
-        // runs off the UI thread (review M1: a peer write froze the whole
-        // workbench). The scan merges back via asyncExec, guarded by a
-        // generation counter so a stale scan cannot overwrite a newer refresh.
-        applyTree(FleetTree.compose(own, null, null, OWN_ENGINE, PEER_ENGINE));
-        Set<String> liveAtScan = liveTaskIds(own);
-        int generation = refreshGeneration.incrementAndGet();
-        com.opencode.ide.client.WorkerPools.submit("fleet-tree-scan", () -> {
-            List<FleetJobHandle> peer = peerRows(liveAtScan);
-            List<FleetJobHandle> ownNow = FleetJobsModel.getDefault().jobs();
-            Set<String> liveNow = liveTaskIds(ownNow);
-            List<FleetJobHandle> all = new ArrayList<>(ownNow);
-            for (FleetJobHandle row : peer) {
-                if (!liveNow.contains(row.taskId())) {
-                    all.add(row);
-                }
-            }
-            Map<String, Task> tickets = readTickets();
-            Map<String, SessionObservation> observations = observeSessions(all);
-            List<FleetTree.Node> tree = FleetTree.compose(all, tickets::get,
-                    observations::get, OWN_ENGINE, PEER_ENGINE);
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> applyTreeIfCurrent(generation, tree));
+          }
+          display.asyncExec(() -> applyTreeIfCurrent(generation, tree));
         });
-    }
+  }
 
-    /** Task ids of the given own-engine jobs (dedup set for the peer scan). */
-    private static Set<String> liveTaskIds(List<FleetJobHandle> own) {
-        Set<String> live = new LinkedHashSet<>();
-        for (FleetJobHandle job : own) {
-            live.add(job.taskId());
-        }
-        return live;
+  /** Task ids of the given own-engine jobs (dedup set for the peer scan). */
+  private static Set<String> liveTaskIds(List<FleetJobHandle> own) {
+    Set<String> live = new LinkedHashSet<>();
+    for (FleetJobHandle job : own) {
+      live.add(job.taskId());
     }
+    return live;
+  }
 
-    /** Applies a fully decorated tree only while its scan is still the newest refresh. */
-    private void applyTreeIfCurrent(int generation, List<FleetTree.Node> tree) {
-        if (generation != refreshGeneration.get()
-                || viewer == null || viewer.getControl().isDisposed()) {
-            return;
-        }
-        applyTree(tree);
+  /** Applies a fully decorated tree only while its scan is still the newest refresh. */
+  private void applyTreeIfCurrent(int generation, List<FleetTree.Node> tree) {
+    if (generation != refreshGeneration.get()
+        || viewer == null
+        || viewer.getControl().isDisposed()) {
+      return;
     }
+    applyTree(tree);
+  }
 
-    /**
-     * Task id → store ticket for every project (badges + wave grouping).
-     * BLOCKING store read — off the UI thread only; any failure degrades to
-     * no badges/waves, never breaks the view.
-     */
-    private static Map<String, Task> readTickets() {
-        try {
-            Path storeRoot = BoardView.tasksRoot();
-            if (storeRoot == null) {
-                return Map.of();
-            }
-            TaskStore store = new TaskStore(storeRoot);
-            Map<String, Task> byId = new LinkedHashMap<>();
-            for (String project : store.projects()) {
-                for (Task task : store.list(project, null, null, null, null)) {
-                    byId.putIfAbsent(task.id, task);
-                }
-            }
-            return byId;
-        } catch (RuntimeException e) {
-            return Map.of();
+  /**
+   * Task id → store ticket for every project (badges + wave grouping). BLOCKING store read — off
+   * the UI thread only; any failure degrades to no badges/waves, never breaks the view.
+   */
+  private static Map<String, Task> readTickets() {
+    try {
+      Path storeRoot = BoardView.tasksRoot();
+      if (storeRoot == null) {
+        return Map.of();
+      }
+      TaskStore store = new TaskStore(storeRoot);
+      Map<String, Task> byId = new LinkedHashMap<>();
+      for (String project : store.projects()) {
+        for (Task task : store.list(project, null, null, null, null)) {
+          byId.putIfAbsent(task.id, task);
         }
+      }
+      return byId;
+    } catch (RuntimeException e) {
+      return Map.of();
     }
+  }
 
-    /**
-     * Observes the job sessions and their subagents (live activity, shells,
-     * tokens/cost) through the primary connection — session state is global
-     * per user in v2, so fleet-worker sessions are observable from it (the
-     * same reason the flat view's abort/diff worked). BLOCKING client reads —
-     * off the UI thread only; every failure degrades to fewer observations,
-     * never breaks the view.
-     */
-    private static Map<String, SessionObservation> observeSessions(List<FleetJobHandle> jobs) {
-        try {
-            com.opencode.ide.client.OpencodeClient client = OpencodeConnection.getInstance().getClient();
-            Map<String, SessionObservation> observations = new LinkedHashMap<>();
-            Map<String, String> directoryOf = new LinkedHashMap<>();
-            List<String> queue = new ArrayList<>();
-            for (FleetJobHandle job : jobs) {
-                if (job.sessionId() != null && !job.sessionId().isBlank()) {
-                    queue.add(job.sessionId());
-                    directoryOf.putIfAbsent(job.sessionId(), job.worktree());
-                }
-            }
-            Set<String> seen = new LinkedHashSet<>();
-            while (!queue.isEmpty()) {
-                String sessionId = queue.remove(0);
-                if (!seen.add(sessionId)) {
-                    continue;
-                }
-                SessionObservation observation =
-                        SessionObserver.observe(client, sessionId, directoryOf.get(sessionId));
-                if (observation == null) {
-                    continue;
-                }
-                observations.put(sessionId, observation);
-                for (SessionObservation.Child child : observation.subagents()) {
-                    queue.add(child.sessionId());
-                    directoryOf.putIfAbsent(child.sessionId(), directoryOf.get(sessionId));
-                }
-            }
-            return observations;
-        } catch (OpencodeException | RuntimeException e) {
-            return Map.of();
+  /**
+   * Observes the job sessions and their subagents (live activity, shells, tokens/cost) through the
+   * primary connection — session state is global per user in v2, so fleet-worker sessions are
+   * observable from it (the same reason the flat view's abort/diff worked). BLOCKING client reads —
+   * off the UI thread only; every failure degrades to fewer observations, never breaks the view.
+   */
+  private static Map<String, SessionObservation> observeSessions(List<FleetJobHandle> jobs) {
+    try {
+      com.opencode.ide.client.OpencodeClient client = OpencodeConnection.getInstance().getClient();
+      Map<String, SessionObservation> observations = new LinkedHashMap<>();
+      Map<String, String> directoryOf = new LinkedHashMap<>();
+      List<String> queue = new ArrayList<>();
+      for (FleetJobHandle job : jobs) {
+        if (job.sessionId() != null && !job.sessionId().isBlank()) {
+          queue.add(job.sessionId());
+          directoryOf.putIfAbsent(job.sessionId(), job.worktree());
         }
+      }
+      Set<String> seen = new LinkedHashSet<>();
+      while (!queue.isEmpty()) {
+        String sessionId = queue.remove(0);
+        if (!seen.add(sessionId)) {
+          continue;
+        }
+        SessionObservation observation =
+            SessionObserver.observe(client, sessionId, directoryOf.get(sessionId));
+        if (observation == null) {
+          continue;
+        }
+        observations.put(sessionId, observation);
+        for (SessionObservation.Child child : observation.subagents()) {
+          queue.add(child.sessionId());
+          directoryOf.putIfAbsent(child.sessionId(), directoryOf.get(sessionId));
+        }
+      }
+      return observations;
+    } catch (OpencodeException | RuntimeException e) {
+      return Map.of();
     }
+  }
 
-    /**
-     * Applies a tree to the viewer on the UI thread (input, layout, actions).
-     * Node is a record, so value equality re-expands the unchanged subtrees.
-     */
-    private void applyTree(List<FleetTree.Node> roots) {
-        Object[] expanded = viewer.getExpandedElements();
-        viewer.setInput(roots);
-        if (expanded.length > 0) {
-            viewer.setExpandedElements(expanded);
-        }
-        boolean empty = roots.isEmpty();
-        setLaidOut(treeComposite, !empty);
-        setLaidOut(emptyLabel, empty);
-        // Both exclude flags live on children of treeComposite's PARENT, so that
-        // is the composite whose layout must be recomputed (the viewer's own
-        // parent is treeComposite itself, laid out by a TreeColumnLayout).
-        treeComposite.getParent().layout(true, true);
-        updateActionEnablement();
-        updatePermissionsAction();
+  /**
+   * Applies a tree to the viewer on the UI thread (input, layout, actions). Node is a record, so
+   * value equality re-expands the unchanged subtrees.
+   */
+  private void applyTree(List<FleetTree.Node> roots) {
+    Object[] expanded = viewer.getExpandedElements();
+    viewer.setInput(roots);
+    if (expanded.length > 0) {
+      viewer.setExpandedElements(expanded);
     }
+    boolean empty = roots.isEmpty();
+    setLaidOut(treeComposite, !empty);
+    setLaidOut(emptyLabel, empty);
+    // Both exclude flags live on children of treeComposite's PARENT, so that
+    // is the composite whose layout must be recomputed (the viewer's own
+    // parent is treeComposite itself, laid out by a TreeColumnLayout).
+    treeComposite.getParent().layout(true, true);
+    updateActionEnablement();
+    updatePermissionsAction();
+  }
 
-    /**
-     * F-004: read-only rows for jobs launched by a peer engine (a chat
-     * session's fleet server), rebuilt from the shared on-disk truth via
-     * {@link PeerJobReconstructor} — store claims plus fleet worktrees,
-     * deduplicated against the live engine's own rows. Any failure yields
-     * no peer rows and never breaks the view. BLOCKING (store locks): only
-     * ever called off the UI thread.
-     */
-    private static List<FleetJobHandle> peerRows(Set<String> liveTaskIds) {
-        try {
-            Path storeRoot = BoardView.tasksRoot();
-            if (storeRoot == null) {
-                return List.of();
-            }
-            Path opencode = storeRoot.getParent();
-            Path repoRoot = opencode == null ? null : opencode.getParent();
-            TaskStore store = new TaskStore(storeRoot);
-            // the SERVICE's worktree view first (v2 worktree.* - capability
-            // alignment 2026-09-25); the local .git scan stays as the offline
-            // fallback and keeps today's behavior when no client is attached
-            java.util.Map<String, Path> worktrees = serviceWorktrees(repoRoot);
-            return worktrees == null
-                    ? PeerJobReconstructor.externalJobs(store, repoRoot, liveTaskIds)
-                    : PeerJobReconstructor.externalJobs(store, worktrees, liveTaskIds);
-        } catch (RuntimeException e) {
-            return List.of();
-        }
+  /**
+   * F-004: read-only rows for jobs launched by a peer engine (a chat session's fleet server),
+   * rebuilt from the shared on-disk truth via {@link PeerJobReconstructor} — store claims plus
+   * fleet worktrees, deduplicated against the live engine's own rows. Any failure yields no peer
+   * rows and never breaks the view. BLOCKING (store locks): only ever called off the UI thread.
+   */
+  private static List<FleetJobHandle> peerRows(Set<String> liveTaskIds) {
+    try {
+      Path storeRoot = BoardView.tasksRoot();
+      if (storeRoot == null) {
+        return List.of();
+      }
+      Path opencode = storeRoot.getParent();
+      Path repoRoot = opencode == null ? null : opencode.getParent();
+      TaskStore store = new TaskStore(storeRoot);
+      // the SERVICE's worktree view first (v2 worktree.* - capability
+      // alignment 2026-09-25); the local .git scan stays as the offline
+      // fallback and keeps today's behavior when no client is attached
+      java.util.Map<String, Path> worktrees = serviceWorktrees(repoRoot);
+      return worktrees == null
+          ? PeerJobReconstructor.externalJobs(store, repoRoot, liveTaskIds)
+          : PeerJobReconstructor.externalJobs(store, worktrees, liveTaskIds);
+    } catch (RuntimeException e) {
+      return List.of();
     }
+  }
 
-    /**
-     * The repo's fleet worktrees as the service sees them, or {@code null}
-     * when no client is attached or the project id cannot be resolved (the
-     * caller falls back to the local scan).
-     */
-    private static java.util.Map<String, Path> serviceWorktrees(Path repoRoot) {
-        if (repoRoot == null) {
-            return null;
+  /**
+   * The repo's fleet worktrees as the service sees them, or {@code null} when no client is attached
+   * or the project id cannot be resolved (the caller falls back to the local scan).
+   */
+  private static java.util.Map<String, Path> serviceWorktrees(Path repoRoot) {
+    if (repoRoot == null) {
+      return null;
+    }
+    try {
+      ManagedConnection primary = null;
+      for (ManagedConnection connection : ConnectionsManager.getDefault().connections()) {
+        if (connection.client() != null) {
+          primary = connection;
+          break;
         }
-        try {
-            ManagedConnection primary = null;
-            for (ManagedConnection connection : ConnectionsManager.getDefault().connections()) {
-                if (connection.client() != null) {
-                    primary = connection;
-                    break;
-                }
-            }
-            com.opencode.ide.client.OpencodeClient client = primary == null ? null : primary.client();
-            if (client == null) {
-                return null;
-            }
-            String wanted = repoRoot.toAbsolutePath().normalize().toString();
-            for (com.opencode.ide.client.model.ProjectSummary project : client.getProjects()) {
-                if (project.id() == null || project.id().isBlank() || project.worktree() == null) {
-                    continue;
-                }
-                Path candidate = Path.of(project.worktree()).toAbsolutePath().normalize();
-                if (candidate.toString().equalsIgnoreCase(wanted)) {
-                    return PeerJobReconstructor.worktreesVia(client, project.id());
-                }
-            }
-        } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
-            // service unavailable or unparseable: fall back to the local scan
-        }
+      }
+      com.opencode.ide.client.OpencodeClient client = primary == null ? null : primary.client();
+      if (client == null) {
         return null;
+      }
+      String wanted = repoRoot.toAbsolutePath().normalize().toString();
+      for (com.opencode.ide.client.model.ProjectSummary project : client.getProjects()) {
+        if (project.id() == null || project.id().isBlank() || project.worktree() == null) {
+          continue;
+        }
+        Path candidate = Path.of(project.worktree()).toAbsolutePath().normalize();
+        if (candidate.toString().equalsIgnoreCase(wanted)) {
+          return PeerJobReconstructor.worktreesVia(client, project.id());
+        }
+      }
+    } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+      // service unavailable or unparseable: fall back to the local scan
     }
+    return null;
+  }
 
-    private static void setLaidOut(Control control, boolean visible) {
-        control.setVisible(visible);
-        GridData data = (GridData) control.getLayoutData();
-        data.exclude = !visible;
+  private static void setLaidOut(Control control, boolean visible) {
+    control.setVisible(visible);
+    GridData data = (GridData) control.getLayoutData();
+    data.exclude = !visible;
+  }
+
+  /**
+   * Runs the diff off the UI thread and opens the dialog via asyncExec. Server-first: a job with a
+   * session id tries the authoritative {@code GET /session/:id/diff} via the shared connection
+   * (whose client may block while spawning the server — hence the background thread); an empty or
+   * failing server diff falls back to the local git branch diff.
+   */
+  private void openDiff() {
+    FleetJobHandle row = selectedRow();
+    if (row == null || diffRunning.get()) {
+      return;
     }
-
-    /**
-     * Runs the diff off the UI thread and opens the dialog via asyncExec.
-     * Server-first: a job with a session id tries the authoritative
-     * {@code GET /session/:id/diff} via the shared connection (whose client
-     * may block while spawning the server — hence the background thread); an
-     * empty or failing server diff falls back to the local git branch diff.
-     */
-    private void openDiff() {
-        FleetJobHandle row = selectedRow();
-        if (row == null || diffRunning.get()) {
-            return;
-        }
-        boolean preferServer = DiffSource.of(row) == DiffSource.Source.SERVER;
-        Path repo = repoRootOf(row);
-        if (!preferServer && (repo == null || !Files.isDirectory(repo))) {
-            MessageDialog.openInformation(getSite().getShell(), "Open diff",
-                    "No main repo known for " + row.taskId()
-                            + " (the job has no fleet worktree yet).");
-            return;
-        }
-        diffRunning.set(true);
-        updateActionEnablement();
-        String taskId = row.taskId();
-        String sessionId = row.sessionId();
-        Path repoRoot = repo;
-        ExecutorService executor = diffExecutor;
-        if (executor == null) {
-            diffRunning.set(false);
-            return;
-        }
-        executor.execute(() -> {
-            String title = null;
-            String text = null;
-            String failure = null;
-            List<SessionDiffSides.Side> sides = null;
-            if (preferServer) {
-                try {
-                    List<FileDiff> diffs = OpencodeConnection.getInstance().getClient()
-                            .getSessionDiff(sessionId, null);
-                    if (!diffs.isEmpty()) {
-                        title = "Diff " + taskId + " (session " + sessionId + ")";
-                        text = SessionDiffText.format(diffs);
-                        // the built-in compare editor (user direction 2026-09-17):
-                        // resolve before/after from the diffs' git revisions —
-                        // falls back to the plain-text patch when they don't resolve
-                        Path resolveRoot = repoRoot != null ? repoRoot : repoRootOf(row);
-                        sides = SessionDiffSides.resolve(resolveRoot, diffs);
-                        if (SessionDiffSides.resolved(sides) == 0) {
-                            sides = null;
-                        }
-                    }
-                } catch (OpencodeException | RuntimeException e) {
-                    // no authoritative diff (server down, unknown session) — try git
+    boolean preferServer = DiffSource.of(row) == DiffSource.Source.SERVER;
+    Path repo = repoRootOf(row);
+    if (!preferServer && (repo == null || !Files.isDirectory(repo))) {
+      MessageDialog.openInformation(
+          getSite().getShell(),
+          "Open diff",
+          "No main repo known for " + row.taskId() + " (the job has no fleet worktree yet).");
+      return;
+    }
+    diffRunning.set(true);
+    updateActionEnablement();
+    String taskId = row.taskId();
+    String sessionId = row.sessionId();
+    Path repoRoot = repo;
+    ExecutorService executor = diffExecutor;
+    if (executor == null) {
+      diffRunning.set(false);
+      return;
+    }
+    executor.execute(
+        () -> {
+          String title = null;
+          String text = null;
+          String failure = null;
+          List<SessionDiffSides.Side> sides = null;
+          if (preferServer) {
+            try {
+              List<FileDiff> diffs =
+                  OpencodeConnection.getInstance().getClient().getSessionDiff(sessionId, null);
+              if (!diffs.isEmpty()) {
+                title = "Diff " + taskId + " (session " + sessionId + ")";
+                text = SessionDiffText.format(diffs);
+                // the built-in compare editor (user direction 2026-09-17):
+                // resolve before/after from the diffs' git revisions —
+                // falls back to the plain-text patch when they don't resolve
+                Path resolveRoot = repoRoot != null ? repoRoot : repoRootOf(row);
+                sides = SessionDiffSides.resolve(resolveRoot, diffs);
+                if (SessionDiffSides.resolved(sides) == 0) {
+                  sides = null;
                 }
+              }
+            } catch (OpencodeException | RuntimeException e) {
+              // no authoritative diff (server down, unknown session) — try git
             }
-            if (text == null) {
-                if (repoRoot == null || !Files.isDirectory(repoRoot)) {
-                    failure = "No server diff for session " + sessionId
-                            + " and no fleet worktree to run a local git diff against.";
-                } else {
-                    title = "Diff " + taskId + " ("
-                            + com.opencode.ide.git.FleetGit.branchFor(taskId) + ")";
-                    try {
-                        String diff = GitCli.diff(repoRoot, taskId);
-                        text = diff.isBlank() ? "(no differences)" : diff;
-                    } catch (RuntimeException e) {
-                        failure = e.getMessage();
-                    }
-                }
+          }
+          if (text == null) {
+            if (repoRoot == null || !Files.isDirectory(repoRoot)) {
+              failure =
+                  "No server diff for session "
+                      + sessionId
+                      + " and no fleet worktree to run a local git diff against.";
+            } else {
+              title =
+                  "Diff " + taskId + " (" + com.opencode.ide.git.FleetGit.branchFor(taskId) + ")";
+              try {
+                String diff = GitCli.diff(repoRoot, taskId);
+                text = diff.isBlank() ? "(no differences)" : diff;
+              } catch (RuntimeException e) {
+                failure = e.getMessage();
+              }
             }
-            String dialogTitle = title;
-            String result = text;
-            String error = failure;
-            List<SessionDiffSides.Side> compareSides = sides;
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          String dialogTitle = title;
+          String result = text;
+          String error = failure;
+          List<SessionDiffSides.Side> compareSides = sides;
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
+            return;
+          }
+          display.asyncExec(
+              () -> {
                 if (viewer == null || viewer.getControl().isDisposed()) {
-                    return;
+                  return;
                 }
                 diffRunning.set(false);
                 updateActionEnablement();
                 if (error != null) {
-                    MessageDialog.openError(getSite().getShell(), "Open diff", error);
+                  MessageDialog.openError(getSite().getShell(), "Open diff", error);
                 } else if (compareSides != null) {
-                    org.eclipse.compare.CompareUI.openCompareEditor(
-                            new SessionDiffCompareInput(dialogTitle, compareSides));
+                  org.eclipse.compare.CompareUI.openCompareEditor(
+                      new SessionDiffCompareInput(dialogTitle, compareSides));
                 } else {
-                    if (result != null) {
-                        // breadcrumb: why the compare editor was not used
-                        getViewSite().getActionBars().getStatusLineManager().setMessage(
-                                "Diff sides unresolvable - showing the patch text instead");
-                    }
-                    new TextDialog(getSite().getShell(), dialogTitle, result).open();
+                  if (result != null) {
+                    // breadcrumb: why the compare editor was not used
+                    getViewSite()
+                        .getActionBars()
+                        .getStatusLineManager()
+                        .setMessage("Diff sides unresolvable - showing the patch text instead");
+                  }
+                  new TextDialog(getSite().getShell(), dialogTitle, result).open();
                 }
-            });
+              });
         });
-    }
+  }
 
-    private void openFolder() {
-        FleetJobHandle row = selectedRow();
-        if (row == null) {
-            return;
-        }
-        Path worktree = worktreeOf(row);
-        if (worktree != null && Files.isDirectory(worktree)) {
-            Program.launch(worktree.toString());
-        } else {
-            MessageDialog.openInformation(getSite().getShell(), "Open folder",
-                    "Worktree not found: " + (worktree == null ? "(none)" : worktree.toString()));
-        }
+  private void openFolder() {
+    FleetJobHandle row = selectedRow();
+    if (row == null) {
+      return;
     }
+    Path worktree = worktreeOf(row);
+    if (worktree != null && Files.isDirectory(worktree)) {
+      Program.launch(worktree.toString());
+    } else {
+      MessageDialog.openInformation(
+          getSite().getShell(),
+          "Open folder",
+          "Worktree not found: " + (worktree == null ? "(none)" : worktree.toString()));
+    }
+  }
 
-    /**
-     * TUI-first takeover (ROADMAP H5 item 3): the routing runs off the UI
-     * thread (the client may spawn/wait for the server; every TUI action is
-     * a blocking POST) and the outcome applies via {@code asyncExec}. On
-     * TUI the session is handed to the attached opencode TUI; on CHAT (no
-     * TUI attached, no session) the pre-TUI behavior stands — open the
-     * worktree and mark the job taken over.
-     */
-    private void takeOver() {
-        FleetJobHandle row = selectedRow();
-        if (row == null) {
+  /**
+   * TUI-first takeover (ROADMAP H5 item 3): the routing runs off the UI thread (the client may
+   * spawn/wait for the server; every TUI action is a blocking POST) and the outcome applies via
+   * {@code asyncExec}. On TUI the session is handed to the attached opencode TUI; on CHAT (no TUI
+   * attached, no session) the pre-TUI behavior stands — open the worktree and mark the job taken
+   * over.
+   */
+  private void takeOver() {
+    FleetJobHandle row = selectedRow();
+    if (row == null) {
+      return;
+    }
+    if (row.external()) {
+      return; // F-004: peer-engine rows are view-only
+    }
+    if (row.sessionId() == null || row.sessionId().isBlank()) {
+      openWorktreeTakeOver(row);
+      return;
+    }
+    String sessionId = row.sessionId();
+    String prompt = TakeoverRouter.takeoverPrompt(row.taskId(), null);
+    ExecutorService executor = takeoverExecutor;
+    if (executor == null) {
+      return;
+    }
+    executor.execute(
+        () -> {
+          TakeoverRouter.Result result = routeTakeover(sessionId, prompt);
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        if (row.external()) {
-            return; // F-004: peer-engine rows are view-only
-        }
-        if (row.sessionId() == null || row.sessionId().isBlank()) {
-            openWorktreeTakeOver(row);
-            return;
-        }
-        String sessionId = row.sessionId();
-        String prompt = TakeoverRouter.takeoverPrompt(row.taskId(), null);
-        ExecutorService executor = takeoverExecutor;
-        if (executor == null) {
-            return;
-        }
-        executor.execute(() -> {
-            TakeoverRouter.Result result = routeTakeover(sessionId, prompt);
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          display.asyncExec(
+              () -> {
                 if (viewer == null || viewer.getControl().isDisposed()) {
-                    return;
+                  return;
                 }
                 if (result.outcome() == TakeoverRouter.Outcome.TUI) {
-                    MessageDialog.openInformation(getSite().getShell(), "Take over",
-                            "Session handed to the attached TUI.\n" + result.detail());
-                    FleetJobsModel.getDefault().update(new FleetJobHandle(row.taskId(), row.sessionId(),
-                            row.worktree(), row.state(), "taken over by user (TUI)", row.external()));
+                  MessageDialog.openInformation(
+                      getSite().getShell(),
+                      "Take over",
+                      "Session handed to the attached TUI.\n" + result.detail());
+                  FleetJobsModel.getDefault()
+                      .update(
+                          new FleetJobHandle(
+                              row.taskId(),
+                              row.sessionId(),
+                              row.worktree(),
+                              row.state(),
+                              "taken over by user (TUI)",
+                              row.external()));
                 } else {
-                    openWorktreeTakeOver(row);
+                  openWorktreeTakeOver(row);
                 }
-            });
+              });
         });
-    }
+  }
 
-    /** Routes the takeover; a client-acquisition failure is a CHAT result, never an exception. */
-    private static TakeoverRouter.Result routeTakeover(String sessionId, String prompt) {
-        try {
-            return TakeoverRouter.route(OpencodeConnection.getInstance().getClient(), sessionId, prompt);
-        } catch (OpencodeException | RuntimeException e) {
-            return TakeoverRouter.Result.chat("no opencode server: " + e.getMessage());
-        }
+  /** Routes the takeover; a client-acquisition failure is a CHAT result, never an exception. */
+  private static TakeoverRouter.Result routeTakeover(String sessionId, String prompt) {
+    try {
+      return TakeoverRouter.route(OpencodeConnection.getInstance().getClient(), sessionId, prompt);
+    } catch (OpencodeException | RuntimeException e) {
+      return TakeoverRouter.Result.chat("no opencode server: " + e.getMessage());
     }
+  }
 
-    /** The pre-TUI takeover: open the worktree in the file explorer and mark the job taken over. */
-    private void openWorktreeTakeOver(FleetJobHandle row) {
-        Path worktree = worktreeOf(row);
-        if (worktree != null && Files.isDirectory(worktree)) {
-            Program.launch(worktree.toString());
-            FleetJobsModel.getDefault().update(new FleetJobHandle(row.taskId(), row.sessionId(),
-                    row.worktree(), row.state(), "taken over by user", row.external()));
-        } else {
-            MessageDialog.openInformation(getSite().getShell(), "Take over",
-                    "Worktree not found: " + (worktree == null ? "(none)" : worktree.toString()));
-        }
+  /** The pre-TUI takeover: open the worktree in the file explorer and mark the job taken over. */
+  private void openWorktreeTakeOver(FleetJobHandle row) {
+    Path worktree = worktreeOf(row);
+    if (worktree != null && Files.isDirectory(worktree)) {
+      Program.launch(worktree.toString());
+      FleetJobsModel.getDefault()
+          .update(
+              new FleetJobHandle(
+                  row.taskId(),
+                  row.sessionId(),
+                  row.worktree(),
+                  row.state(),
+                  "taken over by user",
+                  row.external()));
+    } else {
+      MessageDialog.openInformation(
+          getSite().getShell(),
+          "Take over",
+          "Worktree not found: " + (worktree == null ? "(none)" : worktree.toString()));
     }
+  }
 
-    private static Path worktreeOf(FleetJobHandle row) {
-        String worktree = row.worktree();
-        return worktree == null || worktree.isBlank() ? null : Path.of(worktree);
-    }
+  private static Path worktreeOf(FleetJobHandle row) {
+    String worktree = row.worktree();
+    return worktree == null || worktree.isBlank() ? null : Path.of(worktree);
+  }
 
-    private static Path repoRootOf(FleetJobHandle row) {
-        Path worktree = worktreeOf(row);
-        if (worktree == null) {
-            return null;
-        }
-        Path fleetDir = worktree.getParent();
-        Path gitDir = fleetDir == null ? null : fleetDir.getParent();
-        return gitDir == null ? null : gitDir.getParent();
+  private static Path repoRootOf(FleetJobHandle row) {
+    Path worktree = worktreeOf(row);
+    if (worktree == null) {
+      return null;
     }
+    Path fleetDir = worktree.getParent();
+    Path gitDir = fleetDir == null ? null : fleetDir.getParent();
+    return gitDir == null ? null : gitDir.getParent();
+  }
 
-    @Override
-    public void setFocus() {
-        if (viewer != null && !viewer.getControl().isDisposed()) {
-            viewer.getControl().setFocus();
-            // F-004: part activation is the existing cadence that picks up
-            // peer-engine rows — the model listener only fires for own jobs,
-            // and no extra poller thread may be introduced
-            refreshFromModel();
-        }
+  @Override
+  public void setFocus() {
+    if (viewer != null && !viewer.getControl().isDisposed()) {
+      viewer.getControl().setFocus();
+      // F-004: part activation is the existing cadence that picks up
+      // peer-engine rows — the model listener only fires for own jobs,
+      // and no extra poller thread may be introduced
+      refreshFromModel();
     }
+  }
 
-    @Override
-    public void dispose() {
-        FleetJobsModel.getDefault().removeListener(modelListener);
-        TaskFleetLauncher.permissions().removeListener(permissionsListener);
-        ConnectionsManager.getDefault().removeListener(connectionsListener);
-        if (events != null) {
-            events.close();
-            events = null;
-        }
-        if (diffExecutor != null) {
-            diffExecutor.shutdown();
-            diffExecutor = null;
-        }
-        if (takeoverExecutor != null) {
-            takeoverExecutor.shutdown();
-            takeoverExecutor = null;
-        }
-        if (eventsExecutor != null) {
-            eventsExecutor.shutdown();
-            eventsExecutor = null;
-        }
-        super.dispose();
+  @Override
+  public void dispose() {
+    FleetJobsModel.getDefault().removeListener(modelListener);
+    TaskFleetLauncher.permissions().removeListener(permissionsListener);
+    ConnectionsManager.getDefault().removeListener(connectionsListener);
+    if (events != null) {
+      events.close();
+      events = null;
     }
+    if (diffExecutor != null) {
+      diffExecutor.shutdown();
+      diffExecutor = null;
+    }
+    if (takeoverExecutor != null) {
+      takeoverExecutor.shutdown();
+      takeoverExecutor = null;
+    }
+    if (eventsExecutor != null) {
+      eventsExecutor.shutdown();
+      eventsExecutor = null;
+    }
+    super.dispose();
+  }
 
-    private static void logWarn(String message) {
-        Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
-                .log(new Status(Status.WARNING, BoardPlugin.PLUGIN_ID, message));
-    }
+  private static void logWarn(String message) {
+    Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
+        .log(new Status(Status.WARNING, BoardPlugin.PLUGIN_ID, message));
+  }
 }

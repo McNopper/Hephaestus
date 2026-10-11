@@ -1,154 +1,160 @@
 package com.opencode.ide.fleet;
 
+import com.opencode.ide.git.MergeResult;
+import com.opencode.ide.git.Worktree;
+import com.opencode.ide.git.WorktreeManager;
+import com.opencode.ide.git.WorktreeStatus;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import com.opencode.ide.git.MergeResult;
-import com.opencode.ide.git.Worktree;
-import com.opencode.ide.git.WorktreeManager;
-import com.opencode.ide.git.WorktreeStatus;
-
 /**
- * In-memory fake of {@link WorktreeManager} for the fleet tests (no git).
- * Shared by {@link FleetRunnerTest} and {@link TaskFleetTest}; set
- * {@link #onMergeBack} to mutate the world as a real merge would.
+ * In-memory fake of {@link WorktreeManager} for the fleet tests (no git). Shared by {@link
+ * FleetRunnerTest} and {@link TaskFleetTest}; set {@link #onMergeBack} to mutate the world as a
+ * real merge would.
  */
 final class FakeWorktreeManager implements WorktreeManager {
-    private final java.util.Map<String, String> projects = new java.util.concurrent.ConcurrentHashMap<>();
-    Runnable onClaimProject;
+  private final java.util.Map<String, String> projects =
+      new java.util.concurrent.ConcurrentHashMap<>();
+  Runnable onClaimProject;
 
-    @Override
-    public void claimProject(Path repoRoot, String project, String taskId) {
-        String previous = projects.putIfAbsent(taskId, project);
-        if (previous != null && !previous.equals(project)) {
-            throw new IllegalStateException("fleet slot belongs to another project");
-        }
-        if (onClaimProject != null) {
-            onClaimProject.run();
-        }
+  @Override
+  public void claimProject(Path repoRoot, String project, String taskId) {
+    String previous = projects.putIfAbsent(taskId, project);
+    if (previous != null && !previous.equals(project)) {
+      throw new IllegalStateException("fleet slot belongs to another project");
     }
-
-    final List<String> createdTaskIds = new ArrayList<>();
-    final List<String> mergedTaskIds = new ArrayList<>();
-    final List<Path> mergedRepoRoots = new ArrayList<>();
-    final List<String> commitMessages = new ArrayList<>();
-    MergeResult nextMergeResult = new MergeResult(true, List.of(), "merged");
-
-    /** When set, {@link #mergeBack} throws - proving the total-failure contract (R1). */
-    RuntimeException mergeBackFailure;
-
-    /** Optional hook, invoked inside {@link #mergeBack} before the result is returned. */
-    Runnable onMergeBack;
-
-    @Override
-    public void commitAll(Path repoRoot, String pathSpec, String message) {
-        commitMessages.add(message + " @" + pathSpec);
+    if (onClaimProject != null) {
+      onClaimProject.run();
     }
+  }
 
-    @Override
-    public Worktree create(Path repoRoot, String taskId) {
-        createdTaskIds.add(taskId);
-        liveWorktrees.add(taskId);
-        return new Worktree(taskId, repoRoot.resolve(".git/opencode-fleet").resolve(taskId),
-                "opencode/" + taskId);
+  final List<String> createdTaskIds = new ArrayList<>();
+  final List<String> mergedTaskIds = new ArrayList<>();
+  final List<Path> mergedRepoRoots = new ArrayList<>();
+  final List<String> commitMessages = new ArrayList<>();
+  MergeResult nextMergeResult = new MergeResult(true, List.of(), "merged");
+
+  /** When set, {@link #mergeBack} throws - proving the total-failure contract (R1). */
+  RuntimeException mergeBackFailure;
+
+  /** Optional hook, invoked inside {@link #mergeBack} before the result is returned. */
+  Runnable onMergeBack;
+
+  @Override
+  public void commitAll(Path repoRoot, String pathSpec, String message) {
+    commitMessages.add(message + " @" + pathSpec);
+  }
+
+  @Override
+  public Worktree create(Path repoRoot, String taskId) {
+    createdTaskIds.add(taskId);
+    liveWorktrees.add(taskId);
+    return new Worktree(
+        taskId, repoRoot.resolve(".git/opencode-fleet").resolve(taskId), "opencode/" + taskId);
+  }
+
+  /**
+   * B-011 AC3: dirty-but-uncommitted worktree content. The real manager's contract auto-commits
+   * pending edits at merge-back (the worktree is the unit of work); the fake models the same so a
+   * settle over dirty content is pinned at the TaskFleet level (merged, never silently released).
+   */
+  final List<String> uncommittedFiles = new java.util.ArrayList<>();
+
+  /** B-007: the settle-check allowance seen by each {@code mergeBack} call (the 3-arg seam). */
+  final List<Boolean> mergeAllowEmptyFlags = new ArrayList<>();
+
+  /**
+   * B-007 FR-006 seam: models the real manager's contract - an empty-branch refusal (the settle
+   * check) becomes a clean merge when the caller verified store-side stage evidence ({@code
+   * allowEmptyDiff}).
+   */
+  @Override
+  public MergeResult mergeBack(Path repoRoot, String taskId, boolean allowEmptyDiff) {
+    mergeAllowEmptyFlags.add(allowEmptyDiff);
+    MergeResult saved = nextMergeResult;
+    if (allowEmptyDiff
+        && !saved.merged()
+        && com.opencode.ide.tasks.StageEvidence.isSettleRefusal(saved.output())) {
+      nextMergeResult =
+          new MergeResult(
+              true, List.of(), "merged: empty branch accepted (store-side stage evidence)");
     }
-
-    /**
-     * B-011 AC3: dirty-but-uncommitted worktree content. The real manager's
-     * contract auto-commits pending edits at merge-back (the worktree is the
-     * unit of work); the fake models the same so a settle over dirty content
-     * is pinned at the TaskFleet level (merged, never silently released).
-     */
-    final List<String> uncommittedFiles = new java.util.ArrayList<>();
-
-    /** B-007: the settle-check allowance seen by each {@code mergeBack} call (the 3-arg seam). */
-    final List<Boolean> mergeAllowEmptyFlags = new ArrayList<>();
-
-    /**
-     * B-007 FR-006 seam: models the real manager's contract - an
-     * empty-branch refusal (the settle check) becomes a clean merge when
-     * the caller verified store-side stage evidence ({@code allowEmptyDiff}).
-     */
-    @Override
-    public MergeResult mergeBack(Path repoRoot, String taskId, boolean allowEmptyDiff) {
-        mergeAllowEmptyFlags.add(allowEmptyDiff);
-        MergeResult saved = nextMergeResult;
-        if (allowEmptyDiff && !saved.merged()
-                && com.opencode.ide.tasks.StageEvidence.isSettleRefusal(saved.output())) {
-            nextMergeResult = new MergeResult(true, List.of(),
-                    "merged: empty branch accepted (store-side stage evidence)");
-        }
-        try {
-            return mergeBack(repoRoot, taskId);
-        } finally {
-            nextMergeResult = saved;
-        }
+    try {
+      return mergeBack(repoRoot, taskId);
+    } finally {
+      nextMergeResult = saved;
     }
+  }
 
-    @Override
-    public MergeResult mergeBack(Path repoRoot, String taskId) {
-        if (mergeBackFailure != null) {
-            throw mergeBackFailure;
-        }
-        if (onMergeBack != null) {
-            onMergeBack.run();
-        }
-        if (!uncommittedFiles.isEmpty()) {
-            commitMessages.add("fleet: worker changes (auto-committed at merge-back) @"
-                    + String.join(",", uncommittedFiles));
-            uncommittedFiles.clear();
-        }
-        mergedTaskIds.add(taskId);
-        mergedRepoRoots.add(repoRoot);
-        return nextMergeResult;
+  @Override
+  public MergeResult mergeBack(Path repoRoot, String taskId) {
+    if (mergeBackFailure != null) {
+      throw mergeBackFailure;
     }
-
-    /** Live worktrees = created minus removed (createdTaskIds keeps history). */
-    private final List<String> liveWorktrees = new ArrayList<>();
-
-    @Override
-    public List<Worktree> list(Path repoRoot) {
-        return liveWorktrees.stream()
-                .map(id -> new Worktree(id,
-                        repoRoot.resolve(".git/opencode-fleet").resolve(id), "opencode/" + id))
-                .toList();
+    if (onMergeBack != null) {
+      onMergeBack.run();
     }
-
-    @Override
-    public Optional<Worktree> find(Path repoRoot, String taskId) {
-        return list(repoRoot).stream()
-                .filter(w -> w.taskId().equals(taskId))
-                .findFirst();
+    if (!uncommittedFiles.isEmpty()) {
+      commitMessages.add(
+          "fleet: worker changes (auto-committed at merge-back) @"
+              + String.join(",", uncommittedFiles));
+      uncommittedFiles.clear();
     }
+    mergedTaskIds.add(taskId);
+    mergedRepoRoots.add(repoRoot);
+    return nextMergeResult;
+  }
 
-    final List<String> removedTaskIds = new ArrayList<>();
+  /** Live worktrees = created minus removed (createdTaskIds keeps history). */
+  private final List<String> liveWorktrees = new ArrayList<>();
 
-    /** Files {@link #changedFiles} reports (the worker's diff); empty default = no evidence, the AC-path gate defers. */
-    List<String> nextChangedFiles = new ArrayList<>();
-    RuntimeException changedFilesFailure;
-    final List<String> changedFilesCalls = new ArrayList<>();
+  @Override
+  public List<Worktree> list(Path repoRoot) {
+    return liveWorktrees.stream()
+        .map(
+            id ->
+                new Worktree(
+                    id, repoRoot.resolve(".git/opencode-fleet").resolve(id), "opencode/" + id))
+        .toList();
+  }
 
-    @Override
-    public List<String> changedFiles(Path repoRoot, String taskId) {
-        if (changedFilesFailure != null) {
-            throw changedFilesFailure;
-        }
-        changedFilesCalls.add(taskId);
-        return List.copyOf(nextChangedFiles);
+  @Override
+  public Optional<Worktree> find(Path repoRoot, String taskId) {
+    return list(repoRoot).stream().filter(w -> w.taskId().equals(taskId)).findFirst();
+  }
+
+  final List<String> removedTaskIds = new ArrayList<>();
+
+  /**
+   * Files {@link #changedFiles} reports (the worker's diff); empty default = no evidence, the
+   * AC-path gate defers.
+   */
+  List<String> nextChangedFiles = new ArrayList<>();
+
+  RuntimeException changedFilesFailure;
+  final List<String> changedFilesCalls = new ArrayList<>();
+
+  @Override
+  public List<String> changedFiles(Path repoRoot, String taskId) {
+    if (changedFilesFailure != null) {
+      throw changedFilesFailure;
     }
+    changedFilesCalls.add(taskId);
+    return List.copyOf(nextChangedFiles);
+  }
 
-    @Override
-    public void remove(Path repoRoot, String taskId, boolean force) {
-        removedTaskIds.add((force ? "force:" : "") + taskId);
-        // createdTaskIds keeps its history: tests assert create-vs-commit
-        // ordering AFTER the reap consumed the worktree
-        liveWorktrees.remove(taskId);
-    }
+  @Override
+  public void remove(Path repoRoot, String taskId, boolean force) {
+    removedTaskIds.add((force ? "force:" : "") + taskId);
+    // createdTaskIds keeps its history: tests assert create-vs-commit
+    // ordering AFTER the reap consumed the worktree
+    liveWorktrees.remove(taskId);
+  }
 
-    @Override
-    public WorktreeStatus status(Path repoRoot, String taskId) {
-        throw new UnsupportedOperationException();
-    }
+  @Override
+  public WorktreeStatus status(Path repoRoot, String taskId) {
+    throw new UnsupportedOperationException();
+  }
 }

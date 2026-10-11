@@ -1,21 +1,5 @@
 package com.opencode.ide.client.internal;
 
-import com.opencode.ide.client.ClientTuning;
-import java.io.IOException;
-import java.lang.reflect.Type;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Consumer;
-
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -26,6 +10,7 @@ import com.google.gson.reflect.TypeToken;
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.client.ChatRequests;
 import com.opencode.ide.client.ClientLog;
+import com.opencode.ide.client.ClientTuning;
 import com.opencode.ide.client.ConnectionConfig;
 import com.opencode.ide.client.McpRequests;
 import com.opencode.ide.client.McpServerConfig;
@@ -59,2124 +44,2477 @@ import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.SkillInfo;
 import com.opencode.ide.client.model.VcsInfo;
+import java.io.IOException;
+import java.lang.reflect.Type;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * {@link OpencodeClient} backed by {@code java.net.http.HttpClient} + Gson.
  *
- * <p>Internal implementation detail: the {@code internal} package is not
- * exported (visible only to the client's own tests), so
- * {@code OpencodeClients.http(...)} is the only way other layers obtain an
- * {@link OpencodeClient}.</p>
+ * <p>Internal implementation detail: the {@code internal} package is not exported (visible only to
+ * the client's own tests), so {@code OpencodeClients.http(...)} is the only way other layers obtain
+ * an {@link OpencodeClient}.
  */
 public final class HttpOpencodeClient implements OpencodeClient {
 
-    private static final Gson GSON = new com.google.gson.GsonBuilder()
-            .registerTypeAdapter(ChatEntry.class, new ChatEntryDeserializer())
-            .create();
+  private static final Gson GSON =
+      new com.google.gson.GsonBuilder()
+          .registerTypeAdapter(ChatEntry.class, new ChatEntryDeserializer())
+          .create();
 
-    private final HttpClient http;
-    private final URI baseUri;
-    private final String authHeader;
-    private final ConnectionConfig config;
+  private final HttpClient http;
+  private final URI baseUri;
+  private final String authHeader;
+  private final ConnectionConfig config;
 
-    public HttpOpencodeClient(ConnectionConfig config) {
-        this.config = config;
-        this.baseUri = config.baseUrl();
-        this.authHeader = Auth.basicHeader(config.username(), config.password());
-        this.http = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1) // the opencode server hangs on h2c-upgrade POSTs
-                .connectTimeout(ClientTuning.CONNECT_TIMEOUT)
-                .build();
+  public HttpOpencodeClient(ConnectionConfig config) {
+    this.config = config;
+    this.baseUri = config.baseUrl();
+    this.authHeader = Auth.basicHeader(config.username(), config.password());
+    this.http =
+        HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1) // the opencode server hangs on h2c-upgrade POSTs
+            .connectTimeout(ClientTuning.CONNECT_TIMEOUT)
+            .build();
+  }
+
+  @Override
+  public HealthStatus getHealth() throws OpencodeException {
+    // v2 removed GET /global/health; GET /api/info is the equivalent probe
+    // ({version, pid, urls, paths}). Reaching it at all means the server is
+    // up, and it still carries the version ServerVersionPin checks.
+    HttpResponse<String> response = send("GET", "/info", null, ClientTuning.REQUEST_TIMEOUT);
+    boolean healthy = response.statusCode() < 300;
+    if (!healthy) {
+      return new HealthStatus(false, null);
     }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      throw new OpencodeException(
+          "opencode GET /api/info failed: HTTP "
+              + response.statusCode()
+              + " - empty response body where JSON was expected");
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      // Gson's lenient parser accepts bare junk as a string primitive -
+      // the info endpoint must answer an OBJECT, anything else is malformed
+      if (!element.isJsonObject()) {
+        throw new JsonParseException("expected a JSON object");
+      }
+      JsonObject info = element.getAsJsonObject();
+      String version =
+          (info.has("version") && info.get("version").isJsonPrimitive())
+              ? info.get("version").getAsString()
+              : null;
+      return new HealthStatus(true, version);
+    } catch (JsonParseException e) {
+      throw new OpencodeException(
+          "opencode GET /api/info failed: HTTP "
+              + response.statusCode()
+              + " - malformed response body: "
+              + truncate(body, 300),
+          e);
+    }
+  }
 
-    @Override
-    public HealthStatus getHealth() throws OpencodeException {
-        // v2 removed GET /global/health; GET /api/info is the equivalent probe
-        // ({version, pid, urls, paths}). Reaching it at all means the server is
-        // up, and it still carries the version ServerVersionPin checks.
-        HttpResponse<String> response = send("GET", "/info", null, ClientTuning.REQUEST_TIMEOUT);
-        boolean healthy = response.statusCode() < 300;
-        if (!healthy) {
-            return new HealthStatus(false, null);
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            throw new OpencodeException("opencode GET /api/info failed: HTTP " + response.statusCode()
-                    + " - empty response body where JSON was expected");
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            // Gson's lenient parser accepts bare junk as a string primitive -
-            // the info endpoint must answer an OBJECT, anything else is malformed
-            if (!element.isJsonObject()) {
-                throw new JsonParseException("expected a JSON object");
+  @Override
+  public List<Agent> getAgents() throws OpencodeException {
+    return getAgents(null);
+  }
+
+  @Override
+  public List<Agent> getAgents(String directory) throws OpencodeException {
+    return getList(withLocation("/agent", directory), Agent.class);
+  }
+
+  @Override
+  public ProviderList getProviders() throws OpencodeException {
+    return getProviders(null);
+  }
+
+  @Override
+  public ProviderList getProviders(String directory) throws OpencodeException {
+    // v2: /config/providers is gone. Rebuild from /api/provider (provider
+    // entries) + /api/model (model entries grouped by providerID). Both
+    // resolve per location - the catalog can differ per project config.
+    List<Model> allModels = getList(withLocation("/model", directory), Model.class);
+    HttpResponse<String> providerResponse =
+        send("GET", withLocation("/provider", directory), null, ClientTuning.REQUEST_TIMEOUT);
+    List<Provider> providers = new ArrayList<>();
+    try {
+      JsonElement element = JsonParser.parseString(providerResponse.body());
+      if (element.isJsonObject()
+          && element.getAsJsonObject().has("data")
+          && element.getAsJsonObject().get("data").isJsonArray()) {
+        for (JsonElement entry : element.getAsJsonObject().getAsJsonArray("data")) {
+          if (!entry.isJsonObject()) {
+            continue;
+          }
+          JsonObject p = entry.getAsJsonObject();
+          String id = p.has("id") ? p.get("id").getAsString() : null;
+          String name = p.has("name") ? p.get("name").getAsString() : id;
+          Map<String, Model> models = new java.util.LinkedHashMap<>();
+          for (Model m : allModels) {
+            if (id != null && id.equals(m.providerID())) {
+              models.put(m.id(), m);
             }
-            JsonObject info = element.getAsJsonObject();
-            String version = (info.has("version") && info.get("version").isJsonPrimitive())
-                    ? info.get("version").getAsString()
-                    : null;
-            return new HealthStatus(true, version);
-        } catch (JsonParseException e) {
-            throw new OpencodeException("opencode GET /api/info failed: HTTP " + response.statusCode()
-                    + " - malformed response body: " + truncate(body, 300), e);
+          }
+          providers.add(new Provider(id, name, null, List.of(), null, Map.of(), models));
         }
+      }
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /provider: malformed body: " + truncate(providerResponse.body(), 200));
     }
+    return new ProviderList(providers, Map.of());
+  }
 
-    @Override
-    public List<Agent> getAgents() throws OpencodeException {
-        return getAgents(null);
+  @Override
+  public List<Session> getSessions() throws OpencodeException {
+    return getSessions(null);
+  }
+
+  @Override
+  public List<Session> getSessions(String directory) throws OpencodeException {
+    String path = "/session";
+    if (directory != null && !directory.isBlank()) {
+      path +=
+          "?directory=" + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
     }
+    return getList(path, Session.class);
+  }
 
-    @Override
-    public List<Agent> getAgents(String directory) throws OpencodeException {
-        return getList(withLocation("/agent", directory), Agent.class);
+  @Override
+  public Map<String, SessionStatus> getSessionStatus() throws OpencodeException {
+    // v2 replaced GET /session/status with GET /session/active, which lists
+    // ONLY the running sessions ({"data": {"ses_x": {"type": "running"}}}) -
+    // absence means idle, the same busy-only contract v1 had.
+    HttpResponse<String> response =
+        send("GET", "/session/active", null, ClientTuning.REQUEST_TIMEOUT);
+    Map<String, SessionStatus> statuses = new java.util.LinkedHashMap<>();
+    if (response.statusCode() == 404) {
+      return statuses;
     }
-
-    @Override
-    public ProviderList getProviders() throws OpencodeException {
-        return getProviders(null);
+    try {
+      JsonElement element = JsonParser.parseString(response.body());
+      if (element.isJsonObject()
+          && element.getAsJsonObject().has("data")
+          && element.getAsJsonObject().get("data").isJsonObject()) {
+        for (String sessionId : element.getAsJsonObject().getAsJsonObject("data").keySet()) {
+          statuses.put(sessionId, new SessionStatus("busy"));
+        }
+      }
+    } catch (JsonParseException e) {
+      throw new OpencodeException(
+          "opencode GET /api/session/active failed: malformed response body: "
+              + truncate(response.body(), 300),
+          e);
     }
+    return statuses;
+  }
 
-    @Override
-    public ProviderList getProviders(String directory) throws OpencodeException {
-        // v2: /config/providers is gone. Rebuild from /api/provider (provider
-        // entries) + /api/model (model entries grouped by providerID). Both
-        // resolve per location - the catalog can differ per project config.
-        List<Model> allModels = getList(withLocation("/model", directory), Model.class);
-        HttpResponse<String> providerResponse = send("GET", withLocation("/provider", directory), null,
-                ClientTuning.REQUEST_TIMEOUT);
-        List<Provider> providers = new ArrayList<>();
-        try {
-            JsonElement element = JsonParser.parseString(providerResponse.body());
-            if (element.isJsonObject() && element.getAsJsonObject().has("data")
-                    && element.getAsJsonObject().get("data").isJsonArray()) {
-                for (JsonElement entry : element.getAsJsonObject().getAsJsonArray("data")) {
-                    if (!entry.isJsonObject()) {
-                        continue;
-                    }
-                    JsonObject p = entry.getAsJsonObject();
-                    String id = p.has("id") ? p.get("id").getAsString() : null;
-                    String name = p.has("name") ? p.get("name").getAsString() : id;
-                    Map<String, Model> models = new java.util.LinkedHashMap<>();
-                    for (Model m : allModels) {
-                        if (id != null && id.equals(m.providerID())) {
-                            models.put(m.id(), m);
-                        }
-                    }
-                    providers.add(new Provider(id, name, null, List.of(), null, Map.of(), models));
-                }
+  @Override
+  public ConfigInfo getConfig() throws OpencodeException {
+    return getConfig(null);
+  }
+
+  @Override
+  public ConfigInfo getConfig(String directory) throws OpencodeException {
+    // v2 returns an ARRAY of config sources: [{type:"document", path, info:{...}}].
+    // Find the one with a model (usually the project-level document).
+    HttpResponse<String> response =
+        send("GET", withLocation("/config", directory), null, ClientTuning.REQUEST_TIMEOUT);
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return new ConfigInfo(null, null);
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      if (!element.isJsonArray()) {
+        return new ConfigInfo(null, null);
+      }
+      for (JsonElement source : element.getAsJsonArray()) {
+        if (!source.isJsonObject()) {
+          continue;
+        }
+        JsonObject src = source.getAsJsonObject();
+        if (!src.has("info") || !src.get("info").isJsonObject()) {
+          continue;
+        }
+        JsonObject info = src.getAsJsonObject("info");
+        if (info.has("model") && info.get("model").isJsonObject()) {
+          JsonObject model = info.getAsJsonObject("model");
+          String provider = model.has("providerID") ? model.get("providerID").getAsString() : null;
+          String modelId = model.has("model") ? model.get("model").getAsString() : null;
+          if (provider != null && modelId != null) {
+            return new ConfigInfo(provider + "/" + modelId, null);
+          }
+        }
+      }
+      return new ConfigInfo(null, null);
+    } catch (JsonParseException e) {
+      ClientLog.warning("opencode GET /config: malformed body: " + truncate(body, 200));
+      return new ConfigInfo(null, null);
+    }
+  }
+
+  @Override
+  public Session createSession(String title) throws OpencodeException {
+    return createSession(title, null);
+  }
+
+  @Override
+  public Session createSession(String title, Path directory) throws OpencodeException {
+    JsonObject body = new JsonObject();
+    if (title != null && !title.isBlank()) {
+      body.addProperty("title", title);
+    }
+    // v2 scopes the session via a location object in the BODY (v1 used a
+    // ?directory= query parameter that v2 no longer reads)
+    if (directory != null) {
+      JsonObject location = new JsonObject();
+      location.addProperty("directory", directory.toString());
+      body.add("location", location);
+    }
+    return parseBody(
+        "POST", "/session", request("POST", "/session", body.toString()), Session.class, true);
+  }
+
+  @Override
+  public void renameSession(String sessionId, String title) throws OpencodeException {
+    // v2 adoption 2026-09-25 (U-002 unblocked): PATCH /session/{id}
+    JsonObject body = new JsonObject();
+    body.addProperty("title", title);
+    request("PATCH", "/session/" + sessionId, body.toString());
+  }
+
+  @Override
+  public void moveSession(String sessionId, String directory) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("directory", directory);
+    request("POST", "/session/" + sessionId + "/move", body.toString());
+  }
+
+  @Override
+  public void switchSessionAgent(String sessionId, String agent) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("agent", agent);
+    request("POST", "/session/" + sessionId + "/agent", body.toString());
+  }
+
+  @Override
+  public void switchSessionModel(String sessionId, String model) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("model", model);
+    request("POST", "/session/" + sessionId + "/model", body.toString());
+  }
+
+  @Override
+  public void compactSession(String sessionId) throws OpencodeException {
+    request("POST", "/session/" + sessionId + "/compact", "{}");
+  }
+
+  @Override
+  public String exportSession(String sessionId) throws OpencodeException {
+    return send(
+            "GET",
+            "/experimental/session/" + sessionId + "/export",
+            null,
+            ClientTuning.REQUEST_TIMEOUT)
+        .body();
+  }
+
+  @Override
+  public String sessionLog(String sessionId) throws OpencodeException {
+    return send(
+            "GET",
+            "/experimental/session/" + sessionId + "/log",
+            null,
+            ClientTuning.REQUEST_TIMEOUT)
+        .body();
+  }
+
+  @Override
+  public Map<String, Object> sessionStats() throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", "/experimental/session/stats", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public Map<String, Object> getLocation() throws OpencodeException {
+    HttpResponse<String> response = send("GET", "/location", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public void reloadLocation() throws OpencodeException {
+    request("POST", "/location/reload", "{}");
+  }
+
+  @Override
+  public void updateProject(String projectId, String name) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("name", name);
+    request("PATCH", "/project/" + projectId, body.toString());
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listReferences() throws OpencodeException {
+    HttpResponse<String> response = send("GET", "/reference", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "references");
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listPlugins() throws OpencodeException {
+    HttpResponse<String> response = send("GET", "/plugin", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "plugins");
+  }
+
+  @Override
+  public void renameCredential(String credentialId, String label) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("label", label);
+    request("PATCH", "/credential/" + credentialId, body.toString());
+  }
+
+  @Override
+  public void activateCredential(String credentialId) throws OpencodeException {
+    request("POST", "/credential/" + credentialId + "/activate", "{}");
+  }
+
+  @Override
+  public void removeCredential(String credentialId) throws OpencodeException {
+    request("DELETE", "/credential/" + credentialId, "{}");
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listWebsearchProviders() throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", "/websearch/provider", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "providers");
+  }
+
+  @Override
+  public Map<String, Object> websearch(String query, String providerId) throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("query", query);
+    if (providerId != null) {
+      body.addProperty("providerID", providerId);
+    }
+    HttpResponse<String> response =
+        send("POST", "/websearch", body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listPtys() throws OpencodeException {
+    HttpResponse<String> response = send("GET", "/pty", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "ptys");
+  }
+
+  @Override
+  public Map<String, Object> createPty(
+      String command, java.util.List<String> args, String cwd, String title)
+      throws OpencodeException {
+    HttpResponse<String> response =
+        send("POST", "/pty", commandBody(command, args, cwd, title), ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  /**
+   * Shared {@code {command, args, cwd, title}} request body - the declared {@code
+   * PersistentPty.CreateInput} family used by both the PTY create and the session terminal create.
+   */
+  private static String commandBody(
+      String command, java.util.List<String> args, String cwd, String title) {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    body.addProperty("command", command);
+    if (args != null) {
+      com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+      for (String arg : args) {
+        array.add(arg);
+      }
+      body.add("args", array);
+    }
+    if (cwd != null) {
+      body.addProperty("cwd", cwd);
+    }
+    if (title != null) {
+      body.addProperty("title", title);
+    }
+    return body.toString();
+  }
+
+  @Override
+  public void removePty(String ptyId) throws OpencodeException {
+    request("DELETE", "/pty/" + ptyId, "{}");
+  }
+
+  @Override
+  public Map<String, Object> readSessionTerminal(String sessionId) throws OpencodeException {
+    HttpResponse<String> response =
+        send(
+            "GET",
+            "/experimental/session/" + sessionId + "/terminal/read",
+            null,
+            ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public Map<String, Object> persistentPtySnapshot(String ptyId) throws OpencodeException {
+    HttpResponse<String> response =
+        send(
+            "GET",
+            "/experimental/persistent-pty/" + ptyId + "/snapshot",
+            null,
+            ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> checkPlugins() throws OpencodeException {
+    HttpResponse<String> response =
+        send("POST", "/plugin/check", "{}", ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "plugin updates");
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> updatePlugins(java.util.List<String> targets)
+      throws OpencodeException {
+    com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+    com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+    if (targets != null) {
+      for (String target : targets) {
+        array.add(target);
+      }
+    }
+    body.add("targets", array);
+    HttpResponse<String> response =
+        send("POST", "/plugin/update", body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "updated plugins");
+  }
+
+  @Override
+  public Map<String, Object> sessionTerminal(String sessionId) throws OpencodeException {
+    HttpResponse<String> response =
+        send(
+            "GET",
+            "/experimental/session/" + sessionId + "/terminal",
+            null,
+            ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public Map<String, Object> createSessionTerminal(
+      String sessionId, String command, java.util.List<String> args, String cwd, String title)
+      throws OpencodeException {
+    HttpResponse<String> response =
+        send(
+            "POST",
+            "/experimental/session/" + sessionId + "/terminal",
+            commandBody(command, args, cwd, title),
+            ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public Map<String, Object> getSessionContext(String sessionId) throws OpencodeException {
+    // v2 adoption 2026-09-25: per-session context usage; same envelope
+    // handling as getSessionStatus (data object, absent data = empty)
+    HttpResponse<String> response =
+        send("GET", "/session/" + sessionId + "/context", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectMap(response.body());
+  }
+
+  @Override
+  public void commitSessionRevert(String sessionId) throws OpencodeException {
+    request("POST", "/session/" + sessionId + "/revert/commit", "{}");
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listWorktrees(String projectID)
+      throws OpencodeException {
+    // v2 worktrees (slice 2, 2026-09-25): projectID is REQUIRED (live
+    // probe 2026-09-25: bare GET answers 400, a path answers 404)
+    HttpResponse<String> response =
+        send(
+            "GET",
+            "/worktree?projectID=" + java.net.URLEncoder.encode(projectID, StandardCharsets.UTF_8),
+            null,
+            ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "worktree list");
+  }
+
+  @Override
+  public java.util.List<Map<String, Object>> listForms(String sessionId) throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", "/session/" + sessionId + "/form", null, ClientTuning.REQUEST_TIMEOUT);
+    return objectList(response.body(), "form list");
+  }
+
+  @Override
+  public void replyForm(String sessionId, String formID, java.util.Map<String, Object> values)
+      throws OpencodeException {
+    // Form.Reply = {"answer": {...}} - the service owns the schema, the
+    // answer echoes values keyed by the form's own field keys
+    request(
+        "POST",
+        "/session/" + sessionId + "/form/" + formID + "/reply",
+        GSON.toJson(java.util.Map.of("answer", values == null ? java.util.Map.of() : values)));
+  }
+
+  @Override
+  public void cancelForm(String sessionId, String formID) throws OpencodeException {
+    request("DELETE", "/session/" + sessionId + "/form/" + formID, null);
+  }
+
+  @Override
+  public void removeMcp(String name, String directory) throws OpencodeException {
+    request(
+        "DELETE",
+        withLocation(
+            "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8), directory),
+        null);
+  }
+
+  @Override
+  public void connectMcp(String name, String directory) throws OpencodeException {
+    request(
+        "POST",
+        withLocation(
+            "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/connect",
+            directory),
+        "{}");
+  }
+
+  @Override
+  public void disconnectMcp(String name, String directory) throws OpencodeException {
+    request(
+        "POST",
+        withLocation(
+            "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/disconnect",
+            directory),
+        "{}");
+  }
+
+  @Override
+  public Map<String, Object> createWorktree(
+      String projectID, String from, String branch, String directory, String name)
+      throws OpencodeException {
+    JsonObject body = new JsonObject();
+    if (projectID != null) {
+      body.addProperty("projectID", projectID);
+    }
+    if (from != null) {
+      body.addProperty("from", from);
+    }
+    if (branch != null) {
+      body.addProperty("branch", branch);
+    }
+    if (directory != null) {
+      body.addProperty("directory", directory);
+    }
+    if (name != null) {
+      body.addProperty("name", name);
+    }
+    HttpResponse<String> response = request("POST", "/worktree", body.toString());
+    return objectMap(response.body());
+  }
+
+  @Override
+  public void refreshWorktrees(String projectID) throws OpencodeException {
+    // the body key is REQUIRED (live probe 2026-09-25: "Missing key at
+    // [projectID]" for an empty body)
+    JsonObject body = new JsonObject();
+    body.addProperty("projectID", projectID);
+    request("POST", "/worktree/refresh", body.toString());
+  }
+
+  /**
+   * Flattens a {@code {"data":[...]}} (or bare array) response body into string-keyed maps - the
+   * shared envelope handling for v2 LIST methods.
+   */
+  private static java.util.List<Map<String, Object>> objectList(String responseBody, String what)
+      throws OpencodeException {
+    java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
+    try {
+      JsonElement element = JsonParser.parseString(responseBody);
+      JsonArray data =
+          element.isJsonObject()
+                  && element.getAsJsonObject().has("data")
+                  && element.getAsJsonObject().get("data").isJsonArray()
+              ? element.getAsJsonObject().getAsJsonArray("data")
+              : new JsonArray();
+      for (JsonElement item : data) {
+        if (item.isJsonObject()) {
+          result.add(objectMap(item.toString()));
+        }
+      }
+    } catch (JsonParseException e) {
+      throw new OpencodeException("unreadable " + what + ": " + e.getMessage());
+    }
+    return result;
+  }
+
+  /**
+   * Flattens a {@code {"data":{...}}} (or bare object) response body into a string-keyed map - the
+   * shared envelope handling for the v2 adoption methods.
+   */
+  private static Map<String, Object> objectMap(String responseBody) throws OpencodeException {
+    Map<String, Object> result = new java.util.LinkedHashMap<>();
+    try {
+      JsonElement element = JsonParser.parseString(responseBody);
+      if (element.isJsonObject()) {
+        JsonObject root = element.getAsJsonObject();
+        JsonObject data =
+            root.has("data") && root.get("data").isJsonObject()
+                ? root.getAsJsonObject("data")
+                : root;
+        for (java.util.Map.Entry<String, JsonElement> entry : data.entrySet()) {
+          result.put(entry.getKey(), GSON.fromJson(entry.getValue(), Object.class));
+        }
+      }
+    } catch (JsonParseException e) {
+      throw new OpencodeException("unreadable response body: " + e.getMessage());
+    }
+    return result;
+  }
+
+  @Override
+  public void registerMcp(String name, McpServerConfig config) throws OpencodeException {
+    // v2: PUT /api/experimental/mcp/:server (v1 POSTed the name in the body)
+    request(
+        "PUT",
+        "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8),
+        McpRequests.registerBody(name, config));
+  }
+
+  @Override
+  public List<McpServerInfo> getMcpServers() throws OpencodeException {
+    return getMcpServers(null);
+  }
+
+  @Override
+  public List<McpServerInfo> getMcpServers(String directory) throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", withLocation("/mcp", directory), null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return List.of();
+    }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return List.of();
+    }
+    try {
+      // v2 shape: {"location": {...}, "data": [{"name": "...", "status": "..."}, ...]}
+      JsonElement element = JsonParser.parseString(body);
+      if (!element.isJsonObject()
+          || !element.getAsJsonObject().has("data")
+          || !element.getAsJsonObject().get("data").isJsonArray()) {
+        ClientLog.warning("opencode GET /mcp: unexpected shape (no data array); treating as empty");
+        return List.of();
+      }
+      List<McpServerInfo> out = new ArrayList<>();
+      for (JsonElement entry : element.getAsJsonObject().getAsJsonArray("data")) {
+        if (!entry.isJsonObject()) {
+          continue;
+        }
+        JsonObject server = entry.getAsJsonObject();
+        String name = stringOf(server, "name");
+        out.add(
+            new McpServerInfo(
+                name != null ? name : stringOf(server, "id"), stringOf(server, "status")));
+      }
+      return out;
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /mcp: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return List.of();
+    }
+  }
+
+  @Override
+  public List<SkillInfo> getSkills() throws OpencodeException {
+    return getSkills(null);
+  }
+
+  @Override
+  public List<SkillInfo> getSkills(String directory) throws OpencodeException {
+    return getListOrEmptyOn404(withLocation("/skill", directory), SkillInfo.class);
+  }
+
+  /**
+   * List GET that treats HTTP 404 as empty: these endpoints are absent on older opencode builds and
+   * an empty section beats a broken view.
+   */
+  private <T> List<T> getListOrEmptyOn404(String path, Class<T> elementType)
+      throws OpencodeException {
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return List.of();
+    }
+    try {
+      return parseBody(
+          "GET",
+          path,
+          response,
+          TypeToken.getParameterized(List.class, elementType).getType(),
+          true);
+    } catch (OpencodeException e) {
+      // an empty section beats a broken view: these auxiliary endpoints
+      // (file tree, search) tolerate a wrong-shaped 200 the same as a 404
+      ClientLog.warning("opencode GET " + path + ": " + e.getMessage() + " (treating as empty)");
+      return List.of();
+    }
+  }
+
+  @Override
+  public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
+    List<ChatEntry> messages =
+        new ArrayList<>(getList("/session/" + sessionId + "/message", ChatEntry.class));
+    // B-008 / rubberduck F-1: the wire is NEWEST-FIRST (the mirrored 2.0.10
+    // capture in ChatParsingTest is the contract fixture) while every
+    // consumer in this codebase works chronologically - normalize ONCE
+    // here so "later in the list = newer" holds everywhere (stable sort:
+    // entries without timestamps keep their wire order)
+    messages.sort(java.util.Comparator.comparingLong(HttpOpencodeClient::createdAt));
+    return List.copyOf(messages);
+  }
+
+  @Override
+  public JsonArray getMessagesJson(String sessionId) throws OpencodeException {
+    String path = "/session/" + sessionId + "/message";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    String body = response.body();
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(body, ClientTuning.SNIPPET_MAX));
+    }
+    if (body == null || body.isBlank()) {
+      return new JsonArray();
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      JsonElement data =
+          element.isJsonObject() && element.getAsJsonObject().has("data")
+              ? element.getAsJsonObject().get("data")
+              : element;
+      return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+    } catch (JsonParseException | IllegalStateException e) {
+      throw new OpencodeException(
+          "opencode GET /api" + path + " failed: malformed response body", e);
+    }
+  }
+
+  @Override
+  public ChatEntry sendMessage(ChatRequest chatRequest) throws OpencodeException {
+    return sendMessage(chatRequest, ClientTuning.PROMPT_TIMEOUT);
+  }
+
+  @Override
+  public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout)
+      throws OpencodeException {
+    return sendMessage(chatRequest, promptTimeout, null);
+  }
+
+  @Override
+  public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, String delivery)
+      throws OpencodeException {
+    return sendMessage(chatRequest, promptTimeout, ClientTuning.REPLY_STALL_WINDOW, delivery);
+  }
+
+  @Override
+  public ChatEntry sendMessage(
+      ChatRequest chatRequest, Duration promptTimeout, Duration replyStallWindow, String delivery)
+      throws OpencodeException {
+    // v2 split v1's single blocking POST /message. The agent and the model
+    // are session state set before the turn, the per-request system prompt
+    // becomes a synthetic message, and POST /prompt is ASYNCHRONOUS: it
+    // returns the queued user message, so the reply has to be polled.
+    // delivery (T-005 send-time parity): "queue" parks the prompt in the
+    // session inbox instead of steering the active run (v2 Alt+Enter).
+    // B-024: the reply wait additionally fails fast when the message list
+    // stops changing for the stall window instead of waiting out the whole
+    // budget on a dead session.
+    String sessionId = chatRequest.sessionId();
+    postIfPresent("/session/" + sessionId + "/agent", ChatRequests.agentBody(chatRequest));
+    postIfPresent("/session/" + sessionId + "/model", ChatRequests.modelBody(chatRequest));
+    postIfPresent("/session/" + sessionId + "/synthetic", ChatRequests.syntheticBody(chatRequest));
+
+    String path = "/session/" + sessionId + "/prompt";
+    HttpResponse<String> prompt =
+        request(
+            "POST",
+            path,
+            ChatRequests.promptBody(chatRequest, delivery),
+            ClientTuning.REQUEST_TIMEOUT);
+    // anchor the wait to THIS turn: a resumed session is full of previous
+    // turns' assistant messages and idle markers, and answering from those
+    // would return an old (or still-empty) reply instantly
+    long promptedAt = promptCreatedTime(prompt.body());
+
+    // an agent may stream for many minutes, so unattended callers pass their
+    // whole run budget; the fixed default is only for interactive use
+    Duration budget =
+        promptTimeout == null || promptTimeout.isNegative() || promptTimeout.isZero()
+            ? ClientTuning.PROMPT_TIMEOUT
+            : promptTimeout;
+    Duration stall =
+        replyStallWindow == null || replyStallWindow.isNegative() || replyStallWindow.isZero()
+            ? ClientTuning.REPLY_STALL_WINDOW
+            : replyStallWindow;
+    return awaitReply(sessionId, budget, stall, promptedAt);
+  }
+
+  /** The queued user message's server timestamp ({@code data.time.created}); now as fallback. */
+  private static long promptCreatedTime(String body) {
+    try {
+      JsonObject data = asObject(JsonParser.parseString(body).getAsJsonObject(), "data");
+      JsonObject time = data == null ? null : asObject(data, "time");
+      if (time != null && time.has("created") && time.get("created").isJsonPrimitive()) {
+        return time.get("created").getAsLong();
+      }
+    } catch (JsonParseException | IllegalStateException e) {
+      // fall through to the local clock
+    }
+    return System.currentTimeMillis();
+  }
+
+  /** POSTs a prepared body when the request produced one; a {@code null} body is a no-op. */
+  private void postIfPresent(String path, String body) throws OpencodeException {
+    if (body != null) {
+      request("POST", path, body, ClientTuning.REQUEST_TIMEOUT);
+    }
+  }
+
+  /**
+   * Polls {@code GET /session/:id/message} until THIS turn is over: the server's {@code idle}
+   * turn-end marker appears (the authoritative v2 signal), or — marker-less servers only — the
+   * finished-reply evidence held quiet for {@link ClientTuning#TURN_QUIET_CONFIRM}. v2 has no
+   * blocking send, so this restores the synchronous contract the chat view and the fleet are built
+   * on.
+   *
+   * <p>Everything is anchored to {@code promptedAt} (the queued user message's server timestamp): a
+   * resumed session carries previous turns' assistant messages and idle markers, and answering from
+   * those would return a stale — or still-empty — reply immediately.
+   *
+   * <p>B-008 / rubberduck F-2/F-3: one turn produces MULTIPLE assistant messages (one per agentic
+   * step), each stamped {@code time.completed} when its own step finishes - the former "first
+   * stamped assistant wins" return therefore fired at every inter-step boundary and force-settled
+   * the fleet's watchdog mid-run (F-005 live: five workers falsely completed). {@code Turns} is the
+   * single judge now.
+   *
+   * <p>B-024: the budget is the absolute CAP; the no-progress window trips first on a dead session.
+   * Any change to the message list (a new entry or growing streamed text) counts as progress and
+   * resets the window, so a long healthy turn never fails either way.
+   */
+  private ChatEntry awaitReply(
+      String sessionId, Duration budget, Duration stallWindow, long promptedAt)
+      throws OpencodeException {
+    long deadline = System.nanoTime() + budget.toNanos();
+    long lastProgress = System.nanoTime();
+    int lastObservedSize = -1;
+    int lastObservedLength = -1;
+    long quietSince = 0;
+    int lastSize = -1;
+    int lastLength = -1;
+    while (System.nanoTime() < deadline) {
+      List<ChatEntry> messages = getMessages(sessionId); // chronological (the getMessages contract)
+      ChatEntry newest = newestAssistantAfter(messages, promptedAt);
+      ChatEntry idle = idleAfter(messages, promptedAt);
+      if (idle != null) {
+        if (newest != null) {
+          return newest; // the turn ended (outcome marker) - take what it produced
+        }
+        // a turn that ends WITHOUT any assistant message (e.g. a provider
+        // error exhausted its retries) must surface, not spin to the budget
+        String outcome = idle.info().finish();
+        throw new OpencodeException(
+            "opencode "
+                + sessionId
+                + ": the turn ended"
+                + (outcome != null && !"succeeded".equals(outcome)
+                    ? " with outcome '" + outcome + "'"
+                    : "")
+                + " without a reply");
+      }
+      ChatEntry evidence =
+          com.opencode.ide.client.model.Turns.replyEvidence(turnSlice(messages, promptedAt));
+      if (evidence != null) {
+        // marker-less servers: only a QUIET stretch proves the turn is
+        // over - the evidence alone is true at every inter-step boundary
+        int size = messages.size();
+        int length = evidence.text().length();
+        if (quietSince == 0 || size != lastSize || length != lastLength) {
+          quietSince = System.nanoTime();
+        }
+        lastSize = size;
+        lastLength = length;
+        if (System.nanoTime() - quietSince >= ClientTuning.TURN_QUIET_CONFIRM.toNanos()) {
+          return evidence;
+        }
+      } else {
+        quietSince = 0;
+        // B-024: while NOTHING looks done, an unchanged message list
+        // for the stall window means the turn is dead or hung - fail
+        // fast instead of waiting out the whole budget. (Once
+        // evidence exists, the deliberate quiet-confirm window above
+        // owns the wait and must not be disturbed.)
+        int observedSize = messages.size();
+        ChatEntry lastEntry = observedSize == 0 ? null : messages.get(observedSize - 1);
+        int observedLength =
+            lastEntry == null || lastEntry.text() == null ? 0 : lastEntry.text().length();
+        if (observedSize != lastObservedSize || observedLength != lastObservedLength) {
+          lastProgress = System.nanoTime();
+          lastObservedSize = observedSize;
+          lastObservedLength = observedLength;
+        } else if (System.nanoTime() - lastProgress >= stallWindow.toNanos()) {
+          throw new OpencodeException.ReplyTimeout(
+              "opencode "
+                  + sessionId
+                  + ": no reply progress for "
+                  + stallWindow.toSeconds()
+                  + "s - the turn may still be working and stays alive in"
+                  + " the background; check whether the session is stuck busy");
+        }
+      }
+      try {
+        Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new OpencodeException(
+            "opencode " + sessionId + ": interrupted while awaiting the reply", e);
+      }
+    }
+    throw new OpencodeException.ReplyTimeout(
+        "opencode "
+            + sessionId
+            + ": no completed reply within "
+            + budget.toSeconds()
+            + "s (the server may still be working - the turn stays alive in the"
+            + " background; raise the budget or check whether the session is stuck busy)");
+  }
+
+  /** THIS turn's entries ({@code created >= promptedAt}; unknown stamps count in). */
+  private static List<ChatEntry> turnSlice(List<ChatEntry> messages, long promptedAt) {
+    if (promptedAt <= 0) {
+      return messages;
+    }
+    List<ChatEntry> turn = new java.util.ArrayList<>();
+    for (ChatEntry entry : messages) {
+      if (entry != null && (createdAt(entry) == 0 || createdAt(entry) >= promptedAt)) {
+        turn.add(entry);
+      }
+    }
+    return turn;
+  }
+
+  /** The newest assistant message of THIS turn (created at/after the prompt), or {@code null}. */
+  private static ChatEntry newestAssistantAfter(List<ChatEntry> messages, long promptedAt) {
+    // chronological contract (getMessages): the LAST match is the newest
+    ChatEntry newest = null;
+    for (ChatEntry entry : messages) {
+      if (entry != null
+          && entry.info() != null
+          && "assistant".equals(entry.info().role())
+          && createdAt(entry) >= promptedAt) {
+        newest = entry;
+      }
+    }
+    return newest;
+  }
+
+  /** THIS turn's {@code idle} outcome marker, or {@code null} while the turn is still open. */
+  private static ChatEntry idleAfter(List<ChatEntry> messages, long promptedAt) {
+    for (ChatEntry entry : messages) {
+      if (entry != null
+          && entry.info() != null
+          && "idle".equals(entry.info().role())
+          && createdAt(entry) >= promptedAt) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  private static long createdAt(ChatEntry entry) {
+    return (entry.info() == null || entry.info().time() == null)
+        ? 0L
+        : entry.info().time().created();
+  }
+
+  @Override
+  public void abortSession(String sessionId) throws OpencodeException {
+    // v2 renamed POST /session/:id/abort to /interrupt
+    String path = "/session/" + sessionId + "/interrupt";
+    HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
+    int status = response.statusCode();
+    if (status >= 400 && status != 404) {
+      throw new OpencodeException(
+          "opencode POST /api"
+              + path
+              + " failed: HTTP "
+              + status
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    if (status >= 400) {
+      // usually "session is already idle" - the outcome the caller wanted
+      ClientLog.warning(
+          "opencode POST /api"
+              + path
+              + " returned HTTP "
+              + status
+              + " (treated as already idle): "
+              + truncate(response.body(), 200));
+    }
+  }
+
+  @Override
+  public void deleteSession(String sessionId) throws OpencodeException {
+    if (sessionId == null || sessionId.isBlank()) {
+      throw new IllegalArgumentException("sessionId must not be blank");
+    }
+    request(
+        "DELETE",
+        "/session/"
+            + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8),
+        null);
+  }
+
+  @Override
+  public void log(String service, String level, String message, Map<String, Object> extra)
+      throws OpencodeException {
+    // v2 removed POST /log (404). Logging stays client-side in v2.
+    ClientLog.info("[" + service + "] " + level + ": " + message);
+  }
+
+  // ---------- H5 surface ----------
+
+  @Override
+  public List<FileDiff> getSessionDiff(String sessionId, String messageId)
+      throws OpencodeException {
+    String path = "/session/" + sessionId + "/diff";
+    if (messageId != null && !messageId.isBlank()) {
+      path +=
+          "?messageID=" + URLEncoder.encode(messageId, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+    return getList(path, FileDiff.class);
+  }
+
+  @Override
+  public Session forkSession(String sessionId, String messageId) throws OpencodeException {
+    JsonObject body = new JsonObject();
+    if (messageId != null && !messageId.isBlank()) {
+      // v2 names the fork point "before" (a msg_ id); v1's "messageID"
+      // key is rejected (additionalProperties=false)
+      body.addProperty("before", messageId);
+    }
+    return parseBody(
+        "POST",
+        "/session/" + sessionId + "/fork",
+        request("POST", "/session/" + sessionId + "/fork", body.toString()),
+        Session.class,
+        true);
+  }
+
+  @Override
+  public boolean revertMessage(String sessionId, String messageId) throws OpencodeException {
+    JsonObject body = new JsonObject();
+    if (messageId != null) {
+      body.addProperty("messageID", messageId);
+    }
+    return parseBody(
+        "POST",
+        "/session/" + sessionId + "/revert/stage",
+        request("POST", "/session/" + sessionId + "/revert/stage", body.toString()),
+        Boolean.class);
+  }
+
+  @Override
+  public boolean unrevertSession(String sessionId) throws OpencodeException {
+    // v2: clearing the revert is DELETE /session/:id/revert (v1 POST /unrevert)
+    String path = "/session/" + sessionId + "/revert";
+    HttpResponse<String> response = send("DELETE", path, null, ClientTuning.REQUEST_TIMEOUT);
+    return response.statusCode() < 300;
+  }
+
+  @Override
+  public boolean summarizeSession(String sessionId, String providerId, String modelId)
+      throws OpencodeException {
+    // v2 renamed /summarize to /compact and takes the model as a Model.Ref
+    JsonObject body = new JsonObject();
+    if (providerId != null && modelId != null) {
+      JsonObject model = new JsonObject();
+      model.addProperty("id", modelId);
+      model.addProperty("providerID", providerId);
+      body.add("model", model);
+    }
+    String path = "/session/" + sessionId + "/compact";
+    HttpResponse<String> response =
+        send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    return response.statusCode() < 300;
+  }
+
+  @Override
+  public boolean respondToPermission(
+      String sessionId, String permissionId, String response, boolean remember)
+      throws OpencodeException {
+    return respondToPermission(sessionId, permissionId, response, remember, null);
+  }
+
+  @Override
+  public boolean respondToPermission(
+      String sessionId, String permissionId, String response, boolean remember, String feedback)
+      throws OpencodeException {
+    // v2: POST /session/:id/permission/:requestID/reply with a decision of
+    // once|always|reject and an OPTIONAL feedback message (T-004: "reject
+    // with feedback" travels to the agent in the request's message field)
+    JsonObject body = new JsonObject();
+    body.addProperty("decision", decisionOf(response, remember));
+    if (feedback != null && !feedback.isBlank()) {
+      body.addProperty("message", feedback);
+    }
+    String path = "/session/" + sessionId + "/permission/" + permissionId + "/reply";
+    HttpResponse<String> reply = send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    return reply.statusCode() < 300;
+  }
+
+  /** Maps the client's {@code (response, remember)} pair onto v2's single decision. */
+  private static String decisionOf(String response, boolean remember) {
+    if (response != null && response.toLowerCase(java.util.Locale.ROOT).startsWith("r")) {
+      return "reject";
+    }
+    return remember ? "always" : "once";
+  }
+
+  @Override
+  public List<CommandInfo> getCommands() throws OpencodeException {
+    return getCommands(null);
+  }
+
+  @Override
+  public List<CommandInfo> getCommands(String directory) throws OpencodeException {
+    return getListOrEmptyOn404(withLocation("/command", directory), CommandInfo.class);
+  }
+
+  @Override
+  public ChatEntry runCommand(String sessionId, String command, List<String> arguments)
+      throws OpencodeException {
+    // v2's command body is {name, text} (v1 sent {command, arguments[]});
+    // additionalProperties=false rejects the v1 keys with HTTP 400
+    String path = "/session/" + sessionId + "/command";
+    return parseBody(
+        "POST",
+        path,
+        request(
+            "POST",
+            path,
+            ChatRequests.commandBody(command, arguments),
+            ClientTuning.PROMPT_TIMEOUT),
+        ChatEntry.class);
+  }
+
+  // ---------- U-045 / v2 parity surfaces (background tasks, ask recovery) ----------
+
+  @Override
+  public List<com.opencode.ide.client.activity.PermissionRequest> listPermissionRequests(
+      String directory) throws OpencodeException {
+    String path = withLocation("/permission/request", directory);
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    List<com.opencode.ide.client.activity.PermissionRequest> out = new java.util.ArrayList<>();
+    for (JsonElement element : dataOf(response.body())) {
+      if (!element.isJsonObject()) {
+        continue;
+      }
+      JsonObject ask = element.getAsJsonObject();
+      // the pending-ask list returns Permission.Request objects - the same
+      // wire shape the permission.asked event carries as data (id,
+      // sessionID, action, resources[], metadata?) - mapped directly (no
+      // event wrapper on this read path)
+      List<String> patterns = new java.util.ArrayList<>();
+      if (ask.has("resources") && ask.get("resources").isJsonArray()) {
+        for (JsonElement resource : ask.getAsJsonArray("resources")) {
+          if (resource.isJsonPrimitive()) {
+            patterns.add(resource.getAsString());
+          }
+        }
+      }
+      out.add(
+          new com.opencode.ide.client.activity.PermissionRequest(
+              askString(ask, "sessionID"),
+              askString(ask, "id"),
+              askString(ask, "action"),
+              patterns,
+              askTitle(ask),
+              com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
+    }
+    return List.copyOf(out);
+  }
+
+  private static String askString(JsonObject object, String key) {
+    return (object.has(key) && object.get(key).isJsonPrimitive())
+        ? object.get(key).getAsString()
+        : null;
+  }
+
+  /**
+   * The ask's metadata title (falls back to summary/description; else null - display() degrades to
+   * the patterns).
+   */
+  private static String askTitle(JsonObject ask) {
+    if (!ask.has("metadata") || !ask.get("metadata").isJsonObject()) {
+      return null;
+    }
+    JsonObject metadata = ask.getAsJsonObject("metadata");
+    for (String key : new String[] {"title", "summary", "description", "command"}) {
+      String value = askString(metadata, key);
+      if (value != null && !value.isBlank()) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  @Override
+  public void backgroundSession(String sessionId) throws OpencodeException {
+    String path = "/session/" + sessionId + "/background";
+    HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode POST /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+  }
+
+  @Override
+  public List<com.opencode.ide.client.model.ShellTask> listShellTasks() throws OpencodeException {
+    return getList(withLocation("/shell", null), com.opencode.ide.client.model.ShellTask.class);
+  }
+
+  @Override
+  public String shellTaskOutput(String id) throws OpencodeException {
+    String path = "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/output";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    // lenient: {"data":{"output":…}} today, a raw tail tomorrow
+    try {
+      JsonElement root = JsonParser.parseString(response.body() == null ? "" : response.body());
+      JsonElement data =
+          root.isJsonObject() && root.getAsJsonObject().has("data")
+              ? root.getAsJsonObject().get("data")
+              : root;
+      if (data.isJsonObject()
+          && data.getAsJsonObject().has("output")
+          && data.getAsJsonObject().get("output").isJsonPrimitive()) {
+        return data.getAsJsonObject().get("output").getAsString();
+      }
+      if (data.isJsonPrimitive()) {
+        return data.getAsString();
+      }
+    } catch (JsonParseException | IllegalStateException e) {
+      // fall through to the raw body
+    }
+    return response.body();
+  }
+
+  @Override
+  public void removeShellTask(String id) throws OpencodeException {
+    request("DELETE", "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
+  }
+
+  @Override
+  public List<JsonObject> listInbox(String sessionId) throws OpencodeException {
+    return getList("/session/" + sessionId + "/inbox", JsonObject.class);
+  }
+
+  @Override
+  public void updateInboxItem(String sessionId, String messageId, String delivery)
+      throws OpencodeException {
+    JsonObject body = new JsonObject();
+    body.addProperty("delivery", delivery);
+    HttpResponse<String> response =
+        send(
+            "PATCH",
+            "/session/"
+                + sessionId
+                + "/inbox/"
+                + URLEncoder.encode(messageId, StandardCharsets.UTF_8),
+            body.toString(),
+            ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode PATCH /api/session "
+              + sessionId
+              + " inbox failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+  }
+
+  @Override
+  public void cancelInboxItem(String sessionId, String messageId) throws OpencodeException {
+    request(
+        "DELETE",
+        "/session/" + sessionId + "/inbox/" + URLEncoder.encode(messageId, StandardCharsets.UTF_8),
+        null);
+  }
+
+  /** The {@code data} array of a {@code {location, data:[…]}} (or bare array) body. */
+  private static JsonArray dataOf(String body) {
+    if (body == null || body.isBlank()) {
+      return new JsonArray();
+    }
+    try {
+      JsonElement root = JsonParser.parseString(body);
+      if (root.isJsonObject() && root.getAsJsonObject().has("data")) {
+        JsonElement data = root.getAsJsonObject().get("data");
+        return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
+      }
+      return root.isJsonArray() ? root.getAsJsonArray() : new JsonArray();
+    } catch (JsonParseException | IllegalStateException e) {
+      return new JsonArray();
+    }
+  }
+
+  // ---------- U-046 first slice: shell config, migration, saved permissions, integrations,
+  // generate, view ----------
+
+  @Override
+  public List<ShellExecutable> getShellConfig() throws OpencodeException {
+    // v2.0.19 live probe: a BARE array (no {location, data} envelope) of
+    // {path, name, acceptable}; absent on older builds - an empty section
+    // beats a broken view
+    String path = "/config/shell";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return List.of();
+    }
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return List.of();
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      if (!element.isJsonArray()) {
+        ClientLog.warning(
+            "opencode GET /config/shell: unexpected shape (not an array); treating as empty");
+        return List.of();
+      }
+      List<ShellExecutable> out = new ArrayList<>();
+      for (JsonElement item : element.getAsJsonArray()) {
+        if (!item.isJsonObject()) {
+          continue;
+        }
+        JsonObject shell = item.getAsJsonObject();
+        out.add(
+            new ShellExecutable(
+                stringOf(shell, "path"),
+                stringOf(shell, "name"),
+                shell.has("acceptable")
+                    && shell.get("acceptable").isJsonPrimitive()
+                    && shell.get("acceptable").getAsBoolean()));
+      }
+      return out;
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /config/shell: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return List.of();
+    }
+  }
+
+  @Override
+  public MigrationStatus getV1MigrationStatus() throws OpencodeException {
+    String path = "/experimental/migration/v1";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    try {
+      // v2.0.19 live probe: {status: "completed"|"required"|"running"|"error"}
+      // at the ROOT (no data envelope); a running answer may carry
+      // progress fields, which are ignored
+      JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
+      return new MigrationStatus(stringOf(root, "status"));
+    } catch (JsonParseException | IllegalStateException e) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: malformed response body: "
+              + truncate(response.body(), 300),
+          e);
+    }
+  }
+
+  @Override
+  public List<SavedPermission> listSavedPermissions() throws OpencodeException {
+    // v2.0.19 live probe: {data:[{id, ...}]} - the remembered allow/deny
+    // rules; user-global, so no location scoping
+    String path = "/permission/saved";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+    List<SavedPermission> out = new ArrayList<>();
+    for (JsonElement element : dataOf(response.body())) {
+      if (element.isJsonObject()) {
+        out.add(new SavedPermission(stringOf(element.getAsJsonObject(), "id")));
+      }
+    }
+    return List.copyOf(out);
+  }
+
+  @Override
+  public void deleteSavedPermission(String id) throws OpencodeException {
+    request("DELETE", "/permission/saved/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
+  }
+
+  @Override
+  public List<IntegrationInfo> listIntegrations() throws OpencodeException {
+    return listIntegrations(null);
+  }
+
+  @Override
+  public List<IntegrationInfo> listIntegrations(String directory) throws OpencodeException {
+    // typed view of the catalog getProviderAuths()/beginProviderOauth()
+    // already read - integrationCatalog owns the envelope + location
+    // handling and its established leniency (failed/unreadable = empty)
+    List<IntegrationInfo> out = new ArrayList<>();
+    for (JsonObject integration : integrationCatalog(directory)) {
+      List<IntegrationInfo.IntegrationMethod> methods = new ArrayList<>();
+      JsonElement rawMethods = integration.get("methods");
+      if (rawMethods != null && rawMethods.isJsonArray()) {
+        for (JsonElement rawMethod : rawMethods.getAsJsonArray()) {
+          if (!rawMethod.isJsonObject()) {
+            continue;
+          }
+          JsonObject method = rawMethod.getAsJsonObject();
+          List<String> names = new ArrayList<>();
+          if (method.has("names") && method.get("names").isJsonArray()) {
+            for (JsonElement name : method.getAsJsonArray("names")) {
+              if (name.isJsonPrimitive()) {
+                names.add(name.getAsString());
+              }
             }
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /provider: malformed body: " + truncate(providerResponse.body(), 200));
+          }
+          methods.add(new IntegrationInfo.IntegrationMethod(stringOf(method, "type"), names));
         }
-        return new ProviderList(providers, Map.of());
-    }
-
-    @Override
-    public List<Session> getSessions() throws OpencodeException {
-        return getSessions(null);
-    }
-
-    @Override
-    public List<Session> getSessions(String directory) throws OpencodeException {
-        String path = "/session";
-        if (directory != null && !directory.isBlank()) {
-            path += "?directory=" + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
-        }
-        return getList(path, Session.class);
-    }
-
-
-    @Override
-    public Map<String, SessionStatus> getSessionStatus() throws OpencodeException {
-        // v2 replaced GET /session/status with GET /session/active, which lists
-        // ONLY the running sessions ({"data": {"ses_x": {"type": "running"}}}) -
-        // absence means idle, the same busy-only contract v1 had.
-        HttpResponse<String> response = send("GET", "/session/active", null, ClientTuning.REQUEST_TIMEOUT);
-        Map<String, SessionStatus> statuses = new java.util.LinkedHashMap<>();
-        if (response.statusCode() == 404) {
-            return statuses;
-        }
-        try {
-            JsonElement element = JsonParser.parseString(response.body());
-            if (element.isJsonObject() && element.getAsJsonObject().has("data")
-                    && element.getAsJsonObject().get("data").isJsonObject()) {
-                for (String sessionId : element.getAsJsonObject().getAsJsonObject("data").keySet()) {
-                    statuses.put(sessionId, new SessionStatus("busy"));
-                }
-            }
-        } catch (JsonParseException e) {
-            throw new OpencodeException("opencode GET /api/session/active failed: malformed response body: "
-                    + truncate(response.body(), 300), e);
-        }
-        return statuses;
-    }
-
-    @Override
-    public ConfigInfo getConfig() throws OpencodeException {
-        return getConfig(null);
-    }
-
-    @Override
-    public ConfigInfo getConfig(String directory) throws OpencodeException {
-        // v2 returns an ARRAY of config sources: [{type:"document", path, info:{...}}].
-        // Find the one with a model (usually the project-level document).
-        HttpResponse<String> response = send("GET", withLocation("/config", directory), null,
-                ClientTuning.REQUEST_TIMEOUT);
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return new ConfigInfo(null, null);
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            if (!element.isJsonArray()) {
-                return new ConfigInfo(null, null);
-            }
-            for (JsonElement source : element.getAsJsonArray()) {
-                if (!source.isJsonObject()) {
-                    continue;
-                }
-                JsonObject src = source.getAsJsonObject();
-                if (!src.has("info") || !src.get("info").isJsonObject()) {
-                    continue;
-                }
-                JsonObject info = src.getAsJsonObject("info");
-                if (info.has("model") && info.get("model").isJsonObject()) {
-                    JsonObject model = info.getAsJsonObject("model");
-                    String provider = model.has("providerID") ? model.get("providerID").getAsString() : null;
-                    String modelId = model.has("model") ? model.get("model").getAsString() : null;
-                    if (provider != null && modelId != null) {
-                        return new ConfigInfo(provider + "/" + modelId, null);
-                    }
-                }
-            }
-            return new ConfigInfo(null, null);
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /config: malformed body: " + truncate(body, 200));
-            return new ConfigInfo(null, null);
-        }
-    }
-
-    @Override
-    public Session createSession(String title) throws OpencodeException {
-        return createSession(title, null);
-    }
-
-    @Override
-    public Session createSession(String title, Path directory) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        if (title != null && !title.isBlank()) {
-            body.addProperty("title", title);
-        }
-        // v2 scopes the session via a location object in the BODY (v1 used a
-        // ?directory= query parameter that v2 no longer reads)
-        if (directory != null) {
-            JsonObject location = new JsonObject();
-            location.addProperty("directory", directory.toString());
-            body.add("location", location);
-        }
-        return parseBody("POST", "/session", request("POST", "/session", body.toString()), Session.class,
-                true);
-    }
-
-    @Override
-    public void renameSession(String sessionId, String title) throws OpencodeException {
-        // v2 adoption 2026-09-25 (U-002 unblocked): PATCH /session/{id}
-        JsonObject body = new JsonObject();
-        body.addProperty("title", title);
-        request("PATCH", "/session/" + sessionId, body.toString());
-    }
-
-    @Override
-    public void moveSession(String sessionId, String directory) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("directory", directory);
-        request("POST", "/session/" + sessionId + "/move", body.toString());
-    }
-
-    @Override
-    public void switchSessionAgent(String sessionId, String agent) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("agent", agent);
-        request("POST", "/session/" + sessionId + "/agent", body.toString());
-    }
-
-    @Override
-    public void switchSessionModel(String sessionId, String model) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("model", model);
-        request("POST", "/session/" + sessionId + "/model", body.toString());
-    }
-
-    @Override
-    public void compactSession(String sessionId) throws OpencodeException {
-        request("POST", "/session/" + sessionId + "/compact", "{}");
-    }
-
-    @Override
-    public String exportSession(String sessionId) throws OpencodeException {
-        return send("GET", "/experimental/session/" + sessionId + "/export",
-                null, ClientTuning.REQUEST_TIMEOUT).body();
-    }
-
-    @Override
-    public String sessionLog(String sessionId) throws OpencodeException {
-        return send("GET", "/experimental/session/" + sessionId + "/log",
-                null, ClientTuning.REQUEST_TIMEOUT).body();
-    }
-
-    @Override
-    public Map<String, Object> sessionStats() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/experimental/session/stats",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public Map<String, Object> getLocation() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/location", null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public void reloadLocation() throws OpencodeException {
-        request("POST", "/location/reload", "{}");
-    }
-
-    @Override
-    public void updateProject(String projectId, String name) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("name", name);
-        request("PATCH", "/project/" + projectId, body.toString());
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listReferences() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/reference", null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "references");
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listPlugins() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/plugin", null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "plugins");
-    }
-
-    @Override
-    public void renameCredential(String credentialId, String label) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("label", label);
-        request("PATCH", "/credential/" + credentialId, body.toString());
-    }
-
-    @Override
-    public void activateCredential(String credentialId) throws OpencodeException {
-        request("POST", "/credential/" + credentialId + "/activate", "{}");
-    }
-
-    @Override
-    public void removeCredential(String credentialId) throws OpencodeException {
-        request("DELETE", "/credential/" + credentialId, "{}");
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listWebsearchProviders() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/websearch/provider", null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "providers");
-    }
-
-    @Override
-    public Map<String, Object> websearch(String query, String providerId) throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("query", query);
-        if (providerId != null) {
-            body.addProperty("providerID", providerId);
-        }
-        HttpResponse<String> response = send("POST", "/websearch", body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listPtys() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/pty", null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "ptys");
-    }
-
-    @Override
-    public Map<String, Object> createPty(String command, java.util.List<String> args, String cwd, String title)
-            throws OpencodeException {
-        HttpResponse<String> response = send("POST", "/pty", commandBody(command, args, cwd, title),
-                ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    /**
-     * Shared {@code {command, args, cwd, title}} request body - the declared
-     * {@code PersistentPty.CreateInput} family used by both the PTY create and
-     * the session terminal create.
-     */
-    private static String commandBody(String command, java.util.List<String> args, String cwd, String title) {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        body.addProperty("command", command);
-        if (args != null) {
-            com.google.gson.JsonArray array = new com.google.gson.JsonArray();
-            for (String arg : args) {
-                array.add(arg);
-            }
-            body.add("args", array);
-        }
-        if (cwd != null) {
-            body.addProperty("cwd", cwd);
-        }
-        if (title != null) {
-            body.addProperty("title", title);
-        }
-        return body.toString();
-    }
-
-    @Override
-    public void removePty(String ptyId) throws OpencodeException {
-        request("DELETE", "/pty/" + ptyId, "{}");
-    }
-
-    @Override
-    public Map<String, Object> readSessionTerminal(String sessionId) throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/experimental/session/" + sessionId + "/terminal/read",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public Map<String, Object> persistentPtySnapshot(String ptyId) throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/experimental/persistent-pty/" + ptyId + "/snapshot",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> checkPlugins() throws OpencodeException {
-        HttpResponse<String> response = send("POST", "/plugin/check", "{}", ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "plugin updates");
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> updatePlugins(java.util.List<String> targets)
-            throws OpencodeException {
-        com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-        com.google.gson.JsonArray array = new com.google.gson.JsonArray();
-        if (targets != null) {
-            for (String target : targets) {
-                array.add(target);
-            }
-        }
-        body.add("targets", array);
-        HttpResponse<String> response = send("POST", "/plugin/update", body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "updated plugins");
-    }
-
-    @Override
-    public Map<String, Object> sessionTerminal(String sessionId) throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/experimental/session/" + sessionId + "/terminal",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public Map<String, Object> createSessionTerminal(String sessionId, String command,
-            java.util.List<String> args, String cwd, String title) throws OpencodeException {
-        HttpResponse<String> response = send("POST", "/experimental/session/" + sessionId + "/terminal",
-                commandBody(command, args, cwd, title), ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public Map<String, Object> getSessionContext(String sessionId) throws OpencodeException {
-        // v2 adoption 2026-09-25: per-session context usage; same envelope
-        // handling as getSessionStatus (data object, absent data = empty)
-        HttpResponse<String> response = send("GET", "/session/" + sessionId + "/context",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectMap(response.body());
-    }
-
-    @Override
-    public void commitSessionRevert(String sessionId) throws OpencodeException {
-        request("POST", "/session/" + sessionId + "/revert/commit", "{}");
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listWorktrees(String projectID) throws OpencodeException {
-        // v2 worktrees (slice 2, 2026-09-25): projectID is REQUIRED (live
-        // probe 2026-09-25: bare GET answers 400, a path answers 404)
-        HttpResponse<String> response = send("GET", "/worktree?projectID="
-                + java.net.URLEncoder.encode(projectID, StandardCharsets.UTF_8),
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "worktree list");
-    }
-
-    @Override
-    public java.util.List<Map<String, Object>> listForms(String sessionId) throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/session/" + sessionId + "/form",
-                null, ClientTuning.REQUEST_TIMEOUT);
-        return objectList(response.body(), "form list");
-    }
-
-    @Override
-    public void replyForm(String sessionId, String formID, java.util.Map<String, Object> values)
-            throws OpencodeException {
-        // Form.Reply = {"answer": {...}} - the service owns the schema, the
-        // answer echoes values keyed by the form's own field keys
-        request("POST", "/session/" + sessionId + "/form/" + formID + "/reply",
-                GSON.toJson(java.util.Map.of("answer", values == null ? java.util.Map.of() : values)));
-    }
-
-    @Override
-    public void cancelForm(String sessionId, String formID) throws OpencodeException {
-        request("DELETE", "/session/" + sessionId + "/form/" + formID, null);
-    }
-
-    @Override
-    public void removeMcp(String name, String directory) throws OpencodeException {
-        request("DELETE", withLocation("/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8), directory), null);
-    }
-
-    @Override
-    public void connectMcp(String name, String directory) throws OpencodeException {
-        request("POST", withLocation("/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/connect", directory), "{}");
-    }
-
-    @Override
-    public void disconnectMcp(String name, String directory) throws OpencodeException {
-        request("POST", withLocation("/experimental/mcp/"
-                + URLEncoder.encode(name, StandardCharsets.UTF_8) + "/disconnect", directory), "{}");
-    }
-
-    @Override
-    public Map<String, Object> createWorktree(String projectID, String from, String branch,
-            String directory, String name) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        if (projectID != null) {
-            body.addProperty("projectID", projectID);
-        }
-        if (from != null) {
-            body.addProperty("from", from);
-        }
-        if (branch != null) {
-            body.addProperty("branch", branch);
-        }
-        if (directory != null) {
-            body.addProperty("directory", directory);
-        }
-        if (name != null) {
-            body.addProperty("name", name);
-        }
-        HttpResponse<String> response = request("POST", "/worktree", body.toString());
-        return objectMap(response.body());
-    }
-
-    @Override
-    public void refreshWorktrees(String projectID) throws OpencodeException {
-        // the body key is REQUIRED (live probe 2026-09-25: "Missing key at
-        // [projectID]" for an empty body)
-        JsonObject body = new JsonObject();
-        body.addProperty("projectID", projectID);
-        request("POST", "/worktree/refresh", body.toString());
-    }
-
-    /**
-     * Flattens a {@code {"data":[...]}} (or bare array) response body into
-     * string-keyed maps - the shared envelope handling for v2 LIST methods.
-     */
-    private static java.util.List<Map<String, Object>> objectList(String responseBody, String what)
-            throws OpencodeException {
-        java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
-        try {
-            JsonElement element = JsonParser.parseString(responseBody);
-            JsonArray data = element.isJsonObject() && element.getAsJsonObject().has("data")
-                    && element.getAsJsonObject().get("data").isJsonArray()
-                    ? element.getAsJsonObject().getAsJsonArray("data")
-                    : new JsonArray();
-            for (JsonElement item : data) {
-                if (item.isJsonObject()) {
-                    result.add(objectMap(item.toString()));
-                }
-            }
-        } catch (JsonParseException e) {
-            throw new OpencodeException("unreadable " + what + ": " + e.getMessage());
-        }
-        return result;
-    }
-
-    /**
-     * Flattens a {@code {"data":{...}}} (or bare object) response body into a
-     * string-keyed map - the shared envelope handling for the v2 adoption
-     * methods.
-     */
-    private static Map<String, Object> objectMap(String responseBody) throws OpencodeException {
-        Map<String, Object> result = new java.util.LinkedHashMap<>();
-        try {
-            JsonElement element = JsonParser.parseString(responseBody);
-            if (element.isJsonObject()) {
-                JsonObject root = element.getAsJsonObject();
-                JsonObject data = root.has("data") && root.get("data").isJsonObject()
-                        ? root.getAsJsonObject("data")
-                        : root;
-                for (java.util.Map.Entry<String, JsonElement> entry : data.entrySet()) {
-                    result.put(entry.getKey(), GSON.fromJson(entry.getValue(), Object.class));
-                }
-            }
-        } catch (JsonParseException e) {
-            throw new OpencodeException("unreadable response body: " + e.getMessage());
-        }
-        return result;
-    }
-
-    @Override
-    public void registerMcp(String name, McpServerConfig config) throws OpencodeException {
-        // v2: PUT /api/experimental/mcp/:server (v1 POSTed the name in the body)
-        request("PUT", "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8),
-                McpRequests.registerBody(name, config));
-    }
-
-    @Override
-    public List<McpServerInfo> getMcpServers() throws OpencodeException {
-        return getMcpServers(null);
-    }
-
-    @Override
-    public List<McpServerInfo> getMcpServers(String directory) throws OpencodeException {
-        HttpResponse<String> response = send("GET", withLocation("/mcp", directory), null,
-                ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return List.of();
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            // v2 shape: {"location": {...}, "data": [{"name": "...", "status": "..."}, ...]}
-            JsonElement element = JsonParser.parseString(body);
-            if (!element.isJsonObject() || !element.getAsJsonObject().has("data")
-                    || !element.getAsJsonObject().get("data").isJsonArray()) {
-                ClientLog.warning("opencode GET /mcp: unexpected shape (no data array); treating as empty");
-                return List.of();
-            }
-            List<McpServerInfo> out = new ArrayList<>();
-            for (JsonElement entry : element.getAsJsonObject().getAsJsonArray("data")) {
-                if (!entry.isJsonObject()) {
-                    continue;
-                }
-                JsonObject server = entry.getAsJsonObject();
-                String name = stringOf(server, "name");
-                out.add(new McpServerInfo(name != null ? name : stringOf(server, "id"),
-                        stringOf(server, "status")));
-            }
-            return out;
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /mcp: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
-            return List.of();
-        }
-    }
-
-    @Override
-    public List<SkillInfo> getSkills() throws OpencodeException {
-        return getSkills(null);
-    }
-
-    @Override
-    public List<SkillInfo> getSkills(String directory) throws OpencodeException {
-        return getListOrEmptyOn404(withLocation("/skill", directory), SkillInfo.class);
-    }
-
-    /**
-     * List GET that treats HTTP 404 as empty: these endpoints are absent on
-     * older opencode builds and an empty section beats a broken view.
-     */
-    private <T> List<T> getListOrEmptyOn404(String path, Class<T> elementType) throws OpencodeException {
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return List.of();
-        }
-        try {
-            return parseBody("GET", path, response,
-                    TypeToken.getParameterized(List.class, elementType).getType(), true);
-        } catch (OpencodeException e) {
-            // an empty section beats a broken view: these auxiliary endpoints
-            // (file tree, search) tolerate a wrong-shaped 200 the same as a 404
-            ClientLog.warning("opencode GET " + path + ": " + e.getMessage() + " (treating as empty)");
-            return List.of();
-        }
-    }
-
-    @Override
-    public List<ChatEntry> getMessages(String sessionId) throws OpencodeException {
-        List<ChatEntry> messages = new ArrayList<>(getList("/session/" + sessionId + "/message", ChatEntry.class));
-        // B-008 / rubberduck F-1: the wire is NEWEST-FIRST (the mirrored 2.0.10
-        // capture in ChatParsingTest is the contract fixture) while every
-        // consumer in this codebase works chronologically - normalize ONCE
-        // here so "later in the list = newer" holds everywhere (stable sort:
-        // entries without timestamps keep their wire order)
-        messages.sort(java.util.Comparator.comparingLong(HttpOpencodeClient::createdAt));
-        return List.copyOf(messages);
-    }
-
-    @Override
-    public JsonArray getMessagesJson(String sessionId) throws OpencodeException {
-        String path = "/session/" + sessionId + "/message";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        String body = response.body();
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(body, ClientTuning.SNIPPET_MAX));
-        }
-        if (body == null || body.isBlank()) {
-            return new JsonArray();
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            JsonElement data = element.isJsonObject() && element.getAsJsonObject().has("data")
-                    ? element.getAsJsonObject().get("data")
-                    : element;
-            return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
-        } catch (JsonParseException | IllegalStateException e) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: malformed response body", e);
-        }
-    }
-
-    @Override
-    public ChatEntry sendMessage(ChatRequest chatRequest) throws OpencodeException {
-        return sendMessage(chatRequest, ClientTuning.PROMPT_TIMEOUT);
-    }
-
-    @Override
-    public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout) throws OpencodeException {
-        return sendMessage(chatRequest, promptTimeout, null);
-    }
-
-    @Override
-    public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, String delivery)
-            throws OpencodeException {
-        return sendMessage(chatRequest, promptTimeout, ClientTuning.REPLY_STALL_WINDOW, delivery);
-    }
-
-    @Override
-    public ChatEntry sendMessage(ChatRequest chatRequest, Duration promptTimeout, Duration replyStallWindow,
-            String delivery) throws OpencodeException {
-        // v2 split v1's single blocking POST /message. The agent and the model
-        // are session state set before the turn, the per-request system prompt
-        // becomes a synthetic message, and POST /prompt is ASYNCHRONOUS: it
-        // returns the queued user message, so the reply has to be polled.
-        // delivery (T-005 send-time parity): "queue" parks the prompt in the
-        // session inbox instead of steering the active run (v2 Alt+Enter).
-        // B-024: the reply wait additionally fails fast when the message list
-        // stops changing for the stall window instead of waiting out the whole
-        // budget on a dead session.
-        String sessionId = chatRequest.sessionId();
-        postIfPresent("/session/" + sessionId + "/agent", ChatRequests.agentBody(chatRequest));
-        postIfPresent("/session/" + sessionId + "/model", ChatRequests.modelBody(chatRequest));
-        postIfPresent("/session/" + sessionId + "/synthetic", ChatRequests.syntheticBody(chatRequest));
-
-        String path = "/session/" + sessionId + "/prompt";
-        HttpResponse<String> prompt = request("POST", path, ChatRequests.promptBody(chatRequest, delivery),
-                ClientTuning.REQUEST_TIMEOUT);
-        // anchor the wait to THIS turn: a resumed session is full of previous
-        // turns' assistant messages and idle markers, and answering from those
-        // would return an old (or still-empty) reply instantly
-        long promptedAt = promptCreatedTime(prompt.body());
-
-        // an agent may stream for many minutes, so unattended callers pass their
-        // whole run budget; the fixed default is only for interactive use
-        Duration budget = promptTimeout == null || promptTimeout.isNegative() || promptTimeout.isZero()
-                ? ClientTuning.PROMPT_TIMEOUT
-                : promptTimeout;
-        Duration stall = replyStallWindow == null || replyStallWindow.isNegative() || replyStallWindow.isZero()
-                ? ClientTuning.REPLY_STALL_WINDOW
-                : replyStallWindow;
-        return awaitReply(sessionId, budget, stall, promptedAt);
-    }
-
-    /** The queued user message's server timestamp ({@code data.time.created}); now as fallback. */
-    private static long promptCreatedTime(String body) {
-        try {
-            JsonObject data = asObject(JsonParser.parseString(body).getAsJsonObject(), "data");
-            JsonObject time = data == null ? null : asObject(data, "time");
-            if (time != null && time.has("created") && time.get("created").isJsonPrimitive()) {
-                return time.get("created").getAsLong();
-            }
-        } catch (JsonParseException | IllegalStateException e) {
-            // fall through to the local clock
-        }
-        return System.currentTimeMillis();
-    }
-
-    /** POSTs a prepared body when the request produced one; a {@code null} body is a no-op. */
-    private void postIfPresent(String path, String body) throws OpencodeException {
-        if (body != null) {
-            request("POST", path, body, ClientTuning.REQUEST_TIMEOUT);
-        }
-    }
-
-    /**
-     * Polls {@code GET /session/:id/message} until THIS turn is over: the
-     * server's {@code idle} turn-end marker appears (the authoritative v2
-     * signal), or — marker-less servers only — the finished-reply evidence
-     * held quiet for {@link ClientTuning#TURN_QUIET_CONFIRM}. v2 has no
-     * blocking send, so this restores the synchronous contract the chat view
-     * and the fleet are built on.
-     *
-     * <p>Everything is anchored to {@code promptedAt} (the queued user
-     * message's server timestamp): a resumed session carries previous turns'
-     * assistant messages and idle markers, and answering from those would
-     * return a stale — or still-empty — reply immediately.</p>
-     *
-     * <p>B-008 / rubberduck F-2/F-3: one turn produces MULTIPLE assistant
-     * messages (one per agentic step), each stamped {@code time.completed}
-     * when its own step finishes - the former "first stamped assistant wins"
-     * return therefore fired at every inter-step boundary and force-settled
-     * the fleet's watchdog mid-run (F-005 live: five workers falsely
-     * completed). {@code Turns} is the single judge now.</p>
-     *
-     * <p>B-024: the budget is the absolute CAP; the no-progress window trips
-     * first on a dead session. Any change to the message list (a new entry or
-     * growing streamed text) counts as progress and resets the window, so a
-     * long healthy turn never fails either way.</p>
-     */
-    private ChatEntry awaitReply(String sessionId, Duration budget, Duration stallWindow, long promptedAt)
-            throws OpencodeException {
-        long deadline = System.nanoTime() + budget.toNanos();
-        long lastProgress = System.nanoTime();
-        int lastObservedSize = -1;
-        int lastObservedLength = -1;
-        long quietSince = 0;
-        int lastSize = -1;
-        int lastLength = -1;
-        while (System.nanoTime() < deadline) {
-            List<ChatEntry> messages = getMessages(sessionId); // chronological (the getMessages contract)
-            ChatEntry newest = newestAssistantAfter(messages, promptedAt);
-            ChatEntry idle = idleAfter(messages, promptedAt);
-            if (idle != null) {
-                if (newest != null) {
-                    return newest; // the turn ended (outcome marker) - take what it produced
-                }
-                // a turn that ends WITHOUT any assistant message (e.g. a provider
-                // error exhausted its retries) must surface, not spin to the budget
-                String outcome = idle.info().finish();
-                throw new OpencodeException("opencode " + sessionId + ": the turn ended"
-                        + (outcome != null && !"succeeded".equals(outcome)
-                                ? " with outcome '" + outcome + "'" : "")
-                        + " without a reply");
-            }
-            ChatEntry evidence = com.opencode.ide.client.model.Turns.replyEvidence(
-                    turnSlice(messages, promptedAt));
-            if (evidence != null) {
-                // marker-less servers: only a QUIET stretch proves the turn is
-                // over - the evidence alone is true at every inter-step boundary
-                int size = messages.size();
-                int length = evidence.text().length();
-                if (quietSince == 0 || size != lastSize || length != lastLength) {
-                    quietSince = System.nanoTime();
-                }
-                lastSize = size;
-                lastLength = length;
-                if (System.nanoTime() - quietSince >= ClientTuning.TURN_QUIET_CONFIRM.toNanos()) {
-                    return evidence;
-                }
-            } else {
-                quietSince = 0;
-                // B-024: while NOTHING looks done, an unchanged message list
-                // for the stall window means the turn is dead or hung - fail
-                // fast instead of waiting out the whole budget. (Once
-                // evidence exists, the deliberate quiet-confirm window above
-                // owns the wait and must not be disturbed.)
-                int observedSize = messages.size();
-                ChatEntry lastEntry = observedSize == 0 ? null : messages.get(observedSize - 1);
-                int observedLength = lastEntry == null || lastEntry.text() == null ? 0
-                        : lastEntry.text().length();
-                if (observedSize != lastObservedSize || observedLength != lastObservedLength) {
-                    lastProgress = System.nanoTime();
-                    lastObservedSize = observedSize;
-                    lastObservedLength = observedLength;
-                } else if (System.nanoTime() - lastProgress >= stallWindow.toNanos()) {
-                    throw new OpencodeException.ReplyTimeout("opencode " + sessionId + ": no reply progress for "
-                            + stallWindow.toSeconds() + "s - the turn may still be working and stays alive in"
-                            + " the background; check whether the session is stuck busy");
-                }
-            }
-            try {
-                Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new OpencodeException("opencode " + sessionId + ": interrupted while awaiting the reply", e);
-            }
-        }
-        throw new OpencodeException.ReplyTimeout("opencode " + sessionId + ": no completed reply within "
-                + budget.toSeconds() + "s (the server may still be working - the turn stays alive in the"
-                + " background; raise the budget or check whether the session is stuck busy)");
-    }
-
-    /** THIS turn's entries ({@code created >= promptedAt}; unknown stamps count in). */
-    private static List<ChatEntry> turnSlice(List<ChatEntry> messages, long promptedAt) {
-        if (promptedAt <= 0) {
-            return messages;
-        }
-        List<ChatEntry> turn = new java.util.ArrayList<>();
-        for (ChatEntry entry : messages) {
-            if (entry != null && (createdAt(entry) == 0 || createdAt(entry) >= promptedAt)) {
-                turn.add(entry);
-            }
-        }
-        return turn;
-    }
-
-    /** The newest assistant message of THIS turn (created at/after the prompt), or {@code null}. */
-    private static ChatEntry newestAssistantAfter(List<ChatEntry> messages, long promptedAt) {
-        // chronological contract (getMessages): the LAST match is the newest
-        ChatEntry newest = null;
-        for (ChatEntry entry : messages) {
-            if (entry != null && entry.info() != null && "assistant".equals(entry.info().role())
-                    && createdAt(entry) >= promptedAt) {
-                newest = entry;
-            }
-        }
-        return newest;
-    }
-
-    /** THIS turn's {@code idle} outcome marker, or {@code null} while the turn is still open. */
-    private static ChatEntry idleAfter(List<ChatEntry> messages, long promptedAt) {
-        for (ChatEntry entry : messages) {
-            if (entry != null && entry.info() != null && "idle".equals(entry.info().role())
-                    && createdAt(entry) >= promptedAt) {
-                return entry;
-            }
-        }
+      }
+      out.add(
+          new IntegrationInfo(
+              stringOf(integration, "id"),
+              stringOf(integration, "name"),
+              methods,
+              integration.has("connections") && integration.get("connections").isJsonArray()
+                  ? integration.getAsJsonArray("connections").size()
+                  : 0));
+    }
+    return List.copyOf(out);
+  }
+
+  @Override
+  public String generateOnSession(String sessionId, String prompt) throws OpencodeException {
+    // one transient completion: unlike sendMessage nothing is queued or
+    // polled - the POST blocks until the text is back, so it runs on the
+    // command/prompt budget, not the per-call REST one
+    JsonObject body = new JsonObject();
+    body.addProperty("prompt", prompt);
+    String path = "/session/" + sessionId + "/generate";
+    HttpResponse<String> response =
+        request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT);
+    try {
+      // v2.0.19 live probe: {data:{text}}
+      JsonObject envelope = JsonParser.parseString(response.body()).getAsJsonObject();
+      JsonObject data = asObject(envelope, "data");
+      return data == null ? null : stringOf(data, "text");
+    } catch (JsonParseException | IllegalStateException e) {
+      throw new OpencodeException(
+          "opencode POST /api"
+              + path
+              + " failed: malformed response body: "
+              + truncate(response.body(), 300),
+          e);
+    }
+  }
+
+  @Override
+  public void markSessionViewed(String sessionId, long idleMillis) throws OpencodeException {
+    // read-marker bookkeeping: a 2xx with no content is the expected
+    // answer - request() checks the status, nothing is parsed
+    JsonObject body = new JsonObject();
+    body.addProperty("idle", idleMillis);
+    request("POST", "/session/" + sessionId + "/view", body.toString());
+  }
+
+  @Override
+  public boolean waitForSession(String sessionId, Duration timeout) throws OpencodeException {
+    // U-048: the experimental long-poll - 204 means settled. Any failure
+    // (404 = no route on older builds, 503 = busy) degrades to false so
+    // the watchdog falls back to its poll loop instead of dying
+    String path = "/experimental/session/" + sessionId + "/wait";
+    HttpResponse<String> response = send("POST", path, null, timeout);
+    if (response.statusCode() < 400) {
+      return true;
+    }
+    ClientLog.warning(
+        "opencode POST /api"
+            + path
+            + " returned HTTP "
+            + response.statusCode()
+            + " (falling back to polling): "
+            + truncate(response.body(), 200));
+    return false;
+  }
+
+  @Override
+  public void attachSkill(String sessionId, String skillId) throws OpencodeException {
+    // resume unset = the documented default: the server appends the skill
+    // message AND resumes execution
+    request("POST", "/experimental/session/" + sessionId + "/skill", skillBody(skillId, null));
+  }
+
+  @Override
+  public void attachSkill(String sessionId, String skillId, boolean resume)
+      throws OpencodeException {
+    request("POST", "/experimental/session/" + sessionId + "/skill", skillBody(skillId, resume));
+  }
+
+  /**
+   * The v2.0.19-spec body of the attach-skill POST: {@code skill} is the required member (the skill
+   * id); {@code resume} is sent only when explicitly {@code false} - {@code null}/absent means the
+   * server default (resume after appending).
+   */
+  private static String skillBody(String skillId, Boolean resume) {
+    JsonObject body = new JsonObject();
+    body.addProperty("skill", skillId);
+    if (resume != null && !resume) {
+      body.addProperty("resume", false);
+    }
+    return body.toString();
+  }
+
+  // ---------- U-048 client verbs: integration connect flows, session environment, session import
+  // ----------
+
+  @Override
+  public Map<String, Object> startIntegrationCommand(
+      String integrationId, String methodId, String label) throws OpencodeException {
+    return connectAttempt("command", integrationId, connectBody("methodID", methodId, label));
+  }
+
+  @Override
+  public Map<String, Object> startIntegrationKey(String integrationId, String key, String label)
+      throws OpencodeException {
+    return connectAttempt("key", integrationId, connectBody("key", key, label));
+  }
+
+  @Override
+  public Map<String, Object> startIntegrationOauth(
+      String integrationId, String methodId, String label) throws OpencodeException {
+    return connectAttempt("oauth", integrationId, connectBody("methodID", methodId, label));
+  }
+
+  @Override
+  public Map<String, Object> integrationCommandAttempt(String integrationId, String attemptId)
+      throws OpencodeException {
+    return connectAttemptStatus("command", integrationId, attemptId);
+  }
+
+  @Override
+  public Map<String, Object> integrationOauthAttempt(String integrationId, String attemptId)
+      throws OpencodeException {
+    return connectAttemptStatus("oauth", integrationId, attemptId);
+  }
+
+  @Override
+  public Map<String, Object> completeIntegrationOauth(
+      String integrationId, String attemptId, String code) throws OpencodeException {
+    // the schema marks code OPTIONAL: a null code completes without one
+    JsonObject body = new JsonObject();
+    if (code != null) {
+      body.addProperty("code", code);
+    }
+    return lenientMap(
+        request(
+                "POST",
+                integrationConnectPath("oauth", integrationId, attemptId) + "/complete",
+                body.toString())
+            .body());
+  }
+
+  @Override
+  public void abortIntegrationCommandAttempt(String integrationId, String attemptId)
+      throws OpencodeException {
+    abortConnectAttempt("command", integrationId, attemptId);
+  }
+
+  @Override
+  public void abortIntegrationOauthAttempt(String integrationId, String attemptId)
+      throws OpencodeException {
+    abortConnectAttempt("oauth", integrationId, attemptId);
+  }
+
+  @Override
+  public void replaceSessionEnvironment(String sessionId, Map<String, String> variables)
+      throws OpencodeException {
+    // FULL-REPLACE with no GET on the wire: the required `variables`
+    // member is ALWAYS sent - a null/empty map clears the environment
+    JsonObject env = new JsonObject();
+    if (variables != null) {
+      for (Map.Entry<String, String> variable : variables.entrySet()) {
+        env.addProperty(variable.getKey(), variable.getValue());
+      }
+    }
+    JsonObject body = new JsonObject();
+    body.add("variables", env);
+    request("PUT", "/session/" + sessionId + "/environment", body.toString());
+  }
+
+  @Override
+  public Map<String, Object> importSession(
+      Map<String, Object> info, List<Map<String, Object>> messages, String directoryOrNull)
+      throws OpencodeException {
+    // required [info, messages]; location scopes the import exactly like
+    // createSession's location BODY does (v2 does not read a directory
+    // query here) and is omitted when null
+    JsonObject body = new JsonObject();
+    body.add("info", GSON.toJsonTree(info == null ? Map.of() : info));
+    JsonArray messageArray = new JsonArray();
+    if (messages != null) {
+      for (Map<String, Object> message : messages) {
+        messageArray.add(GSON.toJsonTree(message == null ? Map.of() : message));
+      }
+    }
+    body.add("messages", messageArray);
+    if (directoryOrNull != null) {
+      JsonObject location = new JsonObject();
+      location.addProperty("directory", directoryOrNull);
+      body.add("location", location);
+    }
+    return lenientMap(request("POST", "/experimental/session/import", body.toString()).body());
+  }
+
+  /**
+   * The connect-request body family {@code {methodID|key, label?}}: one REQUIRED member plus the
+   * optional label, which is OMITTED when null.
+   */
+  private static JsonObject connectBody(String requiredKey, String requiredValue, String label) {
+    JsonObject body = new JsonObject();
+    body.addProperty(requiredKey, requiredValue);
+    if (label != null) {
+      body.addProperty("label", label);
+    }
+    return body;
+  }
+
+  /**
+   * The shared start of every connect flow: POST the connect body and answer the started attempt as
+   * a lenient map (the {@code Integration.Attempt*} wire shapes stay unmodelled - slice-1
+   * precedent; a {@code data} envelope and a bare object both read).
+   */
+  private Map<String, Object> connectAttempt(String flow, String integrationId, JsonObject body)
+      throws OpencodeException {
+    return lenientMap(
+        request("POST", integrationPath(integrationId) + "/connect/" + flow, body.toString())
+            .body());
+  }
+
+  /** GET one connect attempt's current status - the poll leg of the flows. */
+  private Map<String, Object> connectAttemptStatus(
+      String flow, String integrationId, String attemptId) throws OpencodeException {
+    return lenientMap(
+        request("GET", integrationConnectPath(flow, integrationId, attemptId), null).body());
+  }
+
+  /**
+   * DELETE one connect attempt. 404/409 mean the attempt is already gone (expired, completed or
+   * aborted elsewhere) - the outcome the caller wanted - so they log and return; every other
+   * failure throws.
+   */
+  private void abortConnectAttempt(String flow, String integrationId, String attemptId)
+      throws OpencodeException {
+    String path = integrationConnectPath(flow, integrationId, attemptId);
+    HttpResponse<String> response = send("DELETE", path, null, ClientTuning.REQUEST_TIMEOUT);
+    int status = response.statusCode();
+    if (status == 404 || status == 409) {
+      ClientLog.warning(
+          "opencode DELETE /api"
+              + path
+              + " returned HTTP "
+              + status
+              + " (treated as already gone): "
+              + truncate(response.body(), 200));
+      return;
+    }
+    if (status >= 400) {
+      throw new OpencodeException(
+          "opencode DELETE /api"
+              + path
+              + " failed: HTTP "
+              + status
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+  }
+
+  /**
+   * A connect/import answer as a lenient map: the {@code data} envelope and a bare object both
+   * read, and an empty 2xx body (the no-content answers on these routes) reads as "no details"
+   * rather than a parse failure.
+   */
+  private static Map<String, Object> lenientMap(String responseBody) throws OpencodeException {
+    if (responseBody == null || responseBody.isBlank()) {
+      return Map.of();
+    }
+    return objectMap(responseBody);
+  }
+
+  /** {@code /integration/{id}} - the integration-scoped route prefix. */
+  private static String integrationPath(String integrationId) {
+    return "/integration/" + URLEncoder.encode(integrationId, StandardCharsets.UTF_8);
+  }
+
+  /** {@code /integration/{id}/connect/{flow}/{attemptID}} - one attempt-scoped connect route. */
+  private static String integrationConnectPath(
+      String flow, String integrationId, String attemptId) {
+    return integrationPath(integrationId)
+        + "/connect/"
+        + flow
+        + "/"
+        + URLEncoder.encode(attemptId, StandardCharsets.UTF_8);
+  }
+
+  @Override
+  public ShellResult runShell(String sessionId, String agent, String command)
+      throws OpencodeException {
+    // v2's shell body is just the command - the agent moved to session state
+    if (agent != null && !agent.isBlank()) {
+      JsonObject agentBody = new JsonObject();
+      agentBody.addProperty("agent", agent);
+      request(
+          "POST",
+          "/session/" + sessionId + "/agent",
+          agentBody.toString(),
+          ClientTuning.REQUEST_TIMEOUT);
+    }
+    JsonObject body = new JsonObject();
+    body.addProperty("command", command);
+    String path = "/session/" + sessionId + "/shell";
+    // server-clock anchor: this run's shell message is strictly newer than
+    // anything already there - a session with previous shell commands would
+    // otherwise answer instantly from the last completed one
+    long anchor = newestShellCreated(sessionId);
+    request("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    return awaitShell(sessionId, anchor);
+  }
+
+  /** {@code time.created} of the newest existing shell message; 0 when none. */
+  private long newestShellCreated(String sessionId) throws OpencodeException {
+    long newest = 0;
+    for (ChatEntry entry : getMessages(sessionId)) {
+      if (entry != null && entry.info() != null && "shell".equals(entry.info().role())) {
+        newest = Math.max(newest, createdAt(entry));
+      }
+    }
+    return newest;
+  }
+
+  /**
+   * Polls the message list for the newest shell message (v2's {@code Session.Message.Shell}) until
+   * it leaves the {@code running} state. v2's POST /shell returns no shell result body - the
+   * command's lifecycle is reported as messages, same async split as the prompt path.
+   */
+  private ShellResult awaitShell(String sessionId, long anchorMs) throws OpencodeException {
+    long deadline = System.nanoTime() + ClientTuning.PROMPT_TIMEOUT.toNanos();
+    ShellResult latest = null;
+    while (System.nanoTime() < deadline) {
+      latest = newestShellMessage(sessionId, anchorMs);
+      if (latest != null && !"running".equals(latest.status())) {
+        return latest;
+      }
+      try {
+        Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new OpencodeException(
+            "opencode " + sessionId + ": interrupted while awaiting the shell command", e);
+      }
+    }
+    if (latest != null) {
+      return latest; // still running past the budget: report what we have
+    }
+    throw new OpencodeException(
+        "opencode "
+            + sessionId
+            + ": no shell message appeared within "
+            + ClientTuning.PROMPT_TIMEOUT.toSeconds()
+            + "s");
+  }
+
+  /** The newest {@code type:"shell"} message STRICTLY newer than the anchor, or {@code null}. */
+  private ShellResult newestShellMessage(String sessionId, long anchorMs) throws OpencodeException {
+    String path = "/session/" + sessionId + "/message";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    String body = response.body();
+    // a dead endpoint must fail fast, not burn the whole poll budget
+    if (response.statusCode() >= 400) {
+      throw new OpencodeException(
+          "opencode GET /api"
+              + path
+              + " failed: HTTP "
+              + response.statusCode()
+              + " - "
+              + truncate(body, ClientTuning.SNIPPET_MAX));
+    }
+    if (body == null || body.isBlank()) {
+      return null;
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      JsonElement data =
+          element.isJsonObject() && element.getAsJsonObject().has("data")
+              ? element.getAsJsonObject().get("data")
+              : element;
+      if (!data.isJsonArray()) {
         return null;
-    }
-
-    private static long createdAt(ChatEntry entry) {
-        return (entry.info() == null || entry.info().time() == null) ? 0L : entry.info().time().created();
-    }
-
-    @Override
-    public void abortSession(String sessionId) throws OpencodeException {
-        // v2 renamed POST /session/:id/abort to /interrupt
-        String path = "/session/" + sessionId + "/interrupt";
-        HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
-        int status = response.statusCode();
-        if (status >= 400 && status != 404) {
-            throw new OpencodeException("opencode POST /api" + path + " failed: HTTP " + status
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+      }
+      for (JsonElement item : data.getAsJsonArray()) {
+        if (!item.isJsonObject() || !"shell".equals(stringOf(item.getAsJsonObject(), "type"))) {
+          continue;
         }
-        if (status >= 400) {
-            // usually "session is already idle" - the outcome the caller wanted
-            ClientLog.warning("opencode POST /api" + path + " returned HTTP " + status
-                    + " (treated as already idle): " + truncate(response.body(), 200));
+        JsonObject message = item.getAsJsonObject();
+        JsonObject time = asObject(message, "time");
+        long created =
+            (time != null && time.has("created") && time.get("created").isJsonPrimitive())
+                ? time.get("created").getAsLong()
+                : 0L;
+        if (created > 0 && created <= anchorMs) {
+          return null; // only previous runs' shells so far
         }
+        JsonObject output = asObject(message, "output");
+        return new ShellResult(
+            stringOf(message, "id"),
+            null,
+            stringOf(message, "command"),
+            stringOf(message, "status"),
+            output == null ? null : stringOf(output, "output"));
+      }
+      return null;
+    } catch (JsonParseException | IllegalStateException e) {
+      return null;
     }
+  }
 
-    @Override
-    public void deleteSession(String sessionId) throws OpencodeException {
-        if (sessionId == null || sessionId.isBlank()) {
-            throw new IllegalArgumentException("sessionId must not be blank");
+  @Override
+  public List<ProjectSummary> getProjects() throws OpencodeException {
+    HttpResponse<String> response = send("GET", "/project", null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return List.of();
+    }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return List.of();
+    }
+    try {
+      // v2 Project: {id, canonical, vcs: <type string>, name, time, sandboxes}
+      JsonElement element = JsonParser.parseString(body);
+      if (!element.isJsonArray()) {
+        return List.of();
+      }
+      List<ProjectSummary> out = new ArrayList<>();
+      for (JsonElement item : element.getAsJsonArray()) {
+        if (!item.isJsonObject()) {
+          continue;
         }
-        request("DELETE", "/session/" + java.net.URLEncoder.encode(sessionId,
-                java.nio.charset.StandardCharsets.UTF_8), null);
-    }
-
-    @Override
-    public void log(String service, String level, String message, Map<String, Object> extra) throws OpencodeException {
-        // v2 removed POST /log (404). Logging stays client-side in v2.
-        ClientLog.info("[" + service + "] " + level + ": " + message);
-    }
-
-    // ---------- H5 surface ----------
-
-    @Override
-    public List<FileDiff> getSessionDiff(String sessionId, String messageId) throws OpencodeException {
-        String path = "/session/" + sessionId + "/diff";
-        if (messageId != null && !messageId.isBlank()) {
-            path += "?messageID=" + URLEncoder.encode(messageId, StandardCharsets.UTF_8).replace("+", "%20");
-        }
-        return getList(path, FileDiff.class);
-    }
-
-    @Override
-    public Session forkSession(String sessionId, String messageId) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        if (messageId != null && !messageId.isBlank()) {
-            // v2 names the fork point "before" (a msg_ id); v1's "messageID"
-            // key is rejected (additionalProperties=false)
-            body.addProperty("before", messageId);
-        }
-        return parseBody("POST", "/session/" + sessionId + "/fork",
-                request("POST", "/session/" + sessionId + "/fork", body.toString()), Session.class, true);
-    }
-
-    @Override
-    public boolean revertMessage(String sessionId, String messageId) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        if (messageId != null) {
-            body.addProperty("messageID", messageId);
-        }
-        return parseBody("POST", "/session/" + sessionId + "/revert/stage",
-                request("POST", "/session/" + sessionId + "/revert/stage", body.toString()), Boolean.class);
-    }
-
-    @Override
-    public boolean unrevertSession(String sessionId) throws OpencodeException {
-        // v2: clearing the revert is DELETE /session/:id/revert (v1 POST /unrevert)
-        String path = "/session/" + sessionId + "/revert";
-        HttpResponse<String> response = send("DELETE", path, null, ClientTuning.REQUEST_TIMEOUT);
-        return response.statusCode() < 300;
-    }
-
-    @Override
-    public boolean summarizeSession(String sessionId, String providerId, String modelId) throws OpencodeException {
-        // v2 renamed /summarize to /compact and takes the model as a Model.Ref
-        JsonObject body = new JsonObject();
-        if (providerId != null && modelId != null) {
-            JsonObject model = new JsonObject();
-            model.addProperty("id", modelId);
-            model.addProperty("providerID", providerId);
-            body.add("model", model);
-        }
-        String path = "/session/" + sessionId + "/compact";
-        HttpResponse<String> response = send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return response.statusCode() < 300;
-    }
-
-    @Override
-    public boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember)
-            throws OpencodeException {
-        return respondToPermission(sessionId, permissionId, response, remember, null);
-    }
-
-    @Override
-    public boolean respondToPermission(String sessionId, String permissionId, String response, boolean remember,
-            String feedback) throws OpencodeException {
-        // v2: POST /session/:id/permission/:requestID/reply with a decision of
-        // once|always|reject and an OPTIONAL feedback message (T-004: "reject
-        // with feedback" travels to the agent in the request's message field)
-        JsonObject body = new JsonObject();
-        body.addProperty("decision", decisionOf(response, remember));
-        if (feedback != null && !feedback.isBlank()) {
-            body.addProperty("message", feedback);
-        }
-        String path = "/session/" + sessionId + "/permission/" + permissionId + "/reply";
-        HttpResponse<String> reply = send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return reply.statusCode() < 300;
-    }
-
-    /** Maps the client's {@code (response, remember)} pair onto v2's single decision. */
-    private static String decisionOf(String response, boolean remember) {
-        if (response != null && response.toLowerCase(java.util.Locale.ROOT).startsWith("r")) {
-            return "reject";
-        }
-        return remember ? "always" : "once";
-    }
-
-    @Override
-    public List<CommandInfo> getCommands() throws OpencodeException {
-        return getCommands(null);
-    }
-
-    @Override
-    public List<CommandInfo> getCommands(String directory) throws OpencodeException {
-        return getListOrEmptyOn404(withLocation("/command", directory), CommandInfo.class);
-    }
-
-    @Override
-    public ChatEntry runCommand(String sessionId, String command, List<String> arguments) throws OpencodeException {
-        // v2's command body is {name, text} (v1 sent {command, arguments[]});
-        // additionalProperties=false rejects the v1 keys with HTTP 400
-        String path = "/session/" + sessionId + "/command";
-        return parseBody("POST", path,
-                request("POST", path, ChatRequests.commandBody(command, arguments), ClientTuning.PROMPT_TIMEOUT),
-                ChatEntry.class);
-    }
-
-    // ---------- U-045 / v2 parity surfaces (background tasks, ask recovery) ----------
-
-    @Override
-    public List<com.opencode.ide.client.activity.PermissionRequest> listPermissionRequests(String directory)
-            throws OpencodeException {
-        String path = withLocation("/permission/request", directory);
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-        List<com.opencode.ide.client.activity.PermissionRequest> out = new java.util.ArrayList<>();
-        for (JsonElement element : dataOf(response.body())) {
-            if (!element.isJsonObject()) {
-                continue;
-            }
-            JsonObject ask = element.getAsJsonObject();
-            // the pending-ask list returns Permission.Request objects - the same
-            // wire shape the permission.asked event carries as data (id,
-            // sessionID, action, resources[], metadata?) - mapped directly (no
-            // event wrapper on this read path)
-            List<String> patterns = new java.util.ArrayList<>();
-            if (ask.has("resources") && ask.get("resources").isJsonArray()) {
-                for (JsonElement resource : ask.getAsJsonArray("resources")) {
-                    if (resource.isJsonPrimitive()) {
-                        patterns.add(resource.getAsString());
-                    }
-                }
-            }
-            out.add(new com.opencode.ide.client.activity.PermissionRequest(
-                    askString(ask, "sessionID"), askString(ask, "id"), askString(ask, "action"),
-                    patterns, askTitle(ask),
-                    com.opencode.ide.client.activity.PermissionRequest.Status.PENDING));
-        }
-        return List.copyOf(out);
-    }
-
-    private static String askString(JsonObject object, String key) {
-        return (object.has(key) && object.get(key).isJsonPrimitive())
-                ? object.get(key).getAsString()
-                : null;
-    }
-
-    /** The ask's metadata title (falls back to summary/description; else null - display() degrades to the patterns). */
-    private static String askTitle(JsonObject ask) {
-        if (!ask.has("metadata") || !ask.get("metadata").isJsonObject()) {
-            return null;
-        }
-        JsonObject metadata = ask.getAsJsonObject("metadata");
-        for (String key : new String[] {"title", "summary", "description", "command"}) {
-            String value = askString(metadata, key);
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public void backgroundSession(String sessionId) throws OpencodeException {
-        String path = "/session/" + sessionId + "/background";
-        HttpResponse<String> response = send("POST", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode POST /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-    }
-
-    @Override
-    public List<com.opencode.ide.client.model.ShellTask> listShellTasks() throws OpencodeException {
-        return getList(withLocation("/shell", null), com.opencode.ide.client.model.ShellTask.class);
-    }
-
-    @Override
-    public String shellTaskOutput(String id) throws OpencodeException {
-        String path = "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8) + "/output";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-        // lenient: {"data":{"output":…}} today, a raw tail tomorrow
-        try {
-            JsonElement root = JsonParser.parseString(response.body() == null ? "" : response.body());
-            JsonElement data = root.isJsonObject() && root.getAsJsonObject().has("data")
-                    ? root.getAsJsonObject().get("data")
-                    : root;
-            if (data.isJsonObject() && data.getAsJsonObject().has("output")
-                    && data.getAsJsonObject().get("output").isJsonPrimitive()) {
-                return data.getAsJsonObject().get("output").getAsString();
-            }
-            if (data.isJsonPrimitive()) {
-                return data.getAsString();
-            }
-        } catch (JsonParseException | IllegalStateException e) {
-            // fall through to the raw body
-        }
-        return response.body();
-    }
-
-    @Override
-    public void removeShellTask(String id) throws OpencodeException {
-        request("DELETE", "/shell/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
-    }
-
-    @Override
-    public List<JsonObject> listInbox(String sessionId) throws OpencodeException {
-        return getList("/session/" + sessionId + "/inbox", JsonObject.class);
-    }
-
-    @Override
-    public void updateInboxItem(String sessionId, String messageId, String delivery) throws OpencodeException {
-        JsonObject body = new JsonObject();
-        body.addProperty("delivery", delivery);
-        HttpResponse<String> response = send("PATCH",
-                "/session/" + sessionId + "/inbox/" + URLEncoder.encode(messageId, StandardCharsets.UTF_8),
-                body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode PATCH /api/session " + sessionId + " inbox failed: HTTP "
-                    + response.statusCode() + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-    }
-
-    @Override
-    public void cancelInboxItem(String sessionId, String messageId) throws OpencodeException {
-        request("DELETE", "/session/" + sessionId + "/inbox/"
-                + URLEncoder.encode(messageId, StandardCharsets.UTF_8), null);
-    }
-
-    /** The {@code data} array of a {@code {location, data:[…]}} (or bare array) body. */
-    private static JsonArray dataOf(String body) {
-        if (body == null || body.isBlank()) {
-            return new JsonArray();
-        }
-        try {
-            JsonElement root = JsonParser.parseString(body);
-            if (root.isJsonObject() && root.getAsJsonObject().has("data")) {
-                JsonElement data = root.getAsJsonObject().get("data");
-                return data.isJsonArray() ? data.getAsJsonArray() : new JsonArray();
-            }
-            return root.isJsonArray() ? root.getAsJsonArray() : new JsonArray();
-        } catch (JsonParseException | IllegalStateException e) {
-            return new JsonArray();
-        }
-    }
-
-    // ---------- U-046 first slice: shell config, migration, saved permissions, integrations, generate, view ----------
-
-    @Override
-    public List<ShellExecutable> getShellConfig() throws OpencodeException {
-        // v2.0.19 live probe: a BARE array (no {location, data} envelope) of
-        // {path, name, acceptable}; absent on older builds - an empty section
-        // beats a broken view
-        String path = "/config/shell";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return List.of();
-        }
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            if (!element.isJsonArray()) {
-                ClientLog.warning("opencode GET /config/shell: unexpected shape (not an array); treating as empty");
-                return List.of();
-            }
-            List<ShellExecutable> out = new ArrayList<>();
-            for (JsonElement item : element.getAsJsonArray()) {
-                if (!item.isJsonObject()) {
-                    continue;
-                }
-                JsonObject shell = item.getAsJsonObject();
-                out.add(new ShellExecutable(stringOf(shell, "path"), stringOf(shell, "name"),
-                        shell.has("acceptable") && shell.get("acceptable").isJsonPrimitive()
-                                && shell.get("acceptable").getAsBoolean()));
-            }
-            return out;
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /config/shell: malformed body; treating as empty: "
-                    + truncate(body, ClientTuning.SNIPPET_MIN));
-            return List.of();
-        }
-    }
-
-    @Override
-    public MigrationStatus getV1MigrationStatus() throws OpencodeException {
-        String path = "/experimental/migration/v1";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-        try {
-            // v2.0.19 live probe: {status: "completed"|"required"|"running"|"error"}
-            // at the ROOT (no data envelope); a running answer may carry
-            // progress fields, which are ignored
-            JsonObject root = JsonParser.parseString(response.body()).getAsJsonObject();
-            return new MigrationStatus(stringOf(root, "status"));
-        } catch (JsonParseException | IllegalStateException e) {
-            throw new OpencodeException("opencode GET /api" + path
-                    + " failed: malformed response body: " + truncate(response.body(), 300), e);
-        }
-    }
-
-    @Override
-    public List<SavedPermission> listSavedPermissions() throws OpencodeException {
-        // v2.0.19 live probe: {data:[{id, ...}]} - the remembered allow/deny
-        // rules; user-global, so no location scoping
-        String path = "/permission/saved";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-        List<SavedPermission> out = new ArrayList<>();
-        for (JsonElement element : dataOf(response.body())) {
-            if (element.isJsonObject()) {
-                out.add(new SavedPermission(stringOf(element.getAsJsonObject(), "id")));
-            }
-        }
-        return List.copyOf(out);
-    }
-
-    @Override
-    public void deleteSavedPermission(String id) throws OpencodeException {
-        request("DELETE", "/permission/saved/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
-    }
-
-    @Override
-    public List<IntegrationInfo> listIntegrations() throws OpencodeException {
-        return listIntegrations(null);
-    }
-
-    @Override
-    public List<IntegrationInfo> listIntegrations(String directory) throws OpencodeException {
-        // typed view of the catalog getProviderAuths()/beginProviderOauth()
-        // already read - integrationCatalog owns the envelope + location
-        // handling and its established leniency (failed/unreadable = empty)
-        List<IntegrationInfo> out = new ArrayList<>();
-        for (JsonObject integration : integrationCatalog(directory)) {
-            List<IntegrationInfo.IntegrationMethod> methods = new ArrayList<>();
-            JsonElement rawMethods = integration.get("methods");
-            if (rawMethods != null && rawMethods.isJsonArray()) {
-                for (JsonElement rawMethod : rawMethods.getAsJsonArray()) {
-                    if (!rawMethod.isJsonObject()) {
-                        continue;
-                    }
-                    JsonObject method = rawMethod.getAsJsonObject();
-                    List<String> names = new ArrayList<>();
-                    if (method.has("names") && method.get("names").isJsonArray()) {
-                        for (JsonElement name : method.getAsJsonArray("names")) {
-                            if (name.isJsonPrimitive()) {
-                                names.add(name.getAsString());
-                            }
-                        }
-                    }
-                    methods.add(new IntegrationInfo.IntegrationMethod(stringOf(method, "type"), names));
-                }
-            }
-            out.add(new IntegrationInfo(stringOf(integration, "id"), stringOf(integration, "name"), methods,
-                    integration.has("connections") && integration.get("connections").isJsonArray()
-                            ? integration.getAsJsonArray("connections").size()
-                            : 0));
-        }
-        return List.copyOf(out);
-    }
-
-    @Override
-    public String generateOnSession(String sessionId, String prompt) throws OpencodeException {
-        // one transient completion: unlike sendMessage nothing is queued or
-        // polled - the POST blocks until the text is back, so it runs on the
-        // command/prompt budget, not the per-call REST one
-        JsonObject body = new JsonObject();
-        body.addProperty("prompt", prompt);
-        String path = "/session/" + sessionId + "/generate";
-        HttpResponse<String> response = request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT);
-        try {
-            // v2.0.19 live probe: {data:{text}}
-            JsonObject envelope = JsonParser.parseString(response.body()).getAsJsonObject();
-            JsonObject data = asObject(envelope, "data");
-            return data == null ? null : stringOf(data, "text");
-        } catch (JsonParseException | IllegalStateException e) {
-            throw new OpencodeException("opencode POST /api" + path
-                    + " failed: malformed response body: " + truncate(response.body(), 300), e);
-        }
-    }
-
-    @Override
-    public void markSessionViewed(String sessionId, long idleMillis) throws OpencodeException {
-        // read-marker bookkeeping: a 2xx with no content is the expected
-        // answer - request() checks the status, nothing is parsed
-        JsonObject body = new JsonObject();
-        body.addProperty("idle", idleMillis);
-        request("POST", "/session/" + sessionId + "/view", body.toString());
-    }
-
-    @Override
-    public boolean waitForSession(String sessionId, Duration timeout) throws OpencodeException {
-        // U-048: the experimental long-poll - 204 means settled. Any failure
-        // (404 = no route on older builds, 503 = busy) degrades to false so
-        // the watchdog falls back to its poll loop instead of dying
-        String path = "/experimental/session/" + sessionId + "/wait";
-        HttpResponse<String> response = send("POST", path, null, timeout);
-        if (response.statusCode() < 400) {
-            return true;
-        }
-        ClientLog.warning("opencode POST /api" + path + " returned HTTP "
-                + response.statusCode() + " (falling back to polling): "
-                + truncate(response.body(), 200));
-        return false;
-    }
-
-    @Override
-    public void attachSkill(String sessionId, String skillId) throws OpencodeException {
-        // resume unset = the documented default: the server appends the skill
-        // message AND resumes execution
-        request("POST", "/experimental/session/" + sessionId + "/skill", skillBody(skillId, null));
-    }
-
-    @Override
-    public void attachSkill(String sessionId, String skillId, boolean resume) throws OpencodeException {
-        request("POST", "/experimental/session/" + sessionId + "/skill", skillBody(skillId, resume));
-    }
-
-    /**
-     * The v2.0.19-spec body of the attach-skill POST: {@code skill} is the
-     * required member (the skill id); {@code resume} is sent only when
-     * explicitly {@code false} - {@code null}/absent means the server default
-     * (resume after appending).
-     */
-    private static String skillBody(String skillId, Boolean resume) {
-        JsonObject body = new JsonObject();
-        body.addProperty("skill", skillId);
-        if (resume != null && !resume) {
-            body.addProperty("resume", false);
-        }
-        return body.toString();
-    }
-
-    // ---------- U-048 client verbs: integration connect flows, session environment, session import ----------
-
-    @Override
-    public Map<String, Object> startIntegrationCommand(String integrationId, String methodId, String label)
-            throws OpencodeException {
-        return connectAttempt("command", integrationId, connectBody("methodID", methodId, label));
-    }
-
-    @Override
-    public Map<String, Object> startIntegrationKey(String integrationId, String key, String label)
-            throws OpencodeException {
-        return connectAttempt("key", integrationId, connectBody("key", key, label));
-    }
-
-    @Override
-    public Map<String, Object> startIntegrationOauth(String integrationId, String methodId, String label)
-            throws OpencodeException {
-        return connectAttempt("oauth", integrationId, connectBody("methodID", methodId, label));
-    }
-
-    @Override
-    public Map<String, Object> integrationCommandAttempt(String integrationId, String attemptId)
-            throws OpencodeException {
-        return connectAttemptStatus("command", integrationId, attemptId);
-    }
-
-    @Override
-    public Map<String, Object> integrationOauthAttempt(String integrationId, String attemptId)
-            throws OpencodeException {
-        return connectAttemptStatus("oauth", integrationId, attemptId);
-    }
-
-    @Override
-    public Map<String, Object> completeIntegrationOauth(String integrationId, String attemptId, String code)
-            throws OpencodeException {
-        // the schema marks code OPTIONAL: a null code completes without one
-        JsonObject body = new JsonObject();
-        if (code != null) {
-            body.addProperty("code", code);
-        }
-        return lenientMap(request("POST",
-                integrationConnectPath("oauth", integrationId, attemptId) + "/complete", body.toString()).body());
-    }
-
-    @Override
-    public void abortIntegrationCommandAttempt(String integrationId, String attemptId)
-            throws OpencodeException {
-        abortConnectAttempt("command", integrationId, attemptId);
-    }
-
-    @Override
-    public void abortIntegrationOauthAttempt(String integrationId, String attemptId)
-            throws OpencodeException {
-        abortConnectAttempt("oauth", integrationId, attemptId);
-    }
-
-    @Override
-    public void replaceSessionEnvironment(String sessionId, Map<String, String> variables)
-            throws OpencodeException {
-        // FULL-REPLACE with no GET on the wire: the required `variables`
-        // member is ALWAYS sent - a null/empty map clears the environment
-        JsonObject env = new JsonObject();
-        if (variables != null) {
-            for (Map.Entry<String, String> variable : variables.entrySet()) {
-                env.addProperty(variable.getKey(), variable.getValue());
-            }
-        }
-        JsonObject body = new JsonObject();
-        body.add("variables", env);
-        request("PUT", "/session/" + sessionId + "/environment", body.toString());
-    }
-
-    @Override
-    public Map<String, Object> importSession(Map<String, Object> info, List<Map<String, Object>> messages,
-            String directoryOrNull) throws OpencodeException {
-        // required [info, messages]; location scopes the import exactly like
-        // createSession's location BODY does (v2 does not read a directory
-        // query here) and is omitted when null
-        JsonObject body = new JsonObject();
-        body.add("info", GSON.toJsonTree(info == null ? Map.of() : info));
-        JsonArray messageArray = new JsonArray();
-        if (messages != null) {
-            for (Map<String, Object> message : messages) {
-                messageArray.add(GSON.toJsonTree(message == null ? Map.of() : message));
-            }
-        }
-        body.add("messages", messageArray);
-        if (directoryOrNull != null) {
-            JsonObject location = new JsonObject();
-            location.addProperty("directory", directoryOrNull);
-            body.add("location", location);
-        }
-        return lenientMap(request("POST", "/experimental/session/import", body.toString()).body());
-    }
-
-    /**
-     * The connect-request body family {@code {methodID|key, label?}}: one
-     * REQUIRED member plus the optional label, which is OMITTED when null.
-     */
-    private static JsonObject connectBody(String requiredKey, String requiredValue, String label) {
-        JsonObject body = new JsonObject();
-        body.addProperty(requiredKey, requiredValue);
-        if (label != null) {
-            body.addProperty("label", label);
-        }
-        return body;
-    }
-
-    /**
-     * The shared start of every connect flow: POST the connect body and
-     * answer the started attempt as a lenient map (the
-     * {@code Integration.Attempt*} wire shapes stay unmodelled - slice-1
-     * precedent; a {@code data} envelope and a bare object both read).
-     */
-    private Map<String, Object> connectAttempt(String flow, String integrationId, JsonObject body)
-            throws OpencodeException {
-        return lenientMap(request("POST", integrationPath(integrationId) + "/connect/" + flow,
-                body.toString()).body());
-    }
-
-    /** GET one connect attempt's current status - the poll leg of the flows. */
-    private Map<String, Object> connectAttemptStatus(String flow, String integrationId, String attemptId)
-            throws OpencodeException {
-        return lenientMap(request("GET", integrationConnectPath(flow, integrationId, attemptId), null).body());
-    }
-
-    /**
-     * DELETE one connect attempt. 404/409 mean the attempt is already gone
-     * (expired, completed or aborted elsewhere) - the outcome the caller
-     * wanted - so they log and return; every other failure throws.
-     */
-    private void abortConnectAttempt(String flow, String integrationId, String attemptId)
-            throws OpencodeException {
-        String path = integrationConnectPath(flow, integrationId, attemptId);
-        HttpResponse<String> response = send("DELETE", path, null, ClientTuning.REQUEST_TIMEOUT);
-        int status = response.statusCode();
-        if (status == 404 || status == 409) {
-            ClientLog.warning("opencode DELETE /api" + path + " returned HTTP " + status
-                    + " (treated as already gone): " + truncate(response.body(), 200));
-            return;
-        }
-        if (status >= 400) {
-            throw new OpencodeException("opencode DELETE /api" + path + " failed: HTTP " + status
-                    + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-        }
-    }
-
-    /**
-     * A connect/import answer as a lenient map: the {@code data} envelope
-     * and a bare object both read, and an empty 2xx body (the no-content
-     * answers on these routes) reads as "no details" rather than a parse
-     * failure.
-     */
-    private static Map<String, Object> lenientMap(String responseBody) throws OpencodeException {
-        if (responseBody == null || responseBody.isBlank()) {
-            return Map.of();
-        }
-        return objectMap(responseBody);
-    }
-
-    /** {@code /integration/{id}} - the integration-scoped route prefix. */
-    private static String integrationPath(String integrationId) {
-        return "/integration/" + URLEncoder.encode(integrationId, StandardCharsets.UTF_8);
-    }
-
-    /** {@code /integration/{id}/connect/{flow}/{attemptID}} - one attempt-scoped connect route. */
-    private static String integrationConnectPath(String flow, String integrationId, String attemptId) {
-        return integrationPath(integrationId) + "/connect/" + flow + "/"
-                + URLEncoder.encode(attemptId, StandardCharsets.UTF_8);
-    }
-
-    @Override
-    public ShellResult runShell(String sessionId, String agent, String command) throws OpencodeException {
-        // v2's shell body is just the command - the agent moved to session state
-        if (agent != null && !agent.isBlank()) {
-            JsonObject agentBody = new JsonObject();
-            agentBody.addProperty("agent", agent);
-            request("POST", "/session/" + sessionId + "/agent", agentBody.toString(),
-                    ClientTuning.REQUEST_TIMEOUT);
-        }
-        JsonObject body = new JsonObject();
-        body.addProperty("command", command);
-        String path = "/session/" + sessionId + "/shell";
-        // server-clock anchor: this run's shell message is strictly newer than
-        // anything already there - a session with previous shell commands would
-        // otherwise answer instantly from the last completed one
-        long anchor = newestShellCreated(sessionId);
-        request("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
-        return awaitShell(sessionId, anchor);
-    }
-
-    /** {@code time.created} of the newest existing shell message; 0 when none. */
-    private long newestShellCreated(String sessionId) throws OpencodeException {
-        long newest = 0;
-        for (ChatEntry entry : getMessages(sessionId)) {
-            if (entry != null && entry.info() != null && "shell".equals(entry.info().role())) {
-                newest = Math.max(newest, createdAt(entry));
-            }
-        }
-        return newest;
-    }
-
-    /**
-     * Polls the message list for the newest shell message (v2's
-     * {@code Session.Message.Shell}) until it leaves the {@code running} state.
-     * v2's POST /shell returns no shell result body - the command's lifecycle
-     * is reported as messages, same async split as the prompt path.
-     */
-    private ShellResult awaitShell(String sessionId, long anchorMs) throws OpencodeException {
-        long deadline = System.nanoTime() + ClientTuning.PROMPT_TIMEOUT.toNanos();
-        ShellResult latest = null;
-        while (System.nanoTime() < deadline) {
-            latest = newestShellMessage(sessionId, anchorMs);
-            if (latest != null && !"running".equals(latest.status())) {
-                return latest;
-            }
-            try {
-                Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new OpencodeException("opencode " + sessionId
-                        + ": interrupted while awaiting the shell command", e);
-            }
-        }
-        if (latest != null) {
-            return latest; // still running past the budget: report what we have
-        }
-        throw new OpencodeException("opencode " + sessionId + ": no shell message appeared within "
-                + ClientTuning.PROMPT_TIMEOUT.toSeconds() + "s");
-    }
-
-    /** The newest {@code type:"shell"} message STRICTLY newer than the anchor, or {@code null}. */
-    private ShellResult newestShellMessage(String sessionId, long anchorMs) throws OpencodeException {
-        String path = "/session/" + sessionId + "/message";
-        HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
-        String body = response.body();
-        // a dead endpoint must fail fast, not burn the whole poll budget
-        if (response.statusCode() >= 400) {
-            throw new OpencodeException("opencode GET /api" + path + " failed: HTTP " + response.statusCode()
-                    + " - " + truncate(body, ClientTuning.SNIPPET_MAX));
-        }
-        if (body == null || body.isBlank()) {
-            return null;
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            JsonElement data = element.isJsonObject() && element.getAsJsonObject().has("data")
-                    ? element.getAsJsonObject().get("data")
-                    : element;
-            if (!data.isJsonArray()) {
-                return null;
-            }
-            for (JsonElement item : data.getAsJsonArray()) {
-                if (!item.isJsonObject() || !"shell".equals(stringOf(item.getAsJsonObject(), "type"))) {
-                    continue;
-                }
-                JsonObject message = item.getAsJsonObject();
-                JsonObject time = asObject(message, "time");
-                long created = (time != null && time.has("created") && time.get("created").isJsonPrimitive())
-                        ? time.get("created").getAsLong()
-                        : 0L;
-                if (created > 0 && created <= anchorMs) {
-                    return null; // only previous runs' shells so far
-                }
-                JsonObject output = asObject(message, "output");
-                return new ShellResult(stringOf(message, "id"), null, stringOf(message, "command"),
-                        stringOf(message, "status"), output == null ? null : stringOf(output, "output"));
-            }
-            return null;
-        } catch (JsonParseException | IllegalStateException e) {
-            return null;
-        }
-    }
-
-    @Override
-    public List<ProjectSummary> getProjects() throws OpencodeException {
-        HttpResponse<String> response = send("GET", "/project", null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return List.of();
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            // v2 Project: {id, canonical, vcs: <type string>, name, time, sandboxes}
-            JsonElement element = JsonParser.parseString(body);
-            if (!element.isJsonArray()) {
-                return List.of();
-            }
-            List<ProjectSummary> out = new ArrayList<>();
-            for (JsonElement item : element.getAsJsonArray()) {
-                if (!item.isJsonObject()) {
-                    continue;
-                }
-                JsonObject project = item.getAsJsonObject();
-                // canonical is the project directory; v2 carries no per-project
-                // branch/remote here (just the vcs TYPE), so those stay null.
-                // The id is the service project id (worktree.* requires it).
-                out.add(new ProjectSummary(stringOf(project, "canonical"), null, null,
-                        stringOf(project, "id")));
-            }
-            return out;
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /project: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
-            return List.of();
-        }
-    }
-
-    /**
-     * Appends v2's `location` scoping parameter (null/blank directory =
-     * unscoped). The query value is a nested object in bracket syntax —
-     * {@code location[directory]=…} — a plain {@code location=<path>} string is
-     * rejected with HTTP 400 ("Expected object | undefined").
-     */
-    private static String withLocation(String target, String directory) {
-        if (directory == null || directory.isBlank()) {
-            return target;
-        }
-        return target + (target.contains("?") ? "&" : "?") + "location%5Bdirectory%5D="
-                + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
-    }
-
-    @Override
-    public VcsInfo getVcsInfo() throws OpencodeException {
-        return getVcsInfo(null);
-    }
-
-    @Override
-    public VcsInfo getVcsInfo(String directory) throws OpencodeException {
-        HttpResponse<String> response = send("GET", withLocation("/vcs", directory), null,
-                ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return new VcsInfo(null, null);
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return new VcsInfo(null, null);
-        }
-        try {
-            // v2: {"location": {...}, "data": {"provider": ..., "branch": {"current", "default"}}}
-            JsonObject envelope = JsonParser.parseString(body).getAsJsonObject();
-            JsonObject data = asObject(envelope, "data");
-            JsonObject branch = data == null ? null : asObject(data, "branch");
-            String current = branch == null ? null
-                    : (stringOf(branch, "current") != null ? stringOf(branch, "current")
-                            : stringOf(branch, "default"));
-            return new VcsInfo(current, null); // v2 no longer reports the remote URL here
-        } catch (JsonParseException | IllegalStateException e) {
-            ClientLog.warning("opencode GET /vcs: malformed body; treating as empty: " + truncate(body, ClientTuning.SNIPPET_MIN));
-            return new VcsInfo(null, null);
-        }
-    }
-
-    @Override
-    public List<FileNode> listFiles(String path) throws OpencodeException {
-        return listFiles(path, null);
-    }
-
-    @Override
-    public List<FileNode> listFiles(String path, String directory) throws OpencodeException {
-        // v2 moved the file listing to /fs/list; the `path` query key is still
-        // required - "." is the workspace root, both / and \ are accepted.
-        String effective = (path == null || path.isBlank()) ? "." : path;
-        String target = withLocation("/fs/list?path="
-                + URLEncoder.encode(effective, StandardCharsets.UTF_8).replace("+", "%20"), directory);
-        return getListOrEmptyOn404(target, FileNode.class);
-    }
-
-    @Override
-    public List<String> findFiles(String query) throws OpencodeException {
-        return findFiles(query, null);
-    }
-
-    @Override
-    public List<String> findFiles(String query, String directory) throws OpencodeException {
-        // v2: GET /fs/find?query=...&type=file -> {location, data: [{path, type}]}
-        String target = withLocation("/fs/find?query="
+        JsonObject project = item.getAsJsonObject();
+        // canonical is the project directory; v2 carries no per-project
+        // branch/remote here (just the vcs TYPE), so those stay null.
+        // The id is the service project id (worktree.* requires it).
+        out.add(
+            new ProjectSummary(
+                stringOf(project, "canonical"), null, null, stringOf(project, "id")));
+      }
+      return out;
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /project: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return List.of();
+    }
+  }
+
+  /**
+   * Appends v2's `location` scoping parameter (null/blank directory = unscoped). The query value is
+   * a nested object in bracket syntax — {@code location[directory]=…} — a plain {@code
+   * location=<path>} string is rejected with HTTP 400 ("Expected object | undefined").
+   */
+  private static String withLocation(String target, String directory) {
+    if (directory == null || directory.isBlank()) {
+      return target;
+    }
+    return target
+        + (target.contains("?") ? "&" : "?")
+        + "location%5Bdirectory%5D="
+        + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
+  }
+
+  @Override
+  public VcsInfo getVcsInfo() throws OpencodeException {
+    return getVcsInfo(null);
+  }
+
+  @Override
+  public VcsInfo getVcsInfo(String directory) throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", withLocation("/vcs", directory), null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return new VcsInfo(null, null);
+    }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return new VcsInfo(null, null);
+    }
+    try {
+      // v2: {"location": {...}, "data": {"provider": ..., "branch": {"current", "default"}}}
+      JsonObject envelope = JsonParser.parseString(body).getAsJsonObject();
+      JsonObject data = asObject(envelope, "data");
+      JsonObject branch = data == null ? null : asObject(data, "branch");
+      String current =
+          branch == null
+              ? null
+              : (stringOf(branch, "current") != null
+                  ? stringOf(branch, "current")
+                  : stringOf(branch, "default"));
+      return new VcsInfo(current, null); // v2 no longer reports the remote URL here
+    } catch (JsonParseException | IllegalStateException e) {
+      ClientLog.warning(
+          "opencode GET /vcs: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return new VcsInfo(null, null);
+    }
+  }
+
+  @Override
+  public List<FileNode> listFiles(String path) throws OpencodeException {
+    return listFiles(path, null);
+  }
+
+  @Override
+  public List<FileNode> listFiles(String path, String directory) throws OpencodeException {
+    // v2 moved the file listing to /fs/list; the `path` query key is still
+    // required - "." is the workspace root, both / and \ are accepted.
+    String effective = (path == null || path.isBlank()) ? "." : path;
+    String target =
+        withLocation(
+            "/fs/list?path="
+                + URLEncoder.encode(effective, StandardCharsets.UTF_8).replace("+", "%20"),
+            directory);
+    return getListOrEmptyOn404(target, FileNode.class);
+  }
+
+  @Override
+  public List<String> findFiles(String query) throws OpencodeException {
+    return findFiles(query, null);
+  }
+
+  @Override
+  public List<String> findFiles(String query, String directory) throws OpencodeException {
+    // v2: GET /fs/find?query=...&type=file -> {location, data: [{path, type}]}
+    String target =
+        withLocation(
+            "/fs/find?query="
                 + URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20")
-                + "&type=file", directory);
-        HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return List.of();
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            JsonElement data = element.isJsonObject() && element.getAsJsonObject().has("data")
-                    ? element.getAsJsonObject().get("data")
-                    : element;
-            if (!data.isJsonArray()) {
-                return List.of();
-            }
-            List<String> out = new ArrayList<>();
-            for (JsonElement item : data.getAsJsonArray()) {
-                if (item.isJsonObject()) {
-                    String path = stringOf(item.getAsJsonObject(), "path");
-                    if (path != null) {
-                        out.add(path);
-                    }
-                }
-            }
-            return out;
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /fs/find: malformed body; treating as empty: "
-                    + truncate(body, ClientTuning.SNIPPET_MIN));
-            return List.of();
-        }
+                + "&type=file",
+            directory);
+    HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return List.of();
     }
-
-    @Override
-    public ConfigInfo patchConfig(Map<String, Object> changes) throws OpencodeException {
-        // v2 moved the mutable config surface to /api/experimental/config
-        String path = "/experimental/config";
-        return parseBody("PATCH", path, request("PATCH", path, GSON.toJson(changes)), ConfigInfo.class);
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return List.of();
     }
-
-    @Override
-    public boolean tuiAction(String action, Map<String, Object> body) throws OpencodeException {
-        // v2 removed the POST /tui/:action control endpoint; driving an attached
-        // TUI is now done by publishing tui.* events, which this client does not
-        // do. Reported as "no TUI attached" - the same outcome callers already
-        // handle - rather than failing the caller.
-        // TODO(v2): re-implement over the tui.* event surface if the IDE ever
-        // needs to steer an attached TUI again.
-        ClientLog.warning("opencode TUI action '" + action + "' skipped: v2 has no /tui endpoint");
-        return false;
-    }
-
-    // ---------- H5 remainder ----------
-
-    @Override
-    public List<FileStatus> getFileStatus() throws OpencodeException {
-        return getFileStatus(null);
-    }
-
-    @Override
-    public List<FileStatus> getFileStatus(String directory) throws OpencodeException {
-        return getListOrEmptyOn404(withLocation("/vcs/status", directory), FileStatus.class);
-    }
-
-    @Override
-    public String getFileContent(String path) throws OpencodeException {
-        return getFileContent(path, null);
-    }
-
-    @Override
-    public String getFileContent(String path, String directory) throws OpencodeException {
-        // v2: GET /fs/read/<path> answers the RAW file bytes (v1 wrapped the
-        // content in a JSON envelope). Keep '/' intact, encode the rest.
-        String encoded = URLEncoder.encode(path, StandardCharsets.UTF_8)
-                .replace("+", "%20").replace("%2F", "/");
-        String target = withLocation("/fs/read/" + encoded, directory);
-        HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() == 404) {
-            return null;
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      JsonElement data =
+          element.isJsonObject() && element.getAsJsonObject().has("data")
+              ? element.getAsJsonObject().get("data")
+              : element;
+      if (!data.isJsonArray()) {
+        return List.of();
+      }
+      List<String> out = new ArrayList<>();
+      for (JsonElement item : data.getAsJsonArray()) {
+        if (item.isJsonObject()) {
+          String path = stringOf(item.getAsJsonObject(), "path");
+          if (path != null) {
+            out.add(path);
+          }
         }
-        String body = response.body();
-        return (body == null || body.isEmpty()) ? null : body;
+      }
+      return out;
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /fs/find: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return List.of();
     }
+  }
 
-    @Override
-    public List<ProviderAuth> getProviderAuths() throws OpencodeException {
-        return getProviderAuths(null);
+  @Override
+  public ConfigInfo patchConfig(Map<String, Object> changes) throws OpencodeException {
+    // v2 moved the mutable config surface to /api/experimental/config
+    String path = "/experimental/config";
+    return parseBody("PATCH", path, request("PATCH", path, GSON.toJson(changes)), ConfigInfo.class);
+  }
+
+  @Override
+  public boolean tuiAction(String action, Map<String, Object> body) throws OpencodeException {
+    // v2 removed the POST /tui/:action control endpoint; driving an attached
+    // TUI is now done by publishing tui.* events, which this client does not
+    // do. Reported as "no TUI attached" - the same outcome callers already
+    // handle - rather than failing the caller.
+    // TODO(v2): re-implement over the tui.* event surface if the IDE ever
+    // needs to steer an attached TUI again.
+    ClientLog.warning("opencode TUI action '" + action + "' skipped: v2 has no /tui endpoint");
+    return false;
+  }
+
+  // ---------- H5 remainder ----------
+
+  @Override
+  public List<FileStatus> getFileStatus() throws OpencodeException {
+    return getFileStatus(null);
+  }
+
+  @Override
+  public List<FileStatus> getFileStatus(String directory) throws OpencodeException {
+    return getListOrEmptyOn404(withLocation("/vcs/status", directory), FileStatus.class);
+  }
+
+  @Override
+  public String getFileContent(String path) throws OpencodeException {
+    return getFileContent(path, null);
+  }
+
+  @Override
+  public String getFileContent(String path, String directory) throws OpencodeException {
+    // v2: GET /fs/read/<path> answers the RAW file bytes (v1 wrapped the
+    // content in a JSON envelope). Keep '/' intact, encode the rest.
+    String encoded =
+        URLEncoder.encode(path, StandardCharsets.UTF_8).replace("+", "%20").replace("%2F", "/");
+    String target = withLocation("/fs/read/" + encoded, directory);
+    HttpResponse<String> response = send("GET", target, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() == 404) {
+      return null;
     }
+    String body = response.body();
+    return (body == null || body.isEmpty()) ? null : body;
+  }
 
-    @Override
-    public List<ProviderAuth> getProviderAuths(String directory) throws OpencodeException {
-        List<ProviderAuth> out = new ArrayList<>();
-        for (JsonObject integration : integrationCatalog(directory)) {
-            String provider = stringOf(integration, "id");
-            JsonElement methods = integration.get("methods");
-            if (provider == null || provider.isBlank() || methods == null || !methods.isJsonArray()) {
-                continue;
-            }
-            for (JsonElement method : methods.getAsJsonArray()) {
-                if (!method.isJsonObject()) {
-                    continue;
-                }
-                JsonObject object = method.getAsJsonObject();
-                String type = stringOf(object, "type");
-                if (type != null && !type.isBlank()) {
-                    out.add(new ProviderAuth(provider, type, stringOf(object, "label")));
-                }
-            }
+  @Override
+  public List<ProviderAuth> getProviderAuths() throws OpencodeException {
+    return getProviderAuths(null);
+  }
+
+  @Override
+  public List<ProviderAuth> getProviderAuths(String directory) throws OpencodeException {
+    List<ProviderAuth> out = new ArrayList<>();
+    for (JsonObject integration : integrationCatalog(directory)) {
+      String provider = stringOf(integration, "id");
+      JsonElement methods = integration.get("methods");
+      if (provider == null || provider.isBlank() || methods == null || !methods.isJsonArray()) {
+        continue;
+      }
+      for (JsonElement method : methods.getAsJsonArray()) {
+        if (!method.isJsonObject()) {
+          continue;
         }
-        return out;
+        JsonObject object = method.getAsJsonObject();
+        String type = stringOf(object, "type");
+        if (type != null && !type.isBlank()) {
+          out.add(new ProviderAuth(provider, type, stringOf(object, "label")));
+        }
+      }
     }
+    return out;
+  }
 
-    /** The v2 integration catalog shared by auth discovery and OAuth method selection. */
-    private List<JsonObject> integrationCatalog(String directory) throws OpencodeException {
-        HttpResponse<String> response = send("GET", withLocation("/integration", directory), null,
-                ClientTuning.REQUEST_TIMEOUT);
-        if (response.statusCode() >= 400) {
-            return List.of();
-        }
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            return List.of();
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            if (!element.isJsonObject()) {
-                return List.of();
-            }
-            JsonElement data = element.getAsJsonObject().get("data");
-            if (data == null || !data.isJsonArray()) {
-                return List.of();
-            }
-            List<JsonObject> out = new ArrayList<>();
-            for (JsonElement item : data.getAsJsonArray()) {
-                if (item.isJsonObject()) {
-                    out.add(item.getAsJsonObject());
-                }
-            }
-            return out;
-        } catch (JsonParseException e) {
-            ClientLog.warning("opencode GET /integration: malformed body; treating as empty: "
-                    + truncate(body, ClientTuning.SNIPPET_MIN));
-            return List.of();
-        }
+  /** The v2 integration catalog shared by auth discovery and OAuth method selection. */
+  private List<JsonObject> integrationCatalog(String directory) throws OpencodeException {
+    HttpResponse<String> response =
+        send("GET", withLocation("/integration", directory), null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      return List.of();
     }
-
-    @Override
-    public OauthStart beginProviderOauth(String providerId) throws OpencodeException {
-        // v2 flow: the provider's integration lists its auth methods; the first
-        // OAuth method is started via POST /api/integration/:id/connect/oauth
-        // (v1 posted a method index to /provider/:id/oauth/authorize). U-048:
-        // the POST itself is the generic startIntegrationOauth - this
-        // convenience stays answer-lenient (nothing started on any failure).
-        String methodId = firstOauthMethodId(providerId);
-        if (methodId == null) {
-            return new OauthStart(null, null, null); // no OAuth method - nothing started
-        }
-        try {
-            Map<String, Object> attempt = startIntegrationOauth(providerId, methodId, null);
-            // Integration.AttemptEncoded: {attemptID, url, instructions, mode}
-            return new OauthStart(stringOf(attempt, "url"), stringOf(attempt, "mode"),
-                    stringOf(attempt, "instructions"));
-        } catch (OpencodeConnectionException e) {
-            throw e; // transport errors still throw (the documented contract)
-        } catch (OpencodeException e) {
-            ClientLog.warning("opencode connect/oauth for " + providerId
-                    + "; treating as not started: " + e.getMessage());
-            return new OauthStart(null, null, null);
-        }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return List.of();
     }
-
-    /**
-     * The id of the provider integration's first {@code type:"oauth"} method
-     * (e.g. {@code "device"}, {@code "browser"}), or {@code null} when the
-     * provider has none / the integration list is unreadable.
-     */
-    private String firstOauthMethodId(String providerId) throws OpencodeException {
-        for (JsonObject integration : integrationCatalog(null)) {
-            if (!java.util.Objects.equals(providerId, stringOf(integration, "id"))) {
-                continue;
-            }
-            JsonElement methods = integration.get("methods");
-            if (methods == null || !methods.isJsonArray()) {
-                return null;
-            }
-            for (JsonElement method : methods.getAsJsonArray()) {
-                if (method.isJsonObject()
-                        && "oauth".equals(stringOf(method.getAsJsonObject(), "type"))) {
-                    return stringOf(method.getAsJsonObject(), "id");
-                }
-            }
-            return null;
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      if (!element.isJsonObject()) {
+        return List.of();
+      }
+      JsonElement data = element.getAsJsonObject().get("data");
+      if (data == null || !data.isJsonArray()) {
+        return List.of();
+      }
+      List<JsonObject> out = new ArrayList<>();
+      for (JsonElement item : data.getAsJsonArray()) {
+        if (item.isJsonObject()) {
+          out.add(item.getAsJsonObject());
         }
+      }
+      return out;
+    } catch (JsonParseException e) {
+      ClientLog.warning(
+          "opencode GET /integration: malformed body; treating as empty: "
+              + truncate(body, ClientTuning.SNIPPET_MIN));
+      return List.of();
+    }
+  }
+
+  @Override
+  public OauthStart beginProviderOauth(String providerId) throws OpencodeException {
+    // v2 flow: the provider's integration lists its auth methods; the first
+    // OAuth method is started via POST /api/integration/:id/connect/oauth
+    // (v1 posted a method index to /provider/:id/oauth/authorize). U-048:
+    // the POST itself is the generic startIntegrationOauth - this
+    // convenience stays answer-lenient (nothing started on any failure).
+    String methodId = firstOauthMethodId(providerId);
+    if (methodId == null) {
+      return new OauthStart(null, null, null); // no OAuth method - nothing started
+    }
+    try {
+      Map<String, Object> attempt = startIntegrationOauth(providerId, methodId, null);
+      // Integration.AttemptEncoded: {attemptID, url, instructions, mode}
+      return new OauthStart(
+          stringOf(attempt, "url"), stringOf(attempt, "mode"), stringOf(attempt, "instructions"));
+    } catch (OpencodeConnectionException e) {
+      throw e; // transport errors still throw (the documented contract)
+    } catch (OpencodeException e) {
+      ClientLog.warning(
+          "opencode connect/oauth for "
+              + providerId
+              + "; treating as not started: "
+              + e.getMessage());
+      return new OauthStart(null, null, null);
+    }
+  }
+
+  /**
+   * The id of the provider integration's first {@code type:"oauth"} method (e.g. {@code "device"},
+   * {@code "browser"}), or {@code null} when the provider has none / the integration list is
+   * unreadable.
+   */
+  private String firstOauthMethodId(String providerId) throws OpencodeException {
+    for (JsonObject integration : integrationCatalog(null)) {
+      if (!java.util.Objects.equals(providerId, stringOf(integration, "id"))) {
+        continue;
+      }
+      JsonElement methods = integration.get("methods");
+      if (methods == null || !methods.isJsonArray()) {
         return null;
-    }
-
-    @Override
-    public OpencodeEventStream getGlobalEvents(Consumer<OpencodeEvent> sink, Consumer<Boolean> connectionListener) {
-        return OpencodeEventStream.global(config, sink, connectionListener);
-    }
-
-    private static String stringOf(JsonObject object, String member) {
-        if (object.has(member) && object.get(member).isJsonPrimitive()) {
-            return object.get(member).getAsString();
+      }
+      for (JsonElement method : methods.getAsJsonArray()) {
+        if (method.isJsonObject() && "oauth".equals(stringOf(method.getAsJsonObject(), "type"))) {
+          return stringOf(method.getAsJsonObject(), "id");
         }
-        return null;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  @Override
+  public OpencodeEventStream getGlobalEvents(
+      Consumer<OpencodeEvent> sink, Consumer<Boolean> connectionListener) {
+    return OpencodeEventStream.global(config, sink, connectionListener);
+  }
+
+  private static String stringOf(JsonObject object, String member) {
+    if (object.has(member) && object.get(member).isJsonPrimitive()) {
+      return object.get(member).getAsString();
+    }
+    return null;
+  }
+
+  /** The lenient map's value as a string ({@code null} when absent or not a string). */
+  private static String stringOf(Map<String, Object> map, String key) {
+    Object value = map.get(key);
+    return value instanceof String ? (String) value : null;
+  }
+
+  private static JsonObject asObject(JsonObject object, String member) {
+    if (object.has(member) && object.get(member).isJsonObject()) {
+      return object.getAsJsonObject(member);
+    }
+    return null;
+  }
+
+  private <T> T get(String path, Class<T> type) throws OpencodeException {
+    return parseBody("GET", path, request("GET", path, null), type);
+  }
+
+  private <T> List<T> getList(String path, Class<T> elementType) throws OpencodeException {
+    return parseBody(
+        "GET",
+        path,
+        request("GET", path, null),
+        TypeToken.getParameterized(List.class, elementType).getType(),
+        true);
+  }
+
+  /**
+   * Parses a response body, unwrapping the v2 {@code {"data": [...]}} list envelope when {@code
+   * unwrapData} is true. v2 list endpoints wrap their results in {@code {data, cursor}}; scalar
+   * endpoints return their object directly.
+   */
+  private static <T> T parseBody(
+      String method, String path, HttpResponse<String> response, Type type, boolean unwrapData)
+      throws OpencodeException {
+    if (!unwrapData) {
+      return parseBody(method, path, response, type);
+    }
+    int status = response.statusCode();
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      throw new OpencodeException(
+          "opencode "
+              + method
+              + " "
+              + path
+              + " failed: HTTP "
+              + status
+              + " - empty response body where JSON was expected");
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      String inner = body;
+      // v2 envelopes carry the payload under "data" - an ARRAY on list
+      // endpoints ({data:[...], cursor}), a single OBJECT on resource
+      // endpoints ({data:{...}}). Both unwrap here.
+      if (element.isJsonObject()
+          && element.getAsJsonObject().has("data")
+          && (element.getAsJsonObject().get("data").isJsonArray()
+              || element.getAsJsonObject().get("data").isJsonObject())) {
+        inner = element.getAsJsonObject().get("data").toString();
+      }
+      T value = GSON.fromJson(inner, type);
+      if (value == null) {
+        throw new OpencodeException(
+            "opencode "
+                + method
+                + " "
+                + path
+                + " failed: HTTP "
+                + status
+                + " - JSON null response: "
+                + truncate(body, 300));
+      }
+      return value;
+    } catch (JsonParseException e) {
+      throw new OpencodeException(
+          "opencode "
+              + method
+              + " "
+              + path
+              + " failed: HTTP "
+              + status
+              + " - malformed response body: "
+              + truncate(body, 300),
+          e);
+    }
+  }
+
+  private static <T> T parseBody(
+      String method, String path, HttpResponse<String> response, Type type)
+      throws OpencodeException {
+    int status = response.statusCode();
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      throw new OpencodeException(
+          "opencode "
+              + method
+              + " "
+              + path
+              + " failed: HTTP "
+              + status
+              + " - empty response body where JSON was expected");
+    }
+    try {
+      T value = GSON.fromJson(body, type);
+      if (value == null) {
+        throw new OpencodeException(
+            "opencode "
+                + method
+                + " "
+                + path
+                + " failed: HTTP "
+                + status
+                + " - JSON null response: "
+                + truncate(body, 300));
+      }
+      return value;
+    } catch (JsonParseException e) {
+      throw new OpencodeException(
+          "opencode "
+              + method
+              + " "
+              + path
+              + " failed: HTTP "
+              + status
+              + " - malformed response body: "
+              + truncate(body, 300),
+          e);
+    }
+  }
+
+  private HttpResponse<String> request(String method, String path, String body)
+      throws OpencodeException {
+    return request(method, path, body, ClientTuning.REQUEST_TIMEOUT);
+  }
+
+  private HttpResponse<String> request(String method, String path, String body, Duration timeout)
+      throws OpencodeException {
+    HttpResponse<String> response = send(method, path, body, timeout);
+    int status = response.statusCode();
+    if (status >= 200 && status < 300) {
+      return response;
+    }
+    throw new OpencodeException(
+        "opencode "
+            + method
+            + " "
+            + path
+            + " failed: HTTP "
+            + status
+            + " - "
+            + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+  }
+
+  /** Sends the request and maps transport failures only; status handling is the caller's. */
+  private HttpResponse<String> send(String method, String path, String body, Duration timeout)
+      throws OpencodeException {
+    // opencode v2 moved every API under /api/ (v1 served the root directly)
+    String apiPath = path.startsWith("/api") ? path : "/api" + path;
+    HttpRequest.Builder builder =
+        HttpRequest.newBuilder()
+            .uri(baseUri.resolve(apiPath))
+            .timeout(timeout)
+            .header("Accept", "application/json");
+    if (authHeader != null) {
+      builder.header("Authorization", authHeader);
+    }
+    if (body != null) {
+      builder.header("Content-Type", "application/json");
+      builder.method(method, HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+    } else {
+      builder.method(method, HttpRequest.BodyPublishers.noBody());
     }
 
-    /** The lenient map's value as a string ({@code null} when absent or not a string). */
-    private static String stringOf(Map<String, Object> map, String key) {
-        Object value = map.get(key);
-        return value instanceof String ? (String) value : null;
+    try {
+      return http.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new OpencodeConnectionException("Interrupted while calling " + path, e);
+    } catch (java.net.http.HttpTimeoutException e) {
+      // a timeout is NOT unreachability - the server may be perfectly up,
+      // the call just exceeded its budget (e.g. a long-running agent
+      // reply). Milestone V finding: conflating the two produced
+      // misleading "Cannot reach opencode server" failure details.
+      throw new OpencodeConnectionException(
+          "opencode "
+              + method
+              + " "
+              + path
+              + " timed out after "
+              + timeout.toSeconds()
+              + "s"
+              + " (the server itself may still be healthy - raise the budget or check"
+              + " whether the session is stuck busy)",
+          e);
+    } catch (IOException e) {
+      throw new OpencodeConnectionException(
+          "Cannot reach opencode server at " + baseUri + " (" + method + " " + path + ")", e);
     }
+  }
 
-    private static JsonObject asObject(JsonObject object, String member) {
-        if (object.has(member) && object.get(member).isJsonObject()) {
-            return object.getAsJsonObject(member);
-        }
-        return null;
+  /**
+   * Caps a diagnostic snippet. The knob'd tiers are {@link ClientTuning#SNIPPET_MIN} (warning logs)
+   * and {@link ClientTuning#SNIPPET_MAX} (error bodies); the 200/300 values in between are fixed
+   * diagnostic verbosity, deliberately not knobs - they tune log detail, not operational behavior.
+   */
+  private static String truncate(String value, int max) {
+    if (value == null) {
+      return "";
     }
-
-    private <T> T get(String path, Class<T> type) throws OpencodeException {
-        return parseBody("GET", path, request("GET", path, null), type);
-    }
-
-    private <T> List<T> getList(String path, Class<T> elementType) throws OpencodeException {
-        return parseBody("GET", path, request("GET", path, null),
-                TypeToken.getParameterized(List.class, elementType).getType(), true);
-    }
-
-    /**
-     * Parses a response body, unwrapping the v2 {@code {"data": [...]}} list
-     * envelope when {@code unwrapData} is true. v2 list endpoints wrap their
-     * results in {@code {data, cursor}}; scalar endpoints return their object
-     * directly.
-     */
-    private static <T> T parseBody(String method, String path, HttpResponse<String> response, Type type,
-            boolean unwrapData)
-            throws OpencodeException {
-        if (!unwrapData) {
-            return parseBody(method, path, response, type);
-        }
-        int status = response.statusCode();
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                    + " - empty response body where JSON was expected");
-        }
-        try {
-            JsonElement element = JsonParser.parseString(body);
-            String inner = body;
-            // v2 envelopes carry the payload under "data" - an ARRAY on list
-            // endpoints ({data:[...], cursor}), a single OBJECT on resource
-            // endpoints ({data:{...}}). Both unwrap here.
-            if (element.isJsonObject() && element.getAsJsonObject().has("data")
-                    && (element.getAsJsonObject().get("data").isJsonArray()
-                            || element.getAsJsonObject().get("data").isJsonObject())) {
-                inner = element.getAsJsonObject().get("data").toString();
-            }
-            T value = GSON.fromJson(inner, type);
-            if (value == null) {
-                throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                        + " - JSON null response: " + truncate(body, 300));
-            }
-            return value;
-        } catch (JsonParseException e) {
-            throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                    + " - malformed response body: " + truncate(body, 300), e);
-        }
-    }
-
-    private static <T> T parseBody(String method, String path, HttpResponse<String> response, Type type)
-            throws OpencodeException {
-        int status = response.statusCode();
-        String body = response.body();
-        if (body == null || body.isBlank()) {
-            throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                    + " - empty response body where JSON was expected");
-        }
-        try {
-            T value = GSON.fromJson(body, type);
-            if (value == null) {
-                throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                        + " - JSON null response: " + truncate(body, 300));
-            }
-            return value;
-        } catch (JsonParseException e) {
-            throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                    + " - malformed response body: " + truncate(body, 300), e);
-        }
-    }
-
-    private HttpResponse<String> request(String method, String path, String body) throws OpencodeException {
-        return request(method, path, body, ClientTuning.REQUEST_TIMEOUT);
-    }
-
-    private HttpResponse<String> request(String method, String path, String body, Duration timeout)
-            throws OpencodeException {
-        HttpResponse<String> response = send(method, path, body, timeout);
-        int status = response.statusCode();
-        if (status >= 200 && status < 300) {
-            return response;
-        }
-        throw new OpencodeException("opencode " + method + " " + path + " failed: HTTP " + status
-                + " - " + truncate(response.body(), ClientTuning.SNIPPET_MAX));
-    }
-
-    /** Sends the request and maps transport failures only; status handling is the caller's. */
-    private HttpResponse<String> send(String method, String path, String body, Duration timeout)
-            throws OpencodeException {
-        // opencode v2 moved every API under /api/ (v1 served the root directly)
-        String apiPath = path.startsWith("/api") ? path : "/api" + path;
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(baseUri.resolve(apiPath))
-                .timeout(timeout)
-                .header("Accept", "application/json");
-        if (authHeader != null) {
-            builder.header("Authorization", authHeader);
-        }
-        if (body != null) {
-            builder.header("Content-Type", "application/json");
-            builder.method(method, HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-        } else {
-            builder.method(method, HttpRequest.BodyPublishers.noBody());
-        }
-
-        try {
-            return http.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new OpencodeConnectionException("Interrupted while calling " + path, e);
-        } catch (java.net.http.HttpTimeoutException e) {
-            // a timeout is NOT unreachability - the server may be perfectly up,
-            // the call just exceeded its budget (e.g. a long-running agent
-            // reply). Milestone V finding: conflating the two produced
-            // misleading "Cannot reach opencode server" failure details.
-            throw new OpencodeConnectionException(
-                    "opencode " + method + " " + path + " timed out after " + timeout.toSeconds() + "s"
-                            + " (the server itself may still be healthy - raise the budget or check"
-                            + " whether the session is stuck busy)", e);
-        } catch (IOException e) {
-            throw new OpencodeConnectionException(
-                    "Cannot reach opencode server at " + baseUri + " (" + method + " " + path + ")", e);
-        }
-    }
-
-    /**
-     * Caps a diagnostic snippet. The knob'd tiers are {@link ClientTuning#SNIPPET_MIN}
-     * (warning logs) and {@link ClientTuning#SNIPPET_MAX} (error bodies); the 200/300
-     * values in between are fixed diagnostic verbosity, deliberately not knobs - they
-     * tune log detail, not operational behavior.
-     */
-    private static String truncate(String value, int max) {
-        if (value == null) {
-            return "";
-        }
-        return value.length() <= max ? value : value.substring(0, max) + "...";
-    }
+    return value.length() <= max ? value : value.substring(0, max) + "...";
+  }
 }

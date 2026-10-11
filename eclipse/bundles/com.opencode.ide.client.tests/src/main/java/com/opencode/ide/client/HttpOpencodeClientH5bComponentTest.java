@@ -5,65 +5,63 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.opencode.ide.client.model.FileStatus;
+import com.opencode.ide.client.model.OpencodeEvent;
+import com.opencode.ide.client.model.ProviderAuth;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.opencode.ide.client.model.FileStatus;
-import com.opencode.ide.client.model.OpencodeEvent;
-import com.opencode.ide.client.model.ProviderAuth;
-
 /**
- * Component test for the H5 remainder of the client surface (file status and
- * content, provider auth, the event SSE stream): real {@code HttpOpencodeClient}
- * over real HTTP against a local stub server, verifying paths, methods, bodies
- * and parsing. No Eclipse, no opencode. The stub harness is the shared
- * {@link StubHttpComponentTest} base (its SSE hook serves the event frame);
- * only the routing lives here.
+ * Component test for the H5 remainder of the client surface (file status and content, provider
+ * auth, the event SSE stream): real {@code HttpOpencodeClient} over real HTTP against a local stub
+ * server, verifying paths, methods, bodies and parsing. No Eclipse, no opencode. The stub harness
+ * is the shared {@link StubHttpComponentTest} base (its SSE hook serves the event frame); only the
+ * routing lives here.
  *
- * <p>Migrated to <b>opencode v2</b>: {@code GET /file/status} became
- * {@code GET /api/vcs/status}, and the two v1 event endpoints ({@code /event}
- * per project and {@code /global/event} with its {@code payload} envelope)
- * collapsed into a single {@code GET /api/event} stream whose frames carry the
- * payload under {@code data} and the owning worktree under
- * {@code location.directory}.</p>
+ * <p>Migrated to <b>opencode v2</b>: {@code GET /file/status} became {@code GET /api/vcs/status},
+ * and the two v1 event endpoints ({@code /event} per project and {@code /global/event} with its
+ * {@code payload} envelope) collapsed into a single {@code GET /api/event} stream whose frames
+ * carry the payload under {@code data} and the owning worktree under {@code location.directory}.
  */
 public class HttpOpencodeClientH5bComponentTest extends StubHttpComponentTest {
 
-    /**
-     * One v2 {@code /api/event} frame: {@code {id, created, type, location, data}}.
-     * There is no {@code payload} envelope any more - {@code location.directory}
-     * is what scopes the event, because one stream now serves every directory.
-     */
-    private static final String EVENT_JSON = "{\"id\":\"evt_1\",\"created\":1789885567144,"
-            + "\"type\":\"session.created\",\"location\":{\"directory\":\"C:\\\\repo\"},"
-            + "\"data\":{\"sessionID\":\"ses_g1\",\"slug\":\"shiny-tiger\",\"projectID\":\"prj_1\","
-            + "\"title\":\"Refactor the parser\"}}";
+  /**
+   * One v2 {@code /api/event} frame: {@code {id, created, type, location, data}}. There is no
+   * {@code payload} envelope any more - {@code location.directory} is what scopes the event,
+   * because one stream now serves every directory.
+   */
+  private static final String EVENT_JSON =
+      "{\"id\":\"evt_1\",\"created\":1789885567144,"
+          + "\"type\":\"session.created\",\"location\":{\"directory\":\"C:\\\\repo\"},"
+          + "\"data\":{\"sessionID\":\"ses_g1\",\"slug\":\"shiny-tiger\",\"projectID\":\"prj_1\","
+          + "\"title\":\"Refactor the parser\"}}";
 
-    @BeforeClass
-    public static void startStub() throws IOException {
-        sseEventJson = EVENT_JSON;
-        startStubServer(HttpOpencodeClientH5bComponentTest::respond);
-    }
+  @BeforeClass
+  public static void startStub() throws IOException {
+    sseEventJson = EVENT_JSON;
+    startStubServer(HttpOpencodeClientH5bComponentTest::respond);
+  }
 
-    private static String respond(String path) {
-        return switch (path) {
-            // v2: the changed-file list lives under /vcs (v1 served it at /file/status)
-            case "/api/vcs/status" -> """
+  private static String respond(String path) {
+    return switch (path) {
+      // v2: the changed-file list lives under /vcs (v1 served it at /file/status)
+      case "/api/vcs/status" ->
+          """
                     {"data":[{"path":"src/new.cpp","added":12,"removed":0,"status":"added"},
                              {"path":"src/old.cpp","added":1,"removed":5,"status":"modified"}]}
                     """;
-            // v2 serves raw file bytes at /fs/read/<path> (no JSON envelope);
-            // the stub sees the DECODED path (getPath() unescapes %20)
-            case "/api/fs/read/src/a b/main.cpp" -> "int main() { return 0; }";
-            // v2 OAuth: the provider's integration lists its methods, the first
-            // OAuth method starts via /api/integration/:id/connect/oauth
-            case "/api/integration" -> """
+      // v2 serves raw file bytes at /fs/read/<path> (no JSON envelope);
+      // the stub sees the DECODED path (getPath() unescapes %20)
+      case "/api/fs/read/src/a b/main.cpp" -> "int main() { return 0; }";
+      // v2 OAuth: the provider's integration lists its methods, the first
+      // OAuth method starts via /api/integration/:id/connect/oauth
+      case "/api/integration" ->
+          """
                     {"location":{},"data":[{"id":"anthropic","name":"Anthropic",
                       "methods":[{"type":"key"},{"id":"browser","type":"oauth","label":"Anthropic Console"}],
                       "connections":[]},
@@ -72,175 +70,181 @@ public class HttpOpencodeClientH5bComponentTest extends StubHttpComponentTest {
                                  {"id":"device","type":"oauth","label":"GitHub"}],
                       "connections":[]}]}
                     """;
-            case "/api/integration/anthropic/connect/oauth" ->
-                "{\"location\":{},\"data\":{\"attemptID\":\"att_1\",\"url\":\"https://auth.anthropic.com/oauth\",\"instructions\":\"open the url\",\"mode\":\"auto\",\"time\":{\"created\":1,\"expires\":2}}}";
-            default -> "{}";
-        };
-    }
+      case "/api/integration/anthropic/connect/oauth" ->
+          "{\"location\":{},\"data\":{\"attemptID\":\"att_1\",\"url\":\"https://auth.anthropic.com/oauth\",\"instructions\":\"open the url\",\"mode\":\"auto\",\"time\":{\"created\":1,\"expires\":2}}}";
+      default -> "{}";
+    };
+  }
 
-    @Test
-    public void fileStatusParsesEntriesFromTheVcsEndpoint() throws Exception {
-        List<FileStatus> status = client.getFileStatus();
-        assertEquals(2, status.size());
-        assertEquals("src/new.cpp", status.get(0).path());
-        assertEquals("added", status.get(0).status());
-        assertEquals(Integer.valueOf(12), status.get(0).added());
-        assertEquals(Integer.valueOf(0), status.get(0).removed());
-        assertEquals("modified", status.get(1).status());
-        assertEquals("GET", lastMethod.get());
-        assertEquals("v2 moved the changed-file list to /vcs/status", "/api/vcs/status", lastPath.get());
-        assertNull("the endpoint takes no path query", lastQuery.get());
-    }
+  @Test
+  public void fileStatusParsesEntriesFromTheVcsEndpoint() throws Exception {
+    List<FileStatus> status = client.getFileStatus();
+    assertEquals(2, status.size());
+    assertEquals("src/new.cpp", status.get(0).path());
+    assertEquals("added", status.get(0).status());
+    assertEquals(Integer.valueOf(12), status.get(0).added());
+    assertEquals(Integer.valueOf(0), status.get(0).removed());
+    assertEquals("modified", status.get(1).status());
+    assertEquals("GET", lastMethod.get());
+    assertEquals(
+        "v2 moved the changed-file list to /vcs/status", "/api/vcs/status", lastPath.get());
+    assertNull("the endpoint takes no path query", lastQuery.get());
+  }
 
-    /** REGRESSION: vcs/status resolves per location in v2 (unscoped = the user's home repo). */
-    @Test
-    public void fileStatusScopesWithLocationBracketSyntax() throws Exception {
-        client.getFileStatus("C:\\Development\\GitHub\\Hephaestus");
-        String q = lastQuery.get();
-        assertTrue("vcs/status scope must use bracket syntax, got: " + q,
-                q != null && q.startsWith("location%5Bdirectory%5D="));
-    }
+  /** REGRESSION: vcs/status resolves per location in v2 (unscoped = the user's home repo). */
+  @Test
+  public void fileStatusScopesWithLocationBracketSyntax() throws Exception {
+    client.getFileStatus("C:\\Development\\GitHub\\Hephaestus");
+    String q = lastQuery.get();
+    assertTrue(
+        "vcs/status scope must use bracket syntax, got: " + q,
+        q != null && q.startsWith("location%5Bdirectory%5D="));
+  }
 
-    @Test
-    public void fileStatusEmptyOn404() throws Exception {
-        statusOverride.set(404);
-        assertTrue(client.getFileStatus().isEmpty());
-    }
+  @Test
+  public void fileStatusEmptyOn404() throws Exception {
+    statusOverride.set(404);
+    assertTrue(client.getFileStatus().isEmpty());
+  }
 
-    @Test
-    public void fileStatusToleratesMissingFields() throws Exception {
-        bodyOverride.set("{\"data\":[{\"path\":\"src/x.cpp\"},{}]}");
-        List<FileStatus> status = client.getFileStatus();
-        assertEquals(2, status.size());
-        assertEquals("src/x.cpp", status.get(0).path());
-        assertNull(status.get(0).status());
-        assertNull(status.get(0).added());
-        assertNull(status.get(1).path());
-    }
+  @Test
+  public void fileStatusToleratesMissingFields() throws Exception {
+    bodyOverride.set("{\"data\":[{\"path\":\"src/x.cpp\"},{}]}");
+    List<FileStatus> status = client.getFileStatus();
+    assertEquals(2, status.size());
+    assertEquals("src/x.cpp", status.get(0).path());
+    assertNull(status.get(0).status());
+    assertNull(status.get(0).added());
+    assertNull(status.get(1).path());
+  }
 
-    @Test
-    public void fileContentReturnsRawBytesAndEncodesPath() throws Exception {
-        String content = client.getFileContent("src/a b/main.cpp");
-        assertEquals("int main() { return 0; }", content);
-        assertEquals("v2 reads raw bytes at /fs/read/<path>", "/api/fs/read/src/a b/main.cpp", lastPath.get());
-        assertNull("no query string on the v2 route", lastQuery.get());
-    }
+  @Test
+  public void fileContentReturnsRawBytesAndEncodesPath() throws Exception {
+    String content = client.getFileContent("src/a b/main.cpp");
+    assertEquals("int main() { return 0; }", content);
+    assertEquals(
+        "v2 reads raw bytes at /fs/read/<path>", "/api/fs/read/src/a b/main.cpp", lastPath.get());
+    assertNull("no query string on the v2 route", lastQuery.get());
+  }
 
-    @Test
-    public void fileContentNullOn404() throws Exception {
-        statusOverride.set(404);
-        assertNull(client.getFileContent("missing.cpp"));
-    }
+  @Test
+  public void fileContentNullOn404() throws Exception {
+    statusOverride.set(404);
+    assertNull(client.getFileContent("missing.cpp"));
+  }
 
-    @Test
-    public void fileContentPassesTextThroughUnparsed() throws Exception {
-        // raw bytes are returned as-is - there is no JSON envelope to reject
-        bodyOverride.set("<<not-json>>");
-        assertEquals("<<not-json>>", client.getFileContent("src/a.cpp"));
-    }
+  @Test
+  public void fileContentPassesTextThroughUnparsed() throws Exception {
+    // raw bytes are returned as-is - there is no JSON envelope to reject
+    bodyOverride.set("<<not-json>>");
+    assertEquals("<<not-json>>", client.getFileContent("src/a.cpp"));
+  }
 
-    @Test
-    public void providerAuthsFlattenTheV2IntegrationCatalog() throws Exception {
-        List<ProviderAuth> auths = client.getProviderAuths();
-        assertEquals(4, auths.size());
-        assertEquals("anthropic", auths.get(0).provider());
-        assertEquals("key", auths.get(0).type());
-        assertNull(auths.get(0).label());
-        assertEquals("Anthropic Console", auths.get(1).label());
-        assertEquals("oauth", auths.get(1).type());
-        assertEquals("github-copilot", auths.get(2).provider());
-        assertEquals("env", auths.get(2).type());
-        assertEquals("oauth", auths.get(3).type());
-        assertEquals("GET", lastMethod.get());
-        assertEquals("/api/integration", lastPath.get());
-        assertNull(lastQuery.get());
-    }
+  @Test
+  public void providerAuthsFlattenTheV2IntegrationCatalog() throws Exception {
+    List<ProviderAuth> auths = client.getProviderAuths();
+    assertEquals(4, auths.size());
+    assertEquals("anthropic", auths.get(0).provider());
+    assertEquals("key", auths.get(0).type());
+    assertNull(auths.get(0).label());
+    assertEquals("Anthropic Console", auths.get(1).label());
+    assertEquals("oauth", auths.get(1).type());
+    assertEquals("github-copilot", auths.get(2).provider());
+    assertEquals("env", auths.get(2).type());
+    assertEquals("oauth", auths.get(3).type());
+    assertEquals("GET", lastMethod.get());
+    assertEquals("/api/integration", lastPath.get());
+    assertNull(lastQuery.get());
+  }
 
-    @Test
-    public void providerAuthCatalogScopesToTheProject() throws Exception {
-        client.getProviderAuths("C:\\repo with spaces");
-        assertEquals("/api/integration", lastPath.get());
-        assertEquals("location%5Bdirectory%5D=C%3A%5Crepo%20with%20spaces", lastQuery.get());
-    }
+  @Test
+  public void providerAuthCatalogScopesToTheProject() throws Exception {
+    client.getProviderAuths("C:\\repo with spaces");
+    assertEquals("/api/integration", lastPath.get());
+    assertEquals("location%5Bdirectory%5D=C%3A%5Crepo%20with%20spaces", lastQuery.get());
+  }
 
-    @Test
-    public void providerAuthsSkipIncompleteIntegrationsAndMethods() throws Exception {
-        bodyOverride.set("""
+  @Test
+  public void providerAuthsSkipIncompleteIntegrationsAndMethods() throws Exception {
+    bodyOverride.set(
+        """
                 {"data":[null,{},
                   {"id":"missing","methods":null},
                   {"id":"wrong-shape","methods":"bad"},
                   {"id":"valid","methods":[null,{},false,{"type":"key"}]}]}
                 """);
-        assertEquals(List.of(new ProviderAuth("valid", "key", null)), client.getProviderAuths());
+    assertEquals(List.of(new ProviderAuth("valid", "key", null)), client.getProviderAuths());
+  }
+
+  @Test
+  public void providerAuthsLenientOn404MalformedAndWrongShape() throws Exception {
+    statusOverride.set(404);
+    assertTrue(client.getProviderAuths().isEmpty());
+
+    statusOverride.set(200);
+    bodyOverride.set("[{\"type\":\"oauth\"}]"); // catalog requires a data envelope
+    assertTrue(client.getProviderAuths().isEmpty());
+
+    bodyOverride.set("{\"anthropic\":[{\"type\":\"oauth\"}]}"); // retired method-map shape
+    assertTrue(client.getProviderAuths().isEmpty());
+
+    bodyOverride.set("{\"data\":null}");
+    assertTrue(client.getProviderAuths().isEmpty());
+
+    bodyOverride.set("<<garbage>>");
+    assertTrue(client.getProviderAuths().isEmpty());
+  }
+
+  @Test
+  public void startProviderOauthUsesTheIntegrationFlowAndSucceeds() throws Exception {
+    assertTrue(client.startProviderOauth("anthropic"));
+    assertEquals("POST", lastMethod.get());
+    assertEquals("/api/integration/anthropic/connect/oauth", lastPath.get());
+    assertTrue(lastBody.get().contains("\"methodID\":\"browser\""));
+  }
+
+  @Test
+  public void startProviderOauthFalseOnErrorOrMissingUrl() throws Exception {
+    statusOverride.set(400);
+    assertFalse(client.startProviderOauth("anthropic"));
+
+    statusOverride.set(200);
+    bodyOverride.set(""); // 200 with no body - the attempt could not be read
+    assertFalse(client.startProviderOauth("anthropic"));
+
+    bodyOverride.set("{}"); // 200 without an authorization url
+    assertFalse(client.startProviderOauth("anthropic"));
+
+    bodyOverride.set("<<garbage>>");
+    assertFalse(client.startProviderOauth("anthropic"));
+  }
+
+  /**
+   * v1 had two event endpoints and wrapped the global one in a {@code payload} envelope; v2 serves
+   * a single {@code /api/event} stream for every directory, so the frame's {@code data} IS the
+   * payload and {@code location.directory} is what tells the IDE which worktree an event belongs
+   * to.
+   */
+  @Test
+  public void eventStreamDeliversOneEventCarryingItsDirectory() throws Exception {
+    CountDownLatch received = new CountDownLatch(1);
+    AtomicReference<OpencodeEvent> event = new AtomicReference<>();
+    OpencodeEventStream stream =
+        client.getGlobalEvents(
+            e -> {
+              event.set(e);
+              received.countDown();
+            },
+            null);
+    try {
+      stream.start();
+      assertTrue("expected one event within 5s", received.await(5, TimeUnit.SECONDS));
+      assertEquals("v2 serves one stream for all directories", "/api/event", lastPath.get());
+      assertEquals("session.created", event.get().type());
+      assertEquals("the frame's `data` is the payload", "ses_g1", event.get().string("sessionID"));
+      assertEquals("location.directory scopes the event", "C:\\repo", event.get().directory());
+    } finally {
+      stream.stop();
     }
-
-    @Test
-    public void providerAuthsLenientOn404MalformedAndWrongShape() throws Exception {
-        statusOverride.set(404);
-        assertTrue(client.getProviderAuths().isEmpty());
-
-        statusOverride.set(200);
-        bodyOverride.set("[{\"type\":\"oauth\"}]"); // catalog requires a data envelope
-        assertTrue(client.getProviderAuths().isEmpty());
-
-        bodyOverride.set("{\"anthropic\":[{\"type\":\"oauth\"}]}"); // retired method-map shape
-        assertTrue(client.getProviderAuths().isEmpty());
-
-        bodyOverride.set("{\"data\":null}");
-        assertTrue(client.getProviderAuths().isEmpty());
-
-        bodyOverride.set("<<garbage>>");
-        assertTrue(client.getProviderAuths().isEmpty());
-    }
-
-    @Test
-    public void startProviderOauthUsesTheIntegrationFlowAndSucceeds() throws Exception {
-        assertTrue(client.startProviderOauth("anthropic"));
-        assertEquals("POST", lastMethod.get());
-        assertEquals("/api/integration/anthropic/connect/oauth", lastPath.get());
-        assertTrue(lastBody.get().contains("\"methodID\":\"browser\""));
-    }
-
-    @Test
-    public void startProviderOauthFalseOnErrorOrMissingUrl() throws Exception {
-        statusOverride.set(400);
-        assertFalse(client.startProviderOauth("anthropic"));
-
-        statusOverride.set(200);
-        bodyOverride.set(""); // 200 with no body - the attempt could not be read
-        assertFalse(client.startProviderOauth("anthropic"));
-
-        bodyOverride.set("{}"); // 200 without an authorization url
-        assertFalse(client.startProviderOauth("anthropic"));
-
-        bodyOverride.set("<<garbage>>");
-        assertFalse(client.startProviderOauth("anthropic"));
-    }
-
-    /**
-     * v1 had two event endpoints and wrapped the global one in a
-     * {@code payload} envelope; v2 serves a single {@code /api/event} stream for
-     * every directory, so the frame's {@code data} IS the payload and
-     * {@code location.directory} is what tells the IDE which worktree an event
-     * belongs to.
-     */
-    @Test
-    public void eventStreamDeliversOneEventCarryingItsDirectory() throws Exception {
-        CountDownLatch received = new CountDownLatch(1);
-        AtomicReference<OpencodeEvent> event = new AtomicReference<>();
-        OpencodeEventStream stream = client.getGlobalEvents(e -> {
-            event.set(e);
-            received.countDown();
-        }, null);
-        try {
-            stream.start();
-            assertTrue("expected one event within 5s", received.await(5, TimeUnit.SECONDS));
-            assertEquals("v2 serves one stream for all directories", "/api/event", lastPath.get());
-            assertEquals("session.created", event.get().type());
-            assertEquals("the frame's `data` is the payload", "ses_g1", event.get().string("sessionID"));
-            assertEquals("location.directory scopes the event", "C:\\repo", event.get().directory());
-        } finally {
-            stream.stop();
-        }
-    }
+  }
 }

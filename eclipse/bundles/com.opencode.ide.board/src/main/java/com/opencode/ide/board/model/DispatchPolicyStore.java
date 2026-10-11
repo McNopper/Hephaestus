@@ -2,257 +2,268 @@ package com.opencode.ide.board.model;
 
 import com.opencode.ide.fleet.dispatch.AutoDispatch;
 import com.opencode.ide.tasks.VStages;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.osgi.service.prefs.BackingStoreException;
 
 /**
- * SWT-free persistence for the dispatch policy (H6): one {@link AutoDispatch}
- * plus the optional per-launch bootstrap (agent + command strings, blank =
- * none) under stable keys of a stable node, backend-agnostic through the tiny
- * {@link Backend} seam — production runs on Eclipse instance preferences
- * ({@link #eclipse()}, the core {@code OpencodePreferences} pattern), tests
- * on an in-memory fake. Both Board dispatch actions load through
- * {@link #load()} at action time, so dialog edits apply without a restart.
+ * SWT-free persistence for the dispatch policy (H6): one {@link AutoDispatch} plus the optional
+ * per-launch bootstrap (agent + command strings, blank = none) under stable keys of a stable node,
+ * backend-agnostic through the tiny {@link Backend} seam — production runs on Eclipse instance
+ * preferences ({@link #eclipse()}, the core {@code OpencodePreferences} pattern), tests on an
+ * in-memory fake. Both Board dispatch actions load through {@link #load()} at action time, so
+ * dialog edits apply without a restart.
  *
- * <p>Load validation (documented rules — a broken stored value never breaks
- * dispatch): {@code maxConcurrent} must parse to an {@code int >= 1}, else
- * the default {@value #DEFAULT_MAX_CONCURRENT} applies (absent, corrupt, or
- * out of range); {@code costBudgetUsd} must parse to a finite
- * {@code double >= 0}, else the default {@value #DEFAULT_COST_BUDGET_USD}
- * applies; {@code includeStale} is true only when the stored value is
- * exactly {@code "true"} — absent or corrupt reads as the default false.
- * Bootstrap strings are trimmed; blank means none. {@link #load()} never
- * throws: a failing backend yields {@link #defaults()}.</p>
+ * <p>Load validation (documented rules — a broken stored value never breaks dispatch): {@code
+ * maxConcurrent} must parse to an {@code int >= 1}, else the default {@value
+ * #DEFAULT_MAX_CONCURRENT} applies (absent, corrupt, or out of range); {@code costBudgetUsd} must
+ * parse to a finite {@code double >= 0}, else the default {@value #DEFAULT_COST_BUDGET_USD}
+ * applies; {@code includeStale} is true only when the stored value is exactly {@code "true"} —
+ * absent or corrupt reads as the default false. Bootstrap strings are trimmed; blank means none.
+ * {@link #load()} never throws: a failing backend yields {@link #defaults()}.
  */
 public final class DispatchPolicyStore {
 
-    /** Stable instance-preferences node (see {@link #eclipse()}). */
-    public static final String NODE = "com.opencode.ide.board.dispatchPolicy";
+  /** Stable instance-preferences node (see {@link #eclipse()}). */
+  public static final String NODE = "com.opencode.ide.board.dispatchPolicy";
 
-    /** Stable keys under {@link #NODE}. */
-    public static final String KEY_MAX_CONCURRENT = "maxConcurrent";
-    public static final String KEY_COST_BUDGET_USD = "costBudgetUsd";
-    public static final String KEY_INCLUDE_STALE = "includeStale";
-    public static final String KEY_BOOTSTRAP_AGENT = "bootstrapAgent";
-    public static final String KEY_BOOTSTRAP_COMMAND = "bootstrapCommand";
-    /** U-072: the per-stage model policy, one pipe-serialized value (see {@link #loadStageModels()}). */
-    public static final String KEY_STAGE_MODELS = "stageModels";
+  /** Stable keys under {@link #NODE}. */
+  public static final String KEY_MAX_CONCURRENT = "maxConcurrent";
 
-    /** The default concurrency (also the fallback of a corrupt {@link #KEY_MAX_CONCURRENT}). */
-    public static final int DEFAULT_MAX_CONCURRENT = 4;
+  public static final String KEY_COST_BUDGET_USD = "costBudgetUsd";
+  public static final String KEY_INCLUDE_STALE = "includeStale";
+  public static final String KEY_BOOTSTRAP_AGENT = "bootstrapAgent";
+  public static final String KEY_BOOTSTRAP_COMMAND = "bootstrapCommand";
 
-    /**
-     * The default cost budget in USD (also the fallback of an absent,
-     * corrupt, or out-of-range {@link #KEY_COST_BUDGET_USD}): bounded on
-     * purpose — {@code 0} means unlimited, and unlimited is not a safe
-     * default (see {@link #defaults()}).
-     */
-    public static final double DEFAULT_COST_BUDGET_USD = 5;
+  /**
+   * U-072: the per-stage model policy, one pipe-serialized value (see {@link #loadStageModels()}).
+   */
+  public static final String KEY_STAGE_MODELS = "stageModels";
 
-    /**
-     * The default {@code includeStale} (also the fallback of an absent or
-     * corrupt {@link #KEY_INCLUDE_STALE}): STALE re-runs wait for an
-     * explicit opt-in (see {@link #defaults()}).
-     */
-    public static final boolean DEFAULT_INCLUDE_STALE = false;
+  /** The default concurrency (also the fallback of a corrupt {@link #KEY_MAX_CONCURRENT}). */
+  public static final int DEFAULT_MAX_CONCURRENT = 4;
 
-    private final Backend backend;
+  /**
+   * The default cost budget in USD (also the fallback of an absent, corrupt, or out-of-range {@link
+   * #KEY_COST_BUDGET_USD}): bounded on purpose — {@code 0} means unlimited, and unlimited is not a
+   * safe default (see {@link #defaults()}).
+   */
+  public static final double DEFAULT_COST_BUDGET_USD = 5;
 
-    /**
-     * One stored dispatch policy plus its bootstrap strings (trimmed;
-     * blank means none).
-     */
-    public record DispatchSettings(AutoDispatch policy, String bootstrapAgent, String bootstrapCommand) {
+  /**
+   * The default {@code includeStale} (also the fallback of an absent or corrupt {@link
+   * #KEY_INCLUDE_STALE}): STALE re-runs wait for an explicit opt-in (see {@link #defaults()}).
+   */
+  public static final boolean DEFAULT_INCLUDE_STALE = false;
 
-        /** Normalizes: non-null policy, trimmed never-null bootstrap strings. */
-        public DispatchSettings {
-            policy = Objects.requireNonNull(policy, "policy");
-            bootstrapAgent = stripToEmpty(bootstrapAgent);
-            bootstrapCommand = stripToEmpty(bootstrapCommand);
-        }
+  private final Backend backend;
 
-        private static String stripToEmpty(String value) {
-            return value == null ? "" : value.strip();
-        }
+  /** One stored dispatch policy plus its bootstrap strings (trimmed; blank means none). */
+  public record DispatchSettings(
+      AutoDispatch policy, String bootstrapAgent, String bootstrapCommand) {
+
+    /** Normalizes: non-null policy, trimmed never-null bootstrap strings. */
+    public DispatchSettings {
+      policy = Objects.requireNonNull(policy, "policy");
+      bootstrapAgent = stripToEmpty(bootstrapAgent);
+      bootstrapCommand = stripToEmpty(bootstrapCommand);
     }
 
-    /** Minimal string key/value persistence the store runs on (java.util.prefs-style). */
-    public interface Backend {
-
-        /** @return the stored value, or {@code null} when the key is absent */
-        String get(String key);
-
-        void put(String key, String value);
-
-        /** Persists pending writes; may throw when persistence is unavailable. */
-        void flush();
+    private static String stripToEmpty(String value) {
+      return value == null ? "" : value.strip();
     }
+  }
+
+  /** Minimal string key/value persistence the store runs on (java.util.prefs-style). */
+  public interface Backend {
 
     /**
-     * @param backend the persistence seam; production uses {@link #eclipse()},
-     *                tests an in-memory fake
+     * @return the stored value, or {@code null} when the key is absent
      */
-    public DispatchPolicyStore(Backend backend) {
-        this.backend = Objects.requireNonNull(backend, "backend");
-    }
+    String get(String key);
 
-    /** Production store over Eclipse instance preferences (node {@value #NODE}). */
-    public static DispatchPolicyStore eclipse() {
-        IEclipsePreferences node = InstanceScope.INSTANCE.getNode(NODE);
-        return new DispatchPolicyStore(new Backend() {
-            @Override
-            public String get(String key) {
-                return node.get(key, null);
-            }
+    void put(String key, String value);
 
-            @Override
-            public void put(String key, String value) {
-                node.put(key, value);
-            }
+    /** Persists pending writes; may throw when persistence is unavailable. */
+    void flush();
+  }
 
-            @Override
-            public void flush() {
-                try {
-                    node.flush();
-                } catch (BackingStoreException e) {
-                    throw new IllegalStateException("cannot persist dispatch settings: " + e.getMessage(), e);
-                }
+  /**
+   * @param backend the persistence seam; production uses {@link #eclipse()}, tests an in-memory
+   *     fake
+   */
+  public DispatchPolicyStore(Backend backend) {
+    this.backend = Objects.requireNonNull(backend, "backend");
+  }
+
+  /** Production store over Eclipse instance preferences (node {@value #NODE}). */
+  public static DispatchPolicyStore eclipse() {
+    IEclipsePreferences node = InstanceScope.INSTANCE.getNode(NODE);
+    return new DispatchPolicyStore(
+        new Backend() {
+          @Override
+          public String get(String key) {
+            return node.get(key, null);
+          }
+
+          @Override
+          public void put(String key, String value) {
+            node.put(key, value);
+          }
+
+          @Override
+          public void flush() {
+            try {
+              node.flush();
+            } catch (BackingStoreException e) {
+              throw new IllegalStateException(
+                  "cannot persist dispatch settings: " + e.getMessage(), e);
             }
+          }
         });
-    }
+  }
 
-    /**
-     * The safe defaults (P-003): {@code AutoDispatch.of(4, 5, false)} —
-     * concurrency {@value #DEFAULT_MAX_CONCURRENT}, an explicit
-     * ${@value #DEFAULT_COST_BUDGET_USD} budget, {@code includeStale} off —
-     * and no bootstrap. Why bounded and stale-off: a zero (unlimited) budget
-     * combined with {@code includeStale} on and a churning STALE ticket is
-     * an unbounded token burn loop — every admitted re-run books the
-     * {@link AutoDispatch#ESTIMATED_COST_USD} placeholder against no cap,
-     * and the next snapshot admits it again — so out of the box spend is
-     * bounded and STALE re-runs need an explicit opt-in.
-     */
-    public static DispatchSettings defaults() {
-        return new DispatchSettings(
-                AutoDispatch.of(DEFAULT_MAX_CONCURRENT, DEFAULT_COST_BUDGET_USD, DEFAULT_INCLUDE_STALE), "", "");
-    }
+  /**
+   * The safe defaults (P-003): {@code AutoDispatch.of(4, 5, false)} — concurrency {@value
+   * #DEFAULT_MAX_CONCURRENT}, an explicit ${@value #DEFAULT_COST_BUDGET_USD} budget, {@code
+   * includeStale} off — and no bootstrap. Why bounded and stale-off: a zero (unlimited) budget
+   * combined with {@code includeStale} on and a churning STALE ticket is an unbounded token burn
+   * loop — every admitted re-run books the {@link AutoDispatch#ESTIMATED_COST_USD} placeholder
+   * against no cap, and the next snapshot admits it again — so out of the box spend is bounded and
+   * STALE re-runs need an explicit opt-in.
+   */
+  public static DispatchSettings defaults() {
+    return new DispatchSettings(
+        AutoDispatch.of(DEFAULT_MAX_CONCURRENT, DEFAULT_COST_BUDGET_USD, DEFAULT_INCLUDE_STALE),
+        "",
+        "");
+  }
 
-    /** Loads and validates (see class doc); never throws — a failing backend yields {@link #defaults()}. */
-    public DispatchSettings load() {
-        try {
-            return new DispatchSettings(
-                    AutoDispatch.of(maxConcurrentOf(backend.get(KEY_MAX_CONCURRENT)),
-                            budgetOf(backend.get(KEY_COST_BUDGET_USD)),
-                            "true".equals(backend.get(KEY_INCLUDE_STALE))),
-                    backend.get(KEY_BOOTSTRAP_AGENT),
-                    backend.get(KEY_BOOTSTRAP_COMMAND));
-        } catch (RuntimeException e) {
-            return defaults();
-        }
+  /**
+   * Loads and validates (see class doc); never throws — a failing backend yields {@link
+   * #defaults()}.
+   */
+  public DispatchSettings load() {
+    try {
+      return new DispatchSettings(
+          AutoDispatch.of(
+              maxConcurrentOf(backend.get(KEY_MAX_CONCURRENT)),
+              budgetOf(backend.get(KEY_COST_BUDGET_USD)),
+              "true".equals(backend.get(KEY_INCLUDE_STALE))),
+          backend.get(KEY_BOOTSTRAP_AGENT),
+          backend.get(KEY_BOOTSTRAP_COMMAND));
+    } catch (RuntimeException e) {
+      return defaults();
     }
+  }
 
-    /** Persists all five values; a flush failure propagates (the dialog shows it). */
-    public void save(DispatchSettings settings) {
-        DispatchSettings value = Objects.requireNonNull(settings, "settings");
-        backend.put(KEY_MAX_CONCURRENT, Integer.toString(value.policy().maxConcurrent()));
-        backend.put(KEY_COST_BUDGET_USD, Double.toString(value.policy().costBudgetUsd()));
-        backend.put(KEY_INCLUDE_STALE, Boolean.toString(value.policy().includeStale()));
-        backend.put(KEY_BOOTSTRAP_AGENT, value.bootstrapAgent());
-        backend.put(KEY_BOOTSTRAP_COMMAND, value.bootstrapCommand());
-        backend.flush();
-    }
+  /** Persists all five values; a flush failure propagates (the dialog shows it). */
+  public void save(DispatchSettings settings) {
+    DispatchSettings value = Objects.requireNonNull(settings, "settings");
+    backend.put(KEY_MAX_CONCURRENT, Integer.toString(value.policy().maxConcurrent()));
+    backend.put(KEY_COST_BUDGET_USD, Double.toString(value.policy().costBudgetUsd()));
+    backend.put(KEY_INCLUDE_STALE, Boolean.toString(value.policy().includeStale()));
+    backend.put(KEY_BOOTSTRAP_AGENT, value.bootstrapAgent());
+    backend.put(KEY_BOOTSTRAP_COMMAND, value.bootstrapCommand());
+    backend.flush();
+  }
 
-    /**
-     * The per-stage model policy (U-072): {@code V-stage -> provider/model[#variant]},
-     * empty when unset. Load sanitizes: entries for stages outside
-     * {@link com.opencode.ide.tasks.VStages#STAGES} and values without the
-     * {@code provider/model} shape (or carrying whitespace/separator
-     * characters) are dropped - a broken stored value never breaks dispatch.
-     */
-    public Map<String, String> loadStageModels() {
-        try {
-            return parseStageModels(backend.get(KEY_STAGE_MODELS));
-        } catch (RuntimeException e) {
-            return Map.of();
-        }
+  /**
+   * The per-stage model policy (U-072): {@code V-stage -> provider/model[#variant]}, empty when
+   * unset. Load sanitizes: entries for stages outside {@link com.opencode.ide.tasks.VStages#STAGES}
+   * and values without the {@code provider/model} shape (or carrying whitespace/separator
+   * characters) are dropped - a broken stored value never breaks dispatch.
+   */
+  public Map<String, String> loadStageModels() {
+    try {
+      return parseStageModels(backend.get(KEY_STAGE_MODELS));
+    } catch (RuntimeException e) {
+      return Map.of();
     }
+  }
 
-    /** Persists the whole map under one key (blank when empty); flush failure propagates like {@link #save}. */
-    public void saveStageModels(Map<String, String> stageModels) {
-        backend.put(KEY_STAGE_MODELS, serializeStageModels(stageModels));
-        backend.flush();
-    }
+  /**
+   * Persists the whole map under one key (blank when empty); flush failure propagates like {@link
+   * #save}.
+   */
+  public void saveStageModels(Map<String, String> stageModels) {
+    backend.put(KEY_STAGE_MODELS, serializeStageModels(stageModels));
+    backend.flush();
+  }
 
-    /** Parses {@code stage=model|stage=model}, keeping only known stages with plausible models. */
-    static Map<String, String> parseStageModels(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return Map.of();
-        }
-        Map<String, String> parsed = new LinkedHashMap<>();
-        for (String entry : raw.split("\\|")) {
-            int eq = entry.indexOf('=');
-            if (eq <= 0 || eq == entry.length() - 1) {
-                continue;
-            }
-            String stage = entry.substring(0, eq).strip();
-            String model = entry.substring(eq + 1).strip();
-            if (VStages.STAGES.contains(stage) && plausibleModel(model)) {
-                parsed.put(stage, model);
-            }
-        }
-        return parsed;
+  /** Parses {@code stage=model|stage=model}, keeping only known stages with plausible models. */
+  static Map<String, String> parseStageModels(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return Map.of();
     }
+    Map<String, String> parsed = new LinkedHashMap<>();
+    for (String entry : raw.split("\\|")) {
+      int eq = entry.indexOf('=');
+      if (eq <= 0 || eq == entry.length() - 1) {
+        continue;
+      }
+      String stage = entry.substring(0, eq).strip();
+      String model = entry.substring(eq + 1).strip();
+      if (VStages.STAGES.contains(stage) && plausibleModel(model)) {
+        parsed.put(stage, model);
+      }
+    }
+    return parsed;
+  }
 
-    /** Serializes deterministically (sorted by stage); null/blank entries and implausible values are skipped. */
-    static String serializeStageModels(Map<String, String> stageModels) {
-        if (stageModels == null || stageModels.isEmpty()) {
-            return "";
-        }
-        return stageModels.entrySet().stream()
-                .filter(e -> e.getKey() != null && VStages.STAGES.contains(e.getKey()))
-                .filter(e -> plausibleModel(e.getValue()))
-                .sorted(Map.Entry.comparingByKey())
-                .map(e -> e.getKey() + "=" + e.getValue())
-                .collect(java.util.stream.Collectors.joining("|"));
+  /**
+   * Serializes deterministically (sorted by stage); null/blank entries and implausible values are
+   * skipped.
+   */
+  static String serializeStageModels(Map<String, String> stageModels) {
+    if (stageModels == null || stageModels.isEmpty()) {
+      return "";
     }
+    return stageModels.entrySet().stream()
+        .filter(e -> e.getKey() != null && VStages.STAGES.contains(e.getKey()))
+        .filter(e -> plausibleModel(e.getValue()))
+        .sorted(Map.Entry.comparingByKey())
+        .map(e -> e.getKey() + "=" + e.getValue())
+        .collect(java.util.stream.Collectors.joining("|"));
+  }
 
-    /** {@code provider/modelId} or {@code provider/modelId#variant} - one slash, no whitespace, no separators. */
-    public static boolean plausibleModel(String value) {
-        if (value == null || value.isBlank() || !value.contains("/")) {
-            return false;
-        }
-        return !value.matches(".*[\\s|=].*");
+  /**
+   * {@code provider/modelId} or {@code provider/modelId#variant} - one slash, no whitespace, no
+   * separators.
+   */
+  public static boolean plausibleModel(String value) {
+    if (value == null || value.isBlank() || !value.contains("/")) {
+      return false;
     }
+    return !value.matches(".*[\\s|=].*");
+  }
 
-    /** An {@code int >= 1} or the default (see class doc). */
-    private static int maxConcurrentOf(String raw) {
-        if (raw == null) {
-            return DEFAULT_MAX_CONCURRENT;
-        }
-        try {
-            int parsed = Integer.parseInt(raw.strip());
-            return parsed >= 1 ? parsed : DEFAULT_MAX_CONCURRENT;
-        } catch (NumberFormatException e) {
-            return DEFAULT_MAX_CONCURRENT;
-        }
+  /** An {@code int >= 1} or the default (see class doc). */
+  private static int maxConcurrentOf(String raw) {
+    if (raw == null) {
+      return DEFAULT_MAX_CONCURRENT;
     }
+    try {
+      int parsed = Integer.parseInt(raw.strip());
+      return parsed >= 1 ? parsed : DEFAULT_MAX_CONCURRENT;
+    } catch (NumberFormatException e) {
+      return DEFAULT_MAX_CONCURRENT;
+    }
+  }
 
-    /** A finite {@code double >= 0} or the default budget (see class doc). */
-    private static double budgetOf(String raw) {
-        if (raw == null) {
-            return DEFAULT_COST_BUDGET_USD;
-        }
-        try {
-            double parsed = Double.parseDouble(raw.strip());
-            return Double.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_COST_BUDGET_USD;
-        } catch (NumberFormatException e) {
-            return DEFAULT_COST_BUDGET_USD;
-        }
+  /** A finite {@code double >= 0} or the default budget (see class doc). */
+  private static double budgetOf(String raw) {
+    if (raw == null) {
+      return DEFAULT_COST_BUDGET_USD;
     }
+    try {
+      double parsed = Double.parseDouble(raw.strip());
+      return Double.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_COST_BUDGET_USD;
+    } catch (NumberFormatException e) {
+      return DEFAULT_COST_BUDGET_USD;
+    }
+  }
 }

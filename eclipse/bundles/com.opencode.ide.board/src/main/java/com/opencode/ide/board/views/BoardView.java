@@ -1,5 +1,43 @@
 package com.opencode.ide.board.views;
 
+import com.opencode.ide.board.fleet.FleetJobHandle;
+import com.opencode.ide.board.fleet.FleetLauncher;
+import com.opencode.ide.board.fleet.FleetShutdownTexts;
+import com.opencode.ide.board.fleet.TaskFleetLauncher;
+import com.opencode.ide.board.internal.BoardPlugin;
+import com.opencode.ide.board.model.BoardDispatch;
+import com.opencode.ide.board.model.BoardModel;
+import com.opencode.ide.board.model.BoardModel.BoardMode;
+import com.opencode.ide.board.model.BoardSnapshot;
+import com.opencode.ide.board.model.DispatchPolicyStore;
+import com.opencode.ide.board.model.FleetJobsModel;
+import com.opencode.ide.board.model.FreshnessStamp;
+import com.opencode.ide.board.model.PipelineSnapshot;
+import com.opencode.ide.board.model.RefreshGate;
+import com.opencode.ide.board.model.SprintSelection;
+import com.opencode.ide.board.model.StageColumn;
+import com.opencode.ide.board.model.StageJourney;
+import com.opencode.ide.board.model.StageSelection;
+import com.opencode.ide.board.model.TakeoverRouter;
+import com.opencode.ide.board.model.TaskStoreWatcher;
+import com.opencode.ide.board.model.TicketRow;
+import com.opencode.ide.board.model.VStageLayout;
+import com.opencode.ide.board.model.WaveDigest;
+import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.core.TasksRootResolution;
+import com.opencode.ide.fleet.Bootstrap;
+import com.opencode.ide.fleet.FleetTuning;
+import com.opencode.ide.fleet.dispatch.AutoDispatch;
+import com.opencode.ide.fleet.dispatch.CostOverview;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler;
+import com.opencode.ide.fleet.dispatch.RecurringWaves;
+import com.opencode.ide.git.FleetGit;
+import com.opencode.ide.git.StoreGitStatus;
+import com.opencode.ide.git.StoreSync;
+import com.opencode.ide.tasks.StageReadiness;
+import com.opencode.ide.tasks.Task;
+import com.opencode.ide.tasks.TaskStore;
+import com.opencode.ide.tasks.VStages;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -11,7 +49,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
@@ -19,9 +56,9 @@ import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.ControlContribution;
 import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.IStatusLineManager;
-import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.Separator;
+import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.dialogs.InputDialog;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.TableColumnLayout;
@@ -72,3030 +109,3252 @@ import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.part.ViewPart;
 
-import com.opencode.ide.board.fleet.FleetJobHandle;
-import com.opencode.ide.board.fleet.FleetLauncher;
-import com.opencode.ide.board.fleet.FleetShutdownTexts;
-import com.opencode.ide.board.fleet.TaskFleetLauncher;
-import com.opencode.ide.board.internal.BoardPlugin;
-import com.opencode.ide.fleet.dispatch.AutoDispatch;
-import com.opencode.ide.fleet.dispatch.CostOverview;
-import com.opencode.ide.board.model.BoardModel;
-import com.opencode.ide.board.model.BoardDispatch;
-import com.opencode.ide.board.model.BoardModel.BoardMode;
-import com.opencode.ide.board.model.BoardSnapshot;
-import com.opencode.ide.board.model.DispatchPolicyStore;
-import com.opencode.ide.fleet.dispatch.DispatchScheduler;
-import com.opencode.ide.fleet.dispatch.RecurringWaves;
-import com.opencode.ide.board.model.FleetJobsModel;
-import com.opencode.ide.board.model.FreshnessStamp;
-import com.opencode.ide.board.model.PipelineSnapshot;
-import com.opencode.ide.board.model.RefreshGate;
-import com.opencode.ide.board.model.SprintSelection;
-import com.opencode.ide.board.model.StageColumn;
-import com.opencode.ide.board.model.StageJourney;
-import com.opencode.ide.board.model.StageSelection;
-import com.opencode.ide.board.model.TakeoverRouter;
-import com.opencode.ide.board.model.TaskStoreWatcher;
-import com.opencode.ide.board.model.TicketRow;
-import com.opencode.ide.board.model.VStageLayout;
-import com.opencode.ide.board.model.WaveDigest;
-import com.opencode.ide.core.OpencodeConnection;
-import com.opencode.ide.core.TasksRootResolution;
-import com.opencode.ide.fleet.Bootstrap;
-import com.opencode.ide.fleet.FleetTuning;
-import com.opencode.ide.git.FleetGit;
-import com.opencode.ide.git.StoreGitStatus;
-import com.opencode.ide.git.StoreSync;
-import com.opencode.ide.tasks.StageReadiness;
-import com.opencode.ide.tasks.Task;
-import com.opencode.ide.tasks.TaskStore;
-import com.opencode.ide.tasks.VStages;
-
 /**
- * The PM Board: a kanban over the Markdown task store, in two layouts. The
- * header carries THREE dedicated rows grouped by meaning (U-017): the
- * store row (store-root and project inputs, persisted via dialog
- * settings, plus Refresh and Sync store and the grey "updated HH:mm:ss"
- * freshness stamp of U-035 - store-level concerns), the
- * scope row (the "Group by" layout choice (Progress =
- * the flat five-column status kanban ordered by workflow progress with
- * cards priority-sorted within columns, V-model stages = the ten V-model
- * stage columns on a two-row boustrophedon - every column always
- * renders - plus a trailing untracked group; persisted too), and the
- * blocked-only / bugs-only (U-005 triage) / stage filters), and the
- * fleet row (Launch task / Auto-dispatch / Auto (the background loop) /
- * Dispatch settings / Cost overview / Take over / Shutdown (the U-045
- * graceful maintenance teardown) - the fleet controls get
- * their own prominent row). Tickets drag between columns in both layouts
- * (U-016): a drop on a flat column changes the status, a drop on a stage
- * column changes the stage (backward drops carry the send-back reason
- * contract). The board refreshes live via {@link TaskStoreWatcher} on
- * {@code <root>/<project>} — including peer-agent writes and git-checkout
- * file replacements (B-002) — and survives a missing store (notice instead
- * of exception, polling continues). The watched root is the adopted repo
- * store ({@link TasksRootResolution}); a refresh that finds the unpicked
- * (backlog) default empty while real sprints exist auto-selects the newest
- * sprint instead of silently showing an empty board.
+ * The PM Board: a kanban over the Markdown task store, in two layouts. The header carries THREE
+ * dedicated rows grouped by meaning (U-017): the store row (store-root and project inputs,
+ * persisted via dialog settings, plus Refresh and Sync store and the grey "updated HH:mm:ss"
+ * freshness stamp of U-035 - store-level concerns), the scope row (the "Group by" layout choice
+ * (Progress = the flat five-column status kanban ordered by workflow progress with cards
+ * priority-sorted within columns, V-model stages = the ten V-model stage columns on a two-row
+ * boustrophedon - every column always renders - plus a trailing untracked group; persisted too),
+ * and the blocked-only / bugs-only (U-005 triage) / stage filters), and the fleet row (Launch task
+ * / Auto-dispatch / Auto (the background loop) / Dispatch settings / Cost overview / Take over /
+ * Shutdown (the U-045 graceful maintenance teardown) - the fleet controls get their own prominent
+ * row). Tickets drag between columns in both layouts (U-016): a drop on a flat column changes the
+ * status, a drop on a stage column changes the stage (backward drops carry the send-back reason
+ * contract). The board refreshes live via {@link TaskStoreWatcher} on {@code <root>/<project>} —
+ * including peer-agent writes and git-checkout file replacements (B-002) — and survives a missing
+ * store (notice instead of exception, polling continues). The watched root is the adopted repo
+ * store ({@link TasksRootResolution}); a refresh that finds the unpicked (backlog) default empty
+ * while real sprints exist auto-selects the newest sprint instead of silently showing an empty
+ * board.
  *
- * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red
- * blocked count in every V-model stage column header. The stage columns
- * always render — all ten, empty ones included, each at the fixed width —
- * and sit on the diagonal {@link VStageLayout} grid so the board reads as
- * a V (definition leg descending left, verification leg ascending right;
- * U-016). Bug tickets carry a red
- * {@code [bug]} type tag on the row (normal weight — blocked stays the
- * louder signal; U-005). The context menu on a ticket
- * row mirrors the toolbar (Launch task / Take over / Open ticket… / Copy
- * ticket id) and adds the V-pipeline moves "Advance stage →" / "Send back…"
- * (failures surface in the status line).</p>
+ * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red blocked count in every
+ * V-model stage column header. The stage columns always render — all ten, empty ones included, each
+ * at the fixed width — and sit on the diagonal {@link VStageLayout} grid so the board reads as a V
+ * (definition leg descending left, verification leg ascending right; U-016). Bug tickets carry a
+ * red {@code [bug]} type tag on the row (normal weight — blocked stays the louder signal; U-005).
+ * The context menu on a ticket row mirrors the toolbar (Launch task / Take over / Open ticket… /
+ * Copy ticket id) and adds the V-pipeline moves "Advance stage →" / "Send back…" (failures surface
+ * in the status line).
  *
- * <p>Threading: refreshes are single-flight — the snapshot (and sprint list)
- * is computed on a background thread and only the apply runs on the UI thread
- * via {@code Display.asyncExec}. While a compute is in flight further refresh
- * requests just mark it dirty; the drain loop then re-computes once more
- * (latest-wins), so bursts of watcher events never queue up or overlap.
- * Part activation ({@code setFocus}) requests a refresh too, rate-limited
- * to once per 5s (U-035) - the same peer-pickup cadence the Fleet view
- * uses, without a poller thread.</p>
+ * <p>Threading: refreshes are single-flight — the snapshot (and sprint list) is computed on a
+ * background thread and only the apply runs on the UI thread via {@code Display.asyncExec}. While a
+ * compute is in flight further refresh requests just mark it dirty; the drain loop then re-computes
+ * once more (latest-wins), so bursts of watcher events never queue up or overlap. Part activation
+ * ({@code setFocus}) requests a refresh too, rate-limited to once per 5s (U-035) - the same
+ * peer-pickup cadence the Fleet view uses, without a poller thread.
  */
 public class BoardView extends ViewPart {
 
-    public static final String ID = "com.opencode.ide.board.views.BoardView";
+  public static final String ID = "com.opencode.ide.board.views.BoardView";
 
-    private static final String SETTINGS_SECTION = "BoardView";
-    private static final String SETTING_ROOT = "tasksRoot";
-    private static final String SETTING_PROJECT = "project";
-    private static final String SETTING_MODE = "mode";
-    private static final String SETTING_MODE_PIPELINE = "pipeline";
-    private static final String SETTING_STAGES = "visibleStages";
-    /** Whether the untracked row below the V shows its table (persisted). */
-    private static final String SETTING_SHOW_UNTRACKED = "showUntracked";
-    /** Hidden statuses, comma-joined (persisted; empty = all visible). */
-    private static final String SETTING_HIDDEN_STATUSES = "hiddenStatuses";
-    /** Whether the Archive row shows its table (persisted). */
-    private static final String SETTING_SHOW_ARCHIVE = "showArchive";
+  private static final String SETTINGS_SECTION = "BoardView";
+  private static final String SETTING_ROOT = "tasksRoot";
+  private static final String SETTING_PROJECT = "project";
+  private static final String SETTING_MODE = "mode";
+  private static final String SETTING_MODE_PIPELINE = "pipeline";
+  private static final String SETTING_STAGES = "visibleStages";
 
-    /**
-     * Fixed width of every V-model stage column — empty ones keep it too:
-     * all ten columns always render (U-016), so the V stays complete and
-     * recognizable on an empty board. No collapse-to-header anymore.
-     */
-    private static final int PIPELINE_COLUMN_WIDTH = 260;
+  /** Whether the untracked row below the V shows its table (persisted). */
+  private static final String SETTING_SHOW_UNTRACKED = "showUntracked";
 
-    /** Fixed height of a V-model stage column; fuller tables scroll internally. */
-    private static final int V_COLUMN_HEIGHT = 150;
+  /** Hidden statuses, comma-joined (persisted; empty = all visible). */
+  private static final String SETTING_HIDDEN_STATUSES = "hiddenStatuses";
 
-    /** The compact status-prefix legend (tooltip text on pipeline rows). */
-    private static final String STATUS_LEGEND =
-            "\uD83D\uDCCC product-backlog · \uD83D\uDCCB sprint-backlog · \uD83C\uDFC3 in-progress · \uD83D\uDC40 in-review · \u2705 done \u00b7 \uD83D\uDEAB blocked";
+  /** Whether the Archive row shows its table (persisted). */
+  private static final String SETTING_SHOW_ARCHIVE = "showArchive";
 
-    /** The background loop's tick period (H6 piece 4; calibrated later). */
-    private static final Duration AUTO_DISPATCH_PERIOD = Duration.ofSeconds(30);
+  /**
+   * Fixed width of every V-model stage column — empty ones keep it too: all ten columns always
+   * render (U-016), so the V stays complete and recognizable on an empty board. No
+   * collapse-to-header anymore.
+   */
+  private static final int PIPELINE_COLUMN_WIDTH = 260;
 
-    /** U-035: the minimum time between two activation-triggered refreshes. */
-    private static final Duration ACTIVATION_REFRESH_MIN_INTERVAL = Duration.ofSeconds(5);
+  /** Fixed height of a V-model stage column; fuller tables scroll internally. */
+  private static final int V_COLUMN_HEIGHT = 150;
 
-    private BoardModel model;
-    private TaskStoreWatcher watcher;
-    /** Assigned in createPartControl — null-checked before every use. */
-    private FleetLauncher launcher;
-    /** The persisted dispatch policy + bootstrap; null when preference persistence is unavailable. */
-    private DispatchPolicyStore dispatchStore;
-    /** The H6 background dispatch loop while "Auto" is on; null otherwise. */
-    private DispatchScheduler dispatchScheduler;
-    /** The U-022 recurring-waves loop while "Waves" is on; null otherwise. */
-    private RecurringWaves wavesLoop;
-    private AtomicBoolean dispatchCancelled = new AtomicBoolean();
-    private boolean dispatchPending;
+  /** The compact status-prefix legend (tooltip text on pipeline rows). */
+  private static final String STATUS_LEGEND =
+      "\uD83D\uDCCC product-backlog · \uD83D\uDCCB sprint-backlog · \uD83C\uDFC3 in-progress · \uD83D\uDC40 in-review · \u2705 done \u00b7 \uD83D\uDEAB blocked";
 
-    private final Map<String, ColumnUi> columns = new LinkedHashMap<>();
-    private final List<PipelineColumnUi> pipelineColumns = new ArrayList<>();
-    /** U-018: every live row label provider, fed the readiness verdicts per snapshot apply. */
-    private final List<BoardRowLabel> rowLabels = new ArrayList<>();
-    /** Fleet-row readiness badge ("n ready · m stale"). */
-    private Label readinessLabel;
-    /** The most recent applied snapshot (column-launch picks the top READY ticket from it). */
-    private BoardSnapshot lastSnapshot;
-    /** The untracked group's own row below the V (separator + hideable). */
-    private Composite untrackedRow;
-    private Button untrackedToggle;
-    private PipelineColumnUi untrackedUi;
-    /** Whether the untracked row shows its table (persisted; the V stages are always visible). */
-    private boolean showUntracked = true;
-    /** U-025: the Archive row (done tickets archived with their wave). */
-    private Composite archiveRow;
-    private Button archiveToggle;
-    private TableViewer archiveViewer;
-    private boolean showArchive = false;
-    /**
-     * Hidden STATUSES (user direction 2026-09-18: hide done & co
-     * individually; empty = all visible). Persisted; the flat layout drops
-     * the column, the other layouts drop the cards.
-     */
-    private java.util.Set<String> hiddenStatuses = java.util.Set.of();
-    /** Container that holds whichever layout the current mode builds. */
-    private Composite boardArea;
-    private Composite flatArea;
-    private ScrolledComposite pipelineScroll;
-    private Composite pipelineContent;
-    private Text rootText;
-    private Text projectText;
-    private Combo modeCombo;
-    /** U-018: free-text filter input on the scope row. */
-    private Text filterText;
-    /** U-035: grey "updated HH:mm:ss" stamp in the store row (next to Sync store). */
-    private Label freshnessLabel;
-    private Action refreshAction;
+  /** The background loop's tick period (H6 piece 4; calibrated later). */
+  private static final Duration AUTO_DISPATCH_PERIOD = Duration.ofSeconds(30);
 
-    private Action syncStoreAction;
-    private Action newProjectAction;
-    private Action resetProjectAction;
-    private Action adoptRepoAction;
-    private Action costOverviewAction;
+  /** U-035: the minimum time between two activation-triggered refreshes. */
+  private static final Duration ACTIVATION_REFRESH_MIN_INTERVAL = Duration.ofSeconds(5);
 
-    private Action waveDigestAction;
-    private Action launchAction;
-    private Action autoDispatchAction;
-    private Action autoLoopAction;
-    /** U-022: the recurring-waves toggle — wave-to-wave planning without clicks. */
-    private Action wavesLoopAction;
-    private Action dispatchSettingsAction;
-    private Action takeOverAction;
-    private Action blockedOnlyAction;
-    /** U-005's optional triage filter: show only bug tickets (model: {@code bugsOnly}). */
-    private Action bugsOnlyAction;
-    private Action stageFilterAction;
-    private Action statusFilterAction;
-    /** U-045: graceful fleet shutdown for maintenance (the fleet row's red button). */
-    private Action shutdownAction;
-    /** Selected stage ids for the visibility filter; {@code null} = all visible. */
-    private Set<String> visibleStages;
-    /**
-     * True once the user picked a sprint in the selector this session; the
-     * B-002 auto-select only acts while this is false (an explicit pick is
-     * never overridden). Not persisted: a fresh session may auto-select
-     * again.
-     */
-    private boolean sprintPicked;
-    private boolean updatingModeCombo;
-    private String rootOverride = "";
-    private String projectName = BoardModel.DEFAULT_PROJECT;
-    private BoardMode boardMode = BoardMode.FLAT;
+  private BoardModel model;
+  private TaskStoreWatcher watcher;
 
-    /** Single-thread daemon executor: serializes snapshot computes, one per view. */
-    private ExecutorService refreshExecutor;
-    /** Single daemon thread for TUI takeover routing (blocking client POSTs). */
-    private ExecutorService takeoverExecutor;
-    /** True while a drain loop owns the compute (single-flight guard). */
-    private final AtomicBoolean draining = new AtomicBoolean();
-    /** Set on every refresh request; consumed by the drain loop (latest-wins). */
-    private final AtomicBoolean dirty = new AtomicBoolean();
-    /** U-035: activation refreshes are rate-limited (once per window) so tabbing never churns. */
-    private final RefreshGate activationRefreshGate =
-            new RefreshGate(ACTIVATION_REFRESH_MIN_INTERVAL.toMillis());
+  /** Assigned in createPartControl — null-checked before every use. */
+  private FleetLauncher launcher;
 
-    private static final class ColumnUi {
-        final Label header;
-        final TableViewer viewer;
+  /** The persisted dispatch policy + bootstrap; null when preference persistence is unavailable. */
+  private DispatchPolicyStore dispatchStore;
 
-        ColumnUi(Label header, TableViewer viewer) {
-            this.header = header;
-            this.viewer = viewer;
+  /** The H6 background dispatch loop while "Auto" is on; null otherwise. */
+  private DispatchScheduler dispatchScheduler;
+
+  /** The U-022 recurring-waves loop while "Waves" is on; null otherwise. */
+  private RecurringWaves wavesLoop;
+
+  private AtomicBoolean dispatchCancelled = new AtomicBoolean();
+  private boolean dispatchPending;
+
+  private final Map<String, ColumnUi> columns = new LinkedHashMap<>();
+  private final List<PipelineColumnUi> pipelineColumns = new ArrayList<>();
+
+  /** U-018: every live row label provider, fed the readiness verdicts per snapshot apply. */
+  private final List<BoardRowLabel> rowLabels = new ArrayList<>();
+
+  /** Fleet-row readiness badge ("n ready · m stale"). */
+  private Label readinessLabel;
+
+  /** The most recent applied snapshot (column-launch picks the top READY ticket from it). */
+  private BoardSnapshot lastSnapshot;
+
+  /** The untracked group's own row below the V (separator + hideable). */
+  private Composite untrackedRow;
+
+  private Button untrackedToggle;
+  private PipelineColumnUi untrackedUi;
+
+  /** Whether the untracked row shows its table (persisted; the V stages are always visible). */
+  private boolean showUntracked = true;
+
+  /** U-025: the Archive row (done tickets archived with their wave). */
+  private Composite archiveRow;
+
+  private Button archiveToggle;
+  private TableViewer archiveViewer;
+  private boolean showArchive = false;
+
+  /**
+   * Hidden STATUSES (user direction 2026-09-18: hide done & co individually; empty = all visible).
+   * Persisted; the flat layout drops the column, the other layouts drop the cards.
+   */
+  private java.util.Set<String> hiddenStatuses = java.util.Set.of();
+
+  /** Container that holds whichever layout the current mode builds. */
+  private Composite boardArea;
+
+  private Composite flatArea;
+  private ScrolledComposite pipelineScroll;
+  private Composite pipelineContent;
+  private Text rootText;
+  private Text projectText;
+  private Combo modeCombo;
+
+  /** U-018: free-text filter input on the scope row. */
+  private Text filterText;
+
+  /** U-035: grey "updated HH:mm:ss" stamp in the store row (next to Sync store). */
+  private Label freshnessLabel;
+
+  private Action refreshAction;
+
+  private Action syncStoreAction;
+  private Action newProjectAction;
+  private Action resetProjectAction;
+  private Action adoptRepoAction;
+  private Action costOverviewAction;
+
+  private Action waveDigestAction;
+  private Action launchAction;
+  private Action autoDispatchAction;
+  private Action autoLoopAction;
+
+  /** U-022: the recurring-waves toggle — wave-to-wave planning without clicks. */
+  private Action wavesLoopAction;
+
+  private Action dispatchSettingsAction;
+  private Action takeOverAction;
+  private Action blockedOnlyAction;
+
+  /** U-005's optional triage filter: show only bug tickets (model: {@code bugsOnly}). */
+  private Action bugsOnlyAction;
+
+  private Action stageFilterAction;
+  private Action statusFilterAction;
+
+  /** U-045: graceful fleet shutdown for maintenance (the fleet row's red button). */
+  private Action shutdownAction;
+
+  /** Selected stage ids for the visibility filter; {@code null} = all visible. */
+  private Set<String> visibleStages;
+
+  /**
+   * True once the user picked a sprint in the selector this session; the B-002 auto-select only
+   * acts while this is false (an explicit pick is never overridden). Not persisted: a fresh session
+   * may auto-select again.
+   */
+  private boolean sprintPicked;
+
+  private boolean updatingModeCombo;
+  private String rootOverride = "";
+  private String projectName = BoardModel.DEFAULT_PROJECT;
+  private BoardMode boardMode = BoardMode.FLAT;
+
+  /** Single-thread daemon executor: serializes snapshot computes, one per view. */
+  private ExecutorService refreshExecutor;
+
+  /** Single daemon thread for TUI takeover routing (blocking client POSTs). */
+  private ExecutorService takeoverExecutor;
+
+  /** True while a drain loop owns the compute (single-flight guard). */
+  private final AtomicBoolean draining = new AtomicBoolean();
+
+  /** Set on every refresh request; consumed by the drain loop (latest-wins). */
+  private final AtomicBoolean dirty = new AtomicBoolean();
+
+  /** U-035: activation refreshes are rate-limited (once per window) so tabbing never churns. */
+  private final RefreshGate activationRefreshGate =
+      new RefreshGate(ACTIVATION_REFRESH_MIN_INTERVAL.toMillis());
+
+  private static final class ColumnUi {
+    final Label header;
+    final TableViewer viewer;
+
+    ColumnUi(Label header, TableViewer viewer) {
+      this.header = header;
+      this.viewer = viewer;
+    }
+  }
+
+  private static final class PipelineColumnUi {
+    final String stage;
+    final Label headerLabel;
+    final Label wipLabel;
+    final Label blockedLabel;
+    final TableViewer viewer;
+
+    PipelineColumnUi(
+        String stage, Label headerLabel, Label wipLabel, Label blockedLabel, TableViewer viewer) {
+      this.stage = stage;
+      this.headerLabel = headerLabel;
+      this.wipLabel = wipLabel;
+      this.blockedLabel = blockedLabel;
+      this.viewer = viewer;
+    }
+  }
+
+  @Override
+  public void createPartControl(Composite parent) {
+    refreshExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-refresh");
+    takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-takeover");
+
+    Composite outer = new Composite(parent, SWT.NONE);
+    GridLayout outerLayout = new GridLayout(1, false);
+    outerLayout.marginWidth = 0;
+    outerLayout.marginHeight = 0;
+    outer.setLayout(outerLayout);
+
+    // U-017: the three header rows (store / scope / fleet) stack ABOVE
+    // the board area, so they are created first. Settings load before
+    // the rows so the embedded contributions seed from stored values.
+    loadSettings();
+    contributeToolbar(outer);
+
+    boardArea = new Composite(outer, SWT.NONE);
+    GridLayout boardLayout = new GridLayout(1, false);
+    boardLayout.marginWidth = 0;
+    boardLayout.marginHeight = 0;
+    boardArea.setLayout(boardLayout);
+    // U-033: the board area grabs the view's excess (a plain
+    // GridData(FILL_BOTH) style only aligns - it never grabs - so the
+    // columns below can share the full width)
+    boardArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+    buildBoardArea();
+    initModel();
+    try {
+      dispatchStore = DispatchPolicyStore.eclipse();
+      // U-072: the per-stage model policy reaches every in-process launch -
+      // the fleet's launch precedence (TaskFleet.effectiveModel) consults
+      // StageModels as its LAST fallback; uninstalled hosts (no board) keep
+      // today's behavior
+      com.opencode.ide.fleet.StageModels.install(
+          stage -> dispatchStore == null ? null : dispatchStore.loadStageModels().get(stage));
+    } catch (RuntimeException e) {
+      logError("Dispatch settings persistence unavailable; dispatch runs on the defaults", e);
+    }
+    createLauncher();
+  }
+
+  private void createLauncher() {
+    Path root = model.root();
+    DispatchPolicyStore settings = dispatchStore;
+    launcher =
+        new TaskFleetLauncher(
+            BoardView::connectClient,
+            FleetGit::defaultManager,
+            () -> root,
+            () -> {
+              var stored = settings == null ? DispatchPolicyStore.defaults() : settings.load();
+              return Bootstrap.of(stored.bootstrapAgent(), stored.bootstrapCommand());
+            });
+  }
+
+  private static com.opencode.ide.client.OpencodeClient connectClient() {
+    try {
+      return OpencodeConnection.getInstance().getClient();
+    } catch (com.opencode.ide.client.OpencodeException e) {
+      throw new IllegalStateException("opencode server unavailable: " + e.getMessage(), e);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Layout: flat status kanban / V pipeline
+  // ------------------------------------------------------------------
+
+  /** Builds the layout matching {@link #boardMode} into {@link #boardArea}. */
+  private void buildBoardArea() {
+    columns.clear();
+    pipelineColumns.clear();
+    rowLabels.clear(); // the old labels belong to disposed columns
+    flatArea = null;
+    pipelineScroll = null;
+    pipelineContent = null;
+    if (boardMode == BoardMode.PIPELINE) {
+      buildPipelineArea();
+    } else if (boardMode == BoardMode.EPIC) {
+      buildEpicArea();
+    } else {
+      buildFlatArea();
+    }
+    boardArea.layout(true, true);
+  }
+
+  /** Disposes the current layout and builds the (new) one. */
+  private void rebuildBoardArea() {
+    if (boardArea == null || boardArea.isDisposed()) {
+      return;
+    }
+    for (Control child : boardArea.getChildren()) {
+      child.dispose();
+    }
+    buildBoardArea();
+  }
+
+  /**
+   * U-018 epic swimlanes: one section per epic (header + a single status-prefixed, priority-sorted
+   * table). The area is rebuilt on every apply because the lane set changes with the tickets
+   * (rebuilds are cheap - a handful of epics - and refreshes are coalesced).
+   */
+  private void buildEpicArea() {
+    flatArea = new Composite(boardArea, SWT.NONE);
+    GridLayout lanes = new GridLayout(1, false);
+    lanes.marginWidth = 0;
+    lanes.marginHeight = 0;
+    lanes.verticalSpacing = 6;
+    flatArea.setLayout(lanes);
+    flatArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+  }
+
+  /** Rebuilds the epic lanes from the snapshot's lane map. */
+  private void applyEpicSnapshot(BoardSnapshot snapshot) {
+    if (flatArea == null || flatArea.isDisposed()) {
+      return;
+    }
+    for (Control child : flatArea.getChildren()) {
+      child.dispose();
+    }
+    rowLabels.clear(); // epic labels are rebuilt with the lanes
+    Map<String, List<TicketRow>> lanes = snapshot.epicLanes();
+    if (lanes.isEmpty()) {
+      Label empty = new Label(flatArea, SWT.NONE);
+      empty.setText("(no tickets match the current filters)");
+      empty.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+    }
+    for (Map.Entry<String, List<TicketRow>> lane : lanes.entrySet()) {
+      Label laneHeader = new Label(flatArea, SWT.NONE);
+      List<TicketRow> rows = lane.getValue();
+      // text markers only (owner feedback 2026-10-07): every group
+      // header uses the same medium - font-sized glyphs - so no header
+      // icon renders smaller than another header's marker
+      laneHeader.setText("\u25A4 " + lane.getKey() + "  (" + rows.size() + ")");
+      laneHeader.setFont(boldFont());
+      laneHeader.setToolTipText(
+          "epic swimlane "
+              + lane.getKey()
+              + ": "
+              + rows.size()
+              + " ticket(s) - click a card column header to sort");
+      laneHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+      // swimlane cards share the ONE column set with every other mode
+      // (U-065) - readiness chips ride along via the label registry
+      TableViewer viewer = createTicketViewer(flatArea);
+      // lane tables size to their content (capped), not FILL_BOTH -
+      // every lane stays visible in one scrollable stack
+      GridData laneTable = new GridData(SWT.FILL, SWT.CENTER, true, false);
+      laneTable.heightHint = Math.min(Math.max(rows.size(), 1), 8) * 18 + 8;
+      viewer.getTable().getParent().setLayoutData(laneTable);
+      viewer.setInput(rows);
+    }
+    for (BoardRowLabel label : rowLabels) {
+      label.setReadiness(snapshot.readiness());
+      label.setJourneys(snapshot.journeys());
+    }
+    flatArea.layout(true, true);
+  }
+
+  private void buildFlatArea() {
+    flatArea = new Composite(boardArea, SWT.NONE);
+    java.util.List<String> visibleStatuses = new ArrayList<>();
+    for (String status : Task.VALID_STATUSES) {
+      if (!hiddenStatuses.contains(status)) {
+        visibleStatuses.add(status);
+      }
+    }
+    GridLayout columnLayout = new GridLayout(Math.max(1, visibleStatuses.size()), true);
+    columnLayout.marginWidth = 0;
+    columnLayout.marginHeight = 0;
+    columnLayout.horizontalSpacing = 3;
+    flatArea.setLayout(columnLayout);
+    // U-033 equal growth: the flat area grabs the board area's excess
+    // and every column below grabs its share of THAT - all status
+    // columns grow EQUALLY on resize (makeColumnsEqualWidth splits the
+    // width evenly among the equally-grabbing columns). The V pipeline
+    // keeps its fixed-width cells by design (U-016).
+    flatArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+    for (String status : visibleStatuses) {
+      columns.put(status, createColumn(status));
+    }
+  }
+
+  private void buildPipelineArea() {
+    pipelineScroll = new ScrolledComposite(boardArea, SWT.H_SCROLL | SWT.V_SCROLL);
+    pipelineScroll.setExpandHorizontal(true);
+    pipelineScroll.setExpandVertical(true);
+    // grabs so the scroll area fills the (now-grabbing) board area; the
+    // V cells INSIDE keep their fixed width (U-016) - only the canvas
+    // grows, never the columns
+    pipelineScroll.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+    pipelineContent = new Composite(pipelineScroll, SWT.NONE);
+    GridLayout gridLayout = new GridLayout(VStageLayout.GRID_COLUMNS, false);
+    gridLayout.marginWidth = 2;
+    gridLayout.marginHeight = 2;
+    gridLayout.horizontalSpacing = 4;
+    gridLayout.verticalSpacing = 4;
+    pipelineContent.setLayout(gridLayout);
+
+    // The V (U-016, orientation per user direction 2026-09-18): two
+    // vertical arms side by side - the left column is the definition
+    // leg (requirements at the top, implementation at the vertex), the
+    // right column is the verification leg level-paired with it
+    // (test-implementation at the vertex, test-requirements at the
+    // top). All ten stage columns render even when empty, at the fixed
+    // width; nothing collapses to its header.
+    for (List<String> row : VStageLayout.grid()) {
+      for (String stage : row) {
+        if (stage == null) {
+          Composite spacer = new Composite(pipelineContent, SWT.NONE);
+          spacer.setLayoutData(new GridData(SWT.BEGINNING, SWT.BEGINNING, false, false));
+        } else {
+          pipelineColumns.add(createPipelineColumn(stage));
         }
+      }
     }
 
-    private static final class PipelineColumnUi {
-        final String stage;
-        final Label headerLabel;
-        final Label wipLabel;
-        final Label blockedLabel;
-        final TableViewer viewer;
+    // The untracked group lives in its OWN row below the V, separated,
+    // and hideable (user direction 2026-09-18): unlike the ten stages
+    // it may vanish - when hidden only the small toggle remains.
+    Label separator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
+    GridData separatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+    separatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+    separator.setLayoutData(separatorData);
 
-        PipelineColumnUi(String stage, Label headerLabel, Label wipLabel, Label blockedLabel,
-                TableViewer viewer) {
-            this.stage = stage;
-            this.headerLabel = headerLabel;
-            this.wipLabel = wipLabel;
-            this.blockedLabel = blockedLabel;
-            this.viewer = viewer;
-        }
+    untrackedRow = new Composite(pipelineContent, SWT.NONE);
+    GridLayout untrackedLayout = new GridLayout(1, false);
+    untrackedLayout.marginWidth = 0;
+    untrackedLayout.marginHeight = 0;
+    untrackedLayout.verticalSpacing = 2;
+    untrackedRow.setLayout(untrackedLayout);
+    GridData untrackedRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
+    untrackedRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+    untrackedRow.setLayoutData(untrackedRowData);
+
+    untrackedToggle = new Button(untrackedRow, SWT.FLAT);
+    untrackedToggle.setText(showUntracked ? "No stage (0) \u25BE" : "No stage \u25B8 (hidden)");
+    untrackedToggle.setToolTipText(
+        "Tickets without a resolvable V stage - click to "
+            + (showUntracked ? "hide" : "show")
+            + " the group");
+    untrackedToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+    untrackedToggle.addListener(
+        SWT.Selection,
+        e -> {
+          showUntracked = !showUntracked;
+          saveSettings();
+          applyUntrackedVisibility();
+          pipelineContent.layout(true, true);
+          pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
+        });
+
+    untrackedUi = createPipelineColumn(untrackedRow, PipelineSnapshot.UNTRACKED);
+    untrackedUi.viewer.getTable().getParent().setLayoutData(untrackedTableData());
+    applyUntrackedVisibility();
+
+    // U-025: the Archive row - done tickets land here (wave close
+    // archives them, or the Archive context action); hidden by
+    // default, listing loads only while visible
+    Label archiveSeparator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
+    GridData archiveSeparatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+    archiveSeparatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+    archiveSeparator.setLayoutData(archiveSeparatorData);
+
+    archiveRow = new Composite(pipelineContent, SWT.NONE);
+    GridLayout archiveLayout = new GridLayout(1, false);
+    archiveLayout.marginWidth = 0;
+    archiveLayout.marginHeight = 0;
+    archiveLayout.verticalSpacing = 2;
+    archiveRow.setLayout(archiveLayout);
+    GridData archiveRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
+    archiveRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
+    archiveRow.setLayoutData(archiveRowData);
+
+    archiveToggle = new Button(archiveRow, SWT.FLAT);
+    archiveToggle.setText(showArchive ? "Archive (…) \u25BE" : "Archive \u25B8 (hidden)");
+    archiveToggle.setToolTipText(
+        "Done tickets archived with their wave - out of the active "
+            + "board, record kept. Click to "
+            + (showArchive ? "hide" : "show"));
+    archiveToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+    archiveToggle.addListener(
+        SWT.Selection,
+        e -> {
+          showArchive = !showArchive;
+          saveSettings();
+          refresh();
+        });
+
+    archiveViewer = createTicketViewer(archiveRow);
+    archiveViewer.getTable().getParent().setLayoutData(untrackedTableData());
+    applyArchiveVisibility();
+
+    pipelineScroll.setContent(pipelineContent);
+  }
+
+  private ColumnUi createColumn(String status) {
+    Composite column = new Composite(flatArea, SWT.NONE);
+    GridLayout layout = new GridLayout(1, false);
+    layout.marginWidth = 2;
+    layout.marginHeight = 0;
+    column.setLayout(layout);
+    // U-033: EVERY status column grabs (equally, alongside
+    // makeColumnsEqualWidth above) - a resize grows all columns by the
+    // same share instead of heaping the extra width on the right ones
+    column.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+    Composite headerLine = new Composite(column, SWT.NONE);
+    GridLayout headerLayout = new GridLayout(1, false);
+    headerLayout.marginWidth = 0;
+    headerLayout.marginHeight = 0;
+    headerLayout.horizontalSpacing = 2;
+    headerLine.setLayout(headerLayout);
+    headerLine.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+    Label header = new Label(headerLine, SWT.NONE);
+    header.setText(TicketRow.statusHeaderText(status) + " (0)");
+    header.setFont(boldFont());
+    header.setToolTipText(TicketRow.statusHelp(status));
+    header.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, true, false));
+
+    TableViewer viewer = createTicketViewer(column);
+    hookStatusDrop(viewer.getTable(), status);
+    return new ColumnUi(header, viewer);
+  }
+
+  private PipelineColumnUi createPipelineColumn(String stage) {
+    PipelineColumnUi created = createPipelineColumn(pipelineContent, stage);
+    pipelineColumns.add(created);
+    return created;
+  }
+
+  /** Column creation with an explicit parent (the untracked row composes its own). */
+  private PipelineColumnUi createPipelineColumn(Composite parent, String stage) {
+    Composite column = new Composite(parent, SWT.NONE);
+    GridLayout layout = new GridLayout(1, false);
+    layout.marginWidth = 2;
+    layout.marginHeight = 0;
+    column.setLayout(layout);
+    // Fixed cell of the V grid (U-016): always rendered at the fixed
+    // width — an empty column keeps its table instead of collapsing to
+    // its header — and tall enough for a handful of rows; fuller tables
+    // scroll internally, which keeps the V's rows stable.
+    GridData cell = new GridData(SWT.FILL, SWT.FILL, false, true);
+    cell.widthHint = PIPELINE_COLUMN_WIDTH;
+    cell.heightHint = V_COLUMN_HEIGHT;
+    column.setLayoutData(cell);
+
+    Composite header = new Composite(column, SWT.NONE);
+    GridLayout headerLayout = new GridLayout(3, false);
+    headerLayout.marginWidth = 0;
+    headerLayout.marginHeight = 0;
+    headerLayout.horizontalSpacing = 0;
+    header.setLayout(headerLayout);
+    header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+    Font bold = boldFont();
+    Label headerLabel = new Label(header, SWT.NONE);
+    headerLabel.setFont(bold);
+    // Numbered snake order (1-10) so the two-row boustrophedon still
+    // reads as ONE sequence; the turn at implementation carries the
+    // down-arrow, pairing with test-implementation directly below
+    // (U-016 rubberduck review). The untracked group is unnumbered.
+    headerLabel.setText(numberedStageHeader(stage));
+    int number = VStageLayout.stageNumber(stage);
+    headerLabel.setToolTipText(
+        number > 0
+            ? "Stage " + number + " of 10 along the V (definition leg 1-5, verification leg 6-10)"
+            : "Tickets without a V stage");
+    Label blockedLabel = new Label(header, SWT.NONE);
+    blockedLabel.setFont(bold);
+    blockedLabel.setToolTipText(
+        "tickets blocked with a reason in this stage "
+            + "(the needs-human surface: cleared blockers re-enter the pump)");
+    // U-028 FR-001..FR-005: the WIP count beside total/blocked - a plain
+    // count of status in-progress, recomputed per snapshot; deliberately
+    // no WIP-limit concept
+    Label wipLabel = new Label(header, SWT.NONE);
+    wipLabel.setFont(bold);
+    wipLabel.setToolTipText(
+        "work in progress: tickets with status in-progress "
+            + "(a plain count - U-028: no WIP limits)");
+
+    Composite tableComposite = new Composite(column, SWT.NONE);
+    TableColumnLayout tableLayout = new TableColumnLayout();
+    tableComposite.setLayout(tableLayout);
+    tableComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
+
+    TableViewer viewer =
+        new TableViewer(
+            tableComposite,
+            SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
+    viewer.getTable().setLinesVisible(true);
+    viewer.setContentProvider(ArrayContentProvider.getInstance());
+    hookViewerBehavior(viewer);
+    // U-065: stage cards share the ONE column set with every other mode
+    addCardColumns(viewer, tableLayout);
+    hookStageDrop(viewer.getTable(), stage);
+
+    return new PipelineColumnUi(stage, headerLabel, wipLabel, blockedLabel, viewer);
+  }
+
+  /** The untracked table's layout data: spans wide (its row is full-width), content-height. */
+  private static GridData untrackedTableData() {
+    GridData data = new GridData(SWT.FILL, SWT.CENTER, true, false);
+    data.heightHint = 110;
+    return data;
+  }
+
+  /** Shows or hides the untracked group's table + updates the toggle text (persisted setting). */
+  private void applyUntrackedVisibility() {
+    if (untrackedToggle == null || untrackedToggle.isDisposed() || untrackedUi == null) {
+      return;
+    }
+    Composite tableHolder = untrackedUi.viewer.getTable().getParent();
+    if (tableHolder != null && !tableHolder.isDisposed()) {
+      tableHolder.setVisible(showUntracked);
+      GridData data = (GridData) tableHolder.getLayoutData();
+      data.exclude = !showUntracked;
+      tableHolder.setLayoutData(data);
+    }
+    untrackedToggle.setText(showUntracked ? "No stage (…) \u25BE" : "No stage \u25B8 (hidden)");
+    untrackedToggle.setToolTipText(
+        "Tickets without a resolvable V stage - click to "
+            + (showUntracked ? "hide" : "show")
+            + " the group");
+  }
+
+  /** Archive-row visibility (the table only exists while shown). */
+  private void applyArchiveVisibility() {
+    if (archiveRow == null || archiveRow.isDisposed() || archiveViewer == null) {
+      return;
+    }
+    Composite tableHolder = archiveViewer.getTable().getParent();
+    if (tableHolder != null && !tableHolder.isDisposed()) {
+      tableHolder.setVisible(showArchive);
+      GridData data = (GridData) tableHolder.getLayoutData();
+      data.exclude = !showArchive;
+      tableHolder.setLayoutData(data);
+    }
+    archiveToggle.setText(showArchive ? "Archive \u25BE" : "Archive \u25B8 (hidden)");
+  }
+
+  /**
+   * Shared ticket viewer for EVERY Group-by mode (U-065): one card column set - status emoji | type
+   * emoji | styled title | points - built by {@link #addCardColumns}, so the card shape cannot
+   * drift between the Progress kanban, the V-model stage columns, the Epic swimlanes and the
+   * archive row (the 2026-09-18 Progress-only columns became the whole board's contract on
+   * 2026-10-07).
+   */
+  private TableViewer createTicketViewer(Composite column) {
+    Composite tableComposite = new Composite(column, SWT.NONE);
+    TableColumnLayout tableLayout = new TableColumnLayout();
+    tableComposite.setLayout(tableLayout);
+    // U-033: grab so the table stretches to its column's width (the
+    // epic lanes and the archive row override this with their own data)
+    tableComposite.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+    TableViewer viewer =
+        new TableViewer(
+            tableComposite,
+            SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
+    viewer.getTable().setLinesVisible(true);
+    viewer.setContentProvider(ArrayContentProvider.getInstance());
+    hookViewerBehavior(viewer);
+    addCardColumns(viewer, tableLayout);
+    return viewer;
+  }
+
+  /**
+   * U-065: THE card column set every Group-by mode renders - status emoji | type emoji | styled
+   * title (readiness chips, stage journey, blocker ride in the cell) | points. Progress (flat),
+   * V-model stages, Epic swimlanes and the archive row all go through this one builder, so the card
+   * shape cannot drift between modes (the 2026-09-18 Progress-only columns became the whole board's
+   * contract on 2026-10-07; owner direction the same day: emoji where possible - colored, visible,
+   * DPI-proof, no image files for cards).
+   */
+  private void addCardColumns(TableViewer viewer, TableColumnLayout tableLayout) {
+    TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
+    status.setLabelProvider(
+        new ColumnLabelProvider() {
+          @Override
+          public String getText(Object element) {
+            TicketRow row = asRow(element);
+            return row == null ? "" : TicketRow.statusSymbol(row.status());
+          }
+
+          @Override
+          public org.eclipse.swt.graphics.Color getForeground(Object element) {
+            // U-067: the blocked icon lives HERE (the status cell) - and
+            // it is RED (owner 2026-10-07); tints the monochrome glyph,
+            // the color-emoji font is red anyway
+            TicketRow row = asRow(element);
+            if (row != null && "blocked".equals(row.status())) {
+              return Display.getCurrent().getSystemColor(SWT.COLOR_RED);
+            }
+            return null;
+          }
+        });
+    tableLayout.setColumnData(status.getColumn(), new ColumnWeightData(12, 32, false));
+
+    TableViewerColumn type = new TableViewerColumn(viewer, SWT.CENTER);
+    type.setLabelProvider(
+        new ColumnLabelProvider() {
+          @Override
+          public String getText(Object element) {
+            TicketRow row = asRow(element);
+            return row == null ? "" : TicketRow.typeEmoji(row.type());
+          }
+        });
+    tableLayout.setColumnData(type.getColumn(), new ColumnWeightData(12, 32, false));
+
+    TableViewerColumn title = new TableViewerColumn(viewer, SWT.NONE);
+    // U-065: the styled title cell keeps the readiness chips, stage
+    // journey and blocker tail that the composed cards used to render
+    BoardRowLabel titleCell = new BoardRowLabel();
+    rowLabels.add(titleCell);
+    title.setLabelProvider(titleCell);
+    tableLayout.setColumnData(title.getColumn(), new ColumnWeightData(100, 110, true));
+
+    TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
+    points.setLabelProvider(
+        new ColumnLabelProvider() {
+          @Override
+          public String getText(Object element) {
+            TicketRow row = asRow(element);
+            return row == null ? "" : row.pointsLabel();
+          }
+        });
+    tableLayout.setColumnData(points.getColumn(), new ColumnWeightData(12, 26, false));
+
+    // Owner direction 2026-10-07: the card columns SORT - a header click
+    // cycles ascending, descending and back to the snapshot order; the
+    // comparator itself is model-side (TicketRow.cardComparator) so the
+    // ordering contract stays unit-tested SWT-free
+    viewer.getTable().setHeaderVisible(true);
+    hookColumnSort(viewer, status.getColumn(), "status", "status emoji");
+    hookColumnSort(viewer, type.getColumn(), "type", "type emoji");
+    hookColumnSort(viewer, title.getColumn(), "title", "ticket title");
+    hookColumnSort(viewer, points.getColumn(), "points", "story points");
+  }
+
+  /**
+   * Click-to-sort on one card column (owner direction 2026-10-07): the header cycles ascending,
+   * descending and back to the snapshot order, and the marker in the header shows the state. The
+   * marker IS the whole header text - the icon columns are too narrow for labels; the tooltip
+   * carries the column's meaning plus the sort behavior. JFace's ViewerComparator constructor takes
+   * a Comparator over STRING keys, so the row comparator rides in via the compare override instead.
+   */
+  private void hookColumnSort(TableViewer viewer, TableColumn column, String key, String meaning) {
+    final int[] step = {0}; // 0 snapshot order, 1 ascending, 2 descending
+    column.setText("\u21C5");
+    column.setToolTipText(meaning + " - click to sort: ascending, descending, snapshot order");
+    column.addListener(
+        SWT.Selection,
+        e -> {
+          step[0] = (step[0] + 1) % 3;
+          if (step[0] == 0) {
+            viewer.setComparator(null);
+            column.setText("\u21C5");
+            return;
+          }
+          boolean ascending = step[0] == 1;
+          Comparator<TicketRow> order = TicketRow.cardComparator(key, ascending);
+          viewer.setComparator(
+              new org.eclipse.jface.viewers.ViewerComparator() {
+                @Override
+                public int compare(
+                    org.eclipse.jface.viewers.Viewer viewer, Object left, Object right) {
+                  TicketRow a = asRow(left);
+                  TicketRow b = asRow(right);
+                  if (a == null || b == null) {
+                    return a == null ? (b == null ? 0 : 1) : -1;
+                  }
+                  return order.compare(a, b);
+                }
+              });
+          column.setText(ascending ? "\u25B2" : "\u25BC");
+        });
+  }
+
+  private void hookViewerBehavior(TableViewer viewer) {
+    viewer.addDoubleClickListener(
+        new IDoubleClickListener() {
+          @Override
+          public void doubleClick(DoubleClickEvent event) {
+            openDetails();
+          }
+        });
+    viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
+    ColumnViewerToolTipSupport.enableFor(viewer);
+    hookContextMenu(viewer);
+    hookDrag(viewer);
+  }
+
+  /**
+   * Drag-and-drop (U-016 rubberduck review: the kanban's core missing affordance). Dragging carries
+   * the ticket id; each column's table is a drop target — a flat column drops change the STATUS, a
+   * V-model stage column drops change the STAGE (backward drops ask for the send-back reason first,
+   * exactly like the context-menu send-back).
+   */
+  private void hookDrag(TableViewer viewer) {
+    viewer.addDragSupport(
+        DND.DROP_MOVE,
+        new Transfer[] {TextTransfer.getInstance()},
+        new DragSourceAdapter() {
+          @Override
+          public void dragSetData(DragSourceEvent event) {
+            TicketRow row = selectedRow();
+            if (row != null && row.id() != null) {
+              event.data = row.id();
+            }
+          }
+        });
+  }
+
+  /** Drop target for a flat status column's table. */
+  private void hookStatusDrop(Table table, String status) {
+    new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
+    table.addListener(
+        DND.Drop,
+        event ->
+            moveDroppedTicket(
+                (String) event.data,
+                () -> model.setStatus((String) event.data, status),
+                "status " + status));
+  }
+
+  /** Drop target for a V-model stage column's table ({@code null} stage = the untracked group). */
+  private void hookStageDrop(Table table, String stage) {
+    table.addListener(
+        DND.Drop,
+        event -> {
+          String id = (String) event.data;
+          if (stage == null || PipelineSnapshot.UNTRACKED.equals(stage)) {
+            moveDroppedTicket(id, () -> model.setStage(id, null, null), "no stage");
+            return;
+          }
+          TicketRow row = model == null ? null : model.row(id);
+          int from = row == null ? -1 : VStages.STAGES.indexOf(row.effectiveStage());
+          int to = VStages.STAGES.indexOf(stage);
+          if (from >= 0 && to >= 0 && to < from) {
+            String previous = row.effectiveStage();
+            InputDialog dialog =
+                new InputDialog(
+                    getSite().getShell(),
+                    "Send back " + id,
+                    "Reason for moving " + id + " back from '" + previous + "' to '" + stage + "':",
+                    "",
+                    text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
+            if (dialog.open() != Window.OK
+                || dialog.getValue() == null
+                || dialog.getValue().trim().isEmpty()) {
+              return;
+            }
+            String reason = dialog.getValue().trim();
+            moveDroppedTicket(id, () -> model.setStage(id, stage, reason), "stage " + stage);
+          } else {
+            moveDroppedTicket(id, () -> model.setStage(id, stage, null), "stage " + stage);
+          }
+        });
+    new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
+  }
+
+  /** Runs a DnD-triggered model move and reports the outcome in the status line. */
+  private void moveDroppedTicket(
+      String id, java.util.function.Supplier<String> move, String target) {
+    if (id == null || id.isBlank() || model == null) {
+      return;
+    }
+    String error = move.get();
+    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+    if (error != null) {
+      status.setErrorMessage("Move " + id + " failed: " + error);
+    } else {
+      status.setErrorMessage(null);
+      status.setMessage("Moved " + id + " \u2192 " + target);
+    }
+    refresh();
+  }
+
+  private void hookContextMenu(TableViewer viewer) {
+    MenuManager manager = new MenuManager();
+    manager.setRemoveAllWhenShown(true);
+    manager.addMenuListener(this::fillContextMenu);
+    Menu menu = manager.createContextMenu(viewer.getControl());
+    viewer.getControl().setMenu(menu);
+  }
+
+  private void fillContextMenu(IContributionManager manager) {
+    TicketRow row = selectedRow();
+    Action launch =
+        new Action("Launch task") {
+          @Override
+          public void run() {
+            launchSelected();
+          }
+        };
+    launch.setEnabled(canLaunch(row));
+    manager.add(launch);
+    Action takeOver =
+        new Action("Take over") {
+          @Override
+          public void run() {
+            takeOverSelected();
+          }
+        };
+    takeOver.setEnabled(row != null);
+    manager.add(takeOver);
+    Action open =
+        new Action("Open ticket\u2026") {
+          @Override
+          public void run() {
+            openDetails();
+          }
+        };
+    open.setEnabled(row != null);
+    manager.add(open);
+    Action copyId =
+        new Action("Copy ticket id") {
+          @Override
+          public void run() {
+            copyTicketId(row);
+          }
+        };
+    copyId.setEnabled(row != null && row.id() != null);
+    manager.add(copyId);
+    // U-026 FR-006 shape: the movement trace as plain text, paste-ready
+    // for chat or a ticket comment
+    Action copyJourney =
+        new Action("Copy stage journey") {
+          @Override
+          public void run() {
+            copyStageJourney(row);
+          }
+        };
+    copyJourney.setEnabled(row != null && row.id() != null);
+    manager.add(copyJourney);
+    manager.add(new Separator());
+    Action advance =
+        new Action("Advance stage \u2192") {
+          @Override
+          public void run() {
+            advanceSelected(row);
+          }
+        };
+    advance.setEnabled(canAdvance(row));
+    manager.add(advance);
+    Action sendBack =
+        new Action("Send back\u2026") {
+          @Override
+          public void run() {
+            sendBackSelected(row);
+          }
+        };
+    sendBack.setEnabled(canSendBack(row));
+    manager.add(sendBack);
+    manager.add(new Separator());
+    // U-022 fine-grained fleet controls: hold/resume one ticket and
+    // abort one running job - not everything runs or everything pauses
+    Action holdAction =
+        new Action(
+            row != null && row.displayBlocked()
+                ? "Resume (release into dispatch)"
+                : "Hold (pause auto-dispatch)") {
+          @Override
+          public void run() {
+            if (row == null || model == null) {
+              return;
+            }
+            String error = row.displayBlocked() ? model.resume(row.id()) : model.hold(row.id());
+            IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+            if (error != null) {
+              status.setErrorMessage(error);
+            } else {
+              status.setErrorMessage(null);
+              status.setMessage(
+                  row.displayBlocked()
+                      ? "Resumed " + row.id()
+                      : "Held " + row.id() + " (auto-dispatch skips it)");
+            }
+            refresh();
+          }
+        };
+    holdAction.setEnabled(row != null);
+    manager.add(holdAction);
+    Action abortJob =
+        new Action("Abort fleet job\u2026") {
+          @Override
+          public void run() {
+            abortFleetJob(row);
+          }
+        };
+    abortJob.setEnabled(runningJobOf(row) != null);
+    manager.add(abortJob);
+    // U-025: done tickets can leave the active board into the archive
+    Action archive =
+        new Action("Archive") {
+          @Override
+          public void run() {
+            if (row == null || model == null) {
+              return;
+            }
+            String error = model.archive(row.id());
+            IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+            if (error != null) {
+              status.setErrorMessage(error);
+            } else {
+              status.setErrorMessage(null);
+              status.setMessage("Archived " + row.id() + " (see the Archive row)");
+            }
+            refresh();
+          }
+        };
+    archive.setEnabled(row != null && "done".equals(row.status()));
+    manager.add(archive);
+  }
+
+  /** The RUNNING fleet job for a row, {@code null} when none. */
+  private FleetJobHandle runningJobOf(TicketRow row) {
+    if (row == null || row.id() == null) {
+      return null;
+    }
+    for (FleetJobHandle job : FleetJobsModel.getDefault().jobs()) {
+      if (row.id().equals(job.taskId()) && job.state() == FleetJobHandle.State.RUNNING) {
+        return job;
+      }
+    }
+    return null;
+  }
+
+  /** Aborts the row's running fleet job (confirmation, then the server-side abort). */
+  private void abortFleetJob(TicketRow row) {
+    FleetJobHandle job = runningJobOf(row);
+    if (job == null || job.sessionId() == null || job.sessionId().isBlank()) {
+      return;
+    }
+    String sessionId = job.sessionId();
+    boolean confirmed =
+        MessageDialog.openConfirm(
+            getSite().getShell(),
+            "Abort fleet job",
+            "Abort the running agent of session " + sessionId + "?\n(ticket " + row.id() + ")");
+    if (!confirmed) {
+      return;
+    }
+    ExecutorService executor = refreshExecutor;
+    if (executor == null) {
+      return;
+    }
+    executor.execute(
+        () -> {
+          try {
+            OpencodeConnection.getInstance().getClient().abortSession(sessionId);
+            statusMessage("Abort posted for " + row.id());
+          } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
+            logError("Abort failed for session " + sessionId, e);
+          }
+        });
+  }
+
+  /** Copies the ticket id to the clipboard and confirms in the status line. */
+  private void copyTicketId(TicketRow row) {
+    if (row == null || row.id() == null || boardArea == null || boardArea.isDisposed()) {
+      return;
+    }
+    Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
+    try {
+      clipboard.setContents(new Object[] {row.id()}, new Transfer[] {TextTransfer.getInstance()});
+      statusMessage("Copied: " + row.id());
+    } finally {
+      clipboard.dispose();
+    }
+  }
+
+  /**
+   * U-026: copies the ticket's stage journey (progress header + movement trace with timestamps,
+   * authors and reasons) to the clipboard — the plain-text shape FR-006 prescribes for chat/comment
+   * surfaces.
+   */
+  private void copyStageJourney(TicketRow row) {
+    if (row == null
+        || row.id() == null
+        || model == null
+        || boardArea == null
+        || boardArea.isDisposed()) {
+      return;
+    }
+    Task task = model.loadTask(row.id());
+    if (task == null) {
+      return;
+    }
+    String text = StageJourney.of(task).plainText();
+    Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
+    try {
+      clipboard.setContents(new Object[] {text}, new Transfer[] {TextTransfer.getInstance()});
+      statusMessage("Copied stage journey: " + row.id());
+    } finally {
+      clipboard.dispose();
+    }
+  }
+
+  private static boolean canAdvance(TicketRow row) {
+    return row != null
+        && row.stage() != null
+        && ("in-review".equals(row.status()) || "done".equals(row.status()))
+        && VStages.next(row.stage()) != null;
+  }
+
+  private static boolean canSendBack(TicketRow row) {
+    return row != null && row.stage() != null && VStages.previous(row.stage()) != null;
+  }
+
+  private void advanceSelected(TicketRow row) {
+    if (row == null || model == null) {
+      return;
+    }
+    String error = model.advance(row.id());
+    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+    if (error != null) {
+      status.setErrorMessage("Advance " + row.id() + " failed: " + error);
+    } else {
+      status.setErrorMessage(null);
+      status.setMessage("Advanced " + row.id() + " \u2192 " + VStages.next(row.stage()));
+    }
+    refresh();
+  }
+
+  private void sendBackSelected(TicketRow row) {
+    if (row == null || model == null) {
+      return;
+    }
+    String previous = VStages.previous(row.stage());
+    InputDialog dialog =
+        new InputDialog(
+            getSite().getShell(),
+            "Send back " + row.id(),
+            "Reason for sending "
+                + row.id()
+                + " back from '"
+                + row.stage()
+                + "' to '"
+                + previous
+                + "':",
+            "",
+            text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
+    if (dialog.open() != Window.OK) {
+      return;
+    }
+    String reason = dialog.getValue() == null ? "" : dialog.getValue().trim();
+    if (reason.isEmpty()) {
+      return;
+    }
+    String error = model.sendBack(row.id(), reason);
+    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+    if (error != null) {
+      status.setErrorMessage("Send back " + row.id() + " failed: " + error);
+    } else {
+      status.setErrorMessage(null);
+      status.setMessage("Sent " + row.id() + " back \u2192 " + previous + " (blocked)");
+    }
+    refresh();
+  }
+
+  private static Font boldFont() {
+    return JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT);
+  }
+
+  private static TicketRow asRow(Object element) {
+    return element instanceof TicketRow row ? row : null;
+  }
+
+  /**
+   * Row rendering shared by both layouts: status glyph (colored), blocked bug accents, readiness
+   * chips. Blocked rows render their [BLOCKED] tag red bold, bug rows carry a red [bug] tag;
+   * readiness chips (· stale / · waiting) ride on the tail. Uses {@link StyledString} so the glyph
+   * and tags carry their own colors inside one cell (user direction 2026-09-18: pictographs over
+   * [IP]-style codes).
+   */
+  private final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
+    private Map<String, StageReadiness.Readiness> readiness = Map.of();
+
+    /** U-026: per-ticket stage journeys (progress + send-back marker). */
+    private Map<String, StageJourney> journeys = Map.of();
+
+    /** U-065: the styled TITLE cell of every card column (all modes). */
+    BoardRowLabel() {}
+
+    /** Latest per-ticket dispatch verdicts (UI thread, before setInput). */
+    void setReadiness(Map<String, StageReadiness.Readiness> readiness) {
+      this.readiness = readiness == null ? Map.of() : readiness;
+    }
+
+    /** Latest per-ticket stage journeys (UI thread, before setInput). */
+    void setJourneys(Map<String, StageJourney> journeys) {
+      this.journeys = journeys == null ? Map.of() : journeys;
     }
 
     @Override
-    public void createPartControl(Composite parent) {
-        refreshExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-refresh");
-        takeoverExecutor = com.opencode.ide.client.WorkerPools.serialExecutor("board-takeover");
-
-        Composite outer = new Composite(parent, SWT.NONE);
-        GridLayout outerLayout = new GridLayout(1, false);
-        outerLayout.marginWidth = 0;
-        outerLayout.marginHeight = 0;
-        outer.setLayout(outerLayout);
-
-        // U-017: the three header rows (store / scope / fleet) stack ABOVE
-        // the board area, so they are created first. Settings load before
-        // the rows so the embedded contributions seed from stored values.
-        loadSettings();
-        contributeToolbar(outer);
-
-        boardArea = new Composite(outer, SWT.NONE);
-        GridLayout boardLayout = new GridLayout(1, false);
-        boardLayout.marginWidth = 0;
-        boardLayout.marginHeight = 0;
-        boardArea.setLayout(boardLayout);
-        // U-033: the board area grabs the view's excess (a plain
-        // GridData(FILL_BOTH) style only aligns - it never grabs - so the
-        // columns below can share the full width)
-        boardArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-
-        buildBoardArea();
-        initModel();
-        try {
-            dispatchStore = DispatchPolicyStore.eclipse();
-        // U-072: the per-stage model policy reaches every in-process launch -
-        // the fleet's launch precedence (TaskFleet.effectiveModel) consults
-        // StageModels as its LAST fallback; uninstalled hosts (no board) keep
-        // today's behavior
-        com.opencode.ide.fleet.StageModels.install(stage ->
-                dispatchStore == null ? null : dispatchStore.loadStageModels().get(stage));
-        } catch (RuntimeException e) {
-            logError("Dispatch settings persistence unavailable; dispatch runs on the defaults", e);
+    public void update(org.eclipse.jface.viewers.ViewerCell cell) {
+      TicketRow row = asRow(cell.getElement());
+      if (row == null) {
+        cell.setText("");
+        cell.setStyleRanges(null);
+        return;
+      }
+      Display display = cell.getControl().getDisplay();
+      org.eclipse.jface.viewers.StyledString text = new org.eclipse.jface.viewers.StyledString();
+      // U-067: the blocked STATE owns its presentation (status column +
+      // readiness chip) - the title cell stays CLEAN: no status-derived
+      // prefix that doubles the information or goes stale on a status
+      // change (owner 2026-10-07: "still the cross symbol in the text -
+      // this is double information")
+      text.append(
+          row.title() == null || row.title().isBlank() ? safe(row.id()) : row.title().trim());
+      // cross-mode awareness + readiness chips in quiet gray
+      String tail = row.labelTail();
+      if (!tail.isEmpty()) {
+        text.append(" " + tail, colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
+      }
+      // U-026 FR-002/FR-004: per-card stage progress (<visited>/10,
+      // quiet gray) and the send-back marker (red) when the journey
+      // ever hit a setback - the unmissable feedback-loop signal
+      StageJourney journey = row.id() == null ? null : journeys.get(row.id());
+      if (journey != null) {
+        text.append(
+            " " + journey.progressLabel(),
+            colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
+        if (journey.hasSetback()) {
+          text.append(" \u21A9", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
         }
-        createLauncher();
+      }
+      String chip = chipOf(readiness.get(row.id()));
+      if (!chip.isEmpty()) {
+        text.append(chip, colorStyler(display.getSystemColor(SWT.COLOR_DARK_YELLOW)));
+      }
+      cell.setText(text.getString());
+      cell.setStyleRanges(text.getStyleRanges());
     }
 
-    private void createLauncher() {
-        Path root = model.root();
-        DispatchPolicyStore settings = dispatchStore;
-        launcher = new TaskFleetLauncher(
-                BoardView::connectClient,
-                FleetGit::defaultManager,
-                () -> root,
-                () -> {
-                    var stored = settings == null ? DispatchPolicyStore.defaults() : settings.load();
-                    return Bootstrap.of(stored.bootstrapAgent(), stored.bootstrapCommand());
-                });
-    }
-
-    private static com.opencode.ide.client.OpencodeClient connectClient() {
-        try {
-            return OpencodeConnection.getInstance().getClient();
-        } catch (com.opencode.ide.client.OpencodeException e) {
-            throw new IllegalStateException("opencode server unavailable: " + e.getMessage(), e);
+    /** A foreground-color styler (this JFace names the seam StyledString.Styler). */
+    private static org.eclipse.jface.viewers.StyledString.Styler colorStyler(Color color) {
+      return new org.eclipse.jface.viewers.StyledString.Styler() {
+        @Override
+        public void applyStyles(org.eclipse.swt.graphics.TextStyle style) {
+          style.foreground = color;
         }
+      };
     }
 
-    // ------------------------------------------------------------------
-    // Layout: flat status kanban / V pipeline
-    // ------------------------------------------------------------------
-
-    /** Builds the layout matching {@link #boardMode} into {@link #boardArea}. */
-    private void buildBoardArea() {
-        columns.clear();
-        pipelineColumns.clear();
-        rowLabels.clear(); // the old labels belong to disposed columns
-        flatArea = null;
-        pipelineScroll = null;
-        pipelineContent = null;
-        if (boardMode == BoardMode.PIPELINE) {
-            buildPipelineArea();
-        } else if (boardMode == BoardMode.EPIC) {
-            buildEpicArea();
-        } else {
-            buildFlatArea();
-        }
-        boardArea.layout(true, true);
+    /** The status glyph's color: done green, running blue, review amber, backlog gray. */
+    /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
+    private static String chipOf(StageReadiness.Readiness verdict) {
+      if (verdict == null) {
+        return "";
+      }
+      return switch (verdict.kind()) {
+        case STALE -> " \u00b7 stale";
+        case WAIT_UPSTREAM -> " \u00b7 waiting";
+        case BLOCKED ->
+            " \u00b7 blocked-upstream"; // blocked flag may be clear while the verdict still blames
+        // it
+        default -> "";
+      };
     }
 
-    /** Disposes the current layout and builds the (new) one. */
-    private void rebuildBoardArea() {
-        if (boardArea == null || boardArea.isDisposed()) {
-            return;
-        }
-        for (Control child : boardArea.getChildren()) {
-            child.dispose();
-        }
-        buildBoardArea();
-    }
-
-    /**
-     * U-018 epic swimlanes: one section per epic (header + a single
-     * status-prefixed, priority-sorted table). The area is rebuilt on every
-     * apply because the lane set changes with the tickets (rebuilds are
-     * cheap - a handful of epics - and refreshes are coalesced).
-     */
-    private void buildEpicArea() {
-        flatArea = new Composite(boardArea, SWT.NONE);
-        GridLayout lanes = new GridLayout(1, false);
-        lanes.marginWidth = 0;
-        lanes.marginHeight = 0;
-        lanes.verticalSpacing = 6;
-        flatArea.setLayout(lanes);
-        flatArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-    }
-
-    /** Rebuilds the epic lanes from the snapshot's lane map. */
-    private void applyEpicSnapshot(BoardSnapshot snapshot) {
-        if (flatArea == null || flatArea.isDisposed()) {
-            return;
-        }
-        for (Control child : flatArea.getChildren()) {
-            child.dispose();
-        }
-        rowLabels.clear(); // epic labels are rebuilt with the lanes
-        Map<String, List<TicketRow>> lanes = snapshot.epicLanes();
-        if (lanes.isEmpty()) {
-            Label empty = new Label(flatArea, SWT.NONE);
-            empty.setText("(no tickets match the current filters)");
-            empty.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-        }
-        for (Map.Entry<String, List<TicketRow>> lane : lanes.entrySet()) {
-            Label laneHeader = new Label(flatArea, SWT.NONE);
-            List<TicketRow> rows = lane.getValue();
-            // text markers only (owner feedback 2026-10-07): every group
-            // header uses the same medium - font-sized glyphs - so no header
-            // icon renders smaller than another header's marker
-            laneHeader.setText("\u25A4 " + lane.getKey() + "  (" + rows.size() + ")");
-            laneHeader.setFont(boldFont());
-            laneHeader.setToolTipText("epic swimlane " + lane.getKey() + ": " + rows.size()
-                    + " ticket(s) - click a card column header to sort");
-            laneHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-            // swimlane cards share the ONE column set with every other mode
-            // (U-065) - readiness chips ride along via the label registry
-            TableViewer viewer = createTicketViewer(flatArea);
-            // lane tables size to their content (capped), not FILL_BOTH -
-            // every lane stays visible in one scrollable stack
-            GridData laneTable = new GridData(SWT.FILL, SWT.CENTER, true, false);
-            laneTable.heightHint = Math.min(Math.max(rows.size(), 1), 8) * 18 + 8;
-            viewer.getTable().getParent().setLayoutData(laneTable);
-            viewer.setInput(rows);
-        }
-        for (BoardRowLabel label : rowLabels) {
-            label.setReadiness(snapshot.readiness());
-            label.setJourneys(snapshot.journeys());
-        }
-        flatArea.layout(true, true);
-    }
-
-    private void buildFlatArea() {
-        flatArea = new Composite(boardArea, SWT.NONE);
-        java.util.List<String> visibleStatuses = new ArrayList<>();
-        for (String status : Task.VALID_STATUSES) {
-            if (!hiddenStatuses.contains(status)) {
-                visibleStatuses.add(status);
-            }
-        }
-        GridLayout columnLayout = new GridLayout(Math.max(1, visibleStatuses.size()), true);
-        columnLayout.marginWidth = 0;
-        columnLayout.marginHeight = 0;
-        columnLayout.horizontalSpacing = 3;
-        flatArea.setLayout(columnLayout);
-        // U-033 equal growth: the flat area grabs the board area's excess
-        // and every column below grabs its share of THAT - all status
-        // columns grow EQUALLY on resize (makeColumnsEqualWidth splits the
-        // width evenly among the equally-grabbing columns). The V pipeline
-        // keeps its fixed-width cells by design (U-016).
-        flatArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-
-        for (String status : visibleStatuses) {
-            columns.put(status, createColumn(status));
-        }
-    }
-
-    private void buildPipelineArea() {
-        pipelineScroll = new ScrolledComposite(boardArea, SWT.H_SCROLL | SWT.V_SCROLL);
-        pipelineScroll.setExpandHorizontal(true);
-        pipelineScroll.setExpandVertical(true);
-        // grabs so the scroll area fills the (now-grabbing) board area; the
-        // V cells INSIDE keep their fixed width (U-016) - only the canvas
-        // grows, never the columns
-        pipelineScroll.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-
-        pipelineContent = new Composite(pipelineScroll, SWT.NONE);
-        GridLayout gridLayout = new GridLayout(VStageLayout.GRID_COLUMNS, false);
-        gridLayout.marginWidth = 2;
-        gridLayout.marginHeight = 2;
-        gridLayout.horizontalSpacing = 4;
-        gridLayout.verticalSpacing = 4;
-        pipelineContent.setLayout(gridLayout);
-
-        // The V (U-016, orientation per user direction 2026-09-18): two
-        // vertical arms side by side - the left column is the definition
-        // leg (requirements at the top, implementation at the vertex), the
-        // right column is the verification leg level-paired with it
-        // (test-implementation at the vertex, test-requirements at the
-        // top). All ten stage columns render even when empty, at the fixed
-        // width; nothing collapses to its header.
-        for (List<String> row : VStageLayout.grid()) {
-            for (String stage : row) {
-                if (stage == null) {
-                    Composite spacer = new Composite(pipelineContent, SWT.NONE);
-                    spacer.setLayoutData(new GridData(SWT.BEGINNING, SWT.BEGINNING, false, false));
-                } else {
-                    pipelineColumns.add(createPipelineColumn(stage));
-                }
-            }
-        }
-
-        // The untracked group lives in its OWN row below the V, separated,
-        // and hideable (user direction 2026-09-18): unlike the ten stages
-        // it may vanish - when hidden only the small toggle remains.
-        Label separator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
-        GridData separatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
-        separatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
-        separator.setLayoutData(separatorData);
-
-        untrackedRow = new Composite(pipelineContent, SWT.NONE);
-        GridLayout untrackedLayout = new GridLayout(1, false);
-        untrackedLayout.marginWidth = 0;
-        untrackedLayout.marginHeight = 0;
-        untrackedLayout.verticalSpacing = 2;
-        untrackedRow.setLayout(untrackedLayout);
-        GridData untrackedRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
-        untrackedRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
-        untrackedRow.setLayoutData(untrackedRowData);
-
-        untrackedToggle = new Button(untrackedRow, SWT.FLAT);
-        untrackedToggle.setText(showUntracked ? "No stage (0) \u25BE" : "No stage \u25B8 (hidden)");
-        untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
-                + (showUntracked ? "hide" : "show") + " the group");
-        untrackedToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-        untrackedToggle.addListener(SWT.Selection, e -> {
-            showUntracked = !showUntracked;
-            saveSettings();
-            applyUntrackedVisibility();
-            pipelineContent.layout(true, true);
-            pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
-        });
-
-        untrackedUi = createPipelineColumn(untrackedRow, PipelineSnapshot.UNTRACKED);
-        untrackedUi.viewer.getTable().getParent().setLayoutData(untrackedTableData());
-        applyUntrackedVisibility();
-
-        // U-025: the Archive row - done tickets land here (wave close
-        // archives them, or the Archive context action); hidden by
-        // default, listing loads only while visible
-        Label archiveSeparator = new Label(pipelineContent, SWT.SEPARATOR | SWT.HORIZONTAL);
-        GridData archiveSeparatorData = new GridData(SWT.FILL, SWT.CENTER, true, false);
-        archiveSeparatorData.horizontalSpan = VStageLayout.GRID_COLUMNS;
-        archiveSeparator.setLayoutData(archiveSeparatorData);
-
-        archiveRow = new Composite(pipelineContent, SWT.NONE);
-        GridLayout archiveLayout = new GridLayout(1, false);
-        archiveLayout.marginWidth = 0;
-        archiveLayout.marginHeight = 0;
-        archiveLayout.verticalSpacing = 2;
-        archiveRow.setLayout(archiveLayout);
-        GridData archiveRowData = new GridData(SWT.FILL, SWT.TOP, true, false);
-        archiveRowData.horizontalSpan = VStageLayout.GRID_COLUMNS;
-        archiveRow.setLayoutData(archiveRowData);
-
-        archiveToggle = new Button(archiveRow, SWT.FLAT);
-        archiveToggle.setText(showArchive ? "Archive (…) \u25BE" : "Archive \u25B8 (hidden)");
-        archiveToggle.setToolTipText("Done tickets archived with their wave - out of the active "
-                + "board, record kept. Click to " + (showArchive ? "hide" : "show"));
-        archiveToggle.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-        archiveToggle.addListener(SWT.Selection, e -> {
-            showArchive = !showArchive;
-            saveSettings();
-            refresh();
-        });
-
-        archiveViewer = createTicketViewer(archiveRow);
-        archiveViewer.getTable().getParent().setLayoutData(untrackedTableData());
-        applyArchiveVisibility();
-
-        pipelineScroll.setContent(pipelineContent);
-    }
-
-    private ColumnUi createColumn(String status) {
-        Composite column = new Composite(flatArea, SWT.NONE);
-        GridLayout layout = new GridLayout(1, false);
-        layout.marginWidth = 2;
-        layout.marginHeight = 0;
-        column.setLayout(layout);
-        // U-033: EVERY status column grabs (equally, alongside
-        // makeColumnsEqualWidth above) - a resize grows all columns by the
-        // same share instead of heaping the extra width on the right ones
-        column.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-
-        Composite headerLine = new Composite(column, SWT.NONE);
-        GridLayout headerLayout = new GridLayout(1, false);
-        headerLayout.marginWidth = 0;
-        headerLayout.marginHeight = 0;
-        headerLayout.horizontalSpacing = 2;
-        headerLine.setLayout(headerLayout);
-        headerLine.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-
-        Label header = new Label(headerLine, SWT.NONE);
-        header.setText(TicketRow.statusHeaderText(status) + " (0)");
-        header.setFont(boldFont());
-        header.setToolTipText(TicketRow.statusHelp(status));
-        header.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, true, false));
-
-        TableViewer viewer = createTicketViewer(column);
-        hookStatusDrop(viewer.getTable(), status);
-        return new ColumnUi(header, viewer);
-    }
-
-    private PipelineColumnUi createPipelineColumn(String stage) {
-        PipelineColumnUi created = createPipelineColumn(pipelineContent, stage);
-        pipelineColumns.add(created);
-        return created;
-    }
-
-    /** Column creation with an explicit parent (the untracked row composes its own). */
-    private PipelineColumnUi createPipelineColumn(Composite parent, String stage) {
-        Composite column = new Composite(parent, SWT.NONE);
-        GridLayout layout = new GridLayout(1, false);
-        layout.marginWidth = 2;
-        layout.marginHeight = 0;
-        column.setLayout(layout);
-        // Fixed cell of the V grid (U-016): always rendered at the fixed
-        // width — an empty column keeps its table instead of collapsing to
-        // its header — and tall enough for a handful of rows; fuller tables
-        // scroll internally, which keeps the V's rows stable.
-        GridData cell = new GridData(SWT.FILL, SWT.FILL, false, true);
-        cell.widthHint = PIPELINE_COLUMN_WIDTH;
-        cell.heightHint = V_COLUMN_HEIGHT;
-        column.setLayoutData(cell);
-
-        Composite header = new Composite(column, SWT.NONE);
-        GridLayout headerLayout = new GridLayout(3, false);
-        headerLayout.marginWidth = 0;
-        headerLayout.marginHeight = 0;
-        headerLayout.horizontalSpacing = 0;
-        header.setLayout(headerLayout);
-        header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-
-        Font bold = boldFont();
-        Label headerLabel = new Label(header, SWT.NONE);
-        headerLabel.setFont(bold);
-        // Numbered snake order (1-10) so the two-row boustrophedon still
-        // reads as ONE sequence; the turn at implementation carries the
-        // down-arrow, pairing with test-implementation directly below
-        // (U-016 rubberduck review). The untracked group is unnumbered.
-        headerLabel.setText(numberedStageHeader(stage));
-        int number = VStageLayout.stageNumber(stage);
-        headerLabel.setToolTipText(number > 0
-                ? "Stage " + number + " of 10 along the V (definition leg 1-5, verification leg 6-10)"
-                : "Tickets without a V stage");
-        Label blockedLabel = new Label(header, SWT.NONE);
-        blockedLabel.setFont(bold);
-        blockedLabel.setToolTipText("tickets blocked with a reason in this stage "
-                + "(the needs-human surface: cleared blockers re-enter the pump)");
-        // U-028 FR-001..FR-005: the WIP count beside total/blocked - a plain
-        // count of status in-progress, recomputed per snapshot; deliberately
-        // no WIP-limit concept
-        Label wipLabel = new Label(header, SWT.NONE);
-        wipLabel.setFont(bold);
-        wipLabel.setToolTipText("work in progress: tickets with status in-progress "
-                + "(a plain count - U-028: no WIP limits)");
-
-        Composite tableComposite = new Composite(column, SWT.NONE);
-        TableColumnLayout tableLayout = new TableColumnLayout();
-        tableComposite.setLayout(tableLayout);
-        tableComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
-
-        TableViewer viewer = new TableViewer(tableComposite,
-                SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
-        viewer.getTable().setLinesVisible(true);
-        viewer.setContentProvider(ArrayContentProvider.getInstance());
-        hookViewerBehavior(viewer);
-        // U-065: stage cards share the ONE column set with every other mode
-        addCardColumns(viewer, tableLayout);
-        hookStageDrop(viewer.getTable(), stage);
-
-        return new PipelineColumnUi(stage, headerLabel, wipLabel, blockedLabel, viewer);
-    }
-
-    /** The untracked table's layout data: spans wide (its row is full-width), content-height. */
-    private static GridData untrackedTableData() {
-        GridData data = new GridData(SWT.FILL, SWT.CENTER, true, false);
-        data.heightHint = 110;
-        return data;
-    }
-
-    /** Shows or hides the untracked group's table + updates the toggle text (persisted setting). */
-    private void applyUntrackedVisibility() {
-        if (untrackedToggle == null || untrackedToggle.isDisposed() || untrackedUi == null) {
-            return;
-        }
-        Composite tableHolder = untrackedUi.viewer.getTable().getParent();
-        if (tableHolder != null && !tableHolder.isDisposed()) {
-            tableHolder.setVisible(showUntracked);
-            GridData data = (GridData) tableHolder.getLayoutData();
-            data.exclude = !showUntracked;
-            tableHolder.setLayoutData(data);
-        }
-        untrackedToggle.setText(showUntracked ? "No stage (…) \u25BE" : "No stage \u25B8 (hidden)");
-        untrackedToggle.setToolTipText("Tickets without a resolvable V stage - click to "
-                + (showUntracked ? "hide" : "show") + " the group");
-    }
-
-    /** Archive-row visibility (the table only exists while shown). */
-    private void applyArchiveVisibility() {
-        if (archiveRow == null || archiveRow.isDisposed() || archiveViewer == null) {
-            return;
-        }
-        Composite tableHolder = archiveViewer.getTable().getParent();
-        if (tableHolder != null && !tableHolder.isDisposed()) {
-            tableHolder.setVisible(showArchive);
-            GridData data = (GridData) tableHolder.getLayoutData();
-            data.exclude = !showArchive;
-            tableHolder.setLayoutData(data);
-        }
-        archiveToggle.setText(showArchive ? "Archive \u25BE" : "Archive \u25B8 (hidden)");
-    }
-
-    /**
-     * Shared ticket viewer for EVERY Group-by mode (U-065): one card column
-     * set - status emoji | type emoji | styled title | points - built by
-     * {@link #addCardColumns}, so the card shape cannot drift between the
-     * Progress kanban, the V-model stage columns, the Epic swimlanes and the
-     * archive row (the 2026-09-18 Progress-only columns became the whole
-     * board's contract on 2026-10-07).
-     */
-    private TableViewer createTicketViewer(Composite column) {
-        Composite tableComposite = new Composite(column, SWT.NONE);
-        TableColumnLayout tableLayout = new TableColumnLayout();
-        tableComposite.setLayout(tableLayout);
-        // U-033: grab so the table stretches to its column's width (the
-        // epic lanes and the archive row override this with their own data)
-        tableComposite.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-
-        TableViewer viewer = new TableViewer(tableComposite,
-                SWT.SINGLE | SWT.H_SCROLL | SWT.V_SCROLL | SWT.FULL_SELECTION | SWT.BORDER);
-        viewer.getTable().setLinesVisible(true);
-        viewer.setContentProvider(ArrayContentProvider.getInstance());
-        hookViewerBehavior(viewer);
-        addCardColumns(viewer, tableLayout);
-        return viewer;
-    }
-
-    /**
-     * U-065: THE card column set every Group-by mode renders - status emoji |
-     * type emoji | styled title (readiness chips, stage journey, blocker ride
-     * in the cell) | points. Progress (flat), V-model stages, Epic swimlanes
-     * and the archive row all go through this one builder, so the card shape
-     * cannot drift between modes (the 2026-09-18 Progress-only columns
-     * became the whole board's contract on 2026-10-07; owner direction the
-     * same day: emoji where possible - colored, visible, DPI-proof, no
-     * image files for cards).
-     */
-    private void addCardColumns(TableViewer viewer, TableColumnLayout tableLayout) {
-        TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
-        status.setLabelProvider(new ColumnLabelProvider() {
-            @Override
-            public String getText(Object element) {
-                TicketRow row = asRow(element);
-                return row == null ? "" : TicketRow.statusSymbol(row.status());
-            }
-
-            @Override
-            public org.eclipse.swt.graphics.Color getForeground(Object element) {
-                // U-067: the blocked icon lives HERE (the status cell) - and
-                // it is RED (owner 2026-10-07); tints the monochrome glyph,
-                // the color-emoji font is red anyway
-                TicketRow row = asRow(element);
-                if (row != null && "blocked".equals(row.status())) {
-                    return Display.getCurrent().getSystemColor(SWT.COLOR_RED);
-                }
-                return null;
-            }
-        });
-        tableLayout.setColumnData(status.getColumn(), new ColumnWeightData(12, 32, false));
-
-        TableViewerColumn type = new TableViewerColumn(viewer, SWT.CENTER);
-        type.setLabelProvider(new ColumnLabelProvider() {
-            @Override
-            public String getText(Object element) {
-                TicketRow row = asRow(element);
-                return row == null ? "" : TicketRow.typeEmoji(row.type());
-            }
-        });
-        tableLayout.setColumnData(type.getColumn(), new ColumnWeightData(12, 32, false));
-
-            TableViewerColumn title = new TableViewerColumn(viewer, SWT.NONE);
-            // U-065: the styled title cell keeps the readiness chips, stage
-            // journey and blocker tail that the composed cards used to render
-            BoardRowLabel titleCell = new BoardRowLabel();
-            rowLabels.add(titleCell);
-            title.setLabelProvider(titleCell);
-            tableLayout.setColumnData(title.getColumn(), new ColumnWeightData(100, 110, true));
-
-            TableViewerColumn points = new TableViewerColumn(viewer, SWT.RIGHT);
-            points.setLabelProvider(new ColumnLabelProvider() {
-                @Override
-                public String getText(Object element) {
-                    TicketRow row = asRow(element);
-                    return row == null ? "" : row.pointsLabel();
-                }
-            });
-            tableLayout.setColumnData(points.getColumn(), new ColumnWeightData(12, 26, false));
-
-        // Owner direction 2026-10-07: the card columns SORT - a header click
-        // cycles ascending, descending and back to the snapshot order; the
-        // comparator itself is model-side (TicketRow.cardComparator) so the
-        // ordering contract stays unit-tested SWT-free
-        viewer.getTable().setHeaderVisible(true);
-        hookColumnSort(viewer, status.getColumn(), "status", "status emoji");
-        hookColumnSort(viewer, type.getColumn(), "type", "type emoji");
-        hookColumnSort(viewer, title.getColumn(), "title", "ticket title");
-        hookColumnSort(viewer, points.getColumn(), "points", "story points");
-    }
-
-    /**
-     * Click-to-sort on one card column (owner direction 2026-10-07): the
-     * header cycles ascending, descending and back to the snapshot order,
-     * and the marker in the header shows the state. The marker IS the whole
-     * header text - the icon columns are too narrow for labels; the tooltip
-     * carries the column's meaning plus the sort behavior. JFace's
-     * ViewerComparator constructor takes a Comparator over STRING keys, so
-     * the row comparator rides in via the compare override instead.
-     */
-    private void hookColumnSort(TableViewer viewer, TableColumn column, String key, String meaning) {
-        final int[] step = {0}; // 0 snapshot order, 1 ascending, 2 descending
-        column.setText("\u21C5");
-        column.setToolTipText(meaning + " - click to sort: ascending, descending, snapshot order");
-        column.addListener(SWT.Selection, e -> {
-            step[0] = (step[0] + 1) % 3;
-            if (step[0] == 0) {
-                viewer.setComparator(null);
-                column.setText("\u21C5");
-                return;
-            }
-            boolean ascending = step[0] == 1;
-            Comparator<TicketRow> order = TicketRow.cardComparator(key, ascending);
-            viewer.setComparator(new org.eclipse.jface.viewers.ViewerComparator() {
-                @Override
-                public int compare(org.eclipse.jface.viewers.Viewer viewer, Object left, Object right) {
-                    TicketRow a = asRow(left);
-                    TicketRow b = asRow(right);
-                    if (a == null || b == null) {
-                        return a == null ? (b == null ? 0 : 1) : -1;
-                    }
-                    return order.compare(a, b);
-                }
-            });
-            column.setText(ascending ? "\u25B2" : "\u25BC");
-        });
-    }
-
-    private void hookViewerBehavior(TableViewer viewer) {
-        viewer.addDoubleClickListener(new IDoubleClickListener() {
-            @Override
-            public void doubleClick(DoubleClickEvent event) {
-                openDetails();
-            }
-        });
-        viewer.addSelectionChangedListener((ISelectionChangedListener) e -> updateActionEnablement());
-        ColumnViewerToolTipSupport.enableFor(viewer);
-        hookContextMenu(viewer);
-        hookDrag(viewer);
-    }
-
-    /**
-     * Drag-and-drop (U-016 rubberduck review: the kanban's core missing
-     * affordance). Dragging carries the ticket id; each column's table is a
-     * drop target — a flat column drops change the STATUS, a V-model stage
-     * column drops change the STAGE (backward drops ask for the send-back
-     * reason first, exactly like the context-menu send-back).
-     */
-    private void hookDrag(TableViewer viewer) {
-        viewer.addDragSupport(DND.DROP_MOVE, new Transfer[] {TextTransfer.getInstance()},
-                new DragSourceAdapter() {
-                    @Override
-                    public void dragSetData(DragSourceEvent event) {
-                        TicketRow row = selectedRow();
-                        if (row != null && row.id() != null) {
-                            event.data = row.id();
-                        }
-                    }
-                });
-    }
-
-    /** Drop target for a flat status column's table. */
-    private void hookStatusDrop(Table table, String status) {
-        new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
-        table.addListener(DND.Drop, event ->
-                moveDroppedTicket((String) event.data,
-                        () -> model.setStatus((String) event.data, status), "status " + status));
-    }
-
-    /** Drop target for a V-model stage column's table ({@code null} stage = the untracked group). */
-    private void hookStageDrop(Table table, String stage) {
-        table.addListener(DND.Drop, event -> {
-            String id = (String) event.data;
-            if (stage == null || PipelineSnapshot.UNTRACKED.equals(stage)) {
-                moveDroppedTicket(id, () -> model.setStage(id, null, null), "no stage");
-                return;
-            }
-            TicketRow row = model == null ? null : model.row(id);
-            int from = row == null ? -1 : VStages.STAGES.indexOf(row.effectiveStage());
-            int to = VStages.STAGES.indexOf(stage);
-            if (from >= 0 && to >= 0 && to < from) {
-                String previous = row.effectiveStage();
-                InputDialog dialog = new InputDialog(getSite().getShell(), "Send back " + id,
-                        "Reason for moving " + id + " back from '" + previous + "' to '" + stage + "':",
-                        "", text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
-                if (dialog.open() != Window.OK || dialog.getValue() == null || dialog.getValue().trim().isEmpty()) {
-                    return;
-                }
-                String reason = dialog.getValue().trim();
-                moveDroppedTicket(id, () -> model.setStage(id, stage, reason), "stage " + stage);
-            } else {
-                moveDroppedTicket(id, () -> model.setStage(id, stage, null), "stage " + stage);
-            }
-        });
-        new DropTarget(table, DND.DROP_MOVE).setTransfer(new Transfer[] {TextTransfer.getInstance()});
-    }
-
-    /** Runs a DnD-triggered model move and reports the outcome in the status line. */
-    private void moveDroppedTicket(String id, java.util.function.Supplier<String> move, String target) {
-        if (id == null || id.isBlank() || model == null) {
-            return;
-        }
-        String error = move.get();
-        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-        if (error != null) {
-            status.setErrorMessage("Move " + id + " failed: " + error);
-        } else {
-            status.setErrorMessage(null);
-            status.setMessage("Moved " + id + " \u2192 " + target);
-        }
-        refresh();
-    }
-
-    private void hookContextMenu(TableViewer viewer) {
-        MenuManager manager = new MenuManager();
-        manager.setRemoveAllWhenShown(true);
-        manager.addMenuListener(this::fillContextMenu);
-        Menu menu = manager.createContextMenu(viewer.getControl());
-        viewer.getControl().setMenu(menu);
-    }
-
-    private void fillContextMenu(IContributionManager manager) {
-        TicketRow row = selectedRow();
-        Action launch = new Action("Launch task") {
-            @Override
-            public void run() {
-                launchSelected();
-            }
-        };
-        launch.setEnabled(canLaunch(row));
-        manager.add(launch);
-        Action takeOver = new Action("Take over") {
-            @Override
-            public void run() {
-                takeOverSelected();
-            }
-        };
-        takeOver.setEnabled(row != null);
-        manager.add(takeOver);
-        Action open = new Action("Open ticket\u2026") {
-            @Override
-            public void run() {
-                openDetails();
-            }
-        };
-        open.setEnabled(row != null);
-        manager.add(open);
-        Action copyId = new Action("Copy ticket id") {
-            @Override
-            public void run() {
-                copyTicketId(row);
-            }
-        };
-        copyId.setEnabled(row != null && row.id() != null);
-        manager.add(copyId);
-        // U-026 FR-006 shape: the movement trace as plain text, paste-ready
-        // for chat or a ticket comment
-        Action copyJourney = new Action("Copy stage journey") {
-            @Override
-            public void run() {
-                copyStageJourney(row);
-            }
-        };
-        copyJourney.setEnabled(row != null && row.id() != null);
-        manager.add(copyJourney);
-        manager.add(new Separator());
-        Action advance = new Action("Advance stage \u2192") {
-            @Override
-            public void run() {
-                advanceSelected(row);
-            }
-        };
-        advance.setEnabled(canAdvance(row));
-        manager.add(advance);
-        Action sendBack = new Action("Send back\u2026") {
-            @Override
-            public void run() {
-                sendBackSelected(row);
-            }
-        };
-        sendBack.setEnabled(canSendBack(row));
-        manager.add(sendBack);
-        manager.add(new Separator());
-        // U-022 fine-grained fleet controls: hold/resume one ticket and
-        // abort one running job - not everything runs or everything pauses
-        Action holdAction = new Action(row != null && row.displayBlocked()
-                ? "Resume (release into dispatch)" : "Hold (pause auto-dispatch)") {
-            @Override
-            public void run() {
-                if (row == null || model == null) {
-                    return;
-                }
-                String error = row.displayBlocked() ? model.resume(row.id()) : model.hold(row.id());
-                IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-                if (error != null) {
-                    status.setErrorMessage(error);
-                } else {
-                    status.setErrorMessage(null);
-                    status.setMessage(row.displayBlocked()
-                            ? "Resumed " + row.id() : "Held " + row.id() + " (auto-dispatch skips it)");
-                }
-                refresh();
-            }
-        };
-        holdAction.setEnabled(row != null);
-        manager.add(holdAction);
-        Action abortJob = new Action("Abort fleet job\u2026") {
-            @Override
-            public void run() {
-                abortFleetJob(row);
-            }
-        };
-        abortJob.setEnabled(runningJobOf(row) != null);
-        manager.add(abortJob);
-        // U-025: done tickets can leave the active board into the archive
-        Action archive = new Action("Archive") {
-            @Override
-            public void run() {
-                if (row == null || model == null) {
-                    return;
-                }
-                String error = model.archive(row.id());
-                IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-                if (error != null) {
-                    status.setErrorMessage(error);
-                } else {
-                    status.setErrorMessage(null);
-                    status.setMessage("Archived " + row.id() + " (see the Archive row)");
-                }
-                refresh();
-            }
-        };
-        archive.setEnabled(row != null && "done".equals(row.status()));
-        manager.add(archive);
-    }
-
-    /** The RUNNING fleet job for a row, {@code null} when none. */
-    private FleetJobHandle runningJobOf(TicketRow row) {
-        if (row == null || row.id() == null) {
-            return null;
-        }
-        for (FleetJobHandle job : FleetJobsModel.getDefault().jobs()) {
-            if (row.id().equals(job.taskId()) && job.state() == FleetJobHandle.State.RUNNING) {
-                return job;
-            }
-        }
+    @Override
+    public String getToolTipText(Object element) {
+      TicketRow row = asRow(element);
+      if (row == null) {
         return null;
+      }
+      StringBuilder sb = new StringBuilder(STATUS_LEGEND);
+      sb.append("\n").append(safe(row.id())).append(" \u2014 ").append(safe(row.title()));
+      sb.append("\nstatus: ").append(safe(row.status()));
+      sb.append(" · type: ").append(row.type() == null ? "(none)" : row.type());
+      sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
+      sb.append(" · priority: ")
+          .append(row.priority() == null || row.priority().isBlank() ? "medium" : row.priority());
+      if (row.displayBlocked()) {
+        sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
+      }
+      StageReadiness.Readiness verdict = readiness.get(row.id());
+      if (verdict != null) {
+        sb.append("\nreadiness: ")
+            .append(verdict.kind())
+            .append(" - ")
+            .append(safe(verdict.reason()));
+      }
+      // U-026: the journey digest on the card - progress plus the
+      // latest setback with its reason (FR-004: source, destination
+      // and reason text); the full trace lives in the ticket details
+      StageJourney journey = row.id() == null ? null : journeys.get(row.id());
+      if (journey != null) {
+        sb.append("\njourney: ")
+            .append(journey.progressLabel())
+            .append(" of the V stages visited (distinct; rework counts once)");
+        StageJourney.Movement setback = journey.latestSetback();
+        if (setback != null) {
+          sb.append("\n").append(setback.describe());
+        }
+      }
+      return sb.toString();
     }
+  }
 
-    /** Aborts the row's running fleet job (confirmation, then the server-side abort). */
-    private void abortFleetJob(TicketRow row) {
-        FleetJobHandle job = runningJobOf(row);
-        if (job == null || job.sessionId() == null || job.sessionId().isBlank()) {
-            return;
-        }
-        String sessionId = job.sessionId();
-        boolean confirmed = MessageDialog.openConfirm(getSite().getShell(), "Abort fleet job",
-                "Abort the running agent of session " + sessionId + "?\n(ticket " + row.id() + ")");
-        if (!confirmed) {
-            return;
-        }
-        ExecutorService executor = refreshExecutor;
-        if (executor == null) {
-            return;
-        }
-        executor.execute(() -> {
-            try {
-                OpencodeConnection.getInstance().getClient().abortSession(sessionId);
-                statusMessage("Abort posted for " + row.id());
-            } catch (com.opencode.ide.client.OpencodeException | RuntimeException e) {
-                logError("Abort failed for session " + sessionId, e);
-            }
-        });
-    }
+  private static String safe(String value) {
+    return value == null ? "" : value;
+  }
 
-    /** Copies the ticket id to the clipboard and confirms in the status line. */
-    private void copyTicketId(TicketRow row) {
-        if (row == null || row.id() == null || boardArea == null || boardArea.isDisposed()) {
-            return;
-        }
-        Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
-        try {
-            clipboard.setContents(new Object[] { row.id() }, new Transfer[] { TextTransfer.getInstance() });
-            statusMessage("Copied: " + row.id());
-        } finally {
-            clipboard.dispose();
-        }
-    }
+  // ------------------------------------------------------------------
+  // Toolbar
+  // ------------------------------------------------------------------
 
-    /**
-     * U-026: copies the ticket's stage journey (progress header + movement
-     * trace with timestamps, authors and reasons) to the clipboard — the
-     * plain-text shape FR-006 prescribes for chat/comment surfaces.
-     */
-    private void copyStageJourney(TicketRow row) {
-        if (row == null || row.id() == null || model == null
-                || boardArea == null || boardArea.isDisposed()) {
-            return;
-        }
-        Task task = model.loadTask(row.id());
-        if (task == null) {
-            return;
-        }
-        String text = StageJourney.of(task).plainText();
-        Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
-        try {
-            clipboard.setContents(new Object[] { text }, new Transfer[] { TextTransfer.getInstance() });
-            statusMessage("Copied stage journey: " + row.id());
-        } finally {
-            clipboard.dispose();
-        }
-    }
+  /**
+   * Toolbar icon descriptor from the shared action-icon set vendored in {@code
+   * com.opencode.ide.core} ({@code generate-action-icons.py}, original artwork). Text-only toolbar
+   * actions render as flat labels with no button affordance (user feedback 2026-09-16), so every
+   * toolbar action gets an icon.
+   */
+  private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
+    return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
+        "com.opencode.ide.core", "icons/actions/" + name + ".png");
+  }
 
-    private static boolean canAdvance(TicketRow row) {
-        return row != null && row.stage() != null
-                && ("in-review".equals(row.status()) || "done".equals(row.status()))
-                && VStages.next(row.stage()) != null;
-    }
+  /**
+   * One header row (U-017): an embedded flat tool bar inside the view's header stack — same {@link
+   * Action}/{@link ControlContribution} objects the old single view toolbar held, just grouped by
+   * meaning.
+   */
+  private static ToolBarManager headerRow(Composite parent) {
+    ToolBarManager manager = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
+    ToolBar bar = manager.createControl(parent);
+    bar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    return manager;
+  }
 
-    private static boolean canSendBack(TicketRow row) {
-        return row != null && row.stage() != null && VStages.previous(row.stage()) != null;
-    }
-
-    private void advanceSelected(TicketRow row) {
-        if (row == null || model == null) {
-            return;
-        }
-        String error = model.advance(row.id());
-        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-        if (error != null) {
-            status.setErrorMessage("Advance " + row.id() + " failed: " + error);
-        } else {
-            status.setErrorMessage(null);
-            status.setMessage("Advanced " + row.id() + " \u2192 " + VStages.next(row.stage()));
-        }
-        refresh();
-    }
-
-    private void sendBackSelected(TicketRow row) {
-        if (row == null || model == null) {
-            return;
-        }
-        String previous = VStages.previous(row.stage());
-        InputDialog dialog = new InputDialog(getSite().getShell(), "Send back " + row.id(),
-                "Reason for sending " + row.id() + " back from '" + row.stage() + "' to '" + previous + "':",
-                "", text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
-        if (dialog.open() != Window.OK) {
-            return;
-        }
-        String reason = dialog.getValue() == null ? "" : dialog.getValue().trim();
-        if (reason.isEmpty()) {
-            return;
-        }
-        String error = model.sendBack(row.id(), reason);
-        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-        if (error != null) {
-            status.setErrorMessage("Send back " + row.id() + " failed: " + error);
-        } else {
-            status.setErrorMessage(null);
-            status.setMessage("Sent " + row.id() + " back \u2192 " + previous + " (blocked)");
-        }
-        refresh();
-    }
-
-    private static Font boldFont() {
-        return JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT);
-    }
-
-    private static TicketRow asRow(Object element) {
-        return element instanceof TicketRow row ? row : null;
-    }
-
-    /** Row rendering shared by both layouts: status glyph (colored), blocked bug accents, readiness chips.
-     * Blocked rows render their [BLOCKED] tag red bold, bug rows carry a red [bug] tag; readiness chips
-     * (· stale / · waiting) ride on the tail. Uses {@link StyledString} so the glyph and tags carry
-     * their own colors inside one cell (user direction 2026-09-18: pictographs over [IP]-style codes). */
-    private final class BoardRowLabel extends org.eclipse.jface.viewers.StyledCellLabelProvider {
-        private Map<String, StageReadiness.Readiness> readiness = Map.of();
-        /** U-026: per-ticket stage journeys (progress + send-back marker). */
-        private Map<String, StageJourney> journeys = Map.of();
-
-        /** U-065: the styled TITLE cell of every card column (all modes). */
-        BoardRowLabel() {
-        }
-
-        /** Latest per-ticket dispatch verdicts (UI thread, before setInput). */
-        void setReadiness(Map<String, StageReadiness.Readiness> readiness) {
-            this.readiness = readiness == null ? Map.of() : readiness;
-        }
-
-        /** Latest per-ticket stage journeys (UI thread, before setInput). */
-        void setJourneys(Map<String, StageJourney> journeys) {
-            this.journeys = journeys == null ? Map.of() : journeys;
-        }
-
-        @Override
-        public void update(org.eclipse.jface.viewers.ViewerCell cell) {
-            TicketRow row = asRow(cell.getElement());
-            if (row == null) {
-                cell.setText("");
-                cell.setStyleRanges(null);
-                return;
-            }
-            Display display = cell.getControl().getDisplay();
-            org.eclipse.jface.viewers.StyledString text = new org.eclipse.jface.viewers.StyledString();
-            // U-067: the blocked STATE owns its presentation (status column +
-            // readiness chip) - the title cell stays CLEAN: no status-derived
-            // prefix that doubles the information or goes stale on a status
-            // change (owner 2026-10-07: "still the cross symbol in the text -
-            // this is double information")
-            text.append(row.title() == null || row.title().isBlank()
-                    ? safe(row.id()) : row.title().trim());
-            // cross-mode awareness + readiness chips in quiet gray
-            String tail = row.labelTail();
-            if (!tail.isEmpty()) {
-                text.append(" " + tail, colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
-            }
-            // U-026 FR-002/FR-004: per-card stage progress (<visited>/10,
-            // quiet gray) and the send-back marker (red) when the journey
-            // ever hit a setback - the unmissable feedback-loop signal
-            StageJourney journey = row.id() == null ? null : journeys.get(row.id());
-            if (journey != null) {
-                text.append(" " + journey.progressLabel(),
-                        colorStyler(display.getSystemColor(SWT.COLOR_DARK_GRAY)));
-                if (journey.hasSetback()) {
-                    text.append(" \u21A9", colorStyler(display.getSystemColor(SWT.COLOR_RED)));
-                }
-            }
-            String chip = chipOf(readiness.get(row.id()));
-            if (!chip.isEmpty()) {
-                text.append(chip, colorStyler(display.getSystemColor(SWT.COLOR_DARK_YELLOW)));
-            }
-            cell.setText(text.getString());
-            cell.setStyleRanges(text.getStyleRanges());
-        }
-
-        /** A foreground-color styler (this JFace names the seam StyledString.Styler). */
-        private static org.eclipse.jface.viewers.StyledString.Styler colorStyler(Color color) {
-            return new org.eclipse.jface.viewers.StyledString.Styler() {
-                @Override
-                public void applyStyles(org.eclipse.swt.graphics.TextStyle style) {
-                    style.foreground = color;
-                }
-            };
-        }
-
-        /** The status glyph's color: done green, running blue, review amber, backlog gray. */
-        /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
-        private static String chipOf(StageReadiness.Readiness verdict) {
-            if (verdict == null) {
-                return "";
-            }
-            return switch (verdict.kind()) {
-                case STALE -> " \u00b7 stale";
-                case WAIT_UPSTREAM -> " \u00b7 waiting";
-                case BLOCKED -> " \u00b7 blocked-upstream";   // blocked flag may be clear while the verdict still blames it
-                default -> "";
-            };
-        }
-
-        @Override
-        public String getToolTipText(Object element) {
-            TicketRow row = asRow(element);
-            if (row == null) {
-                return null;
-            }
-            StringBuilder sb = new StringBuilder(STATUS_LEGEND);
-            sb.append("\n").append(safe(row.id())).append(" \u2014 ").append(safe(row.title()));
-            sb.append("\nstatus: ").append(safe(row.status()));
-            sb.append(" · type: ").append(row.type() == null ? "(none)" : row.type());
-            sb.append(" · stage: ").append(row.stage() == null ? "(none)" : row.stage());
-            sb.append(" · priority: ").append(row.priority() == null || row.priority().isBlank()
-                    ? "medium" : row.priority());
-            if (row.displayBlocked()) {
-                sb.append("\n[BLOCKED] ").append(safe(row.blocker()));
-            }
-            StageReadiness.Readiness verdict = readiness.get(row.id());
-            if (verdict != null) {
-                sb.append("\nreadiness: ").append(verdict.kind())
-                        .append(" - ").append(safe(verdict.reason()));
-            }
-            // U-026: the journey digest on the card - progress plus the
-            // latest setback with its reason (FR-004: source, destination
-            // and reason text); the full trace lives in the ticket details
-            StageJourney journey = row.id() == null ? null : journeys.get(row.id());
-            if (journey != null) {
-                sb.append("\njourney: ").append(journey.progressLabel())
-                        .append(" of the V stages visited (distinct; rework counts once)");
-                StageJourney.Movement setback = journey.latestSetback();
-                if (setback != null) {
-                    sb.append("\n").append(setback.describe());
-                }
-            }
-            return sb.toString();
-        }
-    }
-
-    private static String safe(String value) {
-        return value == null ? "" : value;
-    }
-
-    // ------------------------------------------------------------------
-    // Toolbar
-    // ------------------------------------------------------------------
-
-    /**
-     * Toolbar icon descriptor from the shared action-icon set vendored in
-     * {@code com.opencode.ide.core} ({@code generate-action-icons.py},
-     * original artwork). Text-only toolbar actions render as flat labels
-     * with no button affordance (user feedback 2026-09-16), so every toolbar
-     * action gets an icon.
-     */
-    private static org.eclipse.jface.resource.ImageDescriptor icon(String name) {
-        return org.eclipse.ui.plugin.AbstractUIPlugin.imageDescriptorFromPlugin(
-                "com.opencode.ide.core", "icons/actions/" + name + ".png");
-    }
-
-    /**
-     * One header row (U-017): an embedded flat tool bar inside the view's
-     * header stack — same {@link Action}/{@link ControlContribution}
-     * objects the old single view toolbar held, just grouped by meaning.
-     */
-    private static ToolBarManager headerRow(Composite parent) {
-        ToolBarManager manager = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
-        ToolBar bar = manager.createControl(parent);
-        bar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        return manager;
-    }
-
-    private void contributeToolbar(Composite parent) {
-        ControlContribution inputsCc = new ControlContribution("com.opencode.ide.board.inputs") {
-            @Override
-            protected Control createControl(Composite parent) {
-                Composite box = new Composite(parent, SWT.NONE);
-                GridLayout layout = new GridLayout(4, false);
-                layout.marginWidth = 0;
-                layout.marginHeight = 0;
-                layout.horizontalSpacing = 4;
-                box.setLayout(layout);
-                new Label(box, SWT.NONE).setText("Store:");
-                rootText = new Text(box, SWT.BORDER);
-                rootText.setToolTipText("Task store root (empty = auto-detect ../.opencode/tasks)");
-                rootText.setTextLimit(400);
-                rootText.setLayoutData(fixedSize(170));
-                new Label(box, SWT.NONE).setText("Project:");
-                projectText = new Text(box, SWT.BORDER);
-                projectText.setToolTipText("Task store project (subdirectory of the root)");
-                projectText.setTextLimit(60);
-                projectText.setLayoutData(fixedSize(80));
-                // The workbench builds toolbar contributions AFTER createPartControl
-                // returns, so loadSettings() ran while these fields were still null.
-                // Seed them here (like modeCombo below) - otherwise they render empty
-                // and the first applyInputs() would persist that emptiness over the
-                // stored store root / project.
-                rootText.setText(rootOverride == null ? "" : rootOverride);
-                projectText.setText(projectName == null ? BoardModel.DEFAULT_PROJECT : projectName);
-                hookApply(rootText);
-                hookApply(projectText);
-                return box;
-            }
+  private void contributeToolbar(Composite parent) {
+    ControlContribution inputsCc =
+        new ControlContribution("com.opencode.ide.board.inputs") {
+          @Override
+          protected Control createControl(Composite parent) {
+            Composite box = new Composite(parent, SWT.NONE);
+            GridLayout layout = new GridLayout(4, false);
+            layout.marginWidth = 0;
+            layout.marginHeight = 0;
+            layout.horizontalSpacing = 4;
+            box.setLayout(layout);
+            new Label(box, SWT.NONE).setText("Store:");
+            rootText = new Text(box, SWT.BORDER);
+            rootText.setToolTipText("Task store root (empty = auto-detect ../.opencode/tasks)");
+            rootText.setTextLimit(400);
+            rootText.setLayoutData(fixedSize(170));
+            new Label(box, SWT.NONE).setText("Project:");
+            projectText = new Text(box, SWT.BORDER);
+            projectText.setToolTipText("Task store project (subdirectory of the root)");
+            projectText.setTextLimit(60);
+            projectText.setLayoutData(fixedSize(80));
+            // The workbench builds toolbar contributions AFTER createPartControl
+            // returns, so loadSettings() ran while these fields were still null.
+            // Seed them here (like modeCombo below) - otherwise they render empty
+            // and the first applyInputs() would persist that emptiness over the
+            // stored store root / project.
+            rootText.setText(rootOverride == null ? "" : rootOverride);
+            projectText.setText(projectName == null ? BoardModel.DEFAULT_PROJECT : projectName);
+            hookApply(rootText);
+            hookApply(projectText);
+            return box;
+          }
         };
 
-        ControlContribution modeCc = new ControlContribution("com.opencode.ide.board.groupby") {
-            @Override
-            protected Control createControl(Composite parent) {
-                Composite box = new Composite(parent, SWT.NONE);
-                GridLayout layout = new GridLayout(4, false);
-                layout.marginWidth = 0;
-                layout.marginHeight = 0;
-                layout.horizontalSpacing = 4;
-                box.setLayout(layout);
-                new Label(box, SWT.NONE).setText("Group by:");
-                modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-                modeCombo.setItems("Progress", "V-model stages", "Epic");
-                modeCombo.setToolTipText("Progress: five-column status kanban ordered by workflow progress. "
-                        + "V-model stages: the ten V-model stage columns arranged as a V "
-                        + "(requirements \u2192 test-requirements); every column shows, empty ones too. "
-                        + "Epic: swimlanes per epic (status-prefixed cards, priority-sorted).");
-                modeCombo.setLayoutData(fixedSize(140));
-                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
-                modeCombo.addSelectionListener(new SelectionAdapter() {
-                    @Override
-                    public void widgetSelected(SelectionEvent e) {
-                        if (updatingModeCombo || modeCombo.isDisposed()) {
-                            return;
-                        }
-                        BoardMode picked = switch (modeCombo.getSelectionIndex()) {
-                            case 1 -> BoardMode.PIPELINE;
-                            case 2 -> BoardMode.EPIC;
-                            default -> BoardMode.FLAT;
+    ControlContribution modeCc =
+        new ControlContribution("com.opencode.ide.board.groupby") {
+          @Override
+          protected Control createControl(Composite parent) {
+            Composite box = new Composite(parent, SWT.NONE);
+            GridLayout layout = new GridLayout(4, false);
+            layout.marginWidth = 0;
+            layout.marginHeight = 0;
+            layout.horizontalSpacing = 4;
+            box.setLayout(layout);
+            new Label(box, SWT.NONE).setText("Group by:");
+            modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
+            modeCombo.setItems("Progress", "V-model stages", "Epic");
+            modeCombo.setToolTipText(
+                "Progress: five-column status kanban ordered by workflow progress. "
+                    + "V-model stages: the ten V-model stage columns arranged as a V "
+                    + "(requirements \u2192 test-requirements); every column shows, empty ones too. "
+                    + "Epic: swimlanes per epic (status-prefixed cards, priority-sorted).");
+            modeCombo.setLayoutData(fixedSize(140));
+            modeCombo.select(
+                boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
+            modeCombo.addSelectionListener(
+                new SelectionAdapter() {
+                  @Override
+                  public void widgetSelected(SelectionEvent e) {
+                    if (updatingModeCombo || modeCombo.isDisposed()) {
+                      return;
+                    }
+                    BoardMode picked =
+                        switch (modeCombo.getSelectionIndex()) {
+                          case 1 -> BoardMode.PIPELINE;
+                          case 2 -> BoardMode.EPIC;
+                          default -> BoardMode.FLAT;
                         };
-                        if (picked == boardMode) {
-                            return;
-                        }
-                        boardMode = picked;
-                        if (model != null) {
-                            model.setMode(picked);
-                        }
-                        saveSettings();
-                        rebuildBoardArea();
-                        refresh();
+                    if (picked == boardMode) {
+                      return;
                     }
-                });
-                // U-018: free-text filter over id/title on the scope row
-                filterText = new Text(box, SWT.SEARCH | SWT.ICON_CANCEL | SWT.BORDER);
-                filterText.setMessage("Filter tickets\u2026");
-                filterText.setToolTipText("Show only tickets whose id or title contains this text");
-                filterText.setLayoutData(fixedSize(140));
-                filterText.addModifyListener(e -> {
-                    if (model != null && filterText != null && !filterText.isDisposed()) {
-                        model.setTextFilter(filterText.getText());
-                        refresh();
+                    boardMode = picked;
+                    if (model != null) {
+                      model.setMode(picked);
                     }
+                    saveSettings();
+                    rebuildBoardArea();
+                    refresh();
+                  }
                 });
-                return box;
-            }
-        };
-
-        blockedOnlyAction = new Action("Needs me (blocked)", Action.AS_CHECK_BOX) {
-            @Override
-            public void run() {
-                if (model != null) {
-                    model.setBlockedOnly(isChecked());
+            // U-018: free-text filter over id/title on the scope row
+            filterText = new Text(box, SWT.SEARCH | SWT.ICON_CANCEL | SWT.BORDER);
+            filterText.setMessage("Filter tickets\u2026");
+            filterText.setToolTipText("Show only tickets whose id or title contains this text");
+            filterText.setLayoutData(fixedSize(140));
+            filterText.addModifyListener(
+                e -> {
+                  if (model != null && filterText != null && !filterText.isDisposed()) {
+                    model.setTextFilter(filterText.getText());
                     refresh();
-                }
-            }
+                  }
+                });
+            return box;
+          }
         };
-        blockedOnlyAction.setToolTipText("Show only tickets waiting at the user - they are parked "
-                + "(never dispatched); fix + Resume returns them into the wave cycle");
-        blockedOnlyAction.setImageDescriptor(icon("blocked-only"));
 
-        bugsOnlyAction = new Action("Bugs only", Action.AS_CHECK_BOX) {
-            @Override
-            public void run() {
-                if (model != null) {
-                    model.setBugsOnly(isChecked());
-                    refresh();
-                }
+    blockedOnlyAction =
+        new Action("Needs me (blocked)", Action.AS_CHECK_BOX) {
+          @Override
+          public void run() {
+            if (model != null) {
+              model.setBlockedOnly(isChecked());
+              refresh();
             }
+          }
         };
-        bugsOnlyAction.setToolTipText("Show only bug tickets (both layouts)");
-        bugsOnlyAction.setImageDescriptor(icon("bugs-only"));
+    blockedOnlyAction.setToolTipText(
+        "Show only tickets waiting at the user - they are parked "
+            + "(never dispatched); fix + Resume returns them into the wave cycle");
+    blockedOnlyAction.setImageDescriptor(icon("blocked-only"));
 
-        stageFilterAction = new Action("Stages", Action.AS_DROP_DOWN_MENU) {
-            @Override
-            public void run() {
-                // opening the dropdown shows the menu; nothing to do on click itself
+    bugsOnlyAction =
+        new Action("Bugs only", Action.AS_CHECK_BOX) {
+          @Override
+          public void run() {
+            if (model != null) {
+              model.setBugsOnly(isChecked());
+              refresh();
             }
+          }
         };
-        stageFilterAction.setToolTipText("Show/hide individual V stages (applies to both layouts)");
-        stageFilterAction.setImageDescriptor(icon("stages"));
-        stageFilterAction.setMenuCreator(new StageFilterMenuCreator());
+    bugsOnlyAction.setToolTipText("Show only bug tickets (both layouts)");
+    bugsOnlyAction.setImageDescriptor(icon("bugs-only"));
 
-        // U-018: per-status visibility (hide done & co individually)
-        statusFilterAction = new Action("Statuses", Action.AS_DROP_DOWN_MENU) {
-            @Override
-            public void run() {
-                // opening the dropdown shows the menu
-            }
+    stageFilterAction =
+        new Action("Stages", Action.AS_DROP_DOWN_MENU) {
+          @Override
+          public void run() {
+            // opening the dropdown shows the menu; nothing to do on click itself
+          }
         };
-        statusFilterAction.setToolTipText("Show/hide individual statuses (e.g. tuck away done) - "
-                + "the flat layout drops the column, the others drop the cards");
-        statusFilterAction.setMenuCreator(new StatusFilterMenuCreator());
+    stageFilterAction.setToolTipText("Show/hide individual V stages (applies to both layouts)");
+    stageFilterAction.setImageDescriptor(icon("stages"));
+    stageFilterAction.setMenuCreator(new StageFilterMenuCreator());
 
-        refreshAction = new Action("Refresh") {
-            @Override
-            public void run() {
-                applyInputs();
-            }
+    // U-018: per-status visibility (hide done & co individually)
+    statusFilterAction =
+        new Action("Statuses", Action.AS_DROP_DOWN_MENU) {
+          @Override
+          public void run() {
+            // opening the dropdown shows the menu
+          }
         };
-        refreshAction.setToolTipText("Reload the board from the task store");
-        refreshAction.setImageDescriptor(icon("refresh"));
+    statusFilterAction.setToolTipText(
+        "Show/hide individual statuses (e.g. tuck away done) - "
+            + "the flat layout drops the column, the others drop the cards");
+    statusFilterAction.setMenuCreator(new StatusFilterMenuCreator());
 
-        syncStoreAction = new Action("Sync store") {
-            @Override
-            public void run() {
-                syncStore();
-            }
+    refreshAction =
+        new Action("Refresh") {
+          @Override
+          public void run() {
+            applyInputs();
+          }
         };
-        syncStoreAction.setToolTipText(
-                "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull → claim → push)");
-        syncStoreAction.setImageDescriptor(icon("sync-store"));
+    refreshAction.setToolTipText("Reload the board from the task store");
+    refreshAction.setImageDescriptor(icon("refresh"));
 
-        // U-035: the grey freshness stamp rides the store row right next to
-        // Sync store - the age of the last SUCCESSFUL snapshot apply stays
-        // visible at a glance (a failed refresh keeps the last good stamp;
-        // the error renders through the content description as today)
-        ControlContribution freshnessCc = new ControlContribution("com.opencode.ide.board.freshness") {
-            @Override
-            protected Control createControl(Composite parent) {
-                freshnessLabel = new Label(parent, SWT.NONE);
-                freshnessLabel.setText("updated \u2014");
-                freshnessLabel.setToolTipText("time of the last successful board refresh "
-                        + "(keeps the last good time on errors)");
-                freshnessLabel.setForeground(
-                        parent.getDisplay().getSystemColor(SWT.COLOR_DARK_GRAY));
-                return freshnessLabel;
-            }
+    syncStoreAction =
+        new Action("Sync store") {
+          @Override
+          public void run() {
+            syncStore();
+          }
         };
-        // O-002: project actions so users never hand-delete task-store files -
-        // discoverable from the empty board too (the store row always renders)
-        newProjectAction = new Action("New project\u2026") {
-            @Override
-            public void run() {
-                newProject();
-            }
+    syncStoreAction.setToolTipText(
+        "Commit the task store and pull-rebase + push (distributed-fleet discipline: pull → claim → push)");
+    syncStoreAction.setImageDescriptor(icon("sync-store"));
+
+    // U-035: the grey freshness stamp rides the store row right next to
+    // Sync store - the age of the last SUCCESSFUL snapshot apply stays
+    // visible at a glance (a failed refresh keeps the last good stamp;
+    // the error renders through the content description as today)
+    ControlContribution freshnessCc =
+        new ControlContribution("com.opencode.ide.board.freshness") {
+          @Override
+          protected Control createControl(Composite parent) {
+            freshnessLabel = new Label(parent, SWT.NONE);
+            freshnessLabel.setText("updated \u2014");
+            freshnessLabel.setToolTipText(
+                "time of the last successful board refresh "
+                    + "(keeps the last good time on errors)");
+            freshnessLabel.setForeground(parent.getDisplay().getSystemColor(SWT.COLOR_DARK_GRAY));
+            return freshnessLabel;
+          }
         };
-        newProjectAction.setToolTipText(
-                "Create a fresh task-store project (.opencode/tasks/<name>) and switch the board to it");
-        resetProjectAction = new Action("Reset project\u2026") {
-            @Override
-            public void run() {
-                resetProject();
-            }
+    // O-002: project actions so users never hand-delete task-store files -
+    // discoverable from the empty board too (the store row always renders)
+    newProjectAction =
+        new Action("New project\u2026") {
+          @Override
+          public void run() {
+            newProject();
+          }
         };
-        resetProjectAction.setToolTipText(
-                "Remove this project's tickets and wave history after an explicit confirmation "
-                        + "(other projects are never touched)");
-        // O-001: one-click repo adoption - the repo nature anchors the
-        // repo-driven derivation (spawn cwd, tasksRoot) without preferences
-        adoptRepoAction = new Action("Adopt repo…") {
-            @Override
-            public void run() {
-                adoptRepo();
-            }
+    newProjectAction.setToolTipText(
+        "Create a fresh task-store project (.opencode/tasks/<name>) and switch the board to it");
+    resetProjectAction =
+        new Action("Reset project\u2026") {
+          @Override
+          public void run() {
+            resetProject();
+          }
         };
-        adoptRepoAction.setToolTipText(
-                "Mark an opencode repository (containing .opencode/ or opencode.json) as an OpenCode "
-                        + "project - a root .project with the repo nature, so the Board, the Server "
-                        + "view and chat resolve to it from first open");
-
-        costOverviewAction = new Action("Cost overview") {
-            @Override
-            public void run() {
-                openCostOverview();
-            }
+    resetProjectAction.setToolTipText(
+        "Remove this project's tickets and wave history after an explicit confirmation "
+            + "(other projects are never touched)");
+    // O-001: one-click repo adoption - the repo nature anchors the
+    // repo-driven derivation (spawn cwd, tasksRoot) without preferences
+    adoptRepoAction =
+        new Action("Adopt repo…") {
+          @Override
+          public void run() {
+            adoptRepo();
+          }
         };
-        costOverviewAction.setToolTipText(
-                "Fleet cost/token actuals recorded on tickets (per sprint and per ticket)");
-        costOverviewAction.setImageDescriptor(icon("cost-overview"));
+    adoptRepoAction.setToolTipText(
+        "Mark an opencode repository (containing .opencode/ or opencode.json) as an OpenCode "
+            + "project - a root .project with the repo nature, so the Board, the Server "
+            + "view and chat resolve to it from first open");
 
-        // U-026 FR-005/FR-006: the per-wave movement digest as plain text -
-        // the same render a chat/tool surface would produce (US-004)
-        waveDigestAction = new Action("Wave digest") {
-            @Override
-            public void run() {
-                openWaveDigest();
-            }
+    costOverviewAction =
+        new Action("Cost overview") {
+          @Override
+          public void run() {
+            openCostOverview();
+          }
         };
-        waveDigestAction.setToolTipText("How the current wave moved: advances, passes, send-backs "
-                + "and reports, the tickets that moved back (with reasons), and the ones that never "
-                + "moved \u2014 plain text, ready to paste into chat or a ticket comment");
-        waveDigestAction.setImageDescriptor(icon("summarize"));
+    costOverviewAction.setToolTipText(
+        "Fleet cost/token actuals recorded on tickets (per sprint and per ticket)");
+    costOverviewAction.setImageDescriptor(icon("cost-overview"));
 
-        launchAction = new Action("Launch task") {
-            @Override
-            public void run() {
-                launchSelected();
-            }
+    // U-026 FR-005/FR-006: the per-wave movement digest as plain text -
+    // the same render a chat/tool surface would produce (US-004)
+    waveDigestAction =
+        new Action("Wave digest") {
+          @Override
+          public void run() {
+            openWaveDigest();
+          }
         };
-        launchAction.setToolTipText("Launch a fleet agent on the selected ticket (sprint-backlog / in-progress)");
-        launchAction.setImageDescriptor(icon("launch"));
-        launchAction.setEnabled(false);
+    waveDigestAction.setToolTipText(
+        "How the current wave moved: advances, passes, send-backs "
+            + "and reports, the tickets that moved back (with reasons), and the ones that never "
+            + "moved \u2014 plain text, ready to paste into chat or a ticket comment");
+    waveDigestAction.setImageDescriptor(icon("summarize"));
 
-        autoDispatchAction = new Action("Auto-dispatch") {
-            @Override
-            public void run() {
-                autoDispatch();
-            }
+    launchAction =
+        new Action("Launch task") {
+          @Override
+          public void run() {
+            launchSelected();
+          }
         };
-        autoDispatchAction.setToolTipText(
-                "Plan over the current sprint (readiness + cost budget) and launch every admitted ticket as a fleet agent");
-        autoDispatchAction.setImageDescriptor(icon("auto-dispatch"));
+    launchAction.setToolTipText(
+        "Launch a fleet agent on the selected ticket (sprint-backlog / in-progress)");
+    launchAction.setImageDescriptor(icon("launch"));
+    launchAction.setEnabled(false);
 
-        autoLoopAction = new Action("Auto \u25B6", Action.AS_CHECK_BOX) {
-            @Override
-            public void run() {
-                toggleDispatchLoop();
-            }
+    autoDispatchAction =
+        new Action("Auto-dispatch") {
+          @Override
+          public void run() {
+            autoDispatch();
+          }
         };
-        autoLoopAction.setToolTipText("Background auto-dispatch: re-plans the current sprint every 30s and "
-                + "launches admitted tickets until it drains (stops on uncheck or view close)");
-        autoLoopAction.setImageDescriptor(icon("auto-loop"));
+    autoDispatchAction.setToolTipText(
+        "Plan over the current sprint (readiness + cost budget) and launch every admitted ticket as a fleet agent");
+    autoDispatchAction.setImageDescriptor(icon("auto-dispatch"));
 
-        wavesLoopAction = new Action("Waves \u25B6", Action.AS_CHECK_BOX) {
-            @Override
-            public void run() {
-                toggleWavesLoop();
-            }
+    autoLoopAction =
+        new Action("Auto \u25B6", Action.AS_CHECK_BOX) {
+          @Override
+          public void run() {
+            toggleDispatchLoop();
+          }
         };
-        wavesLoopAction.setToolTipText("Recurring waves (U-022): drains the active wave, then plans the next "
-                + "from the prioritized backlog automatically — no click between waves. Parks while "
-                + "NEEDS-HUMAN (blocked) tickets wait and resumes when a blocker clears; stops cleanly on "
-                + "budget exhaustion or when nothing is plannable. OFF by default; per project.");
-        wavesLoopAction.setImageDescriptor(icon("auto-loop"));
+    autoLoopAction.setToolTipText(
+        "Background auto-dispatch: re-plans the current sprint every 30s and "
+            + "launches admitted tickets until it drains (stops on uncheck or view close)");
+    autoLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        dispatchSettingsAction = new Action("Dispatch settings…") {
-            @Override
-            public void run() {
-                openDispatchSettings();
-            }
+    wavesLoopAction =
+        new Action("Waves \u25B6", Action.AS_CHECK_BOX) {
+          @Override
+          public void run() {
+            toggleWavesLoop();
+          }
         };
-        dispatchSettingsAction.setToolTipText(
-                "The stored auto-dispatch policy (concurrency, cost budget, STALE re-runs) and the "
-                        + "per-launch bootstrap command — both dispatch actions load it at action time");
-        dispatchSettingsAction.setImageDescriptor(icon("dispatch-settings"));
+    wavesLoopAction.setToolTipText(
+        "Recurring waves (U-022): drains the active wave, then plans the next "
+            + "from the prioritized backlog automatically — no click between waves. Parks while "
+            + "NEEDS-HUMAN (blocked) tickets wait and resumes when a blocker clears; stops cleanly on "
+            + "budget exhaustion or when nothing is plannable. OFF by default; per project.");
+    wavesLoopAction.setImageDescriptor(icon("auto-loop"));
 
-        takeOverAction = new Action("Take over") {
-            @Override
-            public void run() {
-                takeOverSelected();
-            }
+    dispatchSettingsAction =
+        new Action("Dispatch settings…") {
+          @Override
+          public void run() {
+            openDispatchSettings();
+          }
         };
-        takeOverAction.setToolTipText(
-                "Hand the ticket's fleet session to the attached opencode TUI; without one, open its fleet worktree in the file explorer");
-        takeOverAction.setImageDescriptor(icon("take-over"));
-        takeOverAction.setEnabled(false);
+    dispatchSettingsAction.setToolTipText(
+        "The stored auto-dispatch policy (concurrency, cost budget, STALE re-runs) and the "
+            + "per-launch bootstrap command — both dispatch actions load it at action time");
+    dispatchSettingsAction.setImageDescriptor(icon("dispatch-settings"));
 
-        // U-045: the graceful fleet shutdown - the same ordered teardown
-        // the chat fleet_shutdown tool runs, confirm-first because it
-        // parks admissions for the whole repo
-        shutdownAction = new Action("Shutdown\u2026") {
-            @Override
-            public void run() {
-                shutdownFleet();
-            }
+    takeOverAction =
+        new Action("Take over") {
+          @Override
+          public void run() {
+            takeOverSelected();
+          }
         };
-        shutdownAction.setToolTipText("Graceful shutdown for maintenance: parks admissions "
-                + "(maintenance gate), checkpoints in-flight workers (WIP committed to their "
-                + "task branch, tickets paused) and kills a serve this session spawned");
-        shutdownAction.setImageDescriptor(icon("abort"));
+    takeOverAction.setToolTipText(
+        "Hand the ticket's fleet session to the attached opencode TUI; without one, open its fleet worktree in the file explorer");
+    takeOverAction.setImageDescriptor(icon("take-over"));
+    takeOverAction.setEnabled(false);
 
-        // U-017: three dedicated rows replace the single cramped view
-        // toolbar — grouped by meaning (user direction 2026-09-17, refined
-        // by the rubberduck review: Refresh/Sync are store-level and sit
-        // with the store inputs; Cost overview is spend — fleet row).
-        ToolBarManager storeRow = headerRow(parent);
-        storeRow.add(inputsCc);
-        storeRow.add(refreshAction);
-        storeRow.add(syncStoreAction);
-        storeRow.add(freshnessCc);
-        storeRow.add(newProjectAction);
-        storeRow.add(resetProjectAction);
-        storeRow.add(adoptRepoAction);
-        storeRow.update(true);
+    // U-045: the graceful fleet shutdown - the same ordered teardown
+    // the chat fleet_shutdown tool runs, confirm-first because it
+    // parks admissions for the whole repo
+    shutdownAction =
+        new Action("Shutdown\u2026") {
+          @Override
+          public void run() {
+            shutdownFleet();
+          }
+        };
+    shutdownAction.setToolTipText(
+        "Graceful shutdown for maintenance: parks admissions "
+            + "(maintenance gate), checkpoints in-flight workers (WIP committed to their "
+            + "task branch, tickets paused) and kills a serve this session spawned");
+    shutdownAction.setImageDescriptor(icon("abort"));
 
-        ToolBarManager scopeRow = headerRow(parent);
-        scopeRow.add(modeCc);
-        scopeRow.add(blockedOnlyAction);
-        scopeRow.add(bugsOnlyAction);
-        scopeRow.add(stageFilterAction);
-        scopeRow.add(statusFilterAction);
-        scopeRow.update(true);
+    // U-017: three dedicated rows replace the single cramped view
+    // toolbar — grouped by meaning (user direction 2026-09-17, refined
+    // by the rubberduck review: Refresh/Sync are store-level and sit
+    // with the store inputs; Cost overview is spend — fleet row).
+    ToolBarManager storeRow = headerRow(parent);
+    storeRow.add(inputsCc);
+    storeRow.add(refreshAction);
+    storeRow.add(syncStoreAction);
+    storeRow.add(freshnessCc);
+    storeRow.add(newProjectAction);
+    storeRow.add(resetProjectAction);
+    storeRow.add(adoptRepoAction);
+    storeRow.update(true);
 
-        // U-017+U-018: the fleet row carries the dispatch actions AND the
-        // live readiness verdicts of the current sprint ("n ready · m stale")
-        Composite fleetRow = new Composite(parent, SWT.NONE);
-        GridLayout fleetLayout = new GridLayout(4, false);
-        fleetLayout.marginWidth = 0;
-        fleetLayout.marginHeight = 0;
-        fleetLayout.horizontalSpacing = 10;
-        fleetRow.setLayout(fleetLayout);
-        fleetRow.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        ToolBarManager fleetBar = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
-        ToolBar fleetToolBar = fleetBar.createControl(fleetRow);
-        fleetToolBar.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-        readinessLabel = new Label(fleetRow, SWT.NONE);
-        readinessLabel.setText("0 ready · 0 stale");
-        readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
-                + "what the fleet can dispatch now, and what went stale");
-        readinessLabel.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
+    ToolBarManager scopeRow = headerRow(parent);
+    scopeRow.add(modeCc);
+    scopeRow.add(blockedOnlyAction);
+    scopeRow.add(bugsOnlyAction);
+    scopeRow.add(stageFilterAction);
+    scopeRow.add(statusFilterAction);
+    scopeRow.update(true);
 
-        // U-022 fine-grained fleet control: the agent-concurrency cap right
-        // in the fleet row (not buried in Dispatch settings) - "how many
-        // run at once" is the dial between run-all and pause-all
-        new Label(fleetRow, SWT.NONE).setText("Agents:");
-        Combo concurrency = new Combo(fleetRow, SWT.DROP_DOWN | SWT.READ_ONLY);
-        concurrency.setItems("1", "2", "4", "8");
-        concurrency.setToolTipText("Maximum fleet agents running concurrently (the dispatch policy's cap)");
-        concurrency.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-        int currentCap = storedDispatch().policy().maxConcurrent();
-        int currentIdx = java.util.Arrays.asList("1", "2", "4", "8")
-                .indexOf(String.valueOf(currentCap));
-        concurrency.select(currentIdx >= 0 ? currentIdx : 1);
-        concurrency.addSelectionListener(new SelectionAdapter() {
-            @Override
-            public void widgetSelected(SelectionEvent e) {
-                if (dispatchStore == null || concurrency.isDisposed()) {
-                    return;
-                }
-                try {
-                    int cap = Integer.parseInt(concurrency.getItem(
-                            Math.max(0, concurrency.getSelectionIndex())));
-                    DispatchPolicyStore.DispatchSettings stored = storedDispatch();
-                    var policy = stored.policy();
-                    DispatchPolicyStore.DispatchSettings changed = new DispatchPolicyStore.DispatchSettings(
-                            com.opencode.ide.fleet.dispatch.AutoDispatch.of(cap,
-                                    policy.costBudgetUsd(), policy.includeStale()),
-                            stored.bootstrapAgent(), stored.bootstrapCommand());
-                    dispatchStore.save(changed);
-                    statusMessage("Dispatch concurrency cap: " + cap);
-                } catch (RuntimeException ex) {
-                    logError("Could not persist the concurrency cap", ex);
-                }
+    // U-017+U-018: the fleet row carries the dispatch actions AND the
+    // live readiness verdicts of the current sprint ("n ready · m stale")
+    Composite fleetRow = new Composite(parent, SWT.NONE);
+    GridLayout fleetLayout = new GridLayout(4, false);
+    fleetLayout.marginWidth = 0;
+    fleetLayout.marginHeight = 0;
+    fleetLayout.horizontalSpacing = 10;
+    fleetRow.setLayout(fleetLayout);
+    fleetRow.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    ToolBarManager fleetBar = new ToolBarManager(SWT.HORIZONTAL | SWT.FLAT);
+    ToolBar fleetToolBar = fleetBar.createControl(fleetRow);
+    fleetToolBar.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+    readinessLabel = new Label(fleetRow, SWT.NONE);
+    readinessLabel.setText("0 ready · 0 stale");
+    readinessLabel.setToolTipText(
+        "task_readiness verdicts over the current sprint - "
+            + "what the fleet can dispatch now, and what went stale");
+    readinessLabel.setLayoutData(new GridData(SWT.END, SWT.CENTER, true, false));
+
+    // U-022 fine-grained fleet control: the agent-concurrency cap right
+    // in the fleet row (not buried in Dispatch settings) - "how many
+    // run at once" is the dial between run-all and pause-all
+    new Label(fleetRow, SWT.NONE).setText("Agents:");
+    Combo concurrency = new Combo(fleetRow, SWT.DROP_DOWN | SWT.READ_ONLY);
+    concurrency.setItems("1", "2", "4", "8");
+    concurrency.setToolTipText(
+        "Maximum fleet agents running concurrently (the dispatch policy's cap)");
+    concurrency.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
+    int currentCap = storedDispatch().policy().maxConcurrent();
+    int currentIdx =
+        java.util.Arrays.asList("1", "2", "4", "8").indexOf(String.valueOf(currentCap));
+    concurrency.select(currentIdx >= 0 ? currentIdx : 1);
+    concurrency.addSelectionListener(
+        new SelectionAdapter() {
+          @Override
+          public void widgetSelected(SelectionEvent e) {
+            if (dispatchStore == null || concurrency.isDisposed()) {
+              return;
             }
-        });
-
-        fleetBar.add(launchAction);
-        fleetBar.add(autoDispatchAction);
-        fleetBar.add(autoLoopAction);
-        fleetBar.add(wavesLoopAction);
-        fleetBar.add(dispatchSettingsAction);
-        fleetBar.add(costOverviewAction);
-        fleetBar.add(waveDigestAction);
-        fleetBar.add(takeOverAction);
-        fleetBar.add(shutdownAction);
-        fleetBar.update(true);
-
-        // Icon-paint fix (user report 2026-09-17): embedded tool bars created
-        // before the view is shown paint their item images zero-sized until a
-        // user interaction forces a layout - pack each row and lay out the
-        // whole header so every icon is visible from the first paint.
-        for (Control child : parent.getChildren()) {
-            if (child instanceof ToolBar bar) {
-                bar.pack(true);
-            }
-        }
-        parent.layout(true, true);
-    }
-
-    private static GridData fixedSize(int widthHint) {
-        GridData data = new GridData(SWT.BEGINNING, SWT.CENTER, false, false);
-        data.widthHint = widthHint;
-        return data;
-    }
-
-    private void hookApply(Text text) {
-        text.addListener(SWT.DefaultSelection, e -> applyInputs());
-        text.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusLost(FocusEvent e) {
-                applyInputs();
-            }
-        });
-    }
-
-    private void initModel() {
-        model = new BoardModel(resolveTasksRoot(rootOverride), projectName);
-        model.setMode(boardMode);
-        model.setStageFilter(visibleStages);
-        model.setStatusFilter(hiddenStatuses);
-        if (stageFilterAction != null) {
-            stageFilterAction.setText("Stages: " + StageSelection.label(visibleStages));
-        }
-        restartWatcher();
-        refresh();
-    }
-
-    private void applyInputs() {
-        if (model == null || projectText == null || projectText.isDisposed()
-                || rootText == null || rootText.isDisposed()) {
-            return;
-        }
-        String newProject = projectText.getText().trim();
-        if (newProject.isEmpty()) {
-            newProject = BoardModel.DEFAULT_PROJECT;
-        }
-        String newRoot = rootText.getText().trim();
-        boolean changed = !newProject.equals(model.project()) || !newRoot.equals(rootOverride);
-        rootOverride = newRoot;
-        projectName = newProject;
-        if (changed) {
-            cancelDispatchForSelection();
-            // fresh project/root context: the sprint choice does not carry
-            // over, so the auto-select may act again (B-002)
-            sprintPicked = false;
-            model.setProject(newProject);
-            model.setRoot(resolveTasksRoot(rootOverride));
-            createLauncher();
-            restartWatcher();
-        }
-        saveSettings();
-        refresh();
-    }
-
-    /**
-     * Requests a refresh from any thread (watcher, toolbar, sprint combo,
-     * initial load): marks dirty and ensures exactly one drain loop is
-     * running. Never computes on the caller's thread.
-     */
-    private void refresh() {
-        if (model == null || boardArea == null || boardArea.isDisposed() || refreshExecutor == null) {
-            return;
-        }
-        dirty.set(true);
-        if (draining.compareAndSet(false, true)) {
-            refreshExecutor.execute(this::drainRefresh);
-        }
-    }
-
-    /**
-     * Runs on the refresh executor: computes snapshots (plus the sprint list)
-     * while changes keep arriving, applying each on the UI thread. The final
-     * re-check closes the mark-vs-release race so no change is ever lost.
-     */
-    private void drainRefresh() {
-        while (dirty.compareAndSet(true, false)) {
-            BoardSnapshot snapshot = null;
-            List<String> sprints = List.of();
-            CostOverview cost = null;
-            StoreGitStatus store = StoreGitStatus.NONE;
             try {
-                snapshot = model.refresh();
-                sprints = model.sprints();
-                cost = model.costOverview();
-                store = StoreGitStatus.load(model.root());
+              int cap =
+                  Integer.parseInt(
+                      concurrency.getItem(Math.max(0, concurrency.getSelectionIndex())));
+              DispatchPolicyStore.DispatchSettings stored = storedDispatch();
+              var policy = stored.policy();
+              DispatchPolicyStore.DispatchSettings changed =
+                  new DispatchPolicyStore.DispatchSettings(
+                      com.opencode.ide.fleet.dispatch.AutoDispatch.of(
+                          cap, policy.costBudgetUsd(), policy.includeStale()),
+                      stored.bootstrapAgent(),
+                      stored.bootstrapCommand());
+              dispatchStore.save(changed);
+              statusMessage("Dispatch concurrency cap: " + cap);
+            } catch (RuntimeException ex) {
+              logError("Could not persist the concurrency cap", ex);
+            }
+          }
+        });
+
+    fleetBar.add(launchAction);
+    fleetBar.add(autoDispatchAction);
+    fleetBar.add(autoLoopAction);
+    fleetBar.add(wavesLoopAction);
+    fleetBar.add(dispatchSettingsAction);
+    fleetBar.add(costOverviewAction);
+    fleetBar.add(waveDigestAction);
+    fleetBar.add(takeOverAction);
+    fleetBar.add(shutdownAction);
+    fleetBar.update(true);
+
+    // Icon-paint fix (user report 2026-09-17): embedded tool bars created
+    // before the view is shown paint their item images zero-sized until a
+    // user interaction forces a layout - pack each row and lay out the
+    // whole header so every icon is visible from the first paint.
+    for (Control child : parent.getChildren()) {
+      if (child instanceof ToolBar bar) {
+        bar.pack(true);
+      }
+    }
+    parent.layout(true, true);
+  }
+
+  private static GridData fixedSize(int widthHint) {
+    GridData data = new GridData(SWT.BEGINNING, SWT.CENTER, false, false);
+    data.widthHint = widthHint;
+    return data;
+  }
+
+  private void hookApply(Text text) {
+    text.addListener(SWT.DefaultSelection, e -> applyInputs());
+    text.addFocusListener(
+        new FocusAdapter() {
+          @Override
+          public void focusLost(FocusEvent e) {
+            applyInputs();
+          }
+        });
+  }
+
+  private void initModel() {
+    model = new BoardModel(resolveTasksRoot(rootOverride), projectName);
+    model.setMode(boardMode);
+    model.setStageFilter(visibleStages);
+    model.setStatusFilter(hiddenStatuses);
+    if (stageFilterAction != null) {
+      stageFilterAction.setText("Stages: " + StageSelection.label(visibleStages));
+    }
+    restartWatcher();
+    refresh();
+  }
+
+  private void applyInputs() {
+    if (model == null
+        || projectText == null
+        || projectText.isDisposed()
+        || rootText == null
+        || rootText.isDisposed()) {
+      return;
+    }
+    String newProject = projectText.getText().trim();
+    if (newProject.isEmpty()) {
+      newProject = BoardModel.DEFAULT_PROJECT;
+    }
+    String newRoot = rootText.getText().trim();
+    boolean changed = !newProject.equals(model.project()) || !newRoot.equals(rootOverride);
+    rootOverride = newRoot;
+    projectName = newProject;
+    if (changed) {
+      cancelDispatchForSelection();
+      // fresh project/root context: the sprint choice does not carry
+      // over, so the auto-select may act again (B-002)
+      sprintPicked = false;
+      model.setProject(newProject);
+      model.setRoot(resolveTasksRoot(rootOverride));
+      createLauncher();
+      restartWatcher();
+    }
+    saveSettings();
+    refresh();
+  }
+
+  /**
+   * Requests a refresh from any thread (watcher, toolbar, sprint combo, initial load): marks dirty
+   * and ensures exactly one drain loop is running. Never computes on the caller's thread.
+   */
+  private void refresh() {
+    if (model == null || boardArea == null || boardArea.isDisposed() || refreshExecutor == null) {
+      return;
+    }
+    dirty.set(true);
+    if (draining.compareAndSet(false, true)) {
+      refreshExecutor.execute(this::drainRefresh);
+    }
+  }
+
+  /**
+   * Runs on the refresh executor: computes snapshots (plus the sprint list) while changes keep
+   * arriving, applying each on the UI thread. The final re-check closes the mark-vs-release race so
+   * no change is ever lost.
+   */
+  private void drainRefresh() {
+    while (dirty.compareAndSet(true, false)) {
+      BoardSnapshot snapshot = null;
+      List<String> sprints = List.of();
+      CostOverview cost = null;
+      StoreGitStatus store = StoreGitStatus.NONE;
+      try {
+        snapshot = model.refresh();
+        sprints = model.sprints();
+        cost = model.costOverview();
+        store = StoreGitStatus.load(model.root());
+      } catch (RuntimeException e) {
+        logError("Board refresh failed", e);
+      }
+      if (snapshot == null) {
+        continue; // error already logged; honor any change that arrived meanwhile
+      }
+      Display display = Display.getDefault();
+      if (display == null || display.isDisposed()) {
+        break;
+      }
+      BoardSnapshot toApply = snapshot;
+      List<String> sprintList = sprints;
+      CostOverview costOverview = cost;
+      StoreGitStatus storeStatus = store;
+      display.asyncExec(
+          () -> {
+            if (boardArea == null || boardArea.isDisposed()) {
+              return;
+            }
+            try {
+              applySnapshot(toApply, sprintList, costOverview, storeStatus);
             } catch (RuntimeException e) {
-                logError("Board refresh failed", e);
+              logError("Applying board snapshot failed", e);
             }
-            if (snapshot == null) {
-                continue; // error already logged; honor any change that arrived meanwhile
-            }
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                break;
-            }
-            BoardSnapshot toApply = snapshot;
-            List<String> sprintList = sprints;
-            CostOverview costOverview = cost;
-            StoreGitStatus storeStatus = store;
-            display.asyncExec(() -> {
-                if (boardArea == null || boardArea.isDisposed()) {
-                    return;
-                }
-                try {
-                    applySnapshot(toApply, sprintList, costOverview, storeStatus);
-                } catch (RuntimeException e) {
-                    logError("Applying board snapshot failed", e);
-                }
-            });
-        }
-        draining.set(false);
-        if (dirty.get() && draining.compareAndSet(false, true)) {
-            try {
-                refreshExecutor.execute(this::drainRefresh);
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                draining.set(false); // view disposed mid-drain — nothing left to refresh
-            }
-        }
+          });
     }
-
-    /** UI-thread apply of a snapshot computed in the background (mode-aware). */
-    private void applySnapshot(BoardSnapshot snapshot, List<String> sprints, CostOverview cost,
-            StoreGitStatus store) {
-        lastSnapshot = snapshot;
-        // U-018: readiness chips on every card + the fleet-row verdict badge
-        // (U-026: stage journeys ride the same path - progress + setbacks)
-        for (BoardRowLabel label : rowLabels) {
-            label.setReadiness(snapshot.readiness());
-            label.setJourneys(snapshot.journeys());
-        }
-        if (readinessLabel != null && !readinessLabel.isDisposed()) {
-            // U-022: the badge extends to the NEEDS-HUMAN count — blocked
-            // tickets no live fleet job is retrying park at the human; the
-            // recurring loop resumes automatically once a blocker clears.
-            readinessLabel.setText(snapshot.readyCount() + " ready \u00b7 " + snapshot.staleCount()
-                    + " stale" + (snapshot.staleCount() > 0 ? " (re-run needed)" : "")
-                    + (snapshot.needsHumanCount() > 0
-                            ? " \u00b7 " + snapshot.needsHumanCount() + " needs me" : "")
-                    + (" \u00b7 " + snapshot.wipCount() + " WIP"));
-            readinessLabel.setToolTipText("task_readiness verdicts over the current sprint - "
-                    + "what the fleet can dispatch now, what went stale, and what is blocked "
-                    + "at the human (NEEDS-HUMAN: clear the blocker to resume the loop)");
-        }
-        if (boardMode == BoardMode.PIPELINE) {
-            applyPipelineSnapshot(snapshot);
-        } else if (boardMode == BoardMode.EPIC) {
-            applyEpicSnapshot(snapshot);
-        } else {
-            applyFlatSnapshot(snapshot);
-        }
-        maybeAutoSelectSprint(sprints);
-        if (snapshot.error() != null) {
-            setContentDescription(snapshot.error());
-        } else {
-            updateFreshnessStamp();
-            StringBuilder description = new StringBuilder("all tickets")
-                    .append("  \u2022  ").append(snapshot.total()).append(" tickets");
-            if (snapshot.blockedCount() > 0) {
-                description.append("  \u2022  ").append(snapshot.blockedCount()).append(" blocked");
-            }
-            if (!BoardModel.BACKLOG.equals(model.sprint())) {
-                // dispatch scope visibility: Launch/Auto drain this wave
-                description.append("  \u2022  wave ").append(model.sprint());
-            }
-            String spent = cost == null ? "" : cost.spentSuffix(model.sprint());
-            if (!spent.isEmpty()) {
-                description.append("  \u2022  ").append(spent);
-            }
-            if (store != null && store.exists() && !store.summary().isBlank()) {
-                description.append("  \u2022  store ").append(store.summary());
-            }
-            setContentDescription(description.toString());
-        }
-        setTitleToolTip("tasks: " + model.root() + "\nrepo: " + repoRoot());
-        updateActionEnablement();
+    draining.set(false);
+    if (dirty.get() && draining.compareAndSet(false, true)) {
+      try {
+        refreshExecutor.execute(this::drainRefresh);
+      } catch (java.util.concurrent.RejectedExecutionException e) {
+        draining.set(false); // view disposed mid-drain — nothing left to refresh
+      }
     }
+  }
 
-    /** U-035: rewrites the store-row stamp; grey and quiet, pure presentation. */
-    private void updateFreshnessStamp() {
-        if (freshnessLabel == null || freshnessLabel.isDisposed()) {
-            return;
-        }
-        freshnessLabel.setText(FreshnessStamp.text(
-                System.currentTimeMillis(), java.time.ZoneId.systemDefault()));
+  /** UI-thread apply of a snapshot computed in the background (mode-aware). */
+  private void applySnapshot(
+      BoardSnapshot snapshot, List<String> sprints, CostOverview cost, StoreGitStatus store) {
+    lastSnapshot = snapshot;
+    // U-018: readiness chips on every card + the fleet-row verdict badge
+    // (U-026: stage journeys ride the same path - progress + setbacks)
+    for (BoardRowLabel label : rowLabels) {
+      label.setReadiness(snapshot.readiness());
+      label.setJourneys(snapshot.journeys());
     }
-
-    /**
-     * The numbered V-stage header text: {@code 3 · architecture}, with the
-     * chevron connector to the NEXT stage (down the definition leg, the
-     * vertex turn, up the verification leg - U-028); the untracked group stays unnumbered.
-     */
-    private static String numberedStageHeader(String stage) {
-        int number = VStageLayout.stageNumber(stage);
-        // U-028 FR-006..FR-010: the chevron connector to the NEXT stage (down
-        // the definition leg, the vertex turn, up the verification leg) -
-        // pure decoration, derived from the layout's single geometry source
-        String connector = VStageLayout.connectorGlyph(stage);
-        String turn = connector == null ? "" : " " + connector;
-        return number > 0 ? number + " \u00b7 " + stage + turn : stage;
+    if (readinessLabel != null && !readinessLabel.isDisposed()) {
+      // U-022: the badge extends to the NEEDS-HUMAN count — blocked
+      // tickets no live fleet job is retrying park at the human; the
+      // recurring loop resumes automatically once a blocker clears.
+      readinessLabel.setText(
+          snapshot.readyCount()
+              + " ready \u00b7 "
+              + snapshot.staleCount()
+              + " stale"
+              + (snapshot.staleCount() > 0 ? " (re-run needed)" : "")
+              + (snapshot.needsHumanCount() > 0
+                  ? " \u00b7 " + snapshot.needsHumanCount() + " needs me"
+                  : "")
+              + (" \u00b7 " + snapshot.wipCount() + " WIP"));
+      readinessLabel.setToolTipText(
+          "task_readiness verdicts over the current sprint - "
+              + "what the fleet can dispatch now, what went stale, and what is blocked "
+              + "at the human (NEEDS-HUMAN: clear the blocker to resume the loop)");
     }
-
-    private void applyFlatSnapshot(BoardSnapshot snapshot) {        for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
-            List<TicketRow> rows = snapshot.column(entry.getKey());
-            entry.getValue().viewer.setInput(rows);
-            entry.getValue().header.setText(
-                TicketRow.statusHeaderText(entry.getKey()) + " (" + rows.size() + ")");
-        }
+    if (boardMode == BoardMode.PIPELINE) {
+      applyPipelineSnapshot(snapshot);
+    } else if (boardMode == BoardMode.EPIC) {
+      applyEpicSnapshot(snapshot);
+    } else {
+      applyFlatSnapshot(snapshot);
     }
-
-    private void applyPipelineSnapshot(BoardSnapshot snapshot) {
-        if (pipelineContent == null || pipelineContent.isDisposed()) {
-            return;
-        }
-        PipelineSnapshot pipeline = snapshot.pipeline();
-        for (PipelineColumnUi ui : pipelineColumns) {
-            StageColumn column = pipeline == null ? null : pipeline.column(ui.stage);
-            List<TicketRow> rows = column == null ? List.of() : column.rows();
-            int blockedCount = column == null ? 0 : column.blockedCount();
-            // keep the numbered snake header (set at creation); append count
-            ui.headerLabel.setText(numberedStageHeader(ui.stage) + " (" + rows.size() + ")");
-            // U-028: the WIP count beside total/blocked (plain count, no limits)
-            int wip = PipelineSnapshot.wipCount(rows);
-            ui.wipLabel.setText(wip > 0 ? " \u00b7 " + wip + " WIP" : "");
-            ui.blockedLabel.setText(" \u00b7 " + blockedCount + " blocked)");
-            ui.blockedLabel.setForeground(blockedCount > 0
-                    ? ui.blockedLabel.getDisplay().getSystemColor(SWT.COLOR_RED) : null);
-            // Every column keeps its fixed V cell (U-016): empty ones stay
-            // rendered with their table — no collapse-to-header anymore.
-            ui.viewer.setInput(rows);
-        }
-        // the untracked row below the V: count rides the toggle text
-        if (untrackedUi != null && !untrackedUi.viewer.getTable().isDisposed()) {
-            StageColumn untracked = pipeline == null ? null : pipeline.column(PipelineSnapshot.UNTRACKED);
-            List<TicketRow> rows = untracked == null ? List.of() : untracked.rows();
-            untrackedUi.headerLabel.setText(PipelineSnapshot.UNTRACKED);
-            untrackedUi.blockedLabel.setText("(" + rows.size() + ")");
-            untrackedUi.viewer.setInput(rows);
-            untrackedToggle.setText(showUntracked
-                    ? "No stage (" + rows.size() + ") \u25BE" : "No stage (" + rows.size() + ") \u25B8 hidden");
-        }
-        // the Archive row: loads only while visible (U-025)
-        if (archiveViewer != null && !archiveViewer.getTable().isDisposed() && model != null) {
-            List<TicketRow> archived = showArchive ? model.archivedRows() : List.of();
-            archiveViewer.setInput(archived);
-            applyArchiveVisibility();
-            archiveToggle.setText((showArchive ? "Archive (" + archived.size() + ") \u25BE"
-                    : "Archive (" + model.archiveCount() + ") \u25B8 hidden"));
-        }
-        pipelineContent.layout(true, true);
-        pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
+    maybeAutoSelectSprint(sprints);
+    if (snapshot.error() != null) {
+      setContentDescription(snapshot.error());
+    } else {
+      updateFreshnessStamp();
+      StringBuilder description =
+          new StringBuilder("all tickets")
+              .append("  \u2022  ")
+              .append(snapshot.total())
+              .append(" tickets");
+      if (snapshot.blockedCount() > 0) {
+        description.append("  \u2022  ").append(snapshot.blockedCount()).append(" blocked");
+      }
+      if (!BoardModel.BACKLOG.equals(model.sprint())) {
+        // dispatch scope visibility: Launch/Auto drain this wave
+        description.append("  \u2022  wave ").append(model.sprint());
+      }
+      String spent = cost == null ? "" : cost.spentSuffix(model.sprint());
+      if (!spent.isEmpty()) {
+        description.append("  \u2022  ").append(spent);
+      }
+      if (store != null && store.exists() && !store.summary().isBlank()) {
+        description.append("  \u2022  store ").append(store.summary());
+      }
+      setContentDescription(description.toString());
     }
+    setTitleToolTip("tasks: " + model.root() + "\nrepo: " + repoRoot());
+    updateActionEnablement();
+  }
 
-    /**
-     * B-002 (dispatch scope only): when the model still sits on the
-     * unpicked {@code (backlog)} default while real waves exist, point the
-     * DISPATCH scope at the newest wave — Launch/Auto drain it. The board's
-     * DISPLAY is wave-agnostic now (all tickets, user direction
-     * 2026-09-18), so this no longer re-renders anything.
-     */
-    private void maybeAutoSelectSprint(List<String> sprints) {
-        if (model == null || sprints == null || sprints.isEmpty()) {
-            return;
-        }
-        String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints, 0);
-        if (candidate == null) {
-            return;
-        }
-        // a wave switch invalidates the dispatch loop's context, exactly
-        // like a manual selection (captureDispatch snapshots the sprint)
-        cancelDispatchForSelection();
-        model.setSprint(candidate);
+  /** U-035: rewrites the store-row stamp; grey and quiet, pure presentation. */
+  private void updateFreshnessStamp() {
+    if (freshnessLabel == null || freshnessLabel.isDisposed()) {
+      return;
     }
+    freshnessLabel.setText(
+        FreshnessStamp.text(System.currentTimeMillis(), java.time.ZoneId.systemDefault()));
+  }
 
-    private void restartWatcher() {
-        if (watcher != null) {
-            watcher.stop();
-        }
-        Path projectDir = model.root().resolve(TaskStore.sanitizeProject(model.project()));
-        watcher = new TaskStoreWatcher(projectDir, () -> {
-            Display display = Display.getDefault();
-            if (display != null && !display.isDisposed()) {
+  /**
+   * The numbered V-stage header text: {@code 3 · architecture}, with the chevron connector to the
+   * NEXT stage (down the definition leg, the vertex turn, up the verification leg - U-028); the
+   * untracked group stays unnumbered.
+   */
+  private static String numberedStageHeader(String stage) {
+    int number = VStageLayout.stageNumber(stage);
+    // U-028 FR-006..FR-010: the chevron connector to the NEXT stage (down
+    // the definition leg, the vertex turn, up the verification leg) -
+    // pure decoration, derived from the layout's single geometry source
+    String connector = VStageLayout.connectorGlyph(stage);
+    String turn = connector == null ? "" : " " + connector;
+    return number > 0 ? number + " \u00b7 " + stage + turn : stage;
+  }
+
+  private void applyFlatSnapshot(BoardSnapshot snapshot) {
+    for (Map.Entry<String, ColumnUi> entry : columns.entrySet()) {
+      List<TicketRow> rows = snapshot.column(entry.getKey());
+      entry.getValue().viewer.setInput(rows);
+      entry
+          .getValue()
+          .header
+          .setText(TicketRow.statusHeaderText(entry.getKey()) + " (" + rows.size() + ")");
+    }
+  }
+
+  private void applyPipelineSnapshot(BoardSnapshot snapshot) {
+    if (pipelineContent == null || pipelineContent.isDisposed()) {
+      return;
+    }
+    PipelineSnapshot pipeline = snapshot.pipeline();
+    for (PipelineColumnUi ui : pipelineColumns) {
+      StageColumn column = pipeline == null ? null : pipeline.column(ui.stage);
+      List<TicketRow> rows = column == null ? List.of() : column.rows();
+      int blockedCount = column == null ? 0 : column.blockedCount();
+      // keep the numbered snake header (set at creation); append count
+      ui.headerLabel.setText(numberedStageHeader(ui.stage) + " (" + rows.size() + ")");
+      // U-028: the WIP count beside total/blocked (plain count, no limits)
+      int wip = PipelineSnapshot.wipCount(rows);
+      ui.wipLabel.setText(wip > 0 ? " \u00b7 " + wip + " WIP" : "");
+      ui.blockedLabel.setText(" \u00b7 " + blockedCount + " blocked)");
+      ui.blockedLabel.setForeground(
+          blockedCount > 0 ? ui.blockedLabel.getDisplay().getSystemColor(SWT.COLOR_RED) : null);
+      // Every column keeps its fixed V cell (U-016): empty ones stay
+      // rendered with their table — no collapse-to-header anymore.
+      ui.viewer.setInput(rows);
+    }
+    // the untracked row below the V: count rides the toggle text
+    if (untrackedUi != null && !untrackedUi.viewer.getTable().isDisposed()) {
+      StageColumn untracked = pipeline == null ? null : pipeline.column(PipelineSnapshot.UNTRACKED);
+      List<TicketRow> rows = untracked == null ? List.of() : untracked.rows();
+      untrackedUi.headerLabel.setText(PipelineSnapshot.UNTRACKED);
+      untrackedUi.blockedLabel.setText("(" + rows.size() + ")");
+      untrackedUi.viewer.setInput(rows);
+      untrackedToggle.setText(
+          showUntracked
+              ? "No stage (" + rows.size() + ") \u25BE"
+              : "No stage (" + rows.size() + ") \u25B8 hidden");
+    }
+    // the Archive row: loads only while visible (U-025)
+    if (archiveViewer != null && !archiveViewer.getTable().isDisposed() && model != null) {
+      List<TicketRow> archived = showArchive ? model.archivedRows() : List.of();
+      archiveViewer.setInput(archived);
+      applyArchiveVisibility();
+      archiveToggle.setText(
+          (showArchive
+              ? "Archive (" + archived.size() + ") \u25BE"
+              : "Archive (" + model.archiveCount() + ") \u25B8 hidden"));
+    }
+    pipelineContent.layout(true, true);
+    pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
+  }
+
+  /**
+   * B-002 (dispatch scope only): when the model still sits on the unpicked {@code (backlog)}
+   * default while real waves exist, point the DISPATCH scope at the newest wave — Launch/Auto drain
+   * it. The board's DISPLAY is wave-agnostic now (all tickets, user direction 2026-09-18), so this
+   * no longer re-renders anything.
+   */
+  private void maybeAutoSelectSprint(List<String> sprints) {
+    if (model == null || sprints == null || sprints.isEmpty()) {
+      return;
+    }
+    String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints, 0);
+    if (candidate == null) {
+      return;
+    }
+    // a wave switch invalidates the dispatch loop's context, exactly
+    // like a manual selection (captureDispatch snapshots the sprint)
+    cancelDispatchForSelection();
+    model.setSprint(candidate);
+  }
+
+  private void restartWatcher() {
+    if (watcher != null) {
+      watcher.stop();
+    }
+    Path projectDir = model.root().resolve(TaskStore.sanitizeProject(model.project()));
+    watcher =
+        new TaskStoreWatcher(
+            projectDir,
+            () -> {
+              Display display = Display.getDefault();
+              if (display != null && !display.isDisposed()) {
                 display.asyncExec(this::onStoreChange);
-            }
+              }
+            });
+    watcher.start();
+  }
+
+  private void onStoreChange() {
+    if (boardArea == null || boardArea.isDisposed()) {
+      return;
+    }
+    refresh();
+  }
+
+  // ------------------------------------------------------------------
+  // Selection
+  // ------------------------------------------------------------------
+
+  /** First selected row across both layouts (deterministic column order). */
+  private TicketRow selectedRow() {
+    for (ColumnUi ui : columns.values()) {
+      TicketRow row = selectionOf(ui.viewer);
+      if (row != null) {
+        return row;
+      }
+    }
+    for (PipelineColumnUi ui : pipelineColumns) {
+      TicketRow row = selectionOf(ui.viewer);
+      if (row != null) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  private static TicketRow selectionOf(TableViewer viewer) {
+    if (viewer == null || viewer.getControl() == null || viewer.getControl().isDisposed()) {
+      return null;
+    }
+    IStructuredSelection selection = viewer.getStructuredSelection();
+    return selection != null
+            && !selection.isEmpty()
+            && selection.getFirstElement() instanceof TicketRow row
+        ? row
+        : null;
+  }
+
+  private void selectTicket(String id) {
+    for (ColumnUi ui : columns.values()) {
+      if (selectIn(ui.viewer, id)) {
+        return;
+      }
+    }
+    for (PipelineColumnUi ui : pipelineColumns) {
+      if (selectIn(ui.viewer, id)) {
+        return;
+      }
+    }
+  }
+
+  private static boolean selectIn(TableViewer viewer, String id) {
+    Object input = viewer.getInput();
+    if (!(input instanceof List<?> rows)) {
+      return false;
+    }
+    for (Object element : rows) {
+      if (element instanceof TicketRow row && id.equals(row.id())) {
+        viewer.setSelection(new StructuredSelection(row), true);
+        viewer.getControl().setFocus();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private void updateActionEnablement() {
+    if (launchAction == null) {
+      return;
+    }
+    TicketRow row = selectedRow();
+    launchAction.setEnabled(!dispatchPending && canLaunch(row));
+    autoDispatchAction.setEnabled(!dispatchPending);
+    autoLoopAction.setEnabled(!dispatchPending);
+    wavesLoopAction.setEnabled(!dispatchPending);
+    takeOverAction.setEnabled(row != null);
+  }
+
+  /** Launch enablement shared by the toolbar action and the context menu. */
+  private boolean canLaunch(TicketRow row) {
+    return launcher != null
+        && row != null
+        && ("sprint-backlog".equals(row.status()) || "in-progress".equals(row.status()))
+        && FleetJobsModel.getDefault().jobs().stream()
+            .noneMatch(
+                j -> row.id().equals(j.taskId()) && j.state() == FleetJobHandle.State.RUNNING);
+  }
+
+  // ------------------------------------------------------------------
+  // Ticket actions
+  // ------------------------------------------------------------------
+
+  private void openDetails() {
+    TicketRow row = selectedRow();
+    if (row == null) {
+      return;
+    }
+    Task task = model.loadTask(row.id());
+    if (task == null) {
+      MessageDialog.openInformation(
+          getSite().getShell(), "Board", "Ticket " + row.id() + " is no longer in the store.");
+      refresh();
+      return;
+    }
+    new TicketDetailsDialog(getSite().getShell(), task, repoRoot()).open();
+  }
+
+  /**
+   * "Cost overview" toolbar action: aggregates the fleet actuals comments over the whole project.
+   */
+  private void openCostOverview() {
+    if (model == null) {
+      return;
+    }
+    new CostOverviewDialog(getSite().getShell(), model.costOverview(), model.project()).open();
+  }
+
+  /**
+   * U-026 "Wave digest" toolbar action (FR-005/FR-006): the selected wave's movement digest as
+   * plain text — counts by kind, the moved-back tickets with reasons, the never-moved ones.
+   * Read-only (FR-007): the digest is a projection of recorded history.
+   */
+  private void openWaveDigest() {
+    if (model == null) {
+      return;
+    }
+    String wave = model.sprint();
+    new TextDialog(
+            getSite().getShell(),
+            "Wave digest \u2014 " + wave,
+            WaveDigest.render(wave, model.sprintTasks()))
+        .open();
+  }
+
+  private void launchSelected() {
+    TicketRow row = selectedRow();
+    if (!canLaunch(row) || dispatchPending) {
+      return;
+    }
+    BoardDispatch dispatch = captureDispatch();
+    runDispatchJob(
+        "Launching " + row.id(),
+        () -> dispatch.launch(row.id()),
+        handle -> {
+          revealFleetView();
+          statusMessage("Launched " + row.id());
         });
-        watcher.start();
+  }
+
+  /**
+   * "Auto-dispatch" toolbar action (ROADMAP H6 piece 2, manual wave): {@link AutoDispatch} plans
+   * over the current sprint's tickets — readiness evaluated across the whole project, spend from
+   * the project-wide cost overview, live fleet jobs against the concurrency cap — and every
+   * admitted id launches through the same {@link TaskFleetLauncher} path as "Launch task", one call
+   * each. The policy loads from the {@link DispatchPolicyStore} at click time with the
+   * cost-calibrated per-launch estimate. Opt-in per click; the background loop is the "Auto" toggle
+   * below.
+   */
+  private void autoDispatch() {
+    if (model == null || launcher == null || dispatchPending) {
+      return;
     }
-
-    private void onStoreChange() {
-        if (boardArea == null || boardArea.isDisposed()) {
-            return;
-        }
-        refresh();
-    }
-
-    // ------------------------------------------------------------------
-    // Selection
-    // ------------------------------------------------------------------
-
-    /** First selected row across both layouts (deterministic column order). */
-    private TicketRow selectedRow() {
-        for (ColumnUi ui : columns.values()) {
-            TicketRow row = selectionOf(ui.viewer);
-            if (row != null) {
-                return row;
-            }
-        }
-        for (PipelineColumnUi ui : pipelineColumns) {
-            TicketRow row = selectionOf(ui.viewer);
-            if (row != null) {
-                return row;
-            }
-        }
-        return null;
-    }
-
-    private static TicketRow selectionOf(TableViewer viewer) {
-        if (viewer == null || viewer.getControl() == null || viewer.getControl().isDisposed()) {
-            return null;
-        }
-        IStructuredSelection selection = viewer.getStructuredSelection();
-        return selection != null && !selection.isEmpty()
-                && selection.getFirstElement() instanceof TicketRow row ? row : null;
-    }
-
-    private void selectTicket(String id) {
-        for (ColumnUi ui : columns.values()) {
-            if (selectIn(ui.viewer, id)) {
-                return;
-            }
-        }
-        for (PipelineColumnUi ui : pipelineColumns) {
-            if (selectIn(ui.viewer, id)) {
-                return;
-            }
-        }
-    }
-
-    private static boolean selectIn(TableViewer viewer, String id) {
-        Object input = viewer.getInput();
-        if (!(input instanceof List<?> rows)) {
-            return false;
-        }
-        for (Object element : rows) {
-            if (element instanceof TicketRow row && id.equals(row.id())) {
-                viewer.setSelection(new StructuredSelection(row), true);
-                viewer.getControl().setFocus();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void updateActionEnablement() {
-        if (launchAction == null) {
-            return;
-        }
-        TicketRow row = selectedRow();
-        launchAction.setEnabled(!dispatchPending && canLaunch(row));
-        autoDispatchAction.setEnabled(!dispatchPending);
-        autoLoopAction.setEnabled(!dispatchPending);
-        wavesLoopAction.setEnabled(!dispatchPending);
-        takeOverAction.setEnabled(row != null);
-    }
-
-    /** Launch enablement shared by the toolbar action and the context menu. */
-    private boolean canLaunch(TicketRow row) {
-        return launcher != null
-                && row != null
-                && ("sprint-backlog".equals(row.status()) || "in-progress".equals(row.status()))
-                && FleetJobsModel.getDefault().jobs().stream()
-                        .noneMatch(j -> row.id().equals(j.taskId()) && j.state() == FleetJobHandle.State.RUNNING);
-    }
-
-    // ------------------------------------------------------------------
-    // Ticket actions
-    // ------------------------------------------------------------------
-
-    private void openDetails() {
-        TicketRow row = selectedRow();
-        if (row == null) {
-            return;
-        }
-        Task task = model.loadTask(row.id());
-        if (task == null) {
-            MessageDialog.openInformation(getSite().getShell(), "Board",
-                    "Ticket " + row.id() + " is no longer in the store.");
-            refresh();
-            return;
-        }
-        new TicketDetailsDialog(getSite().getShell(), task, repoRoot()).open();
-    }
-
-    /** "Cost overview" toolbar action: aggregates the fleet actuals comments over the whole project. */
-    private void openCostOverview() {
-        if (model == null) {
-            return;
-        }
-        new CostOverviewDialog(getSite().getShell(), model.costOverview(), model.project()).open();
-    }
-
-    /**
-     * U-026 "Wave digest" toolbar action (FR-005/FR-006): the selected
-     * wave's movement digest as plain text — counts by kind, the moved-back
-     * tickets with reasons, the never-moved ones. Read-only (FR-007): the
-     * digest is a projection of recorded history.
-     */
-    private void openWaveDigest() {
-        if (model == null) {
-            return;
-        }
-        String wave = model.sprint();
-        new TextDialog(getSite().getShell(), "Wave digest \u2014 " + wave,
-                WaveDigest.render(wave, model.sprintTasks())).open();
-    }
-
-    private void launchSelected() {
-        TicketRow row = selectedRow();
-        if (!canLaunch(row) || dispatchPending) {
-            return;
-        }
-        BoardDispatch dispatch = captureDispatch();
-        runDispatchJob("Launching " + row.id(), () -> dispatch.launch(row.id()), handle -> {
+    BoardDispatch dispatch = captureDispatch();
+    runDispatchJob(
+        "Auto-dispatch",
+        () -> dispatch.scheduler(() -> storedDispatch().policy()).tick(),
+        plan -> {
+          if (!plan.launch().isEmpty()) {
             revealFleetView();
-            statusMessage("Launched " + row.id());
+          }
+          MessageDialog.openInformation(
+              getSite().getShell(), "Auto-dispatch", BoardDispatch.summary(plan));
         });
-    }
+  }
 
-    /**
-     * "Auto-dispatch" toolbar action (ROADMAP H6 piece 2, manual wave):
-     * {@link AutoDispatch} plans over the current sprint's tickets —
-     * readiness evaluated across the whole project, spend from the
-     * project-wide cost overview, live fleet jobs against the concurrency
-     * cap — and every admitted id launches through the same
-     * {@link TaskFleetLauncher} path as "Launch task", one call each. The
-     * policy loads from the {@link DispatchPolicyStore} at click time with
-     * the cost-calibrated per-launch estimate. Opt-in per click; the
-     * background loop is the "Auto" toggle below.
-     */
-    private void autoDispatch() {
-        if (model == null || launcher == null || dispatchPending) {
-            return;
-        }
-        BoardDispatch dispatch = captureDispatch();
-        runDispatchJob("Auto-dispatch", () -> dispatch.scheduler(() -> storedDispatch().policy()).tick(), plan -> {
-            if (!plan.launch().isEmpty()) {
-                revealFleetView();
-            }
-            MessageDialog.openInformation(getSite().getShell(), "Auto-dispatch", BoardDispatch.summary(plan));
+  /** The stored dispatch policy + bootstrap, or the defaults; never throws. */
+  private DispatchPolicyStore.DispatchSettings storedDispatch() {
+    return dispatchStore == null ? DispatchPolicyStore.defaults() : dispatchStore.load();
+  }
+
+  /** "Dispatch settings" toolbar action: edit and persist the policy both dispatch actions load. */
+  private void openDispatchSettings() {
+    if (dispatchStore == null) {
+      MessageDialog.openInformation(
+          getSite().getShell(),
+          "Dispatch settings",
+          "Settings persistence is unavailable; dispatch runs on the defaults.");
+      return;
+    }
+    new DispatchSettingsDialog(getSite().getShell(), dispatchStore).open();
+  }
+
+  /**
+   * "Auto ▶/■" toggle (ROADMAP H6 piece 4, the self-draining loop): a {@link DispatchScheduler}
+   * over the selected sprint. Tickets added to that sprint drain automatically; changing
+   * root/project/sprint stops the loop. The policy loads from the {@link DispatchPolicyStore} at
+   * toggle time (with the cost-calibrated estimate); the manual "Auto-dispatch" action above loads
+   * it per click.
+   */
+  /**
+   * The shared fleet control's bridge ({@link com.opencode.ide.core.FleetLifecycle} - the prominent
+   * Enable/Pause/Stop row in the Fleet panel): flips THIS board's pump toggles, the one owner of
+   * the pumps (they need the board's sprint context). Enable arms the auto-dispatch pump (the
+   * recurring Waves mode stays the Board's explicit opt-up); pause/stop reuse the selection-cancel
+   * path - both loops off, toggles reset, running jobs settle normally (they are never killed).
+   */
+  public void applyFleetControl(String command) {
+    if ("enable".equals(command)) {
+      if (autoLoopAction != null && !autoLoopAction.isChecked()) {
+        autoLoopAction.setChecked(true);
+        toggleDispatchLoop();
+      }
+    } else {
+      cancelDispatchForSelection();
+    }
+  }
+
+  /**
+   * Flips the auto-dispatch pump toggle for THIS board (the pump needs the board's sprint context);
+   * called by the toggle row and by {@link #applyFleetControl(String)}.
+   */
+  private void toggleDispatchLoop() {
+    if (autoLoopAction == null) {
+      return;
+    }
+    boolean on = autoLoopAction.isChecked();
+    autoLoopAction.setText(on ? "Auto \u25A0" : "Auto \uD83C\uDFC3");
+    if (on) {
+      startDispatchLoop();
+    } else {
+      stopDispatchLoop("Auto-dispatch loop stopped.");
+    }
+  }
+
+  private void startDispatchLoop() {
+    if (model == null || launcher == null || dispatchPending) {
+      return;
+    }
+    stopDispatchLoop(null);
+    BoardDispatch dispatch = captureDispatch();
+    runDispatchJob(
+        "Starting auto-dispatch",
+        () -> dispatch.scheduler(() -> storedDispatch().policy()),
+        scheduler -> {
+          dispatchScheduler = scheduler;
+          scheduler.start(AUTO_DISPATCH_PERIOD);
+          statusMessage(
+              "Auto-dispatch loop started — every "
+                  + AUTO_DISPATCH_PERIOD.toSeconds()
+                  + "s over "
+                  + model.sprint()
+                  + ".");
         });
-    }
+  }
 
-    /** The stored dispatch policy + bootstrap, or the defaults; never throws. */
-    private DispatchPolicyStore.DispatchSettings storedDispatch() {
-        return dispatchStore == null ? DispatchPolicyStore.defaults() : dispatchStore.load();
-    }
+  private BoardDispatch captureDispatch() {
+    AtomicBoolean cancelled = dispatchCancelled;
+    return new BoardDispatch(
+        model.root(), model.project(), model.sprint(), launcher, cancelled::get);
+  }
 
-    /** "Dispatch settings" toolbar action: edit and persist the policy both dispatch actions load. */
-    private void openDispatchSettings() {
-        if (dispatchStore == null) {
-            MessageDialog.openInformation(getSite().getShell(), "Dispatch settings",
-                    "Settings persistence is unavailable; dispatch runs on the defaults.");
-            return;
-        }
-        new DispatchSettingsDialog(getSite().getShell(), dispatchStore).open();
-    }
-
-    /**
-     * "Auto ▶/■" toggle (ROADMAP H6 piece 4, the self-draining loop): a
-     * {@link DispatchScheduler} over the selected sprint. Tickets added to that
-     * sprint drain automatically; changing root/project/sprint stops the loop.
-     * The policy loads from the
-     * {@link DispatchPolicyStore} at toggle time (with the cost-calibrated
-     * estimate); the manual "Auto-dispatch" action above loads it per click.
-     */
-    /**
-     * The shared fleet control's bridge ({@link com.opencode.ide.core.FleetLifecycle}
-     * - the prominent Enable/Pause/Stop row in the Fleet panel): flips THIS
-     * board's pump toggles, the one owner of the pumps (they need the board's
-     * sprint context). Enable arms the auto-dispatch pump (the recurring
-     * Waves mode stays the Board's explicit opt-up); pause/stop reuse the
-     * selection-cancel path - both loops off, toggles reset, running jobs
-     * settle normally (they are never killed).
-     */
-    public void applyFleetControl(String command) {
-        if ("enable".equals(command)) {
-            if (autoLoopAction != null && !autoLoopAction.isChecked()) {
-                autoLoopAction.setChecked(true);
-                toggleDispatchLoop();
-            }
-        } else {
-            cancelDispatchForSelection();
-        }
-    }
-
-    /**
-     * Flips the auto-dispatch pump toggle for THIS board (the pump needs the
-     * board's sprint context); called by the toggle row and by
-     * {@link #applyFleetControl(String)}.
-     */
-    private void toggleDispatchLoop() {
-        if (autoLoopAction == null) {
-            return;
-        }
-        boolean on = autoLoopAction.isChecked();
-        autoLoopAction.setText(on ? "Auto \u25A0" : "Auto \uD83C\uDFC3");
-        if (on) {
-            startDispatchLoop();
-        } else {
-            stopDispatchLoop("Auto-dispatch loop stopped.");
-        }
-    }
-
-    private void startDispatchLoop() {
-        if (model == null || launcher == null || dispatchPending) {
-            return;
-        }
-        stopDispatchLoop(null);
-        BoardDispatch dispatch = captureDispatch();
-        runDispatchJob("Starting auto-dispatch", () -> dispatch.scheduler(() -> storedDispatch().policy()), scheduler -> {
-            dispatchScheduler = scheduler;
-            scheduler.start(AUTO_DISPATCH_PERIOD);
-            statusMessage("Auto-dispatch loop started — every "
-                    + AUTO_DISPATCH_PERIOD.toSeconds() + "s over " + model.sprint() + ".");
-        });
-    }
-
-    private BoardDispatch captureDispatch() {
-        AtomicBoolean cancelled = dispatchCancelled;
-        return new BoardDispatch(model.root(), model.project(), model.sprint(), launcher, cancelled::get);
-    }
-
-    /** All store reads, reservations and file locks execute on a Job, never SWT. */
-    private <T> void runDispatchJob(String name, java.util.function.Supplier<T> work,
-            java.util.function.Consumer<T> completed) {
-        AtomicBoolean cancelled = dispatchCancelled;
-        Display display = boardArea.getDisplay();
-        dispatchPending = true;
-        updateActionEnablement();
-        Job job = Job.create(name, monitor -> {
-            T result = null;
-            RuntimeException failure = null;
-            try {
+  /** All store reads, reservations and file locks execute on a Job, never SWT. */
+  private <T> void runDispatchJob(
+      String name, java.util.function.Supplier<T> work, java.util.function.Consumer<T> completed) {
+    AtomicBoolean cancelled = dispatchCancelled;
+    Display display = boardArea.getDisplay();
+    dispatchPending = true;
+    updateActionEnablement();
+    Job job =
+        Job.create(
+            name,
+            monitor -> {
+              T result = null;
+              RuntimeException failure = null;
+              try {
                 if (!cancelled.get()) {
-                    result = work.get();
+                  result = work.get();
                 }
-            } catch (RuntimeException e) {
+              } catch (RuntimeException e) {
                 failure = e;
-            }
-            T value = result;
-            RuntimeException error = failure;
-            if (!display.isDisposed()) {
-                display.asyncExec(() -> {
-                    if (boardArea.isDisposed()) {
+              }
+              T value = result;
+              RuntimeException error = failure;
+              if (!display.isDisposed()) {
+                display.asyncExec(
+                    () -> {
+                      if (boardArea.isDisposed()) {
                         return;
-                    }
-                    dispatchPending = false;
-                    if (!cancelled.get()) {
+                      }
+                      dispatchPending = false;
+                      if (!cancelled.get()) {
                         if (error == null) {
-                            completed.accept(value);
+                          completed.accept(value);
                         } else {
-                            stopDispatchLoop(null);
-                            autoLoopAction.setChecked(false);
-                            autoLoopAction.setText("Auto \uD83C\uDFC3");
-                            MessageDialog.openError(getSite().getShell(), name, String.valueOf(error.getMessage()));
+                          stopDispatchLoop(null);
+                          autoLoopAction.setChecked(false);
+                          autoLoopAction.setText("Auto \uD83C\uDFC3");
+                          MessageDialog.openError(
+                              getSite().getShell(), name, String.valueOf(error.getMessage()));
                         }
-                    }
-                    refresh();
-                    updateActionEnablement();
-                });
-            }
-            return Status.OK_STATUS;
-        });
-        job.setSystem(true);
-        job.schedule();
-    }
+                      }
+                      refresh();
+                      updateActionEnablement();
+                    });
+              }
+              return Status.OK_STATUS;
+            });
+    job.setSystem(true);
+    job.schedule();
+  }
 
-    private void cancelDispatchForSelection() {
-        stopDispatchLoop(null);
-        autoLoopAction.setChecked(false);
-        autoLoopAction.setText("Auto \u25B6");
-        // a project/root/sprint switch invalidates the waves loop's context
-        // exactly like the one-sprint loop's — turn it off with the toggle
-        stopWavesLoop(null);
-        wavesLoopAction.setChecked(false);
-        wavesLoopAction.setText("Waves \u25B6");
-    }
+  private void cancelDispatchForSelection() {
+    stopDispatchLoop(null);
+    autoLoopAction.setChecked(false);
+    autoLoopAction.setText("Auto \u25B6");
+    // a project/root/sprint switch invalidates the waves loop's context
+    // exactly like the one-sprint loop's — turn it off with the toggle
+    stopWavesLoop(null);
+    wavesLoopAction.setChecked(false);
+    wavesLoopAction.setText("Waves \u25B6");
+  }
 
-    /**
-     * U-045 "Shutdown\u2026": the confirm names the ordered teardown, then
-     * the launcher runs the same graceful path as the chat
-     * {@code fleet_shutdown} tool (park admissions via the maintenance
-     * gate, checkpoint + pause every in-flight worker, kill a serve this
-     * session spawned) off the UI thread. This board's own Auto / Waves
-     * pumps stop FIRST - they would refuse admissions anyway - and the
-     * board refreshes afterwards so the PAUSED tickets show immediately.
-     */
-    private void shutdownFleet() {
-        if (model == null || launcher == null) {
+  /**
+   * U-045 "Shutdown\u2026": the confirm names the ordered teardown, then the launcher runs the same
+   * graceful path as the chat {@code fleet_shutdown} tool (park admissions via the maintenance
+   * gate, checkpoint + pause every in-flight worker, kill a serve this session spawned) off the UI
+   * thread. This board's own Auto / Waves pumps stop FIRST - they would refuse admissions anyway -
+   * and the board refreshes afterwards so the PAUSED tickets show immediately.
+   */
+  private void shutdownFleet() {
+    if (model == null || launcher == null) {
+      return;
+    }
+    String project = model.project();
+    if (!MessageDialog.openConfirm(
+        getSite().getShell(), "Shutdown fleet", FleetShutdownTexts.confirmMessage(project))) {
+      return;
+    }
+    cancelDispatchForSelection();
+    ExecutorService executor = takeoverExecutor;
+    if (executor == null) {
+      return;
+    }
+    executor.execute(
+        () -> {
+          Map<String, Object> report = null;
+          RuntimeException failure = null;
+          try {
+            report = launcher.shutdownForMaintenance(project, "board maintenance shutdown");
+          } catch (RuntimeException e) {
+            failure = e;
+          }
+          RuntimeException error = failure;
+          Map<String, Object> result = report;
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        String project = model.project();
-        if (!MessageDialog.openConfirm(getSite().getShell(), "Shutdown fleet",
-                FleetShutdownTexts.confirmMessage(project))) {
-            return;
-        }
-        cancelDispatchForSelection();
-        ExecutorService executor = takeoverExecutor;
-        if (executor == null) {
-            return;
-        }
-        executor.execute(() -> {
-            Map<String, Object> report = null;
-            RuntimeException failure = null;
-            try {
-                report = launcher.shutdownForMaintenance(project, "board maintenance shutdown");
-            } catch (RuntimeException e) {
-                failure = e;
-            }
-            RuntimeException error = failure;
-            Map<String, Object> result = report;
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          display.asyncExec(
+              () -> {
                 if (boardArea == null || boardArea.isDisposed()) {
-                    return;
+                  return;
                 }
                 if (error != null) {
-                    logError("Fleet shutdown failed", error);
-                    MessageDialog.openError(getSite().getShell(), "Shutdown fleet",
-                            "Shutdown failed: " + error.getMessage());
+                  logError("Fleet shutdown failed", error);
+                  MessageDialog.openError(
+                      getSite().getShell(),
+                      "Shutdown fleet",
+                      "Shutdown failed: " + error.getMessage());
                 } else {
-                    MessageDialog.openInformation(getSite().getShell(), "Shutdown fleet",
-                            FleetShutdownTexts.reportMessage(result));
+                  MessageDialog.openInformation(
+                      getSite().getShell(),
+                      "Shutdown fleet",
+                      FleetShutdownTexts.reportMessage(result));
                 }
                 refresh();
-            });
+              });
         });
-    }
+  }
 
-    private void stopDispatchLoop(String message) {
-        dispatchCancelled.set(true);
-        dispatchCancelled = new AtomicBoolean();
-        if (dispatchScheduler != null) {
-            DispatchScheduler previous = dispatchScheduler;
-            dispatchScheduler = null;
-            previous.requestStop();
-            // stop may wait for an in-flight reservation under the scheduler's
-            // lifecycle lock. Invalidate its launch token immediately, then wait
-            // off SWT so a contended repository cannot freeze the workbench.
-            Job stop = Job.create("Stopping auto-dispatch", monitor -> {
+  private void stopDispatchLoop(String message) {
+    dispatchCancelled.set(true);
+    dispatchCancelled = new AtomicBoolean();
+    if (dispatchScheduler != null) {
+      DispatchScheduler previous = dispatchScheduler;
+      dispatchScheduler = null;
+      previous.requestStop();
+      // stop may wait for an in-flight reservation under the scheduler's
+      // lifecycle lock. Invalidate its launch token immediately, then wait
+      // off SWT so a contended repository cannot freeze the workbench.
+      Job stop =
+          Job.create(
+              "Stopping auto-dispatch",
+              monitor -> {
                 previous.stop();
                 return Status.OK_STATUS;
+              });
+      stop.setSystem(true);
+      stop.schedule();
+    }
+    if (message != null) {
+      statusMessage(message);
+    }
+  }
+
+  /**
+   * "Waves ▶/■" toggle (U-022, the recurring mode): a {@link RecurringWaves} loop over this project
+   * — drains the active wave (the selected sprint, or the newest one), then plans the next from the
+   * prioritized backlog with no click in between; parks on NEEDS-HUMAN, stops cleanly on budget
+   * exhaustion or nothing-plannable. The Board path runs in this Eclipse session; for a loop that
+   * survives client disconnects enable it through the standalone fleet MCP server's {@code
+   * fleet_waves_start} tool. OFF by default.
+   */
+  private void toggleWavesLoop() {
+    if (wavesLoopAction == null) {
+      return;
+    }
+    boolean on = wavesLoopAction.isChecked();
+    wavesLoopAction.setText(on ? "Waves ■" : "Waves \u25B6");
+    if (on) {
+      startWavesLoop();
+    } else {
+      stopWavesLoop("Recurring waves stopped.");
+    }
+  }
+
+  private void startWavesLoop() {
+    if (model == null || launcher == null || dispatchPending) {
+      wavesLoopAction.setChecked(false);
+      wavesLoopAction.setText("Waves \u25B6");
+      return;
+    }
+    stopWavesLoop(null);
+    stopDispatchLoop(null); // the one-sprint loop and recurring waves are exclusive
+    AutoDispatch policy = storedDispatch().policy();
+    BoardDispatch dispatch = captureDispatch();
+    String initialWave = BoardModel.BACKLOG.equals(model.sprint()) ? null : model.sprint();
+    // the loop is created inside the Job; the holder hands its live wave
+    // to the admission seam (set before the first cycle runs)
+    final RecurringWaves[] holder = new RecurringWaves[1];
+    Job start =
+        Job.create(
+            "Starting recurring waves",
+            monitor -> {
+              RecurringWaves loop =
+                  new RecurringWaves(
+                      new TaskStore(model.root()),
+                      model.project(),
+                      policy,
+                      initialWave,
+                      dispatch::runningIds,
+                      (id, attempt) ->
+                          dispatch.admitWave(
+                              () -> holder[0] == null ? null : holder[0].activeWave(),
+                              id,
+                              policy,
+                              attempt),
+                      notice -> logNotice("recurring waves: " + notice),
+                      null);
+              holder[0] = loop;
+              loop.start(FleetTuning.WAVE_LOOP_PERIOD);
+              wavesLoop = loop;
+              return Status.OK_STATUS;
             });
-            stop.setSystem(true);
-            stop.schedule();
-        }
-        if (message != null) {
-            statusMessage(message);
-        }
-    }
+    start.setSystem(true);
+    start.schedule();
+    statusMessage(
+        "Recurring waves on — drains the active wave, then plans the next"
+            + " automatically (parks on NEEDS-HUMAN, budget is a hard stop).");
+  }
 
-    /**
-     * "Waves ▶/■" toggle (U-022, the recurring mode): a {@link RecurringWaves}
-     * loop over this project — drains the active wave (the selected sprint,
-     * or the newest one), then plans the next from the prioritized backlog
-     * with no click in between; parks on NEEDS-HUMAN, stops cleanly on budget
-     * exhaustion or nothing-plannable. The Board path runs in this Eclipse
-     * session; for a loop that survives client disconnects enable it through
-     * the standalone fleet MCP server's {@code fleet_waves_start} tool. OFF by default.
-     */
-    private void toggleWavesLoop() {
-        if (wavesLoopAction == null) {
-            return;
-        }
-        boolean on = wavesLoopAction.isChecked();
-        wavesLoopAction.setText(on ? "Waves ■" : "Waves \u25B6");
-        if (on) {
-            startWavesLoop();
-        } else {
-            stopWavesLoop("Recurring waves stopped.");
-        }
-    }
+  private static void logNotice(String message) {
+    Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
+        .log(new Status(Status.INFO, BoardPlugin.PLUGIN_ID, message));
+  }
 
-    private void startWavesLoop() {
-        if (model == null || launcher == null || dispatchPending) {
-            wavesLoopAction.setChecked(false);
-            wavesLoopAction.setText("Waves \u25B6");
-            return;
-        }
-        stopWavesLoop(null);
-        stopDispatchLoop(null); // the one-sprint loop and recurring waves are exclusive
-        AutoDispatch policy = storedDispatch().policy();
-        BoardDispatch dispatch = captureDispatch();
-        String initialWave = BoardModel.BACKLOG.equals(model.sprint()) ? null : model.sprint();
-        // the loop is created inside the Job; the holder hands its live wave
-        // to the admission seam (set before the first cycle runs)
-        final RecurringWaves[] holder = new RecurringWaves[1];
-        Job start = Job.create("Starting recurring waves", monitor -> {
-            RecurringWaves loop = new RecurringWaves(new TaskStore(model.root()), model.project(),
-                    policy, initialWave, dispatch::runningIds,
-                    (id, attempt) -> dispatch.admitWave(
-                            () -> holder[0] == null ? null : holder[0].activeWave(), id, policy, attempt),
-                    notice -> logNotice("recurring waves: " + notice), null);
-            holder[0] = loop;
-            loop.start(FleetTuning.WAVE_LOOP_PERIOD);
-            wavesLoop = loop;
-            return Status.OK_STATUS;
-        });
-        start.setSystem(true);
-        start.schedule();
-        statusMessage("Recurring waves on — drains the active wave, then plans the next"
-                + " automatically (parks on NEEDS-HUMAN, budget is a hard stop).");
+  private void stopWavesLoop(String message) {
+    RecurringWaves previous = wavesLoop;
+    wavesLoop = null;
+    if (previous != null) {
+      previous.requestStop(); // no join: a cycle mid-flight must not freeze SWT
     }
-
-    private static void logNotice(String message) {
-        Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
-                .log(new Status(Status.INFO, BoardPlugin.PLUGIN_ID, message));
+    if (message != null) {
+      statusMessage(message);
     }
+  }
 
-    private void stopWavesLoop(String message) {
-        RecurringWaves previous = wavesLoop;
-        wavesLoop = null;
-        if (previous != null) {
-            previous.requestStop(); // no join: a cycle mid-flight must not freeze SWT
-        }
-        if (message != null) {
-            statusMessage(message);
-        }
+  private void statusMessage(String message) {
+    if (getViewSite() == null || getViewSite().getActionBars() == null) {
+      return;
     }
+    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
+    status.setErrorMessage(null);
+    status.setMessage(message);
+  }
 
-    private void statusMessage(String message) {
-        if (getViewSite() == null || getViewSite().getActionBars() == null) {
-            return;
-        }
-        IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-        status.setErrorMessage(null);
-        status.setMessage(message);
+  /**
+   * TUI-first takeover (ROADMAP H5 item 3): the ticket's fleet session is handed to the attached
+   * opencode TUI over the {@code /tui} control channel (routing off the UI thread — the client may
+   * spawn/wait for the server); without a session or TUI the pre-TUI behavior stands — open the
+   * fleet worktree and select the ticket.
+   */
+  private void takeOverSelected() {
+    TicketRow row = selectedRow();
+    if (row == null) {
+      return;
     }
-
-    /**
-     * TUI-first takeover (ROADMAP H5 item 3): the ticket's fleet session is
-     * handed to the attached opencode TUI over the {@code /tui} control
-     * channel (routing off the UI thread — the client may spawn/wait for
-     * the server); without a session or TUI the pre-TUI behavior stands —
-     * open the fleet worktree and select the ticket.
-     */
-    private void takeOverSelected() {
-        TicketRow row = selectedRow();
-        if (row == null) {
+    String sessionId = fleetSessionOf(row.id());
+    if (sessionId == null) {
+      openWorktreeTakeOver(row);
+      return;
+    }
+    String prompt = TakeoverRouter.takeoverPrompt(row.id(), row.title());
+    ExecutorService executor = takeoverExecutor;
+    if (executor == null) {
+      return;
+    }
+    executor.execute(
+        () -> {
+          TakeoverRouter.Result result = routeTakeover(sessionId, prompt);
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        String sessionId = fleetSessionOf(row.id());
-        if (sessionId == null) {
-            openWorktreeTakeOver(row);
-            return;
-        }
-        String prompt = TakeoverRouter.takeoverPrompt(row.id(), row.title());
-        ExecutorService executor = takeoverExecutor;
-        if (executor == null) {
-            return;
-        }
-        executor.execute(() -> {
-            TakeoverRouter.Result result = routeTakeover(sessionId, prompt);
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          display.asyncExec(
+              () -> {
                 if (boardArea == null || boardArea.isDisposed()) {
-                    return;
+                  return;
                 }
                 if (result.outcome() == TakeoverRouter.Outcome.TUI) {
-                    MessageDialog.openInformation(getSite().getShell(), "Take over",
-                            "Session handed to the attached TUI.\n" + result.detail());
+                  MessageDialog.openInformation(
+                      getSite().getShell(),
+                      "Take over",
+                      "Session handed to the attached TUI.\n" + result.detail());
                 } else {
-                    openWorktreeTakeOver(row);
+                  openWorktreeTakeOver(row);
                 }
-            });
+              });
         });
-    }
+  }
 
-    /** Routes the takeover; a client-acquisition failure is a CHAT result, never an exception. */
-    private static TakeoverRouter.Result routeTakeover(String sessionId, String prompt) {
-        try {
-            return TakeoverRouter.route(connectClient(), sessionId, prompt);
-        } catch (RuntimeException e) {
-            return TakeoverRouter.Result.chat(String.valueOf(e.getMessage()));
-        }
+  /** Routes the takeover; a client-acquisition failure is a CHAT result, never an exception. */
+  private static TakeoverRouter.Result routeTakeover(String sessionId, String prompt) {
+    try {
+      return TakeoverRouter.route(connectClient(), sessionId, prompt);
+    } catch (RuntimeException e) {
+      return TakeoverRouter.Result.chat(String.valueOf(e.getMessage()));
     }
+  }
 
-    /**
-     * Distributed-fleet store sync (pull \u2192 claim \u2192 push discipline):
-     * commit local ticket changes, pull-rebase, push — off the UI thread (git
-     * may wait on the network). A pull conflict offers the recover path
-     * (abort the rebase; nothing was pushed).
-     */
-    /** O-002: prompt for a name, scaffold the project, switch the board to it. */
-    private void newProject() {
-        if (model == null) {
-            return;
-        }
-        InputDialog dialog = new InputDialog(getSite().getShell(), "New project",
-                "Task-store project name (created under .opencode/tasks/):", "",
-                text -> text == null || text.trim().isEmpty() ? "A name is required" : null);
-        if (dialog.open() != Window.OK || dialog.getValue() == null) {
-            return;
-        }
-        String name = dialog.getValue().trim();
-        try {
-            model.newProject(name);
-            projectName = name;
-            projectText.setText(name);
-            model.setProject(name);
-            saveSettings();
-            refresh();
-        } catch (RuntimeException e) {
-            MessageDialog.openError(getSite().getShell(), "New project", e.getMessage());
-        }
+  /**
+   * Distributed-fleet store sync (pull \u2192 claim \u2192 push discipline): commit local ticket
+   * changes, pull-rebase, push — off the UI thread (git may wait on the network). A pull conflict
+   * offers the recover path (abort the rebase; nothing was pushed).
+   */
+  /** O-002: prompt for a name, scaffold the project, switch the board to it. */
+  private void newProject() {
+    if (model == null) {
+      return;
     }
+    InputDialog dialog =
+        new InputDialog(
+            getSite().getShell(),
+            "New project",
+            "Task-store project name (created under .opencode/tasks/):",
+            "",
+            text -> text == null || text.trim().isEmpty() ? "A name is required" : null);
+    if (dialog.open() != Window.OK || dialog.getValue() == null) {
+      return;
+    }
+    String name = dialog.getValue().trim();
+    try {
+      model.newProject(name);
+      projectName = name;
+      projectText.setText(name);
+      model.setProject(name);
+      saveSettings();
+      refresh();
+    } catch (RuntimeException e) {
+      MessageDialog.openError(getSite().getShell(), "New project", e.getMessage());
+    }
+  }
 
-    /** O-002: explicit confirmation naming exactly what is lost, then clear THIS project only. */
-    private void resetProject() {
-        if (model == null) {
-            return;
-        }
-        int tickets = model.projectTasks().size();
-        boolean confirmed = MessageDialog.openConfirm(getSite().getShell(), "Reset project",
-                "Remove ALL " + tickets + " ticket(s) of project '" + model.project() + "'?\n\n"
-                        + "Lost: every ticket, its actuals and the wave history of THIS project.\n"
-                        + "Other projects are never touched.");
-        if (!confirmed) {
-            return;
-        }
-        try {
-            model.resetProject();
-            refresh();
-        } catch (RuntimeException e) {
-            MessageDialog.openError(getSite().getShell(), "Reset project", e.getMessage());
-        }
+  /** O-002: explicit confirmation naming exactly what is lost, then clear THIS project only. */
+  private void resetProject() {
+    if (model == null) {
+      return;
     }
+    int tickets = model.projectTasks().size();
+    boolean confirmed =
+        MessageDialog.openConfirm(
+            getSite().getShell(),
+            "Reset project",
+            "Remove ALL "
+                + tickets
+                + " ticket(s) of project '"
+                + model.project()
+                + "'?\n\n"
+                + "Lost: every ticket, its actuals and the wave history of THIS project.\n"
+                + "Other projects are never touched.");
+    if (!confirmed) {
+      return;
+    }
+    try {
+      model.resetProject();
+      refresh();
+    } catch (RuntimeException e) {
+      MessageDialog.openError(getSite().getShell(), "Reset project", e.getMessage());
+    }
+  }
 
-    /**
-     * O-001: adopt an opencode repository as an OpenCode project — write the
-     * minimal {@code .project} (the repo nature, no builders) into the repo
-     * root and open it in the workspace, so the repo-driven derivation
-     * (spawn working directory in OpencodeConnection, tasksRoot in
-     * TasksRootResolution) anchors to it without any manual preference.
-     * Repos with nested Eclipse projects are refused with the auto-discovery
-     * explanation (Eclipse forbids overlapping projects); the dev layout of
-     * THIS repo keeps working through markers exactly as today.
-     */
-    private void adoptRepo() {
-        org.eclipse.swt.widgets.DirectoryDialog dialog =
-                new org.eclipse.swt.widgets.DirectoryDialog(getSite().getShell(), SWT.OPEN);
-        dialog.setText("Adopt repo as OpenCode project");
-        dialog.setMessage(
-                "Choose the root of an opencode repository (containing .opencode/ or opencode.json):");
-        Path storeRoot = model == null ? null : model.root();
-        if (storeRoot != null && storeRoot.getParent() != null
-                && storeRoot.getParent().getParent() != null) {
-            dialog.setFilterPath(storeRoot.getParent().getParent().toString());
-        }
-        String chosen = dialog.open();
-        if (chosen == null) {
-            return;
-        }
-        Path directory = Path.of(chosen);
-        String problem = com.opencode.ide.core.RepoProjectSetup.adoptionProblem(directory);
-        if (problem != null) {
-            MessageDialog.openInformation(getSite().getShell(), "Adopt repo",
-                    directory + " cannot be adopted:\n" + problem);
-            return;
-        }
-        try {
-            String name = directory.getFileName().toString();
-            Files.writeString(directory.resolve(".project"),
-                    com.opencode.ide.core.RepoProjectSetup.projectFileXml(name));
-            org.eclipse.core.resources.IWorkspace workspace =
-                    org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
-            org.eclipse.core.resources.IProject project = workspace.getRoot().getProject(name);
-            org.eclipse.core.resources.IProjectDescription description =
-                    workspace.newProjectDescription(name);
-            description.setLocation(new org.eclipse.core.runtime.Path(directory.toString()));
-            project.create(description, null);
-            project.open(null);
-            project.refreshLocal(org.eclipse.core.resources.IResource.DEPTH_INFINITE, null);
-            setContentDescription("adopted repo: " + name
-                    + " - Board/Server/chat resolve to it (the repo nature anchors the derivation)");
-            refresh();
-        } catch (org.eclipse.core.runtime.CoreException | java.io.IOException | RuntimeException e) {
-            MessageDialog.openError(getSite().getShell(), "Adopt repo",
-                    "Adopting " + directory + " failed: " + e.getMessage());
-        }
+  /**
+   * O-001: adopt an opencode repository as an OpenCode project — write the minimal {@code .project}
+   * (the repo nature, no builders) into the repo root and open it in the workspace, so the
+   * repo-driven derivation (spawn working directory in OpencodeConnection, tasksRoot in
+   * TasksRootResolution) anchors to it without any manual preference. Repos with nested Eclipse
+   * projects are refused with the auto-discovery explanation (Eclipse forbids overlapping
+   * projects); the dev layout of THIS repo keeps working through markers exactly as today.
+   */
+  private void adoptRepo() {
+    org.eclipse.swt.widgets.DirectoryDialog dialog =
+        new org.eclipse.swt.widgets.DirectoryDialog(getSite().getShell(), SWT.OPEN);
+    dialog.setText("Adopt repo as OpenCode project");
+    dialog.setMessage(
+        "Choose the root of an opencode repository (containing .opencode/ or opencode.json):");
+    Path storeRoot = model == null ? null : model.root();
+    if (storeRoot != null
+        && storeRoot.getParent() != null
+        && storeRoot.getParent().getParent() != null) {
+      dialog.setFilterPath(storeRoot.getParent().getParent().toString());
     }
-    private void syncStore() {
-        if (model == null) {
+    String chosen = dialog.open();
+    if (chosen == null) {
+      return;
+    }
+    Path directory = Path.of(chosen);
+    String problem = com.opencode.ide.core.RepoProjectSetup.adoptionProblem(directory);
+    if (problem != null) {
+      MessageDialog.openInformation(
+          getSite().getShell(), "Adopt repo", directory + " cannot be adopted:\n" + problem);
+      return;
+    }
+    try {
+      String name = directory.getFileName().toString();
+      Files.writeString(
+          directory.resolve(".project"),
+          com.opencode.ide.core.RepoProjectSetup.projectFileXml(name));
+      org.eclipse.core.resources.IWorkspace workspace =
+          org.eclipse.core.resources.ResourcesPlugin.getWorkspace();
+      org.eclipse.core.resources.IProject project = workspace.getRoot().getProject(name);
+      org.eclipse.core.resources.IProjectDescription description =
+          workspace.newProjectDescription(name);
+      description.setLocation(new org.eclipse.core.runtime.Path(directory.toString()));
+      project.create(description, null);
+      project.open(null);
+      project.refreshLocal(org.eclipse.core.resources.IResource.DEPTH_INFINITE, null);
+      setContentDescription(
+          "adopted repo: "
+              + name
+              + " - Board/Server/chat resolve to it (the repo nature anchors the derivation)");
+      refresh();
+    } catch (org.eclipse.core.runtime.CoreException | java.io.IOException | RuntimeException e) {
+      MessageDialog.openError(
+          getSite().getShell(),
+          "Adopt repo",
+          "Adopting " + directory + " failed: " + e.getMessage());
+    }
+  }
+
+  private void syncStore() {
+    if (model == null) {
+      return;
+    }
+    Path root = model.root();
+    ExecutorService executor = takeoverExecutor;
+    if (executor == null) {
+      return;
+    }
+    setContentDescription("Syncing task store...");
+    executor.execute(
+        () -> {
+          StoreSync.Outcome outcome = StoreSync.sync(root, "sync task store");
+          Display display = Display.getDefault();
+          if (display == null || display.isDisposed()) {
             return;
-        }
-        Path root = model.root();
-        ExecutorService executor = takeoverExecutor;
-        if (executor == null) {
-            return;
-        }
-        setContentDescription("Syncing task store...");
-        executor.execute(() -> {
-            StoreSync.Outcome outcome = StoreSync.sync(root, "sync task store");
-            Display display = Display.getDefault();
-            if (display == null || display.isDisposed()) {
-                return;
-            }
-            display.asyncExec(() -> {
+          }
+          display.asyncExec(
+              () -> {
                 if (boardArea == null || boardArea.isDisposed()) {
-                    return;
+                  return;
                 }
                 reportSyncOutcome(outcome);
                 refresh();
-            });
+              });
         });
-    }
+  }
 
-    /** Reports the store-sync outcome; a pull conflict offers to abort the rebase. */
-    private void reportSyncOutcome(StoreSync.Outcome outcome) {
-        switch (outcome) {
-            case PUSHED -> MessageDialog.openInformation(getSite().getShell(), "Sync store",
-                    "Task store committed and pushed.");
-            case UP_TO_DATE -> MessageDialog.openInformation(getSite().getShell(), "Sync store",
-                    "Task store is up to date (nothing to commit or push).");
-            case PULL_CONFLICT -> {
-                boolean recover = MessageDialog.openQuestion(getSite().getShell(), "Sync store",
-                        "Pulling the shared task store hit a rebase conflict.\n\n"
-                                + "Abort the rebase and keep your local commits? "
-                                + "(Resolve manually with git if you decline.)");
-                if (recover) {
-                    StoreSync.Outcome recovered = StoreSync.recover(model.root());
-                    MessageDialog.openInformation(getSite().getShell(), "Sync store",
-                            recovered == StoreSync.Outcome.FAILED
-                                    ? "Rebase aborted — your local commits are intact; retry the sync later."
-                                    : "Recovery left the store mid-rebase — resolve manually with git.");
-                }
-            }
-            case PUSH_REJECTED -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
-                    "Push was rejected (a peer pushed newer store state).\n\nSync again to rebase onto it.");
-            case NOT_A_REPO -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
-                    "The task store root is not a git working copy:\n" + model.root());
-            case FAILED -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
-                    "Sync failed (see the Error log for git details).");
-            default -> MessageDialog.openWarning(getSite().getShell(), "Sync store",
-                    "Unexpected sync outcome: " + outcome);
+  /** Reports the store-sync outcome; a pull conflict offers to abort the rebase. */
+  private void reportSyncOutcome(StoreSync.Outcome outcome) {
+    switch (outcome) {
+      case PUSHED ->
+          MessageDialog.openInformation(
+              getSite().getShell(), "Sync store", "Task store committed and pushed.");
+      case UP_TO_DATE ->
+          MessageDialog.openInformation(
+              getSite().getShell(),
+              "Sync store",
+              "Task store is up to date (nothing to commit or push).");
+      case PULL_CONFLICT -> {
+        boolean recover =
+            MessageDialog.openQuestion(
+                getSite().getShell(),
+                "Sync store",
+                "Pulling the shared task store hit a rebase conflict.\n\n"
+                    + "Abort the rebase and keep your local commits? "
+                    + "(Resolve manually with git if you decline.)");
+        if (recover) {
+          StoreSync.Outcome recovered = StoreSync.recover(model.root());
+          MessageDialog.openInformation(
+              getSite().getShell(),
+              "Sync store",
+              recovered == StoreSync.Outcome.FAILED
+                  ? "Rebase aborted — your local commits are intact; retry the sync later."
+                  : "Recovery left the store mid-rebase — resolve manually with git.");
         }
+      }
+      case PUSH_REJECTED ->
+          MessageDialog.openWarning(
+              getSite().getShell(),
+              "Sync store",
+              "Push was rejected (a peer pushed newer store state).\n\nSync again to rebase onto it.");
+      case NOT_A_REPO ->
+          MessageDialog.openWarning(
+              getSite().getShell(),
+              "Sync store",
+              "The task store root is not a git working copy:\n" + model.root());
+      case FAILED ->
+          MessageDialog.openWarning(
+              getSite().getShell(),
+              "Sync store",
+              "Sync failed (see the Error log for git details).");
+      default ->
+          MessageDialog.openWarning(
+              getSite().getShell(), "Sync store", "Unexpected sync outcome: " + outcome);
     }
+  }
 
-    /** The fleet job's session for a ticket, or {@code null} when no job carries one. */
-    private static String fleetSessionOf(String ticketId) {
-        return FleetJobsModel.getDefault().jobs().stream()
-                .filter(job -> ticketId != null && ticketId.equals(job.taskId()))
-                .map(FleetJobHandle::sessionId)
-                .filter(id -> id != null && !id.isBlank())
-                .findFirst()
-                .orElse(null);
+  /** The fleet job's session for a ticket, or {@code null} when no job carries one. */
+  private static String fleetSessionOf(String ticketId) {
+    return FleetJobsModel.getDefault().jobs().stream()
+        .filter(job -> ticketId != null && ticketId.equals(job.taskId()))
+        .map(FleetJobHandle::sessionId)
+        .filter(id -> id != null && !id.isBlank())
+        .findFirst()
+        .orElse(null);
+  }
+
+  /** The pre-TUI takeover: open the ticket's fleet worktree and select it on the board. */
+  private void openWorktreeTakeOver(TicketRow row) {
+    Path repo = repoRoot();
+    Path worktree = repo == null ? null : FleetGit.worktreePath(repo, row.id());
+    if (worktree != null && Files.isDirectory(worktree)) {
+      Program.launch(worktree.toString());
+    } else {
+      MessageDialog.openInformation(
+          getSite().getShell(),
+          "Take over",
+          "No fleet worktree for "
+              + row.id()
+              + ".\n"
+              + "Expected: "
+              + worktree
+              + "\n"
+              + "Use 'Launch task' first.");
     }
+    selectTicket(row.id());
+  }
 
-    /** The pre-TUI takeover: open the ticket's fleet worktree and select it on the board. */
-    private void openWorktreeTakeOver(TicketRow row) {
-        Path repo = repoRoot();
-        Path worktree = repo == null ? null
-                : FleetGit.worktreePath(repo, row.id());
-        if (worktree != null && Files.isDirectory(worktree)) {
-            Program.launch(worktree.toString());
-        } else {
-            MessageDialog.openInformation(getSite().getShell(), "Take over",
-                    "No fleet worktree for " + row.id() + ".\n"
-                            + "Expected: " + worktree + "\n"
-                            + "Use 'Launch task' first.");
-        }
-        selectTicket(row.id());
+  private void revealFleetView() {
+    IWorkbenchPage page = getSite().getPage();
+    try {
+      IViewPart fleet = page.findView(FleetView.ID);
+      if (fleet == null) {
+        page.showView(FleetView.ID);
+      }
+    } catch (PartInitException e) {
+      logError("Cannot open Fleet view", e);
     }
+  }
 
-    private void revealFleetView() {
-        IWorkbenchPage page = getSite().getPage();
-        try {
-            IViewPart fleet = page.findView(FleetView.ID);
-            if (fleet == null) {
-                page.showView(FleetView.ID);
-            }
-        } catch (PartInitException e) {
-            logError("Cannot open Fleet view", e);
-        }
+  private static void logError(String message, Throwable error) {
+    Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
+        .log(new Status(Status.ERROR, BoardPlugin.PLUGIN_ID, message, error));
+  }
+
+  private Path repoRoot() {
+    if (model == null) {
+      return null;
     }
+    Path root = model.root();
+    Path opencode = root == null ? null : root.getParent();
+    return opencode == null ? null : opencode.getParent();
+  }
 
-    private static void logError(String message, Throwable error) {
-        Platform.getLog(Platform.getBundle(BoardPlugin.PLUGIN_ID))
-                .log(new Status(Status.ERROR, BoardPlugin.PLUGIN_ID, message, error));
+  /**
+   * The board's task-store root: the explicit override, else the adopted repo store (workspace
+   * climb, then open-workspace projects), else the preference fallback — the full order lives in
+   * the shared core seam {@link TasksRootResolution} (SWT-free, unit-tested; B-016: the
+   * eclipse-build endpoint bridges the very same resolution into {@code opencode.tasks.root}).
+   * B-002 AC-4: what resolves here is what the watcher watches, and a stale preference default must
+   * never shadow the adopted repo store.
+   */
+  private static Path resolveTasksRoot(String override) {
+    return TasksRootResolution.resolveForWorkspace(override);
+  }
+
+  /**
+   * The board's current task-store root — the persisted root override when set, else the adopted
+   * repo store with the preference fallback (see {@link TasksRootResolution}). Package-private seam
+   * for the Fleet view's peer-row scan (F-004), so both views read the same store.
+   */
+  static Path tasksRoot() {
+    return resolveTasksRoot(storedRootOverride());
+  }
+
+  /** The persisted root override text (empty when unset); best-effort. */
+  private static String storedRootOverride() {
+    BoardPlugin plugin = BoardPlugin.getDefault();
+    if (plugin == null) {
+      return "";
     }
-
-    private Path repoRoot() {
-        if (model == null) {
-            return null;
+    try {
+      var settings = plugin.getDialogSettings().getSection(SETTINGS_SECTION);
+      if (settings != null) {
+        String root = settings.get(SETTING_ROOT);
+        if (root != null) {
+          return root;
         }
-        Path root = model.root();
-        Path opencode = root == null ? null : root.getParent();
-        return opencode == null ? null : opencode.getParent();
+      }
+    } catch (RuntimeException ignored) {
+      // defaults survive an unreadable dialog settings file
     }
+    return "";
+  }
 
-    /**
-     * The board's task-store root: the explicit override, else the adopted
-     * repo store (workspace climb, then open-workspace projects), else the
-     * preference fallback — the full order lives in the shared core seam
-     * {@link TasksRootResolution} (SWT-free, unit-tested; B-016: the
-     * eclipse-build endpoint bridges the very same resolution into
-     * {@code opencode.tasks.root}). B-002 AC-4: what resolves here is what
-     * the watcher watches, and a stale preference default must never shadow
-     * the adopted repo store.
-     */
-    private static Path resolveTasksRoot(String override) {
-        return TasksRootResolution.resolveForWorkspace(override);
+  // ------------------------------------------------------------------
+  // Settings
+  // ------------------------------------------------------------------
+
+  private void loadSettings() {
+    BoardPlugin plugin = BoardPlugin.getDefault();
+    if (plugin != null) {
+      try {
+        var settings = plugin.getDialogSettings().getSection(SETTINGS_SECTION);
+        if (settings != null) {
+          String root = settings.get(SETTING_ROOT);
+          if (root != null) {
+            rootOverride = root;
+          }
+          String project = settings.get(SETTING_PROJECT);
+          if (project != null && !project.isBlank()) {
+            projectName = project;
+          }
+          if (SETTING_MODE_PIPELINE.equalsIgnoreCase(settings.get(SETTING_MODE))) {
+            boardMode = BoardMode.PIPELINE;
+          } else if ("epic".equalsIgnoreCase(settings.get(SETTING_MODE))) {
+            boardMode = BoardMode.EPIC;
+          }
+          if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
+            showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
+          }
+          if (settings.get(SETTING_SHOW_ARCHIVE) != null) {
+            showArchive = Boolean.parseBoolean(settings.get(SETTING_SHOW_ARCHIVE));
+          }
+          String hidden = settings.get(SETTING_HIDDEN_STATUSES);
+          if (hidden != null && !hidden.isBlank()) {
+            hiddenStatuses =
+                java.util.Set.copyOf(
+                    java.util.Arrays.stream(hidden.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList());
+          }
+          String stages = settings.get(SETTING_STAGES);
+          if (stages != null && !stages.isBlank()) {
+            visibleStages = new java.util.LinkedHashSet<>(List.of(stages.split(",")));
+          }
+        }
+      } catch (RuntimeException ignored) {
+        // defaults survive an unreadable dialog settings file
+      }
     }
-
-    /**
-     * The board's current task-store root — the persisted root override when
-     * set, else the adopted repo store with the preference fallback (see
-     * {@link TasksRootResolution}). Package-private seam for the Fleet view's
-     * peer-row scan (F-004), so both views read the same store.
-     */
-    static Path tasksRoot() {
-        return resolveTasksRoot(storedRootOverride());
+    // B-002: the preference is deliberately NOT seeded into rootOverride
+    // anymore. The old seeding froze whatever the preference said into
+    // the dialog settings, after which the board never re-read the
+    // preference — and a stale value (old clone, pre-P1-4 dev default)
+    // permanently shadowed the adopted repo store. The preference is now
+    // a LIVE fallback inside TasksRootResolution, ranked below adoption.
+    if (projectName == null || projectName.isBlank()) {
+      projectName = BoardModel.DEFAULT_PROJECT;
     }
-
-    /** The persisted root override text (empty when unset); best-effort. */
-    private static String storedRootOverride() {
-        BoardPlugin plugin = BoardPlugin.getDefault();
-        if (plugin == null) {
-            return "";
-        }
-        try {
-            var settings = plugin.getDialogSettings().getSection(SETTINGS_SECTION);
-            if (settings != null) {
-                String root = settings.get(SETTING_ROOT);
-                if (root != null) {
-                    return root;
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // defaults survive an unreadable dialog settings file
-        }
-        return "";
+    if (projectText != null && !projectText.isDisposed()) {
+      projectText.setText(projectName);
     }
-
-    // ------------------------------------------------------------------
-    // Settings
-    // ------------------------------------------------------------------
-
-    private void loadSettings() {
-        BoardPlugin plugin = BoardPlugin.getDefault();
-        if (plugin != null) {
-            try {
-                var settings = plugin.getDialogSettings().getSection(SETTINGS_SECTION);
-                if (settings != null) {
-                    String root = settings.get(SETTING_ROOT);
-                    if (root != null) {
-                        rootOverride = root;
-                    }
-                    String project = settings.get(SETTING_PROJECT);
-                    if (project != null && !project.isBlank()) {
-                        projectName = project;
-                    }
-                    if (SETTING_MODE_PIPELINE.equalsIgnoreCase(settings.get(SETTING_MODE))) {
-                        boardMode = BoardMode.PIPELINE;
-                    } else if ("epic".equalsIgnoreCase(settings.get(SETTING_MODE))) {
-                        boardMode = BoardMode.EPIC;
-                    }
-                    if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
-                        showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
-                    }
-                    if (settings.get(SETTING_SHOW_ARCHIVE) != null) {
-                        showArchive = Boolean.parseBoolean(settings.get(SETTING_SHOW_ARCHIVE));
-                    }
-                    String hidden = settings.get(SETTING_HIDDEN_STATUSES);
-                    if (hidden != null && !hidden.isBlank()) {
-                        hiddenStatuses = java.util.Set.copyOf(java.util.Arrays.stream(hidden.split(","))
-                                .map(String::trim).filter(s -> !s.isEmpty()).toList());
-                    }
-                    String stages = settings.get(SETTING_STAGES);
-                    if (stages != null && !stages.isBlank()) {                        visibleStages = new java.util.LinkedHashSet<>(List.of(stages.split(",")));
-                    }
-                }
-            } catch (RuntimeException ignored) {
-                // defaults survive an unreadable dialog settings file
-            }
-        }
-        // B-002: the preference is deliberately NOT seeded into rootOverride
-        // anymore. The old seeding froze whatever the preference said into
-        // the dialog settings, after which the board never re-read the
-        // preference — and a stale value (old clone, pre-P1-4 dev default)
-        // permanently shadowed the adopted repo store. The preference is now
-        // a LIVE fallback inside TasksRootResolution, ranked below adoption.
-        if (projectName == null || projectName.isBlank()) {
-            projectName = BoardModel.DEFAULT_PROJECT;
-        }
-        if (projectText != null && !projectText.isDisposed()) {
-            projectText.setText(projectName);
-        }
-        if (rootText != null && !rootText.isDisposed()) {
-            rootText.setText(rootOverride);
-        }
-        updatingModeCombo = true;
-        try {
-            if (modeCombo != null && !modeCombo.isDisposed()) {
-                modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
-            }
-        } finally {
-            updatingModeCombo = false;
-        }
+    if (rootText != null && !rootText.isDisposed()) {
+      rootText.setText(rootOverride);
     }
-
-    private void saveSettings() {
-        BoardPlugin plugin = BoardPlugin.getDefault();
-        if (plugin == null) {
-            return;
-        }
-        try {
-            var all = plugin.getDialogSettings();
-            var settings = all.getSection(SETTINGS_SECTION);
-            if (settings == null) {
-                settings = all.addNewSection(SETTINGS_SECTION);
-            }
-            settings.put(SETTING_ROOT, rootOverride == null ? "" : rootOverride);
-            settings.put(SETTING_PROJECT, model == null ? projectName : model.project());
-            settings.put(SETTING_MODE, boardMode == BoardMode.PIPELINE ? SETTING_MODE_PIPELINE
-                    : boardMode == BoardMode.EPIC ? "epic" : "flat");
-            settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
-            settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
-            settings.put(SETTING_HIDDEN_STATUSES, String.join(",", hiddenStatuses));
-            settings.put(SETTING_SHOW_ARCHIVE, String.valueOf(showArchive));
-            plugin.persistDialogSettings();
-        } catch (RuntimeException ignored) {
-            // persistence is best-effort
-        }
+    updatingModeCombo = true;
+    try {
+      if (modeCombo != null && !modeCombo.isDisposed()) {
+        modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
+      }
+    } finally {
+      updatingModeCombo = false;
     }
+  }
 
-    @Override
-    public void setFocus() {
-        if (boardArea != null && !boardArea.isDisposed()) {
-            boardArea.setFocus();
-            // U-035: activation is a refresh cadence (the Fleet view's
-            // setFocus peer re-read, mirrored) - it picks up changes the
-            // watcher cannot see (a git checkout replacing files, a peer
-            // store switch) without introducing a poller thread. Rate
-            // limited so tabbing through views never churns the
-            // single-flight refresh pipeline.
-            if (activationRefreshGate.allow(System.currentTimeMillis())) {
-                refresh();
-            }
-        }
+  private void saveSettings() {
+    BoardPlugin plugin = BoardPlugin.getDefault();
+    if (plugin == null) {
+      return;
     }
+    try {
+      var all = plugin.getDialogSettings();
+      var settings = all.getSection(SETTINGS_SECTION);
+      if (settings == null) {
+        settings = all.addNewSection(SETTINGS_SECTION);
+      }
+      settings.put(SETTING_ROOT, rootOverride == null ? "" : rootOverride);
+      settings.put(SETTING_PROJECT, model == null ? projectName : model.project());
+      settings.put(
+          SETTING_MODE,
+          boardMode == BoardMode.PIPELINE
+              ? SETTING_MODE_PIPELINE
+              : boardMode == BoardMode.EPIC ? "epic" : "flat");
+      settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
+      settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
+      settings.put(SETTING_HIDDEN_STATUSES, String.join(",", hiddenStatuses));
+      settings.put(SETTING_SHOW_ARCHIVE, String.valueOf(showArchive));
+      plugin.persistDialogSettings();
+    } catch (RuntimeException ignored) {
+      // persistence is best-effort
+    }
+  }
+
+  @Override
+  public void setFocus() {
+    if (boardArea != null && !boardArea.isDisposed()) {
+      boardArea.setFocus();
+      // U-035: activation is a refresh cadence (the Fleet view's
+      // setFocus peer re-read, mirrored) - it picks up changes the
+      // watcher cannot see (a git checkout replacing files, a peer
+      // store switch) without introducing a poller thread. Rate
+      // limited so tabbing through views never churns the
+      // single-flight refresh pipeline.
+      if (activationRefreshGate.allow(System.currentTimeMillis())) {
+        refresh();
+      }
+    }
+  }
+
+  @Override
+  public void dispose() {
+    saveSettings();
+    stopDispatchLoop(null);
+    stopWavesLoop(null);
+    if (watcher != null) {
+      watcher.stop();
+      watcher = null;
+    }
+    if (refreshExecutor != null) {
+      refreshExecutor.shutdown();
+      refreshExecutor = null;
+    }
+    if (takeoverExecutor != null) {
+      takeoverExecutor.shutdown();
+      takeoverExecutor = null;
+    }
+    super.dispose();
+  }
+
+  /**
+   * The shared drop-down lifecycle of the filter menus (status/stage); subclasses fill the items.
+   */
+  private abstract class FilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
+
+    protected org.eclipse.swt.widgets.Menu menu;
 
     @Override
     public void dispose() {
-        saveSettings();
-        stopDispatchLoop(null);
-        stopWavesLoop(null);
-        if (watcher != null) {
-            watcher.stop();
-            watcher = null;
-        }
-        if (refreshExecutor != null) {
-            refreshExecutor.shutdown();
-            refreshExecutor = null;
-        }
-        if (takeoverExecutor != null) {
-            takeoverExecutor.shutdown();
-            takeoverExecutor = null;
-        }
-        super.dispose();
+      if (menu != null) {
+        menu.dispose();
+        menu = null;
+      }
     }
 
-    /** The shared drop-down lifecycle of the filter menus (status/stage); subclasses fill the items. */
-    private abstract class FilterMenuCreator implements org.eclipse.jface.action.IMenuCreator {
-
-        protected org.eclipse.swt.widgets.Menu menu;
-
-        @Override
-        public void dispose() {
-            if (menu != null) {
-                menu.dispose();
-                menu = null;
-            }
-        }
-
-        @Override
-        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Control parent) {
-            dispose();
-            menu = new org.eclipse.swt.widgets.Menu(parent);
-            fillMenu();
-            return menu;
-        }
-
-        @Override
-        public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Menu parent) {
-            dispose();
-            menu = new org.eclipse.swt.widgets.Menu(parent);
-            fillMenu();
-            return menu;
-        }
-
-        protected abstract void fillMenu();
+    @Override
+    public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Control parent) {
+      dispose();
+      menu = new org.eclipse.swt.widgets.Menu(parent);
+      fillMenu();
+      return menu;
     }
 
-    /** The per-status visibility drop-down (hide done & co individually; persisted). */
-    private final class StatusFilterMenuCreator extends FilterMenuCreator {
+    @Override
+    public org.eclipse.swt.widgets.Menu getMenu(org.eclipse.swt.widgets.Menu parent) {
+      dispose();
+      menu = new org.eclipse.swt.widgets.Menu(parent);
+      fillMenu();
+      return menu;
+    }
 
-        @Override
-        protected void fillMenu() {
-            for (String status : Task.VALID_STATUSES) {
-                org.eclipse.swt.widgets.MenuItem item =
-                        new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
-                item.setText(TicketRow.statusSymbol(status) + " " + status
-                        + (hiddenStatuses.contains(status) ? " (hidden)" : ""));
-                item.setSelection(!hiddenStatuses.contains(status));
-                item.addListener(org.eclipse.swt.SWT.Selection,
-                        e -> toggleStatus(status, item.getSelection()));
-            }
-            new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.SEPARATOR);
-            org.eclipse.swt.widgets.MenuItem all =
-                    new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.PUSH);
-            all.setText("Show all statuses");
-            all.addListener(org.eclipse.swt.SWT.Selection, e -> {
-                hiddenStatuses = java.util.Set.of();
-                applyStatusFilter();
-            });
-        }
+    protected abstract void fillMenu();
+  }
 
-        private void toggleStatus(String status, boolean visible) {
-            java.util.Set<String> next = new java.util.LinkedHashSet<>(hiddenStatuses);
-            if (visible) {
-                next.remove(status);
-            } else {
-                next.add(status);
-            }
-            hiddenStatuses = java.util.Set.copyOf(next);
+  /** The per-status visibility drop-down (hide done & co individually; persisted). */
+  private final class StatusFilterMenuCreator extends FilterMenuCreator {
+
+    @Override
+    protected void fillMenu() {
+      for (String status : Task.VALID_STATUSES) {
+        org.eclipse.swt.widgets.MenuItem item =
+            new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
+        item.setText(
+            TicketRow.statusSymbol(status)
+                + " "
+                + status
+                + (hiddenStatuses.contains(status) ? " (hidden)" : ""));
+        item.setSelection(!hiddenStatuses.contains(status));
+        item.addListener(
+            org.eclipse.swt.SWT.Selection, e -> toggleStatus(status, item.getSelection()));
+      }
+      new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.SEPARATOR);
+      org.eclipse.swt.widgets.MenuItem all =
+          new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.PUSH);
+      all.setText("Show all statuses");
+      all.addListener(
+          org.eclipse.swt.SWT.Selection,
+          e -> {
+            hiddenStatuses = java.util.Set.of();
             applyStatusFilter();
-        }
-
-        private void applyStatusFilter() {
-            saveSettings();
-            if (model != null) {
-                model.setStatusFilter(hiddenStatuses);
-            }
-            rebuildBoardArea();
-            refresh();
-        }
+          });
     }
 
-    /**
-     * The Stages toolbar dropdown: one check item per V stage (plus the
-     * untracked group), an "All stages" reset, and a live count. Checking
-     * stages switches from "all visible" to an explicit selection; unchecking
-     * the last visible stage re-enables everything (never an empty board by
-     * accident).
-     */
-    private final class StageFilterMenuCreator extends FilterMenuCreator {
+    private void toggleStatus(String status, boolean visible) {
+      java.util.Set<String> next = new java.util.LinkedHashSet<>(hiddenStatuses);
+      if (visible) {
+        next.remove(status);
+      } else {
+        next.add(status);
+      }
+      hiddenStatuses = java.util.Set.copyOf(next);
+      applyStatusFilter();
+    }
 
-        @Override
-        protected void fillMenu() {
-            java.util.List<String> stages = new ArrayList<>(VStages.STAGES);
-            stages.add(PipelineSnapshot.UNTRACKED);
-            for (String stage : stages) {
-                org.eclipse.swt.widgets.MenuItem item =
-                        new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
-                item.setText(stageLabel(stage));
-                item.setSelection(isStageVisible(stage));
-                item.addListener(org.eclipse.swt.SWT.Selection, e -> toggleStage(stage));
-            }
-            new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.SEPARATOR);
-            org.eclipse.swt.widgets.MenuItem all =
-                    new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.PUSH);
-            all.setText("Show all stages");
-            all.addListener(org.eclipse.swt.SWT.Selection, e -> {
-                visibleStages = null;
-                applyStageFilter();
-            });
-        }
+    private void applyStatusFilter() {
+      saveSettings();
+      if (model != null) {
+        model.setStatusFilter(hiddenStatuses);
+      }
+      rebuildBoardArea();
+      refresh();
+    }
+  }
 
-        private boolean isStageVisible(String stage) {
-            return visibleStages == null || visibleStages.contains(stage);
-        }
+  /**
+   * The Stages toolbar dropdown: one check item per V stage (plus the untracked group), an "All
+   * stages" reset, and a live count. Checking stages switches from "all visible" to an explicit
+   * selection; unchecking the last visible stage re-enables everything (never an empty board by
+   * accident).
+   */
+  private final class StageFilterMenuCreator extends FilterMenuCreator {
 
-        private void toggleStage(String stage) {
-            visibleStages = StageSelection.toggle(visibleStages, stage);
+    @Override
+    protected void fillMenu() {
+      java.util.List<String> stages = new ArrayList<>(VStages.STAGES);
+      stages.add(PipelineSnapshot.UNTRACKED);
+      for (String stage : stages) {
+        org.eclipse.swt.widgets.MenuItem item =
+            new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.CHECK);
+        item.setText(stageLabel(stage));
+        item.setSelection(isStageVisible(stage));
+        item.addListener(org.eclipse.swt.SWT.Selection, e -> toggleStage(stage));
+      }
+      new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.SEPARATOR);
+      org.eclipse.swt.widgets.MenuItem all =
+          new org.eclipse.swt.widgets.MenuItem(menu, org.eclipse.swt.SWT.PUSH);
+      all.setText("Show all stages");
+      all.addListener(
+          org.eclipse.swt.SWT.Selection,
+          e -> {
+            visibleStages = null;
             applyStageFilter();
-        }
-
-        private void applyStageFilter() {
-            if (model != null) {
-                model.setStageFilter(visibleStages);
-                refresh();
-
-                saveSettings();
-            }
-            updateStageFilterLabel();
-        }
-
-        private void updateStageFilterLabel() {
-            if (stageFilterAction != null) {
-                stageFilterAction.setText("Stages: " + StageSelection.label(visibleStages));
-            }
-        }
-
-        private String stageLabel(String stage) {
-            return PipelineSnapshot.UNTRACKED.equals(stage) ? stage + " (epics, stage-less)" : stage;
-        }
+          });
     }
+
+    private boolean isStageVisible(String stage) {
+      return visibleStages == null || visibleStages.contains(stage);
+    }
+
+    private void toggleStage(String stage) {
+      visibleStages = StageSelection.toggle(visibleStages, stage);
+      applyStageFilter();
+    }
+
+    private void applyStageFilter() {
+      if (model != null) {
+        model.setStageFilter(visibleStages);
+        refresh();
+
+        saveSettings();
+      }
+      updateStageFilterLabel();
+    }
+
+    private void updateStageFilterLabel() {
+      if (stageFilterAction != null) {
+        stageFilterAction.setText("Stages: " + StageSelection.label(visibleStages));
+      }
+    }
+
+    private String stageLabel(String stage) {
+      return PipelineSnapshot.UNTRACKED.equals(stage) ? stage + " (epics, stage-less)" : stage;
+    }
+  }
 }

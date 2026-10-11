@@ -6,60 +6,63 @@ import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.Session;
 
 /**
- * Immutable action target projected from ONE selected tree path. The owning
- * connection is supplied by that path, never looked up by session/agent equality.
- * Keeping the target through confirmation also prevents selection changes from
- * redirecting a destructive operation to a different server.
+ * Immutable action target projected from ONE selected tree path. The owning connection is supplied
+ * by that path, never looked up by session/agent equality. Keeping the target through confirmation
+ * also prevents selection changes from redirecting a destructive operation to a different server.
  */
-public record ServerSelection(OpencodeClient client, boolean primary, Session session, Agent agent,
-        boolean busy) {
+public record ServerSelection(
+    OpencodeClient client, boolean primary, Session session, Agent agent, boolean busy) {
 
-    public static final ServerSelection EMPTY = new ServerSelection(null, false, null, null, false);
+  public static final ServerSelection EMPTY = new ServerSelection(null, false, null, null, false);
 
-    public boolean copySessionId() {
-        return session != null && session.id() != null && !session.id().isBlank();
+  public boolean copySessionId() {
+    return session != null && session.id() != null && !session.id().isBlank();
+  }
+
+  public boolean deleteSession() {
+    return copySessionId() && client != null;
+  }
+
+  public boolean abortSession() {
+    return deleteSession() && busy;
+  }
+
+  /** Transcript and chat views currently connect only to the primary server. */
+  public boolean openSession() {
+    return deleteSession() && primary;
+  }
+
+  /**
+   * MCP server details are view-only (tier-0: no confirmation needed) and read from the owning
+   * node's already-loaded list, so any selection on a reachable server qualifies — offline remotes
+   * (null client) do not.
+   */
+  public boolean mcpDetails() {
+    return client != null;
+  }
+
+  public boolean agentDetails() {
+    return agent != null;
+  }
+
+  public boolean newAgentSession() {
+    return agent != null
+        && agent.isPrimary()
+        && agent.name() != null
+        && !agent.name().isBlank()
+        && primary
+        && client != null;
+  }
+
+  /** Called by the background loader after confirmation; enforces the same menu policy. */
+  public void changeSession(boolean delete) throws OpencodeException {
+    if (delete ? !deleteSession() : !abortSession()) {
+      throw new IllegalStateException("No eligible session selected");
     }
-
-    public boolean deleteSession() {
-        return copySessionId() && client != null;
+    if (delete) {
+      client.deleteSession(session.id());
+    } else {
+      client.abortSession(session.id());
     }
-
-    public boolean abortSession() {
-        return deleteSession() && busy;
-    }
-
-    /** Transcript and chat views currently connect only to the primary server. */
-    public boolean openSession() {
-        return deleteSession() && primary;
-    }
-
-    /**
-     * MCP server details are view-only (tier-0: no confirmation needed) and
-     * read from the owning node's already-loaded list, so any selection on a
-     * reachable server qualifies — offline remotes (null client) do not.
-     */
-    public boolean mcpDetails() {
-        return client != null;
-    }
-
-    public boolean agentDetails() {
-        return agent != null;
-    }
-
-    public boolean newAgentSession() {
-        return agent != null && agent.isPrimary() && agent.name() != null && !agent.name().isBlank()
-                && primary && client != null;
-    }
-
-    /** Called by the background loader after confirmation; enforces the same menu policy. */
-    public void changeSession(boolean delete) throws OpencodeException {
-        if (delete ? !deleteSession() : !abortSession()) {
-            throw new IllegalStateException("No eligible session selected");
-        }
-        if (delete) {
-            client.deleteSession(session.id());
-        } else {
-            client.abortSession(session.id());
-        }
-    }
+  }
 }

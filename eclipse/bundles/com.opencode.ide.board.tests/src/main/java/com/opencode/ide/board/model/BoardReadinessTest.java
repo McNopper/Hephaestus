@@ -4,121 +4,118 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.opencode.ide.tasks.StageReadiness;
+import com.opencode.ide.tasks.TaskStore;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import com.opencode.ide.tasks.StageReadiness;
-import com.opencode.ide.tasks.TaskStore;
-
 /**
- * U-018: the board snapshot carries the per-ticket dispatch-readiness
- * verdicts - the sprint's tickets evaluated through {@link StageReadiness}
- * (computed over the UNFILTERED task set, so epic chains and upstream
- * stages resolve), with ready/stale counts for the fleet-row badge.
+ * U-018: the board snapshot carries the per-ticket dispatch-readiness verdicts - the sprint's
+ * tickets evaluated through {@link StageReadiness} (computed over the UNFILTERED task set, so epic
+ * chains and upstream stages resolve), with ready/stale counts for the fleet-row badge.
  */
 public class BoardReadinessTest {
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+  @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
-    private TaskStore store;
-    private Path root;
+  private TaskStore store;
+  private Path root;
 
-    @Before
-    public void setUp() {
-        root = tmp.getRoot().toPath().resolve("tasks");
-        store = new TaskStore(root);
-    }
+  @Before
+  public void setUp() {
+    root = tmp.getRoot().toPath().resolve("tasks");
+    store = new TaskStore(root);
+  }
 
-    private String ticket(String title, String stage, String priority) {
-        TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
-                title, "", "task", "developer", priority, 0, List.of(), List.of(), null, "T");
-        var t = store.create("p", spec);
-        Map<String, Object> changes = new HashMap<>();
-        changes.put("stage", stage);
-        store.update("p", t.id, changes);
-        return t.id;
-    }
+  private String ticket(String title, String stage, String priority) {
+    TaskStore.CreateSpec spec =
+        new TaskStore.CreateSpec(
+            title, "", "task", "developer", priority, 0, List.of(), List.of(), null, "T");
+    var t = store.create("p", spec);
+    Map<String, Object> changes = new HashMap<>();
+    changes.put("stage", stage);
+    store.update("p", t.id, changes);
+    return t.id;
+  }
 
-    private void plan(String id) {
-        store.planSprint("p", "S-01", List.of(id), "goal");
-    }
+  private void plan(String id) {
+    store.planSprint("p", "S-01", List.of(id), "goal");
+  }
 
-    @Test
-    public void requirementsTicketsWithoutUpstreamAreReady() {
-        String solo = ticket("first work", "requirements", "high");
-        plan(solo);
+  @Test
+  public void requirementsTicketsWithoutUpstreamAreReady() {
+    String solo = ticket("first work", "requirements", "high");
+    plan(solo);
 
-        BoardSnapshot snapshot = modelRefresh();
+    BoardSnapshot snapshot = modelRefresh();
 
-        assertEquals(StageReadiness.Kind.READY, snapshot.readinessOf(solo).kind());
-        assertEquals(1, snapshot.readyCount());
-        assertEquals(0, snapshot.staleCount());
-    }
+    assertEquals(StageReadiness.Kind.READY, snapshot.readinessOf(solo).kind());
+    assertEquals(1, snapshot.readyCount());
+    assertEquals(0, snapshot.staleCount());
+  }
 
-    @Test
-    public void verificationStageWithoutUpstreamWorkWaits() {
-        String stuck = ticket("test nothing", "test-design", "medium");
-        plan(stuck);
+  @Test
+  public void verificationStageWithoutUpstreamWorkWaits() {
+    String stuck = ticket("test nothing", "test-design", "medium");
+    plan(stuck);
 
-        BoardSnapshot snapshot = modelRefresh();
+    BoardSnapshot snapshot = modelRefresh();
 
-        assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, snapshot.readinessOf(stuck).kind());
-        assertTrue(snapshot.readinessOf(stuck).reason().contains("upstream"));
-        assertEquals(0, snapshot.readyCount());
-    }
+    assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, snapshot.readinessOf(stuck).kind());
+    assertTrue(snapshot.readinessOf(stuck).reason().contains("upstream"));
+    assertEquals(0, snapshot.readyCount());
+  }
 
-    @Test
-    public void blockedTicketReadsBlocked() {
-        String blocked = ticket("walled", "requirements", "high");
-        plan(blocked);
-        store.setBlocked("p", blocked, "needs input", "test");
+  @Test
+  public void blockedTicketReadsBlocked() {
+    String blocked = ticket("walled", "requirements", "high");
+    plan(blocked);
+    store.setBlocked("p", blocked, "needs input", "test");
 
-        BoardSnapshot snapshot = modelRefresh();
+    BoardSnapshot snapshot = modelRefresh();
 
-        assertEquals(StageReadiness.Kind.BLOCKED, snapshot.readinessOf(blocked).kind());
-    }
+    assertEquals(StageReadiness.Kind.BLOCKED, snapshot.readinessOf(blocked).kind());
+  }
 
-    /** U-022: the badge's NEEDS-HUMAN count — every BLOCKED verdict is a ticket at the human. */
-    @Test
-    public void needsHumanCountCountsBlockedVerdicts() {
-        String blocked = ticket("walled", "requirements", "high");
-        String waiting = ticket("waits upstream", "design", "medium");
-        String fine = ticket("fine", "requirements", "low");
-        plan(blocked);
-        plan(waiting);
-        plan(fine);
-        store.setBlocked("p", blocked, "needs input", "test");
+  /** U-022: the badge's NEEDS-HUMAN count — every BLOCKED verdict is a ticket at the human. */
+  @Test
+  public void needsHumanCountCountsBlockedVerdicts() {
+    String blocked = ticket("walled", "requirements", "high");
+    String waiting = ticket("waits upstream", "design", "medium");
+    String fine = ticket("fine", "requirements", "low");
+    plan(blocked);
+    plan(waiting);
+    plan(fine);
+    store.setBlocked("p", blocked, "needs input", "test");
 
-        BoardSnapshot snapshot = modelRefresh();
+    BoardSnapshot snapshot = modelRefresh();
 
-        assertEquals(1, snapshot.needsHumanCount());
-        assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, snapshot.readinessOf(waiting).kind());
-        assertEquals(1, snapshot.readyCount());
-    }
+    assertEquals(1, snapshot.needsHumanCount());
+    assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, snapshot.readinessOf(waiting).kind());
+    assertEquals(1, snapshot.readyCount());
+  }
 
-    @Test
-    public void unstagedTicketsAreNotApplicableButNeverNull() {
-        String plain = ticket("no stage", null, "low");
-        plan(plain);
+  @Test
+  public void unstagedTicketsAreNotApplicableButNeverNull() {
+    String plain = ticket("no stage", null, "low");
+    plan(plain);
 
-        BoardSnapshot snapshot = modelRefresh();
+    BoardSnapshot snapshot = modelRefresh();
 
-        assertNotNull(snapshot.readinessOf(plain));
-        assertEquals(StageReadiness.Kind.NOT_APPLICABLE, snapshot.readinessOf(plain).kind());
-        assertEquals(0, snapshot.readyCount());
-    }
+    assertNotNull(snapshot.readinessOf(plain));
+    assertEquals(StageReadiness.Kind.NOT_APPLICABLE, snapshot.readinessOf(plain).kind());
+    assertEquals(0, snapshot.readyCount());
+  }
 
-    private BoardSnapshot modelRefresh() {
-        BoardModel model = new BoardModel(root, "p");
-        model.setSprint("S-01");
-        return model.refresh();
-    }
+  private BoardSnapshot modelRefresh() {
+    BoardModel model = new BoardModel(root, "p");
+    model.setSprint("S-01");
+    return model.refresh();
+  }
 }

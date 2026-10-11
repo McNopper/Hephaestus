@@ -14,671 +14,729 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * Semantics-parity suite: every rule the retired Python pm MCP server
- * enforced (claim ordering/null, lax update, sprint force-set, close-sprint
- * returns, board columns, traceability pairing, id minting) must hold
- * one-for-one on the Markdown store.
+ * Semantics-parity suite: every rule the retired Python pm MCP server enforced (claim
+ * ordering/null, lax update, sprint force-set, close-sprint returns, board columns, traceability
+ * pairing, id minting) must hold one-for-one on the Markdown store.
  */
 public class TaskStoreSemanticsTest {
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+  @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
-    private TaskStore store;
+  private TaskStore store;
 
-    @Before
-    public void setUp() {
-        store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
+  @Before
+  public void setUp() {
+    store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
+  }
+
+  private String mkSprintBacklog(String role, String priority) {
+    Task t = store.create("p", TaskStore.CreateSpec.of("t-" + System.nanoTime()));
+    store.update("p", t.id, Map.of("role", role, "priority", priority));
+    store.planSprint("p", "S-01", List.of(t.id), "g");
+    return t.id;
+  }
+
+  @Test
+  public void modelOverrideRoundTripsThroughTheStoreAndCodec() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("modelled"));
+    assertNull("no model by default", t.model);
+
+    store.update("p", t.id, Map.of("model", "prov-x/m7#high"));
+
+    Task reloaded = new TaskStore(tmp.getRoot().toPath().resolve("tasks")).get("p", t.id);
+    assertEquals("prov-x/m7#high", reloaded.model);
+    assertTrue(
+        "frontmatter carries the field",
+        TaskFileCodec.write(reloaded).contains("model: prov-x/m7#high"));
+    assertEquals(
+        "toJson exposes it",
+        "prov-x/m7#high",
+        reloaded.toJson().getAsJsonPrimitive("model").getAsString());
+
+    store.update("p", t.id, Map.of("model", com.google.gson.JsonNull.INSTANCE));
+    assertNull("an explicit null clears the override", store.get("p", t.id).model);
+  }
+
+  @Test
+  public void createMintsSequentialIdsPerPrefix() {
+    Task a = store.create("p", TaskStore.CreateSpec.of("first"));
+    Task b = store.create("p", TaskStore.CreateSpec.of("second"));
+    assertEquals("T-001", a.id);
+    assertEquals("T-002", b.id);
+    Task fr =
+        store.create(
+            "p",
+            new TaskStore.CreateSpec(
+                "third", "", "task", "pm", "low", 1, List.of(), List.of(), null, "FR"));
+    assertEquals("FR-001", fr.id);
+    assertEquals("product-backlog", a.status);
+    assertEquals(1, a.history.size());
+    assertEquals("created", a.history.get(0).action());
+    // prefix sanitization: "x y!" -> "xy"
+    Task odd =
+        store.create(
+            "p",
+            new TaskStore.CreateSpec(
+                "odd", "", "task", "pm", "low", 0, List.of(), List.of(), null, "x y!"));
+    assertEquals("xy-001", odd.id);
+  }
+
+  @Test
+  public void createValidatesTypePriorityRole() {
+    try {
+      store.create(
+          "p", new TaskStore.CreateSpec("t", "", "banana", "dev", "low", 0, null, null, null, "T"));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("type"));
     }
-
-    private String mkSprintBacklog(String role, String priority) {
-        Task t = store.create("p", TaskStore.CreateSpec.of("t-" + System.nanoTime()));
-        store.update("p", t.id, Map.of("role", role, "priority", priority));
-        store.planSprint("p", "S-01", List.of(t.id), "g");
-        return t.id;
+    try {
+      store.create(
+          "p",
+          new TaskStore.CreateSpec("t", "", "task", "dev", "urgent", 0, null, null, null, "T"));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("priority"));
     }
-
-    @Test
-    public void modelOverrideRoundTripsThroughTheStoreAndCodec() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("modelled"));
-        assertNull("no model by default", t.model);
-
-        store.update("p", t.id, Map.of("model", "prov-x/m7#high"));
-
-        Task reloaded = new TaskStore(tmp.getRoot().toPath().resolve("tasks")).get("p", t.id);
-        assertEquals("prov-x/m7#high", reloaded.model);
-        assertTrue("frontmatter carries the field",
-                TaskFileCodec.write(reloaded).contains("model: prov-x/m7#high"));
-        assertEquals("toJson exposes it",
-                "prov-x/m7#high", reloaded.toJson().getAsJsonPrimitive("model").getAsString());
-
-        store.update("p", t.id, Map.of("model", com.google.gson.JsonNull.INSTANCE));
-        assertNull("an explicit null clears the override", store.get("p", t.id).model);
+    try {
+      store.create(
+          "p", new TaskStore.CreateSpec("t", "", "task", "  ", "low", 0, null, null, null, "T"));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("role"));
     }
+  }
 
-    @Test
-    public void createMintsSequentialIdsPerPrefix() {
-        Task a = store.create("p", TaskStore.CreateSpec.of("first"));
-        Task b = store.create("p", TaskStore.CreateSpec.of("second"));
-        assertEquals("T-001", a.id);
-        assertEquals("T-002", b.id);
-        Task fr = store.create("p", new TaskStore.CreateSpec("third", "", "task", "pm", "low", 1,
-                List.of(), List.of(), null, "FR"));
-        assertEquals("FR-001", fr.id);
-        assertEquals("product-backlog", a.status);
-        assertEquals(1, a.history.size());
-        assertEquals("created", a.history.get(0).action());
-        // prefix sanitization: "x y!" -> "xy"
-        Task odd = store.create("p", new TaskStore.CreateSpec("odd", "", "task", "pm", "low", 0,
-                List.of(), List.of(), null, "x y!"));
-        assertEquals("xy-001", odd.id);
+  @Test
+  public void getMissingFailsWithPmMessage() {
+    try {
+      store.get("p", "T-999");
+      fail("expected NotFound");
+    } catch (TaskStore.NotFound expected) {
+      assertEquals("ticket T-999 not found in project p", expected.getMessage());
     }
+  }
 
-    @Test
-    public void createValidatesTypePriorityRole() {
-        try {
-            store.create("p", new TaskStore.CreateSpec("t", "", "banana", "dev", "low", 0, null, null, null, "T"));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("type"));
-        }
-        try {
-            store.create("p", new TaskStore.CreateSpec("t", "", "task", "dev", "urgent", 0, null, null, null, "T"));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("priority"));
-        }
-        try {
-            store.create("p", new TaskStore.CreateSpec("t", "", "task", "  ", "low", 0, null, null, null, "T"));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("role"));
-        }
+  @Test
+  public void listFilters() {
+    store.create("p", TaskStore.CreateSpec.of("a"));
+    Task b = store.create("p", TaskStore.CreateSpec.of("b"));
+    store.update("p", b.id, Map.of("role", "tester"));
+    assertEquals(2, store.list("p", null, null, null, null).size());
+    assertEquals(1, store.list("p", "tester", null, null, null).size());
+    assertEquals(2, store.list("p", null, "product-backlog", null, null).size());
+    store.update("p", b.id, Map.of("status", "in-review"));
+    assertEquals(1, store.list("p", null, "product-backlog", null, null).size());
+    store.setBlocked("p", b.id, "x", null);
+    assertEquals(1, store.list("p", null, null, null, true).size());
+    assertEquals(1, store.list("p", null, null, null, false).size());
+  }
+
+  @Test
+  public void updateIsLaxAndProtectsFields() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    int historyBefore = t.history.size();
+    Map<String, Object> changes = new LinkedHashMap<>();
+    changes.put("title", "renamed");
+    changes.put("status", "done"); // no transition graph - any status accepted
+    changes.put("type", "banana"); // NOT validated (pm parity)
+    changes.put("story_points", 13);
+    changes.put("id", "HACKED"); // protected -> dropped
+    changes.put("created_at", "2000-01-01"); // protected -> dropped
+    changes.put("history", "gone"); // protected -> dropped
+    changes.put("comments", "gone"); // protected -> dropped
+    changes.put("unknown_field", "x"); // unknown -> dropped
+    Task updated = store.update("p", t.id, changes);
+    assertEquals("renamed", updated.title);
+    assertEquals("done", updated.status);
+    assertEquals("banana", updated.type);
+    assertEquals(13, updated.storyPoints);
+    assertEquals(t.id, updated.id);
+    assertEquals(t.createdAt, updated.createdAt);
+    assertEquals(
+        "updated:title,status,type,story_points", updated.history.get(historyBefore).action());
+  }
+
+  @Test
+  public void updateValidatesRoleAndStatusOnly() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    try {
+      store.update("p", t.id, Map.of("role", " "));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("role"));
     }
-
-    @Test
-    public void getMissingFailsWithPmMessage() {
-        try {
-            store.get("p", "T-999");
-            fail("expected NotFound");
-        } catch (TaskStore.NotFound expected) {
-            assertEquals("ticket T-999 not found in project p", expected.getMessage());
-        }
+    try {
+      store.update("p", t.id, Map.of("status", "limbo"));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("status"));
     }
+  }
 
-    @Test
-    public void listFilters() {
-        store.create("p", TaskStore.CreateSpec.of("a"));
-        Task b = store.create("p", TaskStore.CreateSpec.of("b"));
-        store.update("p", b.id, Map.of("role", "tester"));
-        assertEquals(2, store.list("p", null, null, null, null).size());
-        assertEquals(1, store.list("p", "tester", null, null, null).size());
-        assertEquals(2, store.list("p", null, "product-backlog", null, null).size());
-        store.update("p", b.id, Map.of("status", "in-review"));
-        assertEquals(1, store.list("p", null, "product-backlog", null, null).size());
-        store.setBlocked("p", b.id, "x", null);
-        assertEquals(1, store.list("p", null, null, null, true).size());
-        assertEquals(1, store.list("p", null, null, null, false).size());
-    }
+  @Test
+  public void updateToDoneClearsBlockedFlagAndBlocker() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    store.setBlocked("p", t.id, "waiting on review", null);
+    Task done = store.update("p", t.id, Map.of("status", "done"));
+    assertEquals("done", done.status);
+    assertFalse(done.isBlocked());
+    assertNull(done.blocker);
+    assertTrue(done.history.stream().anyMatch(e -> "unblocked (done)".equals(e.action())));
+    Task reloaded = new TaskStore(store.root()).get("p", t.id);
+    assertFalse("the clear is persisted, not just in-memory", reloaded.isBlocked());
+    assertNull(reloaded.blocker);
+    // U-067: done is terminal - the state refuses entry (the old
+    // "drift heals on the next write" case became structurally impossible)
+    TaskStore.Invalid refused =
+        assertThrows(TaskStore.Invalid.class, () -> store.setBlocked("p", t.id, "drift", null));
+    assertTrue(refused.getMessage().contains("done"));
+    assertFalse(store.get("p", t.id).isBlocked());
+  }
 
-    @Test
-    public void updateIsLaxAndProtectsFields() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        int historyBefore = t.history.size();
-        Map<String, Object> changes = new LinkedHashMap<>();
-        changes.put("title", "renamed");
-        changes.put("status", "done");          // no transition graph - any status accepted
-        changes.put("type", "banana");           // NOT validated (pm parity)
-        changes.put("story_points", 13);
-        changes.put("id", "HACKED");             // protected -> dropped
-        changes.put("created_at", "2000-01-01"); // protected -> dropped
-        changes.put("history", "gone");          // protected -> dropped
-        changes.put("comments", "gone");         // protected -> dropped
-        changes.put("unknown_field", "x");       // unknown -> dropped
-        Task updated = store.update("p", t.id, changes);
-        assertEquals("renamed", updated.title);
-        assertEquals("done", updated.status);
-        assertEquals("banana", updated.type);
-        assertEquals(13, updated.storyPoints);
-        assertEquals(t.id, updated.id);
-        assertEquals(t.createdAt, updated.createdAt);
-        assertEquals("updated:title,status,type,story_points", updated.history.get(historyBefore).action());
-    }
+  @Test
+  public void closeSprintKeepsDoneTicketsUnblocked() {
+    String id = mkSprintBacklog("developer", "high");
+    store.update("p", id, Map.of("status", "done"));
+    // U-067: done is terminal - entering the blocked state is refused
+    TaskStore.Invalid refused =
+        assertThrows(TaskStore.Invalid.class, () -> store.setBlocked("p", id, "stale flag", null));
+    assertTrue(refused.getMessage().contains("done"));
+    store.closeSprint("p", "S-01");
+    Task after = store.get("p", id);
+    assertEquals("done", after.status);
+    assertEquals("done tickets keep their sprint on close", "S-01", after.sprint);
+    assertFalse(after.isBlocked());
+    assertNull(after.blocker);
+  }
 
-    @Test
-    public void updateValidatesRoleAndStatusOnly() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        try {
-            store.update("p", t.id, Map.of("role", " "));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("role"));
-        }
-        try {
-            store.update("p", t.id, Map.of("status", "limbo"));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("status"));
-        }
-    }
-
-    @Test
-    public void updateToDoneClearsBlockedFlagAndBlocker() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        store.setBlocked("p", t.id, "waiting on review", null);
-        Task done = store.update("p", t.id, Map.of("status", "done"));
-        assertEquals("done", done.status);
-        assertFalse(done.isBlocked());
-        assertNull(done.blocker);
-        assertTrue(done.history.stream().anyMatch(e -> "unblocked (done)".equals(e.action())));
-        Task reloaded = new TaskStore(store.root()).get("p", t.id);
-        assertFalse("the clear is persisted, not just in-memory", reloaded.isBlocked());
-        assertNull(reloaded.blocker);
-        // U-067: done is terminal - the state refuses entry (the old
-        // "drift heals on the next write" case became structurally impossible)
-        TaskStore.Invalid refused = assertThrows(TaskStore.Invalid.class,
-                () -> store.setBlocked("p", t.id, "drift", null));
-        assertTrue(refused.getMessage().contains("done"));
-        assertFalse(store.get("p", t.id).isBlocked());
-    }
-
-    @Test
-    public void closeSprintKeepsDoneTicketsUnblocked() {
-        String id = mkSprintBacklog("developer", "high");
-        store.update("p", id, Map.of("status", "done"));
-        // U-067: done is terminal - entering the blocked state is refused
-        TaskStore.Invalid refused = assertThrows(TaskStore.Invalid.class,
-                () -> store.setBlocked("p", id, "stale flag", null));
-        assertTrue(refused.getMessage().contains("done"));
-        store.closeSprint("p", "S-01");
-        Task after = store.get("p", id);
-        assertEquals("done", after.status);
-        assertEquals("done tickets keep their sprint on close", "S-01", after.sprint);
-        assertFalse(after.isBlocked());
-        assertNull(after.blocker);
-    }
-
-    @Test
-    public void corruptHistoryLineKeepsTicketVisible() throws IOException {
-        Task t = store.create("p", TaskStore.CreateSpec.of("live incident"));
-        store.update("p", t.id, Map.of("status", "in-progress"));
-        Path file = store.root().resolve("p").resolve(t.id + ".md");
-        String corrupted = Files.readString(file).replace("## History\n",
+  @Test
+  public void corruptHistoryLineKeepsTicketVisible() throws IOException {
+    Task t = store.create("p", TaskStore.CreateSpec.of("live incident"));
+    store.update("p", t.id, Map.of("status", "in-progress"));
+    Path file = store.root().resolve("p").resolve(t.id + ".md");
+    String corrupted =
+        Files.readString(file)
+            .replace(
+                "## History\n",
                 "## History\n`n{\"ts\":\"2026-09-14T11:00:00.000Z\",\"action\":\"injected\"}\n");
-        Files.writeString(file, corrupted);
-        Task got = store.get("p", t.id);
-        assertEquals(t.id, got.id);
-        assertEquals("in-progress", got.status);
-        assertEquals(1, got.quarantinedLines.size());
-        assertTrue(got.quarantinedLines.get(0).startsWith("History: `n"));
-        assertTrue("the ticket stays listed", store.list("p", null, null, null, null)
-                .stream().anyMatch(x -> t.id.equals(x.id)));
+    Files.writeString(file, corrupted);
+    Task got = store.get("p", t.id);
+    assertEquals(t.id, got.id);
+    assertEquals("in-progress", got.status);
+    assertEquals(1, got.quarantinedLines.size());
+    assertTrue(got.quarantinedLines.get(0).startsWith("History: `n"));
+    assertTrue(
+        "the ticket stays listed",
+        store.list("p", null, null, null, null).stream().anyMatch(x -> t.id.equals(x.id)));
+  }
+
+  @Test
+  public void inconsistenciesReportsDriftAndGoesQuietWhenHealed() {
+    // U-067: done-but-blocked no longer exists as a pair (structural);
+    // the live drift is sprint-with-product-backlog
+    Task sprintPb = store.create("p", TaskStore.CreateSpec.of("sprint but pb"));
+    store.planSprint("p", "S-05", List.of(sprintPb.id), "g");
+    store.update("p", sprintPb.id, Map.of("status", "product-backlog"));
+    Task clean = store.create("p", TaskStore.CreateSpec.of("clean"));
+    store.update("p", clean.id, Map.of("status", "done"));
+    List<String> drift = store.inconsistencies("p");
+    assertEquals(1, drift.size());
+    assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(0));
+    store.update("p", sprintPb.id, Map.of("status", "in-progress"));
+    assertEquals(List.of(), store.inconsistencies("p"));
+  }
+
+  @Test
+  public void inconsistenciesReportsAnUnparsableTicketFileThatEveryOtherReadSkips()
+      throws IOException {
+    Task kept = store.create("p", TaskStore.CreateSpec.of("kept"));
+    Files.writeString(
+        store.root().resolve("p").resolve("X-001.md"), "not a ticket - no frontmatter fence\n");
+    assertEquals(
+        "list skips the broken file",
+        List.of(kept.id),
+        store.list("p", null, null, null, null).stream().map(t -> t.id).toList());
+    List<String> drift = store.inconsistencies("p");
+    assertEquals("only the doctor makes the skipped file visible", 1, drift.size());
+    assertTrue(drift.get(0), drift.get(0).startsWith("X-001.md: unparsable ticket file"));
+    assertTrue(drift.get(0), drift.get(0).contains("frontmatter fence"));
+  }
+
+  @Test
+  public void readsOnAMissingProjectNeverMaterializeIt() {
+    // Review S5: task_doctor/task_list on a typo'd project used to
+    // create the directory as a side effect of the read path.
+    assertTrue(store.list("ghost", null, null, null, null).isEmpty());
+    assertEquals(List.of(), store.inconsistencies("ghost"));
+    try {
+      store.get("ghost", "T-001");
+      fail("get on a missing project must be NotFound, not an empty success");
+    } catch (TaskStore.NotFound expected) {
+      // wanted
     }
+    assertFalse(
+        "reads must not create the project directory",
+        java.nio.file.Files.isDirectory(store.root().resolve("ghost")));
+  }
 
-    @Test
-    public void inconsistenciesReportsDriftAndGoesQuietWhenHealed() {
-        // U-067: done-but-blocked no longer exists as a pair (structural);
-        // the live drift is sprint-with-product-backlog
-        Task sprintPb = store.create("p", TaskStore.CreateSpec.of("sprint but pb"));
-        store.planSprint("p", "S-05", List.of(sprintPb.id), "g");
-        store.update("p", sprintPb.id, Map.of("status", "product-backlog"));
-        Task clean = store.create("p", TaskStore.CreateSpec.of("clean"));
-        store.update("p", clean.id, Map.of("status", "done"));
-        List<String> drift = store.inconsistencies("p");
-        assertEquals(1, drift.size());
-        assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(0));
-        store.update("p", sprintPb.id, Map.of("status", "in-progress"));
-        assertEquals(List.of(), store.inconsistencies("p"));
+  @Test
+  public void claimOrdersByPriorityThenCreatedThenReturnsNull() {
+    String low = mkSprintBacklog("developer", "low");
+    String high = mkSprintBacklog("developer", "high");
+    String mid = mkSprintBacklog("developer", "medium");
+    Task first = store.claim("p", "developer", null, "agent-a");
+    assertEquals(high, first.id);
+    assertEquals("in-progress", first.status);
+    assertEquals("agent-a", first.assignee);
+    Task second = store.claim("p", "developer", "sprint-backlog", null);
+    assertEquals(mid, second.id);
+    assertEquals("developer", second.assignee); // by defaults to role
+    Task third = store.claim("p", "developer", null, null);
+    assertEquals(low, third.id);
+    assertNull(
+        "nothing left -> null (worker loops stop on this)",
+        store.claim("p", "developer", null, null));
+  }
+
+  @Test
+  public void claimFiltersRoleAndBlockedAndRejectsOtherStatus() {
+    mkSprintBacklog("tester", "high");
+    assertNull("role mismatch", store.claim("p", "developer", null, null));
+    String id = mkSprintBacklog("developer", "high");
+    store.setBlocked("p", id, "waiting", null);
+    assertNull("blocked tickets are not claimable", store.claim("p", "developer", null, null));
+    try {
+      store.claim("p", "developer", "product-backlog", null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("sprint-backlog"));
     }
+  }
 
-    @Test
-    public void inconsistenciesReportsAnUnparsableTicketFileThatEveryOtherReadSkips() throws IOException {
-        Task kept = store.create("p", TaskStore.CreateSpec.of("kept"));
-        Files.writeString(store.root().resolve("p").resolve("X-001.md"), "not a ticket - no frontmatter fence\n");
-        assertEquals("list skips the broken file", List.of(kept.id),
-                store.list("p", null, null, null, null).stream().map(t -> t.id).toList());
-        List<String> drift = store.inconsistencies("p");
-        assertEquals("only the doctor makes the skipped file visible", 1, drift.size());
-        assertTrue(drift.get(0), drift.get(0).startsWith("X-001.md: unparsable ticket file"));
-        assertTrue(drift.get(0), drift.get(0).contains("frontmatter fence"));
+  @Test
+  public void releaseOnlyFromSprintBacklogOrInProgress() {
+    String id = mkSprintBacklog("developer", "high");
+    store.release("p", id, null);
+    assertEquals("sprint-backlog", store.get("p", id).status);
+    assertNull(store.get("p", id).assignee);
+    store.update("p", id, Map.of("status", "in-review"));
+    try {
+      store.release("p", id, null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("in-review"));
     }
+  }
 
-    @Test
-    public void readsOnAMissingProjectNeverMaterializeIt() {
-        // Review S5: task_doctor/task_list on a typo'd project used to
-        // create the directory as a side effect of the read path.
-        assertTrue(store.list("ghost", null, null, null, null).isEmpty());
-        assertEquals(List.of(), store.inconsistencies("ghost"));
-        try {
-            store.get("ghost", "T-001");
-            fail("get on a missing project must be NotFound, not an empty success");
-        } catch (TaskStore.NotFound expected) {
-            // wanted
-        }
-        assertFalse("reads must not create the project directory",
-                java.nio.file.Files.isDirectory(store.root().resolve("ghost")));
+  @Test
+  public void todosAddToggleRemoveWithIndexChecks() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    store.addTodo("p", t.id, "one", false, "pm");
+    store.addTodo("p", t.id, "two", false, "pm");
+    Task after = store.toggleTodo("p", t.id, 1, "pm");
+    assertTrue(after.todos.get(1).done());
+    assertFalse(after.todos.get(0).done());
+    after = store.removeTodo("p", t.id, 0, "pm");
+    assertEquals(1, after.todos.size());
+    assertEquals("two", after.todos.get(0).text());
+    try {
+      store.toggleTodo("p", t.id, 9, null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertEquals("todo index 9 out of range (have 1)", expected.getMessage());
     }
+  }
 
-    @Test
-    public void claimOrdersByPriorityThenCreatedThenReturnsNull() {
-        String low = mkSprintBacklog("developer", "low");
-        String high = mkSprintBacklog("developer", "high");
-        String mid = mkSprintBacklog("developer", "medium");
-        Task first = store.claim("p", "developer", null, "agent-a");
-        assertEquals(high, first.id);
-        assertEquals("in-progress", first.status);
-        assertEquals("agent-a", first.assignee);
-        Task second = store.claim("p", "developer", "sprint-backlog", null);
-        assertEquals(mid, second.id);
-        assertEquals("developer", second.assignee); // by defaults to role
-        Task third = store.claim("p", "developer", null, null);
-        assertEquals(low, third.id);
-        assertNull("nothing left -> null (worker loops stop on this)", store.claim("p", "developer", null, null));
+  @Test
+  public void multilineTodoTextIsRejectedNotCorrupting() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    try {
+      store.addTodo("p", t.id, "step\n- [x] injected todo", false, null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("single line"));
     }
+    // the file must still load cleanly afterwards
+    assertEquals(0, store.get("p", t.id).todos.size());
+  }
 
-    @Test
-    public void claimFiltersRoleAndBlockedAndRejectsOtherStatus() {
-        mkSprintBacklog("tester", "high");
-        assertNull("role mismatch", store.claim("p", "developer", null, null));
-        String id = mkSprintBacklog("developer", "high");
-        store.setBlocked("p", id, "waiting", null);
-        assertNull("blocked tickets are not claimable", store.claim("p", "developer", null, null));
-        try {
-            store.claim("p", "developer", "product-backlog", null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("sprint-backlog"));
-        }
+  @Test
+  public void nullListItemIsRejectedNotCorrupting() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    try {
+      store.update("p", t.id, Map.of("labels", java.util.Arrays.asList("ok", null)));
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("non-null"));
     }
+    assertEquals(0, store.get("p", t.id).labels.size());
+  }
 
-    @Test
-    public void releaseOnlyFromSprintBacklogOrInProgress() {
-        String id = mkSprintBacklog("developer", "high");
-        store.release("p", id, null);
-        assertEquals("sprint-backlog", store.get("p", id).status);
-        assertNull(store.get("p", id).assignee);
-        store.update("p", id, Map.of("status", "in-review"));
-        try {
-            store.release("p", id, null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("in-review"));
-        }
-    }
-
-    @Test
-    public void todosAddToggleRemoveWithIndexChecks() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        store.addTodo("p", t.id, "one", false, "pm");
-        store.addTodo("p", t.id, "two", false, "pm");
-        Task after = store.toggleTodo("p", t.id, 1, "pm");
-        assertTrue(after.todos.get(1).done());
-        assertFalse(after.todos.get(0).done());
-        after = store.removeTodo("p", t.id, 0, "pm");
-        assertEquals(1, after.todos.size());
-        assertEquals("two", after.todos.get(0).text());
-        try {
-            store.toggleTodo("p", t.id, 9, null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertEquals("todo index 9 out of range (have 1)", expected.getMessage());
-        }
-    }
-
-    @Test
-    public void multilineTodoTextIsRejectedNotCorrupting() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        try {
-            store.addTodo("p", t.id, "step\n- [x] injected todo", false, null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("single line"));
-        }
-        // the file must still load cleanly afterwards
-        assertEquals(0, store.get("p", t.id).todos.size());
-    }
-
-    @Test
-    public void nullListItemIsRejectedNotCorrupting() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        try {
-            store.update("p", t.id, Map.of("labels", java.util.Arrays.asList("ok", null)));
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("non-null"));
-        }
-        assertEquals(0, store.get("p", t.id).labels.size());
-    }
-
-    @Test
-    public void closeSprintTwiceIsSafe() {
-        String id = mkSprintBacklog("developer", "high");
-        store.closeSprint("p", "S-01");
-        Map<String, Object> second = store.closeSprint("p", "S-01");
-        @SuppressWarnings("unchecked")
-        List<String> returned = (List<String>) second.get("returned_to_backlog");
-        assertEquals("second close returns nothing new", List.of(), returned);
-        assertEquals("closed", ((Task.Sprint) second.get("sprint")).status());
-        assertEquals("the unfinished ticket already sits in product-backlog after the first close",
-                "product-backlog", store.get("p", id).status);
-    }
-
-    @Test
-    public void importMalformedJsonThrowsBeforeAnyWrite() throws IOException {
-        try {
-            store.importPmJson("fresh", "{not json");
-            fail("expected a parse failure");
-        } catch (RuntimeException expected) {
-            // clean failure, not a half-import
-        }
-        assertFalse("no project directory may be created for a failed import",
-                Files.exists(store.root().resolve("fresh")));
-    }
-
-    @Test
-    public void artifactKindValidated() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        store.addArtifact("p", t.id, "git", "abc123", "the commit", "dev");
-        assertEquals(1, store.get("p", t.id).artifacts.size());
-        try {
-            store.addArtifact("p", t.id, "sms", "x", "", null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("kind"));
-        }
-    }
-
-    @Test
-    public void artifactRemoveWithIndexChecksAndHistory() {
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        store.addArtifact("p", t.id, "file", "docs/wrong.md", "typo'd ref", "dev");
-        store.addArtifact("p", t.id, "git", "abc123", "the commit", "dev");
-        Task after = store.removeArtifact("p", t.id, 0, "dev");
-        assertEquals("the indexed artifact is gone, the other shifts down",
-                1, after.artifacts.size());
-        assertEquals("abc123", after.artifacts.get(0).ref());
-        assertEquals("the correction is history-recorded like every other mutation",
-                "artifact removed:file:docs/wrong.md",
-                after.history.get(after.history.size() - 1).action());
-        assertEquals("persisted, not just in-memory", 1, store.get("p", t.id).artifacts.size());
-        try {
-            store.removeArtifact("p", t.id, 9, null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertEquals("artifact index 9 out of range (have 1)", expected.getMessage());
-        }
-        try {
-            store.removeArtifact("p", t.id, -1, null);
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertTrue(expected.getMessage().contains("out of range"));
-        }
-    }
-
-    @Test
-    public void doctorReportsFileAndPathArtifactRefsThatDoNotResolveInTheRepo() throws IOException {
-        Path repo = tmp.newFolder("repo").toPath();
-        Files.createDirectories(repo.resolve("docs"));
-        Files.writeString(repo.resolve("docs").resolve("real.md"), "# real\n");
-        // the convention the doctor derives the repo root from: <repo>/.opencode/tasks
-        TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
-        Task t = repoStore.create("p", TaskStore.CreateSpec.of("artifacts"));
-        repoStore.addArtifact("p", t.id, "file", "docs/real.md", "", "dev");
-        repoStore.addArtifact("p", t.id, "path", "docs/missing.md", "", "dev");
-        repoStore.addArtifact("p", t.id, "git", "abc123", "", "dev"); // not a path kind
-        repoStore.addArtifact("p", t.id, "url", "https://example.com/x", "", "dev"); // not a path kind
-        List<String> drift = repoStore.inconsistencies("p");
-        assertEquals(List.of(t.id + ": artifact path ref does not resolve under "
-                + repo.toAbsolutePath().normalize() + ": docs/missing.md"), drift);
-    }
-
-    @Test
-    public void doctorStaysQuietForGlobBraceAndProseArtifactRefs() throws IOException {
-        Path repo = tmp.newFolder("repo").toPath();
-        TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
-        Task t = repoStore.create("p", TaskStore.CreateSpec.of("a"));
-        repoStore.addArtifact("p", t.id, "path", "docs/*.md", "", "dev");
-        repoStore.addArtifact("p", t.id, "path", "eclipse/{bundles,features}/**", "", "dev");
-        repoStore.addArtifact("p", t.id, "path", "see the docs folder", "", "dev");
-        repoStore.addArtifact("p", t.id, "file", "a.md,b.md", "", "dev");
-        repoStore.addArtifact("p", t.id, "file", "docs/vision?.md", "", "dev");
-        assertEquals("none of these is a plain path - nothing to report",
-                List.of(), repoStore.inconsistencies("p"));
-    }
-
-    @Test
-    public void doctorSkipsArtifactResolutionWhenTheRepoRootIsUnknown() {
-        // this fixture's root (<tmp>/tasks) does not match the
-        // <repo>/.opencode/tasks convention: the check must skip rather than
-        // resolve refs against an accidental parent directory
-        Task t = store.create("p", TaskStore.CreateSpec.of("a"));
-        store.addArtifact("p", t.id, "file", "docs/missing.md", "", "dev");
-        assertEquals(List.of(), store.inconsistencies("p"));
-    }
-
-    /** U-080: "the architecture was not done" is visible - done definition stage, no product. */
-    @Test
-    public void doctorReportsADoneDefinitionStageWithoutItsProduct() {
-        Task bare = store.create("p", TaskStore.CreateSpec.of("done but bare"), "architecture");
-        store.update("p", bare.id, Map.of("status", "done"));
-        Task verified = store.create("p", TaskStore.CreateSpec.of("right leg produces no product"),
-                "test-design");
-        store.update("p", verified.id, Map.of("status", "done"));
-        Task untracked = store.create("p", TaskStore.CreateSpec.of("unstaged done"));
-        store.update("p", untracked.id, Map.of("status", "done"));
-
-        List<String> drift = store.inconsistencies("p");
-
-        assertEquals("only the bare definition stage is reported: " + drift, 1, drift.size());
-        assertTrue(drift.get(0), drift.get(0).contains(
-                bare.id + ": stage=architecture (done) has no recorded artifact"));
-        store.addArtifact("p", bare.id, "doc", "docs/architecture-product.md", "stage product", "dev");
-        assertEquals("recording the product heals the report", List.of(), store.inconsistencies("p"));
-    }
-
-    @Test
-    public void backlogSortedByPriorityThenCreated() {
-        Task low = store.create("p", TaskStore.CreateSpec.of("low"));
-        store.update("p", low.id, Map.of("priority", "low"));
-        Task high = store.create("p", TaskStore.CreateSpec.of("high"));
-        store.update("p", high.id, Map.of("priority", "high"));
-        Task done = store.create("p", TaskStore.CreateSpec.of("done"));
-        store.update("p", done.id, Map.of("status", "done"));
-        List<Task> backlog = store.backlog("p");
-        assertEquals(2, backlog.size());
-        assertEquals(high.id, backlog.get(0).id);
-        assertEquals(low.id, backlog.get(1).id);
-    }
-
-    @Test
-    public void boardAlwaysHasAllFiveColumns() {
-        String id = mkSprintBacklog("developer", "high");
-        store.claim("p", "developer", null, null);
-        Map<String, List<Task>> board = store.board("p", null);
-        assertEquals(Task.VALID_STATUSES, List.copyOf(board.keySet()));
-        assertEquals(1, board.get("in-progress").size());
-        // sprint filter: no ticket in S-99
-        assertTrue(store.board("p", "S-99").get("in-progress").isEmpty());
-    }
-
-    @Test
-    public void planSprintForceSetsStatusAndValidatesFirst() throws IOException {
-        Task a = store.create("p", TaskStore.CreateSpec.of("a"));
-        Task b = store.create("p", TaskStore.CreateSpec.of("b"));
-        store.update("p", b.id, Map.of("status", "done"));
-        Task.Sprint s = store.planSprint("p", null, List.of(a.id, b.id), "the goal");
-        assertEquals("S-01", s.id());
-        assertEquals("the goal", s.goal());
-        assertEquals("active", s.status());
-        assertEquals("sprint-backlog", store.get("p", a.id).status); // even done ones (pm parity)
-        assertEquals("sprint-backlog", store.get("p", b.id).status);
-        assertEquals("S-01", store.get("p", a.id).sprint);
-
-        // invalid batch: nothing is written at all (validate-before-write)
-        Path dir = store.root().resolve("p");
-        try {
-            store.planSprint("p", "S-02", List.of(a.id, "T-999"), "g");
-            fail("expected Invalid");
-        } catch (TaskStore.Invalid expected) {
-            assertEquals("ticket T-999 not found", expected.getMessage());
-        }
-        assertFalse("no S-02 sprint metadata must be created", Files.exists(dir.resolve("_meta.json"))
-                && Files.readString(dir.resolve("_meta.json")).contains("S-02"));
-    }
-
-    @Test
-    public void closeSprintReturnsUnfinishedToBacklog() throws IOException {
-        String stay = mkSprintBacklog("developer", "high");
-        String finish = mkSprintBacklog("developer", "high");
-        store.claim("p", "developer", null, null); // claims the first created of equal priority
-        store.update("p", finish, Map.of("status", "done"));
-        Map<String, Object> out = store.closeSprint("p", "S-01");
-        @SuppressWarnings("unchecked")
-        List<String> returned = (List<String>) out.get("returned_to_backlog");
-        assertEquals(List.of(stay), returned);
-        assertEquals("product-backlog", store.get("p", stay).status);
-        assertNull(store.get("p", stay).sprint);
-        assertEquals("done", store.get("p", finish).status);
-        assertEquals("closed", ((Task.Sprint) out.get("sprint")).status());
-        try {
-            store.closeSprint("p", "S-99");
-            fail("expected NotFound");
-        } catch (TaskStore.NotFound expected) {
-            assertEquals("sprint S-99 not found", expected.getMessage());
-        }
-    }
-
-    @Test
-    public void traceabilityPairsDefinitionAndVerification() {
-        Task parent = store.create("p", TaskStore.CreateSpec.of("arch work"));
-        store.update("p", parent.id, Map.of("role", "architect"));
-        Task test = store.create("p", TaskStore.CreateSpec.of("verifies arch"));
-        store.update("p", test.id, Map.of("role", "tester", "epic", parent.id));
-        Task orphanV = store.create("p", TaskStore.CreateSpec.of("orphan verification"));
-        store.update("p", orphanV.id, Map.of("role", "tester", "epic", "T-999"));
-
-        Map<String, Object> out = store.traceability("p");
-        assertEquals(3, out.get("ticket_count"));
-        assertEquals("parent has a verification child -> not an orphan", List.of(), out.get("orphan_definitions"));
-        assertEquals(List.of(orphanV.id), out.get("orphan_verifications"));
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
-        for (Map<String, Object> row : matrix) {
-            if (parent.id.equals(row.get("id"))) {
-                assertEquals(List.of(test.id), row.get("verified_by"));
-            }
-            if (test.id.equals(row.get("id"))) {
-                assertEquals(parent.id, row.get("verifies"));
-            }
-        }
-    }
-
-    @Test
+  @Test
+  public void closeSprintTwiceIsSafe() {
+    String id = mkSprintBacklog("developer", "high");
+    store.closeSprint("p", "S-01");
+    Map<String, Object> second = store.closeSprint("p", "S-01");
     @SuppressWarnings("unchecked")
-    public void traceabilityCountsOwnJourneyAndTestArtifactsAndPmDefinitions() {
-        // signal 2 (D-001): a ticket that walked into a test-* stage verifies itself
-        Task walked = store.create("p", TaskStore.CreateSpec.of("walked the V"), "requirements");
-        // U-080: the walk crosses definition-stage gates, so it carries a product
-        store.addArtifact("p", walked.id, "doc", "docs/stage-product.md", "stage product", "fixture");
-        while (!"test-implementation".equals(store.get("p", walked.id).stage)) {
-            store.update("p", walked.id, Map.of("status", "in-review"));
-            walked = store.advance("p", walked.id, "walker");
-        }
-        // signal 3 (D-001): a recorded test-shaped artifact counts as verification evidence
-        Task withTests = store.create("p", TaskStore.CreateSpec.of("records its tests"));
-        store.addArtifact("p", withTests.id, "file",
-                "eclipse/bundles/com.opencode.ide.tasks.tests/src/main/java/com/opencode/ide/tasks/ProbeTest.java",
-                "unit probe", null);
-        // pm requirements are definitions now (D-001), but signals still decide pairing
-        Task pmReq = store.create("p", TaskStore.CreateSpec.of("pm requirements"));
-        store.update("p", pmReq.id, Map.of("role", "pm"));
-        Task bare = store.create("p", TaskStore.CreateSpec.of("no signal at all"));
+    List<String> returned = (List<String>) second.get("returned_to_backlog");
+    assertEquals("second close returns nothing new", List.of(), returned);
+    assertEquals("closed", ((Task.Sprint) second.get("sprint")).status());
+    assertEquals(
+        "the unfinished ticket already sits in product-backlog after the first close",
+        "product-backlog",
+        store.get("p", id).status);
+  }
 
-        Map<String, Object> out = store.traceability("p");
-        List<String> orphans = (List<String>) out.get("orphan_definitions");
-        assertTrue("journey self-verification must not orphan: " + orphans,
-                !orphans.contains(walked.id));
-        assertTrue("test artifact must not orphan: " + orphans, !orphans.contains(withTests.id));
-        assertTrue("a pm definition with no signal stays an orphan: " + orphans,
-                orphans.contains(pmReq.id));
-        assertTrue("a definition with no signal stays an orphan: " + orphans, orphans.contains(bare.id));
-
-        List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
-        for (Map<String, Object> row : matrix) {
-            if (walked.id.equals(row.get("id"))) {
-                assertTrue("walked row must be self_verified", (Boolean) row.get("self_verified"));
-                assertTrue("via must carry the journey signal: " + row.get("via"),
-                        ((List<String>) row.get("via")).contains("journey"));
-            }
-            if (withTests.id.equals(row.get("id"))) {
-                assertTrue("artifact row must be self_verified", (Boolean) row.get("self_verified"));
-                assertTrue("via must carry the artifact signal: " + row.get("via"),
-                        ((List<String>) row.get("via")).contains("artifacts"));
-            }
-        }
+  @Test
+  public void importMalformedJsonThrowsBeforeAnyWrite() throws IOException {
+    try {
+      store.importPmJson("fresh", "{not json");
+      fail("expected a parse failure");
+    } catch (RuntimeException expected) {
+      // clean failure, not a half-import
     }
+    assertFalse(
+        "no project directory may be created for a failed import",
+        Files.exists(store.root().resolve("fresh")));
+  }
 
-    @Test
-    public void metaLossRecoversSeqFromFiles() {
-        Task a = store.create("p", TaskStore.CreateSpec.of("a"));
-        Task b = store.create("p", TaskStore.CreateSpec.of("b"));
-        assertEquals("T-002", b.id);
-        // simulate a lost sidecar: delete _meta.json, then create again
-        try {
-            Files.delete(store.root().resolve("p").resolve("_meta.json"));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        Task c = store.create("p", TaskStore.CreateSpec.of("c"));
-        assertEquals("ids are never reused after meta loss", "T-003", c.id);
-        // and the old files survive untouched
-        assertEquals(a.id, store.get("p", a.id).id);
+  @Test
+  public void artifactKindValidated() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    store.addArtifact("p", t.id, "git", "abc123", "the commit", "dev");
+    assertEquals(1, store.get("p", t.id).artifacts.size());
+    try {
+      store.addArtifact("p", t.id, "sms", "x", "", null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("kind"));
     }
+  }
 
-    @Test
-    public void projectNamesSanitizedAndTraversalRejected() {
-        TaskStore.Invalid ex = null;
-        try {
-            TaskStore.sanitizeProject("..");
-        } catch (TaskStore.Invalid e) {
-            ex = e;
-        }
-        assertNotNull(ex);
-        assertEquals("a_b", TaskStore.sanitizeProject("a/b"));
-        assertEquals("win_path", TaskStore.sanitizeProject("win\\path"));
-        // traversal is impossible: separators fold to underscores (".." is rejected, "../escape" folds)
-        assertEquals(".._escape", TaskStore.sanitizeProject("../escape"));
-        assertEquals(0, new TaskStore(tmp.getRoot().toPath()).list(".._escape", null, null, null, null).size());
+  @Test
+  public void artifactRemoveWithIndexChecksAndHistory() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    store.addArtifact("p", t.id, "file", "docs/wrong.md", "typo'd ref", "dev");
+    store.addArtifact("p", t.id, "git", "abc123", "the commit", "dev");
+    Task after = store.removeArtifact("p", t.id, 0, "dev");
+    assertEquals("the indexed artifact is gone, the other shifts down", 1, after.artifacts.size());
+    assertEquals("abc123", after.artifacts.get(0).ref());
+    assertEquals(
+        "the correction is history-recorded like every other mutation",
+        "artifact removed:file:docs/wrong.md",
+        after.history.get(after.history.size() - 1).action());
+    assertEquals("persisted, not just in-memory", 1, store.get("p", t.id).artifacts.size());
+    try {
+      store.removeArtifact("p", t.id, 9, null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertEquals("artifact index 9 out of range (have 1)", expected.getMessage());
     }
+    try {
+      store.removeArtifact("p", t.id, -1, null);
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage().contains("out of range"));
+    }
+  }
 
-    @Test
-    public void unparsableFileIsSkippedNotFatal() throws IOException {
-        Task good = store.create("p", TaskStore.CreateSpec.of("good"));
-        Path dir = store.root().resolve("p");
-        Files.writeString(dir.resolve("T-900.md"), "not a task file at all");
-        List<Task> all = store.list("p", null, null, null, null);
-        assertEquals(1, all.size());
-        assertEquals(good.id, all.get(0).id);
-    }
+  @Test
+  public void doctorReportsFileAndPathArtifactRefsThatDoNotResolveInTheRepo() throws IOException {
+    Path repo = tmp.newFolder("repo").toPath();
+    Files.createDirectories(repo.resolve("docs"));
+    Files.writeString(repo.resolve("docs").resolve("real.md"), "# real\n");
+    // the convention the doctor derives the repo root from: <repo>/.opencode/tasks
+    TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+    Task t = repoStore.create("p", TaskStore.CreateSpec.of("artifacts"));
+    repoStore.addArtifact("p", t.id, "file", "docs/real.md", "", "dev");
+    repoStore.addArtifact("p", t.id, "path", "docs/missing.md", "", "dev");
+    repoStore.addArtifact("p", t.id, "git", "abc123", "", "dev"); // not a path kind
+    repoStore.addArtifact("p", t.id, "url", "https://example.com/x", "", "dev"); // not a path kind
+    List<String> drift = repoStore.inconsistencies("p");
+    assertEquals(
+        List.of(
+            t.id
+                + ": artifact path ref does not resolve under "
+                + repo.toAbsolutePath().normalize()
+                + ": docs/missing.md"),
+        drift);
+  }
 
-    @Test
-    public void persistenceAcrossStoreInstances() {
-        Task t = store.create("p", new TaskStore.CreateSpec("persisted", "with description", "story",
-                "tester", "critical", 5, List.of("GIVEN x"), List.of("l1"), "EP-1", "T"));
-        TaskStore fresh = new TaskStore(store.root());
-        Task back = fresh.get("p", t.id);
-        assertEquals("persisted", back.title);
-        assertEquals("with description", back.description);
-        assertEquals("critical", back.priority);
-        assertEquals(List.of("GIVEN x"), back.acceptanceCriteria);
-        assertEquals(List.of("l1"), back.labels);
-        assertEquals("EP-1", back.epic);
+  @Test
+  public void doctorStaysQuietForGlobBraceAndProseArtifactRefs() throws IOException {
+    Path repo = tmp.newFolder("repo").toPath();
+    TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+    Task t = repoStore.create("p", TaskStore.CreateSpec.of("a"));
+    repoStore.addArtifact("p", t.id, "path", "docs/*.md", "", "dev");
+    repoStore.addArtifact("p", t.id, "path", "eclipse/{bundles,features}/**", "", "dev");
+    repoStore.addArtifact("p", t.id, "path", "see the docs folder", "", "dev");
+    repoStore.addArtifact("p", t.id, "file", "a.md,b.md", "", "dev");
+    repoStore.addArtifact("p", t.id, "file", "docs/vision?.md", "", "dev");
+    assertEquals(
+        "none of these is a plain path - nothing to report",
+        List.of(),
+        repoStore.inconsistencies("p"));
+  }
+
+  @Test
+  public void doctorSkipsArtifactResolutionWhenTheRepoRootIsUnknown() {
+    // this fixture's root (<tmp>/tasks) does not match the
+    // <repo>/.opencode/tasks convention: the check must skip rather than
+    // resolve refs against an accidental parent directory
+    Task t = store.create("p", TaskStore.CreateSpec.of("a"));
+    store.addArtifact("p", t.id, "file", "docs/missing.md", "", "dev");
+    assertEquals(List.of(), store.inconsistencies("p"));
+  }
+
+  /** U-080: "the architecture was not done" is visible - done definition stage, no product. */
+  @Test
+  public void doctorReportsADoneDefinitionStageWithoutItsProduct() {
+    Task bare = store.create("p", TaskStore.CreateSpec.of("done but bare"), "architecture");
+    store.update("p", bare.id, Map.of("status", "done"));
+    Task verified =
+        store.create("p", TaskStore.CreateSpec.of("right leg produces no product"), "test-design");
+    store.update("p", verified.id, Map.of("status", "done"));
+    Task untracked = store.create("p", TaskStore.CreateSpec.of("unstaged done"));
+    store.update("p", untracked.id, Map.of("status", "done"));
+
+    List<String> drift = store.inconsistencies("p");
+
+    assertEquals("only the bare definition stage is reported: " + drift, 1, drift.size());
+    assertTrue(
+        drift.get(0),
+        drift.get(0).contains(bare.id + ": stage=architecture (done) has no recorded artifact"));
+    store.addArtifact("p", bare.id, "doc", "docs/architecture-product.md", "stage product", "dev");
+    assertEquals("recording the product heals the report", List.of(), store.inconsistencies("p"));
+  }
+
+  @Test
+  public void backlogSortedByPriorityThenCreated() {
+    Task low = store.create("p", TaskStore.CreateSpec.of("low"));
+    store.update("p", low.id, Map.of("priority", "low"));
+    Task high = store.create("p", TaskStore.CreateSpec.of("high"));
+    store.update("p", high.id, Map.of("priority", "high"));
+    Task done = store.create("p", TaskStore.CreateSpec.of("done"));
+    store.update("p", done.id, Map.of("status", "done"));
+    List<Task> backlog = store.backlog("p");
+    assertEquals(2, backlog.size());
+    assertEquals(high.id, backlog.get(0).id);
+    assertEquals(low.id, backlog.get(1).id);
+  }
+
+  @Test
+  public void boardAlwaysHasAllFiveColumns() {
+    String id = mkSprintBacklog("developer", "high");
+    store.claim("p", "developer", null, null);
+    Map<String, List<Task>> board = store.board("p", null);
+    assertEquals(Task.VALID_STATUSES, List.copyOf(board.keySet()));
+    assertEquals(1, board.get("in-progress").size());
+    // sprint filter: no ticket in S-99
+    assertTrue(store.board("p", "S-99").get("in-progress").isEmpty());
+  }
+
+  @Test
+  public void planSprintForceSetsStatusAndValidatesFirst() throws IOException {
+    Task a = store.create("p", TaskStore.CreateSpec.of("a"));
+    Task b = store.create("p", TaskStore.CreateSpec.of("b"));
+    store.update("p", b.id, Map.of("status", "done"));
+    Task.Sprint s = store.planSprint("p", null, List.of(a.id, b.id), "the goal");
+    assertEquals("S-01", s.id());
+    assertEquals("the goal", s.goal());
+    assertEquals("active", s.status());
+    assertEquals("sprint-backlog", store.get("p", a.id).status); // even done ones (pm parity)
+    assertEquals("sprint-backlog", store.get("p", b.id).status);
+    assertEquals("S-01", store.get("p", a.id).sprint);
+
+    // invalid batch: nothing is written at all (validate-before-write)
+    Path dir = store.root().resolve("p");
+    try {
+      store.planSprint("p", "S-02", List.of(a.id, "T-999"), "g");
+      fail("expected Invalid");
+    } catch (TaskStore.Invalid expected) {
+      assertEquals("ticket T-999 not found", expected.getMessage());
     }
+    assertFalse(
+        "no S-02 sprint metadata must be created",
+        Files.exists(dir.resolve("_meta.json"))
+            && Files.readString(dir.resolve("_meta.json")).contains("S-02"));
+  }
+
+  @Test
+  public void closeSprintReturnsUnfinishedToBacklog() throws IOException {
+    String stay = mkSprintBacklog("developer", "high");
+    String finish = mkSprintBacklog("developer", "high");
+    store.claim("p", "developer", null, null); // claims the first created of equal priority
+    store.update("p", finish, Map.of("status", "done"));
+    Map<String, Object> out = store.closeSprint("p", "S-01");
+    @SuppressWarnings("unchecked")
+    List<String> returned = (List<String>) out.get("returned_to_backlog");
+    assertEquals(List.of(stay), returned);
+    assertEquals("product-backlog", store.get("p", stay).status);
+    assertNull(store.get("p", stay).sprint);
+    assertEquals("done", store.get("p", finish).status);
+    assertEquals("closed", ((Task.Sprint) out.get("sprint")).status());
+    try {
+      store.closeSprint("p", "S-99");
+      fail("expected NotFound");
+    } catch (TaskStore.NotFound expected) {
+      assertEquals("sprint S-99 not found", expected.getMessage());
+    }
+  }
+
+  @Test
+  public void traceabilityPairsDefinitionAndVerification() {
+    Task parent = store.create("p", TaskStore.CreateSpec.of("arch work"));
+    store.update("p", parent.id, Map.of("role", "architect"));
+    Task test = store.create("p", TaskStore.CreateSpec.of("verifies arch"));
+    store.update("p", test.id, Map.of("role", "tester", "epic", parent.id));
+    Task orphanV = store.create("p", TaskStore.CreateSpec.of("orphan verification"));
+    store.update("p", orphanV.id, Map.of("role", "tester", "epic", "T-999"));
+
+    Map<String, Object> out = store.traceability("p");
+    assertEquals(3, out.get("ticket_count"));
+    assertEquals(
+        "parent has a verification child -> not an orphan",
+        List.of(),
+        out.get("orphan_definitions"));
+    assertEquals(List.of(orphanV.id), out.get("orphan_verifications"));
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
+    for (Map<String, Object> row : matrix) {
+      if (parent.id.equals(row.get("id"))) {
+        assertEquals(List.of(test.id), row.get("verified_by"));
+      }
+      if (test.id.equals(row.get("id"))) {
+        assertEquals(parent.id, row.get("verifies"));
+      }
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void traceabilityCountsOwnJourneyAndTestArtifactsAndPmDefinitions() {
+    // signal 2 (D-001): a ticket that walked into a test-* stage verifies itself
+    Task walked = store.create("p", TaskStore.CreateSpec.of("walked the V"), "requirements");
+    // U-080: the walk crosses definition-stage gates, so it carries a product
+    store.addArtifact("p", walked.id, "doc", "docs/stage-product.md", "stage product", "fixture");
+    while (!"test-implementation".equals(store.get("p", walked.id).stage)) {
+      store.update("p", walked.id, Map.of("status", "in-review"));
+      walked = store.advance("p", walked.id, "walker");
+    }
+    // signal 3 (D-001): a recorded test-shaped artifact counts as verification evidence
+    Task withTests = store.create("p", TaskStore.CreateSpec.of("records its tests"));
+    store.addArtifact(
+        "p",
+        withTests.id,
+        "file",
+        "eclipse/bundles/com.opencode.ide.tasks.tests/src/main/java/com/opencode/ide/tasks/ProbeTest.java",
+        "unit probe",
+        null);
+    // pm requirements are definitions now (D-001), but signals still decide pairing
+    Task pmReq = store.create("p", TaskStore.CreateSpec.of("pm requirements"));
+    store.update("p", pmReq.id, Map.of("role", "pm"));
+    Task bare = store.create("p", TaskStore.CreateSpec.of("no signal at all"));
+
+    Map<String, Object> out = store.traceability("p");
+    List<String> orphans = (List<String>) out.get("orphan_definitions");
+    assertTrue(
+        "journey self-verification must not orphan: " + orphans, !orphans.contains(walked.id));
+    assertTrue("test artifact must not orphan: " + orphans, !orphans.contains(withTests.id));
+    assertTrue(
+        "a pm definition with no signal stays an orphan: " + orphans, orphans.contains(pmReq.id));
+    assertTrue(
+        "a definition with no signal stays an orphan: " + orphans, orphans.contains(bare.id));
+
+    List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
+    for (Map<String, Object> row : matrix) {
+      if (walked.id.equals(row.get("id"))) {
+        assertTrue("walked row must be self_verified", (Boolean) row.get("self_verified"));
+        assertTrue(
+            "via must carry the journey signal: " + row.get("via"),
+            ((List<String>) row.get("via")).contains("journey"));
+      }
+      if (withTests.id.equals(row.get("id"))) {
+        assertTrue("artifact row must be self_verified", (Boolean) row.get("self_verified"));
+        assertTrue(
+            "via must carry the artifact signal: " + row.get("via"),
+            ((List<String>) row.get("via")).contains("artifacts"));
+      }
+    }
+  }
+
+  @Test
+  public void metaLossRecoversSeqFromFiles() {
+    Task a = store.create("p", TaskStore.CreateSpec.of("a"));
+    Task b = store.create("p", TaskStore.CreateSpec.of("b"));
+    assertEquals("T-002", b.id);
+    // simulate a lost sidecar: delete _meta.json, then create again
+    try {
+      Files.delete(store.root().resolve("p").resolve("_meta.json"));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+    Task c = store.create("p", TaskStore.CreateSpec.of("c"));
+    assertEquals("ids are never reused after meta loss", "T-003", c.id);
+    // and the old files survive untouched
+    assertEquals(a.id, store.get("p", a.id).id);
+  }
+
+  @Test
+  public void projectNamesSanitizedAndTraversalRejected() {
+    TaskStore.Invalid ex = null;
+    try {
+      TaskStore.sanitizeProject("..");
+    } catch (TaskStore.Invalid e) {
+      ex = e;
+    }
+    assertNotNull(ex);
+    assertEquals("a_b", TaskStore.sanitizeProject("a/b"));
+    assertEquals("win_path", TaskStore.sanitizeProject("win\\path"));
+    // traversal is impossible: separators fold to underscores (".." is rejected, "../escape" folds)
+    assertEquals(".._escape", TaskStore.sanitizeProject("../escape"));
+    assertEquals(
+        0, new TaskStore(tmp.getRoot().toPath()).list(".._escape", null, null, null, null).size());
+  }
+
+  @Test
+  public void unparsableFileIsSkippedNotFatal() throws IOException {
+    Task good = store.create("p", TaskStore.CreateSpec.of("good"));
+    Path dir = store.root().resolve("p");
+    Files.writeString(dir.resolve("T-900.md"), "not a task file at all");
+    List<Task> all = store.list("p", null, null, null, null);
+    assertEquals(1, all.size());
+    assertEquals(good.id, all.get(0).id);
+  }
+
+  @Test
+  public void persistenceAcrossStoreInstances() {
+    Task t =
+        store.create(
+            "p",
+            new TaskStore.CreateSpec(
+                "persisted",
+                "with description",
+                "story",
+                "tester",
+                "critical",
+                5,
+                List.of("GIVEN x"),
+                List.of("l1"),
+                "EP-1",
+                "T"));
+    TaskStore fresh = new TaskStore(store.root());
+    Task back = fresh.get("p", t.id);
+    assertEquals("persisted", back.title);
+    assertEquals("with description", back.description);
+    assertEquals("critical", back.priority);
+    assertEquals(List.of("GIVEN x"), back.acceptanceCriteria);
+    assertEquals(List.of("l1"), back.labels);
+    assertEquals("EP-1", back.epic);
+  }
 }

@@ -14,6 +14,7 @@
 | Check | Tool | When | Fails the build? |
 |---|---|---|---|
 | Style / clean-code lint | Checkstyle (`releng/checkstyle.xml`) | every `verify`, every module | **yes** (error-severity rules) |
+| Format | Spotless 3.10.4 + google-java-format 1.28.0 (`spotless:check`; GJF pinned — 1.37.0 changed the `JavaFormatterOptions.Style` API both spotless lines link against; `eclipse/.mvn/jvm.config` carries the JDK `--add-exports` GJF needs in-process) | every `verify`, every module | **yes** |
 | Architecture rules (package level) | ArchUnit over the reactor bytecode (`bundles/com.opencode.ide.arch.tests`; namespace, layer graph, Eclipse-free purity, bundle cycles) | every `verify` | **yes** |
 | Clean architecture + encoding | `releng/check-architecture.ps1` (exec check, repo convention: layers, no fixed paths, no mojibake) | every `validate`, once per reactor | **yes** |
 | Eclipse-free purity | per-bundle pwsh import scans: `ban-eclipse-imports` (client/git/fleet; `-DskipEclipseBan=true` skips) and `check-eclipse-free` (tools/tasks, not skippable) | every build | **yes** |
