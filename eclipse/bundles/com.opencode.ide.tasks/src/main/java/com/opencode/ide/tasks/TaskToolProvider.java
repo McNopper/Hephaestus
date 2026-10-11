@@ -141,6 +141,9 @@ public final class TaskToolProvider implements ToolProvider {
             case "task_send_back":
                 return json(store.sendBack(reqStr(a, "project"), reqStr(a, "ticket_id"),
                         reqStr(a, "reason"), optStr(a, "by", null)).toJson());
+            case "task_report_horizontal":
+                return json(store.reportHorizontal(reqStr(a, "project"), reqStr(a, "ticket_id"),
+                        reqStr(a, "reason"), optStr(a, "by", null)).toJson());
             case "task_set_blocked":
                 return json(store.setBlocked(reqStr(a, "project"), reqStr(a, "ticket_id"),
                         reqStr(a, "blocker"), optStr(a, "by", null)).toJson());
@@ -392,6 +395,18 @@ public final class TaskToolProvider implements ToolProvider {
                     obj.add("project", strP());
                     obj.add("ticket_id", strP());
                     obj.add("reason", strP("Why the ticket goes back; becomes part of the blocker text."));
+                    obj.add("by", strP());
+                })));
+        out.add(new McpTool("task_report_horizontal",
+                "HORIZONTAL V-model loop (U-082): report a ticket sideways to its V-LEVEL PAIR stage "
+                        + "(e.g. test-design -> design, test-requirements -> requirements) - the route for a "
+                        + "FAILED VALIDATION. Effect: stage and role move to the pair stage's, status resets to "
+                        + "product-backlog, the assignee is cleared and the blocked flag is raised with blocker "
+                        + "'reported from <old stage>: <reason>' (clear via task_clear_blocked once resolved).",
+                schema(new String[]{"project", "ticket_id", "reason"}, obj -> {
+                    obj.add("project", strP());
+                    obj.add("ticket_id", strP());
+                    obj.add("reason", strP("Why the validation failed; becomes part of the blocker text."));
                     obj.add("by", strP());
                 })));
         out.add(new McpTool("task_set_blocked", "Mark a task blocked with a reason (orthogonal flag).",

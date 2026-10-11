@@ -85,6 +85,22 @@ or coupling; otherwise prefer plain, simple code. Name any pattern you apply.
 - ...
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg produces **persistent artifacts** — this stage's output is written down and
+recorded, not just decided:
+
+1. **Your artifact:** this skill's Default Output as a document in the repo (components,
+   interfaces/contracts, key workflows, `DS-` ids), **recorded with `task_add_artifact`**
+   before the stage can exit — `task_advance` rejects a definition stage with zero
+   recorded artifacts.
+2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS (here:
+   the architecture record with its `ARCH-` dependency rules) — read them first; your
+   design honors them and your document cites the ids it addresses.
+3. **Flow back only on two triggers:** the architecture is *missing* something this design
+   needs, or *needs refactoring/clarification* — `task_send_back` (or `clarification:`
+   first). Otherwise cover in place; never flow back by reflex.
+
 ## When to Hand Off
 - **Up the chain:** boundary/structure questions go back to **software-architecture**.
 - **Down the chain:** pass the design to **software-implementation**.

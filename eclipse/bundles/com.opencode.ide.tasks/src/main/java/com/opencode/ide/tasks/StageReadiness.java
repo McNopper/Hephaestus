@@ -24,7 +24,11 @@ import java.util.Map;
  *
  * <p>Upstream of a definition stage is the previous ladder stage; upstream of
  * a verification stage is its paired definition stage (test-design waits on
- * design, test-implementation on implementation, ...).</p>
+ * design, test-implementation on implementation, ...). An epic-chain upstream
+ * only satisfies its downstream when it also carries a RECORDED ARTIFACT
+ * (U-081): a label proves nothing - "done" with an empty artifact list reads
+ * as "the architecture was not done" and reports WAIT_UPSTREAM until the
+ * product is recorded.</p>
  *
  * <p>Precedence, first match wins (pinned by tests):
  * NOT_APPLICABLE (no/invalid stage) &gt; BLOCKED &gt; RUNNING (in-progress/
@@ -117,6 +121,40 @@ public final class StageReadiness {
         return VStages.previous(stage);
     }
 
+    /**
+     * The epic-chain tickets whose stage sits strictly BEFORE {@code t}'s on
+     * the V ladder - the definition work that GOVERNS this stage (U-079:
+     * top-down coverage). The dispatch prompt builder delivers these
+     * automatically so an agent working concrete detail never loses the
+     * architecture. Deduplicated by id, ordered by ladder position
+     * (requirements first, ties by id), null-safe; status is not filtered -
+     * an upstream still in rework is context too. The ticket's own advance
+     * history is NOT part of this list (the store gates that separately).
+     */
+    public static List<Task> governingDefinitions(Task t, List<Task> tickets) {
+        if (t == null || !VStages.isValid(t.stage) || tickets == null) {
+            return List.of();
+        }
+        int here = VStages.STAGES.indexOf(t.stage);
+        Map<String, Task> byId = new LinkedHashMap<>();
+        for (Task u : tickets) {
+            if (u == null || u.id == null || u.id.equals(t.id)) {
+                continue;
+            }
+            if (!VStages.isValid(u.stage) || VStages.STAGES.indexOf(u.stage) >= here) {
+                continue;
+            }
+            if (linkedByEpic(t, u)) {
+                byId.putIfAbsent(u.id, u);
+            }
+        }
+        List<Task> out = new java.util.ArrayList<>(byId.values());
+        out.sort(java.util.Comparator
+                .comparingInt((Task u) -> VStages.STAGES.indexOf(u.stage))
+                .thenComparing(u -> u.id));
+        return out;
+    }
+
     private static Readiness of(Task t, List<Task> tickets) {
         if (!VStages.isValid(t.stage)) {
             return new Readiness(Kind.NOT_APPLICABLE, "ticket has no V stage");
@@ -146,6 +184,14 @@ public final class StageReadiness {
             }
             return new Readiness(Kind.WAIT_UPSTREAM, "no done/in-review ticket in upstream stage '"
                     + upstream + "' (epic chain or own advance history)");
+        }
+        // U-081: proof of upstream work is the artifact, not the label - a
+        // done/in-review upstream with nothing recorded cannot satisfy its
+        // downstream (backfilling the artifact is what unblocks it)
+        if (viaEpic != null && (viaEpic.artifacts == null || viaEpic.artifacts.isEmpty())) {
+            return new Readiness(Kind.WAIT_UPSTREAM, "upstream " + viaEpic.id + " (" + upstream
+                    + ", " + viaEpic.status + ") claims done but has no artifact;"
+                    + " record it with task_add_artifact on the upstream first");
         }
         if (viaEpic != null && ranBefore(t) && isStrictlyAfter(viaEpic.updatedAt, t.updatedAt)) {
             return new Readiness(Kind.STALE, "upstream " + viaEpic.id + " (" + upstream

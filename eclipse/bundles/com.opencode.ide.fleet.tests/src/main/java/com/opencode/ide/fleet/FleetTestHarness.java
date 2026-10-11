@@ -67,7 +67,11 @@ public abstract class FleetTestHarness {
         TaskStore.CreateSpec spec = new TaskStore.CreateSpec(
                 "Stage work", "Do the thing.", "task", VStages.roleOf(stage), "high", 3,
                 acs, java.util.List.of(), null, "T");
-        return store.create(PROJECT, spec, stage).id;
+        String id = store.create(PROJECT, spec, stage).id;
+        // U-080: definition stages exit only with a recorded product - the
+        // fixture stands in for the stage's artifact
+        store.addArtifact(PROJECT, id, "doc", "docs/" + stage + "-product.md", "stage product", "fixture");
+        return id;
     }
 
     /**

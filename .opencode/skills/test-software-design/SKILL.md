@@ -60,6 +60,22 @@ to this software (linked in), not reusable outside it — that is a library's ro
 Provide runnable tests.
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg's artifacts are **persistent truth**; the right leg **validates** — it proves
+they are *there* and *fulfilled*, and creates no new definition:
+
+1. **Your artifact:** the component tests/golden evidence at the AC-named paths, recorded
+   with `task_add_artifact` before finishing.
+2. **Validate the pair:** the prompt delivers the paired definition (`design` with its
+   `DS-` contract ids) — every acceptance criterion maps to a test that proves the
+   component contract holds.
+3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+   to the paired definition stage (this stage's pair: `design`) with the failing evidence —
+   the component test passing at unit level but failing here is exactly this loop. Only a
+   *missing or wrong upstream definition* goes back vertically (`task_send_back`);
+   questions go `clarification:` first.
+
 ## When to Hand Off
 - **Up the chain:** failures point back to **software-design** or its implementation.
 - **Down the chain:** isolated logic belongs to **test-software-implementation**; multi-component behaviour to **test-software-system**.

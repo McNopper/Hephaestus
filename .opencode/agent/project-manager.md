@@ -43,6 +43,21 @@ frontmatter override), and reference **tiers**, never model IDs.
 - **Escalations**: log human-worthy decisions rather than deciding them yourself.
 - **Roadmap / status views**: keep a human-readable board and status current.
 
+## V-enforcement contract
+
+- **Requirements are a persistent artifact too:** the requirements record (`FR-`/`AC-`
+  ids) is created at the requirements stage and recorded with `task_add_artifact` —
+  `task_advance` refuses a definition-stage exit without it; `task_doctor` lints legacy
+  done/in-review definition tickets that carry none.
+- **Dispatch delivers the upstream automatically** (UPSTREAM DEFINITIONS in the worker
+  prompt) — as the one who writes tickets and plans waves, expect workers to *cite* the
+  upstream ids, and treat "done" claims without artifact + coverage as incomplete.
+- **Readiness is evidence-based:** an upstream that claims done without an artifact holds
+  its downstream in WAIT_UPSTREAM until backfilled — surface these, don't route around them.
+- **Routing is two-trigger:** failed validation → `task_report_horizontal` (V-level pair);
+  missing/wrong definition → `task_send_back` (previous stage); questions → `clarification:`
+  (max 3 round-trips), NEEDS-HUMAN only after the loop is exhausted.
+
 ## Autonomy — freedom & its edge
 
 Waves run themselves; the human's **only regular duty** is resolving

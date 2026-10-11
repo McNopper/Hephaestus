@@ -52,7 +52,8 @@ reference model with primary (SYS/SWE/HWE/VAL/REU), supporting
 | SWE.5–SWE.8 / VAL (verification & validation at each level) | the verification leg: `test-implementation` … `test-requirements` — the **horizontal reporting line** |
 | V-model (level-matched validation) | the two flows in AGENTS.md: **along the V** (advance / send-back) and **horizontal for validation** (paired `test-X` ↔ `X`) |
 | Base practices + work products (evidence) | the ticket's execution: dispatch → work → review pass; artifacts recorded via `task_add_artifact` are the **work products/records** |
-| SUP.9/SUP.10 problem & change request | **blocked → back to origin**: `task_send_back` / clarification round-trips (U-023), a new requirement upstream answers the implementation question |
+| Required work products at stage exit (SWE.1–SWE.4 outputs) | **U-078..U-082 enforcement:** `task_advance` refuses a definition-stage exit with zero recorded artifacts, `task_doctor` lints legacy artifactless definition tickets, and readiness treats an artifactless "done" upstream as unproven (WAIT_UPSTREAM until backfilled) |
+| SUP.9/SUP.10 problem & change request | **blocked → back to origin**: `task_send_back` / clarification round-trips (U-023), a new requirement upstream answers the implementation question; **failed validation → horizontal pair** via `task_report_horizontal` (U-082), routed by the reviewer's FAIL verdict (verification stage sideways, definition stage vertical) |
 | MAN.6 measurement | `fleet actuals:` (cost/tokens per run) + readiness/traceability verdicts = the effort record; this is why results/artifacts live ON the ticket |
 | CL1 Performed | a ticket whose stage work + review pass actually happened (gate green, verdict PASS) |
 | CL2 Managed | a wave: planned (`task_plan_sprint`), monitored (readiness, budgets, watchdog), work products verified (review) and configured (git + task store) |
@@ -68,6 +69,14 @@ reference model with primary (SYS/SWE/HWE/VAL/REU), supporting
 signals); explicit problem-resolution loop (blocked → origin, clarify via
 requirement); measurement as effort tracking (`fleet actuals:` + history);
 a written standard process (AGENTS.md/skills) = CL3 intent.
+**Enforced 2026-10-11 (U-078..U-082):** work products are *required* at
+definition-stage exit (advance gate + doctor lint), dispatch *automatically*
+delivers the governing upstream artifacts (top-down coverage), readiness
+trusts artifact presence over status labels, DONE is a four-box gate verdict
+(artifact · coverage · criteria · gate) rather than an agent's claim, and the
+horizontal loop is a first-class tool (`task_report_horizontal`) with
+stage-kind routing of review failures — the owner's framing: *an automated
+ASPICE process using software agents; the human only adds requirements.*
 
 **Deliberately not adopted:** assessor roles/rating bureaucracy (NPLF
 percentages, attribute scoring) — the harness automates the *evidence*

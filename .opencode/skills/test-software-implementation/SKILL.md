@@ -58,6 +58,22 @@ Provide runnable tests.
 - Dependencies mocked; behaviours not covered.
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg's artifacts are **persistent truth**; the right leg **validates** — it proves
+they are *there* and *fulfilled*, and creates no new definition:
+
+1. **Your artifact:** the unit tests/golden evidence at the AC-named paths, recorded with
+   `task_add_artifact` before finishing.
+2. **Validate the pair:** the prompt delivers the paired definition (`implementation` with
+   its `DS-`/`ARCH-` ids) — every acceptance criterion maps to a test that proves it, and
+   every cited id either passes or is reported.
+3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+   to the paired definition stage (this stage's pair: `implementation`) with the failing
+   evidence — "unit works but the design contract is wrong" is exactly this loop. Only a
+   *missing or wrong upstream definition* goes back vertically (`task_send_back`);
+   questions go `clarification:` first.
+
 ## When to Hand Off
 - **Up the chain:** failures point back to **software-implementation**.
 - **Down the chain:** behaviour spanning components belongs to **test-software-design** (component test).

@@ -24,6 +24,8 @@ public class ArchiveReadinessTest extends StoreTestHarness {
         if (epic != null) {
             t = store.update("p", t.id, Map.of("epic", epic));
         }
+        // U-081: a satisfying upstream must be PROVEN (artifacted)
+        store.addArtifact("p", t.id, "doc", "docs/" + stage + "-product.md", "stage product", "fixture");
         return t;
     }
 

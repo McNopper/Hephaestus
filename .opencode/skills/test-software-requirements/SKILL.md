@@ -58,6 +58,23 @@ Then ...
 - Steps to execute the acceptance checks (manual or automated).
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg's artifacts are **persistent truth**; the right leg **validates** — it proves
+they are *there* and *fulfilled*, and creates no new definition. This is the V tip:
+**acceptance** — the requirements themselves are on trial:
+
+1. **Your artifact:** the acceptance tests/golden evidence at the AC-named paths, recorded
+   with `task_add_artifact` before finishing.
+2. **Validate the pair:** the prompt delivers the paired definition (the requirements
+   record with its `FR-`/`AC-` ids) — every `FR-`/`AC-` id maps to a scenario that proves
+   it; an unmet requirement is a failed validation, full stop.
+3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+   to the paired definition stage (this stage's pair: `requirements`) with the failing
+   evidence — "the requirements are not met" lands exactly there. Only a *missing or wrong
+   upstream definition* goes back vertically (`task_send_back`); questions go
+   `clarification:` first.
+
 ## When to Hand Off
 - **Up the chain:** failures point back to **software-requirements** (gap or unmet need).
 - **Down the chain:** part-to-part wiring issues belong to **test-software-system**.

@@ -43,6 +43,23 @@ never model IDs.
   run + results, acceptance verdict, unresolved risks, follow-up tasks, and a
   confidence note.
 
+## V-enforcement contract
+
+You work a CLAIMED STAGE of the V — the harness forces the process, you supply the work:
+
+- **Deliver the upstream, cover it.** Your prompt carries UPSTREAM DEFINITIONS (governing
+  tickets + their artifact refs). Read them before writing anything and cite the ids your
+  output covers — concrete detail never starts without the abstraction in the room.
+- **Produce this stage's artifact** and record it with `task_add_artifact` BEFORE
+  `in-review`. A definition stage cannot exit without one: `task_advance` rejects it.
+- **Done is not yours to declare:** artifact · coverage · criteria verified · quality gate.
+  You claim `in-review`; the reviewer/gate declares done. "It works" is proven by the
+  paired `test-*` stage, never by this stage's own claim.
+- **Loops, exactly two triggers:** failed validation of your output →
+  `task_report_horizontal` (to the V-level pair); missing or wrong upstream →
+  `task_send_back` (previous stage); question → `clarification:` first. Never flow back
+  by reflex.
+
 ## Guardrails
 - "Too large" means exceeding the ticket's acceptance-criteria scope — a
   several-hundred-line single file is NORMAL work, not a stop condition.

@@ -87,6 +87,10 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
         String toolId = created.get("id").getAsString();
         callOk("task_update",
                 "{\"project\":\"p\",\"ticket_id\":\"" + toolId + "\",\"status\":\"in-review\",\"assignee\":\"w\"}");
+        // U-080: a definition-stage advance requires the stage's product
+        callOk("task_add_artifact",
+                "{\"project\":\"p\",\"ticket_id\":\"" + toolId + "\",\"kind\":\"doc\","
+                        + "\"ref\":\"docs/requirements-product.md\",\"note\":\"stage product\"}");
         JsonObject advanced = callOk("task_advance",
                 "{\"project\":\"p\",\"ticket_id\":\"" + toolId + "\",\"by\":\"pm\"}");
         assertEquals("system", advanced.get("stage").getAsString());
@@ -97,6 +101,7 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
         TaskStore direct = new TaskStore(root);
         String twinId = direct.create("p", TaskStore.CreateSpec.of("direct walker"), "requirements").id;
         direct.update("p", twinId, Map.of("status", "in-review", "assignee", "w"));
+        direct.addArtifact("p", twinId, "doc", "docs/requirements-product.md", "stage product", "fixture");
         Task twin = direct.advance("p", twinId, "pm");
         Task toolTicket = direct.get("p", toolId);
 
@@ -111,5 +116,23 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
         assertEquals("pm", toolLast.by());
         assertEquals("and the tool-written file carries the stage",
                 "system", new TaskStore(root).get("p", toolId).stage);
+    }
+
+    /** U-082: the horizontal loop is an agent tool - sideways to the V-level pair. */
+    @Test
+    public void reportHorizontalThroughToolsLandsInThePairStage() {
+        callOk("task_create", "{\"project\":\"p\",\"title\":\"sideways\",\"stage\":\"test-design\"}");
+
+        JsonObject reported = callOk("task_report_horizontal",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"design contract violated\","
+                        + "\"by\":\"tester\"}");
+
+        assertEquals("design", reported.get("stage").getAsString());
+        assertEquals("blocked", reported.get("status").getAsString());
+        assertTrue(reported.get("blocker").getAsString()
+                .startsWith("reported from test-design: design contract violated"));
+        String blank = callErrorText("task_report_horizontal",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"\"}");
+        assertTrue("a blank reason is rejected like every other route", blank.contains("reason"));
     }
 }

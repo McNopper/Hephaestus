@@ -466,3 +466,51 @@ batch implemented what is testable now:
   T-030 (release script), U-075 (why the TUI feels faster - a measured
   investigation), the tester guide (`docs/TESTING.md`) that this round
   added for the owner's external testers.
+
+## H15 - The V-enforcement round - 2026-10-11
+
+The owner's process contract - seven rules streamed as chat (the requirements
+for this round) - landed across agents, skills and the harness as wave S-07
+(U-078..U-082). The owner's framing: *an automated ASPICE process using
+software agents; the human only adds the requirements.*
+
+- **Definition stages cannot exit bare (U-080):** `task_advance` rejects a
+  requirements/system/architecture/design exit with zero recorded artifacts
+  (a rationale doc counts; `passStage` stays the no-impact route), and
+  `task_doctor` lints legacy done/in-review definition tickets without one -
+  the "architecture was not done" detective.
+- **Top-down coverage is automatic (U-079):** the dispatch prompt injects the
+  governing UPSTREAM DEFINITIONS (epic-chain tickets + artifact refs), raises
+  GOVERNING DEFINITION MISSING on a "done" upstream with nothing recorded,
+  and forces non-bug work with nothing above it at all to write the missing
+  abstraction first. The prompt also carries the coverage, done-as-verdict
+  and right-leg-proof protocol lines plus the two-loop routing table.
+- **Evidence beats labels (U-081):** readiness reports WAIT_UPSTREAM for an
+  upstream that claims done with no artifact ("record it with
+  task_add_artifact first"); backfilling unblocks the downstream. Across
+  gates #20-#22 this rule caught ~16 of the round's OWN test fixtures that
+  claimed unproven upstreams - the harness enforcing its process on its own
+  developers before it ever enforced it on a fleet.
+- **Done is a gate verdict, not a claim:** artifact - coverage (upstream ids
+  cited) - every acceptance criterion verified - quality gate ran; the worker
+  claims `in-review`, the reviewer checks the four boxes, "it works" is proven
+  on the paired `test-*` stage (rule 6/7 of the contract).
+- **The horizontal loop became an agent tool (U-082):**
+  `task_report_horizontal` (24th task_* tool) lands a failed validation at the
+  V-level pair (test-design -> design), and the reviewer's FAIL verdict routes
+  by stage kind - verification stages sideways, definition stages vertical,
+  first stage/unstaged blocked in place. The right leg is a ladder of
+  validation (unit -> implementation ... acceptance -> requirements) whose
+  failures cross, never slide down.
+- **Docs:** all ten software-*/test-software-* skills carry a Stage Contract
+  (persistent artifact + coverage step + two-trigger routing; the test skills
+  state "left leg = persistent truth, right leg = validation"); the four
+  worker/reviewer agents carry the four-box contract; AGENTS.md has the
+  V-enforcement block; `docs/spice-alignment.md` maps the enforcement onto
+  SPICE work products; README states the ASPICE framing and the scope model
+  (requirements = scope, sub-scopes via epics, human only on scope change).
+- **Research (independent, background):** no shipped harness combines these
+  mechanisms - Spec Kit / AWS Kiro gate at prompt level, Rel(AI)Build is
+  deterministic but un-V-paired, the IBM iX V-model agent blueprint exists on
+  paper only (`docs/competitive-landscape.md` for the prior round; sources in
+  the research synthesis).

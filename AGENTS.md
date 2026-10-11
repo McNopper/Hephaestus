@@ -159,7 +159,7 @@ product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-r
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
 blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
   returns to resume_to (default sprint-backlog); done and paused can never be blocked
-stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason)
+stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason); task_report_horizontal -> the V-level pair stage (blocked + reason; the route for a failed validation)
 ```
 
 **Write discipline.** Store writes go through the `task_*` tools (or the engine API),
@@ -236,6 +236,27 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
 | `test-architecture` | tester | `test-software-architecture` |
 | `test-system` | tester | `test-software-system` |
 | `test-requirements` | tester | `test-software-requirements` |
+
+**V-enforcement — the process the harness forces (U-078..U-082):**
+
+- **Every definition stage CREATES a persistent artifact** (the stage's document, recorded
+  with `task_add_artifact`); `task_advance` refuses a definition-stage exit without one
+  (a rationale recorded as a doc artifact counts) and `task_doctor` lints legacy
+  done/in-review definition tickets that carry none ("the architecture was not done").
+- **Top-down coverage is automatic:** the dispatch prompt injects the governing UPSTREAM
+  DEFINITIONS (epic-chain tickets + artifact refs) — a `done` upstream with no artifact
+  yields a GOVERNING DEFINITION MISSING block, and non-bug work with nothing above it at
+  all is forced to write the missing abstraction first. The right leg's artifacts are
+  persistent truth; it only validates they are *there* and *fulfilled*.
+- **DONE is a gate verdict, not an agent's claim:** artifact · coverage (upstream ids
+  cited) · every acceptance criterion verified · quality gate ran — "it works" is proven
+  on the paired `test-*` stage, and readiness refuses an upstream that claims done with
+  no artifact (backfill unblocks).
+- **Routing — two triggers only:** a FAILED VALIDATION loops **horizontally**
+  (`task_report_horizontal` → the V-level pair, e.g. test-design → design; the reviewer's
+  FAIL verdict routes by stage kind); a MISSING or WRONG definition loops **vertically**
+  (`task_send_back` → previous stage, `clarification:` first, max 3 round-trips). Cover in
+  place otherwise — never flow back by reflex.
 
 ## C++ and graphics are tools, not a separate lifecycle
 

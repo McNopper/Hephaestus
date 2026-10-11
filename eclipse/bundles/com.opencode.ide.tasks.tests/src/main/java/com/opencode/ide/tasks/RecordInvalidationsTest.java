@@ -58,6 +58,9 @@ public class RecordInvalidationsTest {
         store.update("p", child.id, Map.of("title", child.title + " v2"));
         tick();
         store.update("p", parent.id, Map.of("status", "done"));
+        // U-081: the stale pair presupposes a proven (artifacted) upstream -
+        // recorded last so the parent stays the newest input
+        store.addArtifact("p", parent.id, "doc", "docs/architecture-product.md", "stage product", "fixture");
         return new String[] {parent.id, child.id};
     }
 

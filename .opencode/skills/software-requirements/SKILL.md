@@ -107,6 +107,22 @@ quality attributes and the acceptance tests):
 - Q-001: ...
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg produces **persistent artifacts** — this stage's output is written down and
+recorded, not just decided:
+
+1. **Your artifact:** this skill's Default Output as a document in the repo (goal,
+   stories, `FR-`/`AC-` ids), **recorded with `task_add_artifact`** before the stage can
+   exit — `task_advance` rejects a definition stage with zero recorded artifacts.
+2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS
+   (governing tickets + their artifact refs) — read them first and cite the ids your
+   artifact addresses. (V start: your input is the brief/epic; an insufficient brief goes
+   back with `task_send_back` reason starting `clarification:`.)
+3. **Flow back only on two triggers:** something is *missing* from the previous stage, or
+   it *needs refactoring/clarification* — `task_send_back` (or `clarification:` first).
+   Otherwise cover in place; never flow back by reflex.
+
 ## When to Hand Off
 - **To system shape:** pass requirements to the **software-system** skill to decide the overall shape.
 - **To verification:** each requirement should map to an **acceptance test** (`test-software-requirements`) case.

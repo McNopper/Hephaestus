@@ -150,4 +150,50 @@ public class AdvanceGateTest extends StoreTestHarness {
         assertEquals("developer", t.role);
         assertEquals("worker", t.assignee);
     }
+
+    // ---- U-080: a definition stage never exits without its product ----
+
+    /** A staged ticket WITHOUT any recorded artifact (the bare-exit fixture). */
+    private String bare(String stage, String status) {
+        Task t = store.create("p", TaskStore.CreateSpec.of("bare"), stage);
+        store.update("p", t.id, Map.of("status", status, "assignee", "worker"));
+        return t.id;
+    }
+
+    @Test
+    public void definitionStageExitRequiresARecordedArtifact() {
+        String id = bare("design", "in-review");
+        try {
+            store.advance("p", id, "dev");
+            fail("expected Invalid: a definition stage never exits bare");
+        } catch (TaskStore.Invalid expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("design"));
+            assertTrue("the message names the way out", expected.getMessage().contains("task_add_artifact"));
+        }
+        Task unchanged = store.get("p", id);
+        assertEquals("a rejected advance changes nothing", "design", unchanged.stage);
+        assertEquals("in-review", unchanged.status);
+        assertEquals("worker", unchanged.assignee);
+    }
+
+    @Test
+    public void definitionStageExitSucceedsOnceTheProductIsRecorded() {
+        String id = bare("design", "in-review");
+        store.addArtifact("p", id, "doc", "docs/design-product.md", "stage product", "dev");
+
+        Task advanced = store.advance("p", id, "dev");
+
+        assertEquals("implementation", advanced.stage);
+        assertEquals("developer", advanced.role);
+    }
+
+    @Test
+    public void verificationStageExitsDoNotRequireArtifacts() {
+        String id = bare("test-implementation", "in-review");
+
+        Task advanced = store.advance("p", id, "tester");
+
+        assertEquals("the right leg validates, it does not produce left-leg products",
+                "test-design", advanced.stage);
+    }
 }

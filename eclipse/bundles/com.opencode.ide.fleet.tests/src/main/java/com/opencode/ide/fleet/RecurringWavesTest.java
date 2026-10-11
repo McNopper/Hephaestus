@@ -310,6 +310,10 @@ public class RecurringWavesTest {
         var parent = store.create(PROJECT, new TaskStore.CreateSpec(
                 "requirements first", "", "task", "pm", "high", 1, List.of(), List.of(), null, "T"),
                 "requirements");
+        // U-081: the parent carries its stage product from the start - the
+        // child's readiness requires a PROVEN (artifacted) upstream to land
+        store.addArtifact(PROJECT, parent.id, "doc", "docs/requirements-product.md",
+                "stage product", "agent");
         var child = store.create(PROJECT, new TaskStore.CreateSpec(
                 "system after", "", "task", "architect", "critical", 2, List.of(), List.of(), parent.id, "T"),
                 "system");

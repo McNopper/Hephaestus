@@ -170,6 +170,10 @@ public class FleetOwnershipAndReworkTest {
         Task child = ticket(store, "p");
         upstream.stage = "requirements";
         upstream.status = "done";
+        // U-081: a proven upstream carries its product - the stale pair
+        // presupposes a trustworthy (artifacted) upstream
+        upstream.artifacts.add(new Task.Artifact("doc", "docs/requirements.md", "stage product", "agent",
+                Instant.parse("2025-02-01T00:00:00Z")));
         upstream.updatedAt = Instant.parse("2025-02-01T00:00:00Z");
         child.stage = "system";
         child.status = "done";

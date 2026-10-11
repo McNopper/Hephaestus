@@ -86,6 +86,25 @@ Provide the concrete code (functions, classes, edits).
 - ...
 ```
 
+## Stage Contract (V-enforcement)
+
+Working code ≠ done. This stage turns the DESIGN into code — the design came *before*
+you, and the proof comes *after* you:
+
+1. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS (the
+   design's `DS-` ids, the architecture's `ARCH-` dependency rules) — read them before
+   writing; cite the ids your change honors. Never work concrete detail without them.
+2. **Your artifact:** the changed files/branch, **recorded with `task_add_artifact`**
+   before `in-review` (a definition-stage exit without a recorded artifact is rejected).
+3. **DONE = the four boxes:** artifact recorded · coverage declared (upstream ids cited) ·
+   every acceptance criterion verified against the actual result · the quality gate ran.
+   "It works" is **proven on the right leg — `test-software-implementation`** — never by
+   this stage's own claim. You claim `in-review`; the gate/reviewer declares done.
+4. **Flow back only on two triggers:** the design/architecture is *missing* something the
+   code needs, or *needs refactoring/clarification* — `task_send_back` (or
+   `clarification:` first). A failed test later loops back *horizontally* to this stage's
+   pair (see `test-software-implementation`); that is the right leg's verdict, not yours.
+
 ## When to Hand Off
 - **Up the chain:** unclear or missing design goes back to **software-design**.
 - **Across:** code behaviour is verified by **test-software-implementation** (unit test).

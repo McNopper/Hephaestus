@@ -59,6 +59,21 @@ libraries, and externals — not by package/folder adjacency.
 Provide runnable tests.
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg's artifacts are **persistent truth**; the right leg **validates** — it proves
+they are *there* and *fulfilled*, and creates no new definition:
+
+1. **Your artifact:** the integration tests/golden evidence at the AC-named paths,
+   recorded with `task_add_artifact` before finishing.
+2. **Validate the pair:** the prompt delivers the paired definition (`system` with its
+   `SW-` interface ids) — every acceptance criterion maps to a test that proves the
+   parts integrate as the system record says.
+3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+   to the paired definition stage (this stage's pair: `system`) with the failing evidence.
+   Only a *missing or wrong upstream definition* goes back vertically (`task_send_back`);
+   questions go `clarification:` first.
+
 ## When to Hand Off
 - **Up the chain:** failures point back to **software-system**.
 - **Adjacent chains:** single-component behaviour → **test-software-design**; user-facing outcomes → **test-software-requirements**.

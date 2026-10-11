@@ -123,6 +123,9 @@ public class AutoDispatchPreparationTest {
         upstream.stage = "requirements";
         upstream.status = "done";
         upstream.updatedAt = Instant.parse("2025-02-01T00:00:00Z");
+        // U-081: the stale pair presupposes a proven (artifacted) upstream
+        upstream.artifacts.add(new Task.Artifact("doc", "docs/requirements-product.md",
+                "stage product", "fixture", Instant.parse("2025-02-01T00:00:00Z")));
         child.id = "T-2";
         child.stage = "system";
         child.status = "done";

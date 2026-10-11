@@ -174,6 +174,8 @@ public class VPipelineTest extends StoreTestHarness {
         store.update("p", t.id, Map.of("stage", "design"));
         assertEquals("design", new TaskStore(store.root()).get("p", t.id).stage);
         // an advance survives a reopen as well
+        // U-080: the advance out of design needs the stage's product
+        store.addArtifact("p", t.id, "doc", "docs/design-product.md", "stage product", "fixture");
         store.update("p", t.id, Map.of("status", "in-review"));
         store.advance("p", t.id, null);
         assertEquals("implementation", new TaskStore(store.root()).get("p", t.id).stage);

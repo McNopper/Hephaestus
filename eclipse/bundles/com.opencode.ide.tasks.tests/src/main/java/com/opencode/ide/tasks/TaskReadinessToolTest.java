@@ -59,6 +59,10 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
         call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-007\",\"status\":\"in-progress\"}");
         tick();
         call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-006\",\"status\":\"done\"}");
+        // U-081: the STALE verdict needs a PROVEN upstream (artifacted) -
+        // recorded after the done touch so the anchor stays the newest input
+        call("task_add_artifact", "{\"project\":\"p\",\"ticket_id\":\"T-006\",\"kind\":\"doc\","
+                + "\"ref\":\"docs/architecture-product.md\",\"note\":\"stage product\"}");
     }
 
     private static List<String> ids(JsonArray rows) {

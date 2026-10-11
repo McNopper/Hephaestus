@@ -37,11 +37,14 @@ public class ReviewDoubtTest {
     }
 
     private Task staged(String stage) {
-        return store.create(PROJECT,
+        Task t = store.create(PROJECT,
                 new TaskStore.CreateSpec("Stage work", "Do the thing.", "task",
                         VStages.roleOf(stage), "high", 3,
                         List.of("ac one"), List.of(), null, "D"),
                 stage);
+        // U-080: definition-stage exits require a recorded product
+        store.addArtifact(PROJECT, t.id, "doc", "docs/" + stage + "-product.md", "stage product", "fixture");
+        return t;
     }
 
     @Test

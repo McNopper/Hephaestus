@@ -51,6 +51,9 @@ public class StageReadinessTest {
         t.status = status;
         t.createdAt = T1;
         t.updatedAt = T1;
+        // U-081: a normal ticket carries its product - tests that need a bare
+        // claim clear the list explicitly
+        t.artifacts.add(new Task.Artifact("doc", "docs/" + stage + "-product.md", null, null, T1));
         return t;
     }
 
@@ -61,6 +64,8 @@ public class StageReadinessTest {
     /** Real-store walk: requirements -> ... -> target, each hop gated through in-review. */
     private String walkTo(String target) {
         Task t = store.create("p", TaskStore.CreateSpec.of("walk to " + target), "requirements");
+        // U-080: definition-stage exits require a recorded product
+        store.addArtifact("p", t.id, "doc", "docs/stage-product.md", "stage product", "fixture");
         while (!target.equals(t.stage)) {
             store.update("p", t.id, Map.of("status", "in-review"));
             t = store.advance("p", t.id, "walker");
@@ -361,5 +366,63 @@ public class StageReadinessTest {
                 Arrays.asList(null, idless, normal));
         assertEquals(1, out.size());
         assertEquals(StageReadiness.Kind.READY, out.get("T-001").kind());
+    }
+
+    // ---- U-079: governingDefinitions - the top-down coverage selection ----
+
+    @Test
+    public void governingDefinitionsAreEarlierLadderEpicLinksInLadderOrder() {
+        Task t = ticket("T-100", "implementation", "in-progress");
+        t.epic = "U-1";
+        Task parent = ticket("U-1", "requirements", "done");          // linked by parent id
+        parent.artifacts.add(new Task.Artifact("doc", "docs/req.md", null, null, T1));
+        Task sibling = ticket("U-2", "design", "in-review");
+        sibling.epic = "U-1";                                         // linked by shared epic
+        Task notLinked = ticket("U-3", "requirements", "done");
+        Task laterStage = ticket("U-4", "test-implementation", "done");
+        laterStage.epic = "U-1";                                      // linked but not BEFORE
+
+        List<Task> out = StageReadiness.governingDefinitions(t,
+                Arrays.asList(null, sibling, parent, notLinked, laterStage));
+
+        assertEquals(2, out.size());
+        assertEquals("ladder order: requirements first", "U-1", out.get(0).id);
+        assertEquals("U-2", out.get(1).id);
+    }
+
+    @Test
+    public void governingDefinitionsAreDeduplicatedAndNullSafe() {
+        Task t = ticket("T-101", "test-design", "in-progress");
+        t.epic = "E-1";
+        Task a = ticket("U-5", "design", "done");
+        a.epic = "E-1";
+
+        assertEquals(1, StageReadiness.governingDefinitions(t, Arrays.asList(null, a, a)).size());
+        assertTrue(StageReadiness.governingDefinitions(null, List.of(a)).isEmpty());
+        assertTrue(StageReadiness.governingDefinitions(t, null).isEmpty());
+        assertTrue(StageReadiness.governingDefinitions(ticket("T-102", null, "done"), List.of(a)).isEmpty());
+    }
+
+    // ---- U-081: an artifactless upstream claims, it does not prove ----
+
+    @Test
+    public void anArtifactlessDoneUpstreamDoesNotSatisfyItsDownstream() {
+        Task t = ticket("T-200", "design", "product-backlog");
+        t.epic = "E-2";
+        Task arch = ticket("U-20", "architecture", "done");
+        arch.epic = "E-2";
+        arch.artifacts.clear(); // the bare claim: done with nothing recorded
+
+        StageReadiness.Readiness bare = StageReadiness.evaluate(List.of(t, arch)).get("T-200");
+
+        assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, bare.kind());
+        assertTrue(bare.reason(), bare.reason().contains("U-20"));
+        assertTrue("the reason names the missing proof", bare.reason().contains("claims done but has no artifact"));
+
+        arch.artifacts.add(new Task.Artifact("doc", "docs/architecture-product.md", null, null, T1));
+        StageReadiness.Readiness proven = StageReadiness.evaluate(List.of(t, arch)).get("T-200");
+
+        assertEquals("recording the product is what unblocks the downstream",
+                StageReadiness.Kind.READY, proven.kind());
     }
 }

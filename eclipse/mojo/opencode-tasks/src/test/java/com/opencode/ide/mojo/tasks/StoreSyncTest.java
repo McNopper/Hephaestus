@@ -196,6 +196,8 @@ public class StoreSyncTest {
         TaskStore store = new TaskStore(root);
         Task staged = store.create("demo", TaskStore.CreateSpec.of("Staged ticket"), "design");
         store.update("demo", staged.id, Map.of("status", "in-review"));
+        // U-080: a definition-stage exit requires a recorded product
+        store.addArtifact("demo", staged.id, "doc", "docs/design-product.md", "stage product", "fixture");
         store.advance("demo", staged.id, "walker");
         StoreSync.Result result = new StoreSync(root).run(false);
         assertTrue("expected no findings, got: " + result.projects().get(0).findings(),

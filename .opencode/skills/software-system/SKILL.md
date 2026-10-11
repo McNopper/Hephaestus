@@ -65,6 +65,22 @@ One paragraph: what the system is and its major parts.
 - ...
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg produces **persistent artifacts** — this stage's output is written down and
+recorded, not just decided:
+
+1. **Your artifact:** this skill's Default Output as a document in the repo (overview,
+   major parts, technology choices, `SW-` ids), **recorded with `task_add_artifact`**
+   before the stage can exit — `task_advance` rejects a definition stage with zero
+   recorded artifacts.
+2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS
+   (here: the requirements record with its `FR-`/`AC-` ids) — read them first; your
+   system must satisfy them and your document cites the ids it addresses.
+3. **Flow back only on two triggers:** requirements are *missing* something this system
+   needs, or *need refactoring/clarification* — `task_send_back` (or `clarification:`
+   first). Otherwise cover in place; never flow back by reflex.
+
 ## When to Hand Off
 - **Up the chain:** missing/unclear needs go back to **software-requirements**.
 - **Down the chain:** pass the shape to **software-architecture** for structure.

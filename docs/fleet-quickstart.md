@@ -183,10 +183,12 @@ Those comments are the measured cost baseline; they accumulate on tickets.
    parsed verdict:
    - **PASS** → ticket marked `done` + advanced into the next stage's backlog
      (`task_advance`) — no human click.
-   - **FAIL** → sent back (`task_send_back`) to the previous stage's backlog
-     with the reviewer's reasons, blocked (the human-escalation signal); an
-     unstaged ticket or the first stage has nowhere to go back to and is
-     blocked in place.
+   - **FAIL** → the loop the stage's work demands: a VERIFICATION stage fails
+     **horizontally** (`task_report_horizontal` to its V-level pair, e.g.
+     test-design → design), a DEFINITION stage back **vertically**
+     (`task_send_back` to the previous stage), with the reviewer's reasons,
+     blocked (the human-escalation signal); an unstaged ticket or the first
+     stage has nowhere to go and is blocked in place.
    - **UNCLEAR** (or a failed/unparsable review) → the doubt round-trips to
      the originator — the ticket returns to its own stage's backlog for one
      retry per stage visit; only a repeating doubt escalates to blocked. An

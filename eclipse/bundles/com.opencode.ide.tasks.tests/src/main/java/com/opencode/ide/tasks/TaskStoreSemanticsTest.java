@@ -463,6 +463,26 @@ public class TaskStoreSemanticsTest {
         assertEquals(List.of(), store.inconsistencies("p"));
     }
 
+    /** U-080: "the architecture was not done" is visible - done definition stage, no product. */
+    @Test
+    public void doctorReportsADoneDefinitionStageWithoutItsProduct() {
+        Task bare = store.create("p", TaskStore.CreateSpec.of("done but bare"), "architecture");
+        store.update("p", bare.id, Map.of("status", "done"));
+        Task verified = store.create("p", TaskStore.CreateSpec.of("right leg produces no product"),
+                "test-design");
+        store.update("p", verified.id, Map.of("status", "done"));
+        Task untracked = store.create("p", TaskStore.CreateSpec.of("unstaged done"));
+        store.update("p", untracked.id, Map.of("status", "done"));
+
+        List<String> drift = store.inconsistencies("p");
+
+        assertEquals("only the bare definition stage is reported: " + drift, 1, drift.size());
+        assertTrue(drift.get(0), drift.get(0).contains(
+                bare.id + ": stage=architecture (done) has no recorded artifact"));
+        store.addArtifact("p", bare.id, "doc", "docs/architecture-product.md", "stage product", "dev");
+        assertEquals("recording the product heals the report", List.of(), store.inconsistencies("p"));
+    }
+
     @Test
     public void backlogSortedByPriorityThenCreated() {
         Task low = store.create("p", TaskStore.CreateSpec.of("low"));
@@ -565,6 +585,8 @@ public class TaskStoreSemanticsTest {
     public void traceabilityCountsOwnJourneyAndTestArtifactsAndPmDefinitions() {
         // signal 2 (D-001): a ticket that walked into a test-* stage verifies itself
         Task walked = store.create("p", TaskStore.CreateSpec.of("walked the V"), "requirements");
+        // U-080: the walk crosses definition-stage gates, so it carries a product
+        store.addArtifact("p", walked.id, "doc", "docs/stage-product.md", "stage product", "fixture");
         while (!"test-implementation".equals(store.get("p", walked.id).stage)) {
             store.update("p", walked.id, Map.of("status", "in-review"));
             walked = store.advance("p", walked.id, "walker");

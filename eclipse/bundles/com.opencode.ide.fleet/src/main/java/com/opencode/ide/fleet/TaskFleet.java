@@ -16,6 +16,7 @@ import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.StageEvidence;
+import com.opencode.ide.tasks.StageReadiness;
 import com.opencode.ide.tasks.VStages;
 
 /**
@@ -336,7 +337,13 @@ public final class TaskFleet {
                 // U-054: the session title carries the ticket id prefix so
                 // sessions map to tickets by convention ("[T-014] title")
                 "[" + ticket.id + "] " + ticket.title,
-                SelfClaimPrompt.forTicket(ticket).project(project).build(),
+                // U-079: the prompt delivers the governing epic-chain
+                // definitions automatically (top-down coverage) - the agent
+                // never works concrete detail without them in the room
+                SelfClaimPrompt.forTicket(ticket).project(project)
+                        .upstream(StageReadiness.governingDefinitions(ticket,
+                                store.list(project, null, null, null, null)))
+                        .build(),
                 roleAgents.agentFor(ticket.role),
                 model,
                 bootstrap,
@@ -708,7 +715,13 @@ public final class TaskFleet {
                 String reason = verdict.reasonOrDefault();
                 store.addComment(project, taskId,
                         "review: FAIL" + reasonSuffix(reason), REVIEWER);
-                if (ticket.stage != null && VStages.previous(ticket.stage) != null) {
+                if (ticket.stage != null && VStages.isVerification(ticket.stage)) {
+                    // U-082: a failed VALIDATION loops HORIZONTALLY to the
+                    // definition that produced it (the right leg proves; its
+                    // failures return sideways to the V-level pair), never
+                    // down the ladder
+                    store.reportHorizontal(project, taskId, reason, REVIEWER);
+                } else if (ticket.stage != null && VStages.previous(ticket.stage) != null) {
                     store.sendBack(project, taskId, reason, REVIEWER);
                 } else {
                     // requirements (the first stage) or an unstaged ticket:

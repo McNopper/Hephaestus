@@ -26,6 +26,8 @@ public class FleetPipelineHandoffTest extends FleetTestHarness {
                 "Stage work", "Do the thing.", "task", VStages.roleOf(stage), "high", 3,
                 List.of("ac"), List.of(), null, "V");
         var t = store.create(PROJECT, spec, stage);
+        // U-080: definition-stage exits require a recorded product
+        store.addArtifact(PROJECT, t.id, "doc", "docs/" + stage + "-product.md", "stage product", "fixture");
         store.planSprint(PROJECT, "S-01", List.of(t.id), "goal");
         return t.id;
     }

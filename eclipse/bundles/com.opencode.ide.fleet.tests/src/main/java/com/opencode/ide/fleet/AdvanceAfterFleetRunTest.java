@@ -32,6 +32,8 @@ public class AdvanceAfterFleetRunTest extends FleetTestHarness {
                 "Write the requirements", "Capture WHAT and WHY.", "story",
                 VStages.roleOf("requirements"), "high", 3,
                 List.of("ac one", "ac two"), List.of(), null, "V"), "requirements");
+        // U-080: definition-stage exits require a recorded product
+        store.addArtifact(PROJECT, t.id, "doc", "docs/requirements.md", "stage product", "fixture");
         return t.id;
     }
 

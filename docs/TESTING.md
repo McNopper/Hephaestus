@@ -46,6 +46,11 @@ maps directly to a ticket.
 | **Blocked filter** | Blocked is a STATUS (U-067): the status filter menu lists it as the seventh entry; its 🚫 renders **red** in the status cell, the title stays clean (no duplicate marker), and the toolbar Needs me toggle filters the same state | U-065, U-067 |
 | **Readiness badges** | done tickets that entered mid-pipeline never badge as "waiting" | B-007-era fix |
 | **Chat streaming** | live text while a reply generates; a tool-using turn stays open until the final answer | T-010 |
+| **Stage artifact gate** | `task_advance` out of a definition stage with zero recorded artifacts is rejected naming `task_add_artifact` (a rationale doc counts); after recording one the same advance succeeds; `task_doctor` reports done/in-review definition tickets that carry no artifact | U-080 |
+| **Upstream injection** | a staged dispatch prompt carries `UPSTREAM DEFINITIONS` (governing tickets + artifact refs); a governing `done` ticket without artifacts shows `GOVERNING DEFINITION MISSING`; non-bug work with nothing above it starts top-down with the backfill instruction | U-079 |
+| **Horizontal loop** | `task_report_horizontal` is callable via `task_*` and lands the ticket at its V-level pair (test-design → design), blocked with "reported from …"; a reviewer FAIL routes a verification stage sideways and a definition stage vertically | U-082 |
+| **Evidence-based readiness** | an upstream claiming done with no artifact reports `WAIT_UPSTREAM` ("claims done but has no artifact"); recording the artifact unblocks the downstream to READY | U-081 |
+| **V-enforcement docs** | every software-*/test-software-* skill carries its *Stage Contract* section; executor/manifest-author/project-manager/reviewer carry the done-as-four-box contract; AGENTS.md has the V-enforcement block | U-078 |
 
 ## 3. The headless path (no Eclipse)
 

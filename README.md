@@ -36,7 +36,17 @@ V-pipeline and the fleet's waves.*
 ## Overview
 
 Hephaestus is an **opencode-native** template for **agentic project management and
-software development**. It is organized by **domain** (not by a lifecycle or folder
+software development** — in the owner's framing, an **automated ASPICE-style V-process
+using software agents**: the ten-stage V-model with persistent stage artifacts
+(machine-gated at exit), automatic top-down coverage, evidence-based readiness and
+horizontal defect loops (see `docs/spice-alignment.md`). You add the requirements; the
+harness forces everything below. The requirements define the **scope** — sub-scopes
+decompose along epic links, work *inside* the scope runs autonomously (cyclic waves with
+the fleet, chat/UI triggers without it), the human only jumps in when the scope itself
+must grow (`clarification:` exhausted → NEEDS-HUMAN), and the produced artifacts —
+requirements, architecture diagrams, design docs, test evidence — stay ordinary readable
+documents, so a human can overview the whole the pre-AI way. It is organized by
+**domain** (not by a lifecycle or folder
 tree): skills and agents are flat under `.opencode/` and named `<domain>-<descriptor>`.
 Project management is a concrete, Scrum-like **ticket/sprint** workflow over the
 **task store** (`.opencode/tasks/`, one Markdown file per ticket) served as `task_*`

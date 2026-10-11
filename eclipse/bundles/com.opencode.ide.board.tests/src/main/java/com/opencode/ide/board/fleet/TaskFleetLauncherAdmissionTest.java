@@ -31,6 +31,7 @@ import com.opencode.ide.fleet.Bootstrap;
 import com.opencode.ide.git.FleetGit;
 import com.opencode.ide.git.WorktreeManager;
 import com.opencode.ide.client.OpencodeClient;
+import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.TaskFileCodec;
 
@@ -247,6 +248,9 @@ public class TaskFleetLauncherAdmissionTest {
         child = store.get("p", child.id);
         upstream.status = "done";
         upstream.updatedAt = Instant.parse("2025-02-01T00:00:00Z");
+        // U-081: the stale pair presupposes a proven (artifacted) upstream
+        upstream.artifacts.add(new Task.Artifact("doc", "docs/requirements-product.md",
+                "stage product", "fixture", Instant.parse("2025-02-01T00:00:00Z")));
         child.status = "done";
         child.epic = upstream.id;
         child.updatedAt = Instant.parse("2025-01-01T00:00:00Z");

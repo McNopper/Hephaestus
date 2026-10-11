@@ -386,8 +386,13 @@ public final class TaskStore {
     /**
      * The V-model pipeline hand-forward: moves a ticket whose stage's work is
      * finished on to the <em>next</em> stage. Quality gate: the ticket must be
-     * {@code in-review} or {@code done} - an unfinished stage never advances.
-     * One transaction: stage and role move to the next stage's, status resets
+     * {@code in-review} or {@code done} - an unfinished stage never advances -
+     * and a DEFINITION stage (requirements/system/architecture/design) must
+     * have recorded at least one artifact: the stage's product is the whole
+     * point of the V, so a definition stage never exits bare (U-080; a
+     * rationale recorded as a doc artifact satisfies it, pass-throughs go
+     * through {@link #passStage} instead). One transaction: stage and role
+     * move to the next stage's, status resets
      * to {@code product-backlog} (the next stage's backlog is fed by the
      * previous stage), the assignee is cleared. A blocked ticket cannot advance at all: the
      * status guard below admits only in-review/done (U-067 - blocked is a
@@ -395,7 +400,8 @@ public final class TaskStore {
      *
      * @throws Invalid when the ticket has no (valid) stored stage - legacy
      *                 tickets must be staged explicitly, no guessing; when the
-     *                 status is not in-review/done; or when the ticket already
+     *                 status is not in-review/done; when a definition stage
+     *                 carries no recorded artifact; or when the ticket already
      *                 sits at the V tip ({@code test-requirements}).
      */
     public Task advance(String project, String id, String by) {
@@ -407,6 +413,11 @@ public final class TaskStore {
             if (!"in-review".equals(t.status) && !"done".equals(t.status)) {
                 throw new Invalid("cannot advance ticket in status '" + t.status
                         + "' (the stage's work must be finished: in-review or done)");
+            }
+            if (!VStages.isVerification(t.stage) && (t.artifacts == null || t.artifacts.isEmpty())) {
+                throw new Invalid("cannot leave definition stage '" + t.stage
+                        + "' without a recorded artifact: record the stage's product (or its"
+                        + " rationale) with task_add_artifact first");
             }
             String next = VStages.next(t.stage);
             if (next == null) {
@@ -1482,9 +1493,12 @@ public final class TaskStore {
      * (every other read skips them, so a corrupted file would otherwise
      * vanish silently), tickets that are {@code done} but still carry the
      * blocked flag, tickets with a sprint set while sitting in
-     * {@code product-backlog}, and {@code file}/{@code path} artifact refs
+     * {@code product-backlog}, {@code file}/{@code path} artifact refs
      * that do not resolve under the repo root (U-053: two corrupted refs sat
-     * unnoticed for days). Glob/brace/enumerated/prose-like refs are skipped,
+     * unnoticed for days), and - U-080 - done/in-review tickets parked on a
+     * DEFINITION stage without any recorded artifact (legacy rows the
+     * advance gate now refuses: "the architecture was not done"). Glob/
+     * brace/enumerated/prose-like refs are skipped,
      * and so is the whole resolution check when the repo root cannot be
      * determined from the store root's layout - one report line per file or
      * ticket, sorted; empty when the store is consistent. Read-only.
@@ -1501,6 +1515,12 @@ public final class TaskStore {
         for (Task t : tasks) {
             if (t.sprint != null && "product-backlog".equals(t.status)) {
                 out.add(t.id + ": status=product-backlog but sprint=" + t.sprint);
+            }
+            if (("done".equals(t.status) || "in-review".equals(t.status))
+                    && VStages.isValid(t.stage) && !VStages.isVerification(t.stage)
+                    && (t.artifacts == null || t.artifacts.isEmpty())) {
+                out.add(t.id + ": stage=" + t.stage + " (" + t.status
+                        + ") has no recorded artifact (record the stage's product with task_add_artifact)");
             }
         }
         Path repoRoot = repoRootOrNull();

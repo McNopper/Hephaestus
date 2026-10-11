@@ -25,6 +25,8 @@ public class BoardModelJourneyTest extends BoardModelTestHarness {
     private String flowedTicket() {
         var t = store.create("p", spec("flow", "developer"));
         store.update("p", t.id, Map.of("stage", "requirements"));
+        // U-080: the advance out of requirements needs the stage's product
+        store.addArtifact("p", t.id, "doc", "docs/requirements-product.md", "stage product", "fixture");
         store.update("p", t.id, Map.of("status", "in-review"));
         store.advance("p", t.id, "tester");
         store.sendBack("p", t.id, "rework the interfaces", "reviewer");

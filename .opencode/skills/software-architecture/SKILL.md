@@ -91,6 +91,22 @@ Event-Driven, CQRS, P2P) unless a requirement truly demands them.
 - ...
 ```
 
+## Stage Contract (V-enforcement)
+
+The left leg produces **persistent artifacts** — this stage's output is written down and
+recorded, not just decided:
+
+1. **Your artifact:** this skill's Default Output as a document in the repo (chosen
+   patterns, libraries, dependency rules, `ARCH-` decisions), **recorded with
+   `task_add_artifact`** before the stage can exit — `task_advance` rejects a definition
+   stage with zero recorded artifacts.
+2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS (here:
+   the system record with its `SW-` ids, and requirements above it) — read them first;
+   your architecture upholds them and your document cites the ids it addresses.
+3. **Flow back only on two triggers:** the system-level definition is *missing* something
+   this architecture needs, or *needs refactoring/clarification* — `task_send_back` (or
+   `clarification:` first). Otherwise cover in place; never flow back by reflex.
+
 ## When to Hand Off
 - **Up the chain:** shape/stack questions go back to **software-system**.
 - **Down the chain:** pass library boundaries to **software-design**.

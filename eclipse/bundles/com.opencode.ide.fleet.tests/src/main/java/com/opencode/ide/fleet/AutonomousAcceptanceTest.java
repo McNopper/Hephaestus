@@ -141,6 +141,31 @@ public class AutonomousAcceptanceTest extends FleetTestHarness {
                         && c.text().contains("no goals captured")));
     }
 
+    /** U-082: a failed validation on the right leg loops HORIZONTALLY to its pair. */
+    @Test
+    public void failedValidationOnTheRightLegReportsToThePairedDefinitionStage() {
+        String id = stagedTicket("test-design");
+        workerCompletesAndReviewReplies(
+                "the component contract does not hold.\nVERDICT: FAIL - design contract violated");
+
+        fleet.launch(PROJECT, id, REPO, TIMEOUT);
+
+        Task after = store.get(PROJECT, id);
+        assertEquals("horizontal: test-design fails -> design (not down the ladder)",
+                "design", after.stage);
+        assertEquals("developer", after.role);
+        assertEquals("blocked (state) with the pair backlog as resume", "blocked", after.status);
+        assertEquals("product-backlog", after.resumeTo);
+        assertTrue(after.isBlocked());
+        assertTrue("the blocker names the sideways route",
+                after.blocker.startsWith("reported from test-design: "));
+        assertNotNull("history records the horizontal hop",
+                after.history.stream()
+                        .filter(h -> h.action() != null && h.action().startsWith("reported to design")
+                                && "reviewer".equals(h.by()))
+                        .findAny().orElse(null));
+    }
+
     /**
      * B-007 FR-009 (the deliberately changed first outcome): a staged
      * ticket's UNCLEAR review routes the doubt to the originator for one

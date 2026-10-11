@@ -27,6 +27,9 @@ public abstract class StoreTestHarness {
     protected String staged(String stage, String status) {
         Task t = store.create("p", TaskStore.CreateSpec.of("t"), stage);
         store.update("p", t.id, Map.of("status", status, "assignee", "worker"));
+        // U-080: a definition stage always carries its product - the advance
+        // gate refuses bare exits, so the shared fixture records one
+        store.addArtifact("p", t.id, "doc", "docs/" + stage + "-product.md", "stage product", "fixture");
         return t.id;
     }
 }

@@ -30,6 +30,7 @@ public class TaskToolsDispatchTest {
 
     private static final List<String> EXPECTED_TOOLS = List.of(
             "task_create", "task_get", "task_list", "task_update", "task_advance", "task_send_back",
+            "task_report_horizontal",
             "task_set_blocked", "task_clear_blocked", "task_claim", "task_release", "task_add_comment",
             "task_add_artifact", "task_remove_artifact", "task_add_todo", "task_toggle_todo",
             "task_remove_todo", "task_backlog", "task_board", "task_plan_sprint", "task_close_sprint",
@@ -77,11 +78,11 @@ public class TaskToolsDispatchTest {
     }
 
     @Test
-    public void toolsListAdvertisesAllTwentyThreeToolsWithSchemas() {
+    public void toolsListAdvertisesAllTwentyFourToolsWithSchemas() {
         JsonObject response = JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}")).getAsJsonObject();
         JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-        assertEquals(23, tools.size());
+        assertEquals(24, tools.size());
         for (int i = 0; i < tools.size(); i++) {
             JsonObject tool = tools.get(i).getAsJsonObject();
             assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -303,6 +304,11 @@ public class TaskToolsDispatchTest {
                 "{\"project\":\"p\",\"title\":\"spec it\",\"stage\":\"requirements\"}");
         assertEquals("requirements", created.get("stage").getAsString());
         callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"in-review\"}");
+        assertTrue("U-080: a definition stage never exits bare - through the tool too",
+                call("task_advance", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}").get("isError").getAsBoolean());
+        callOk("task_add_artifact",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"kind\":\"doc\","
+                        + "\"ref\":\"docs/requirements-product.md\",\"note\":\"stage product\"}");
         JsonObject advanced = callOk("task_advance",
                 "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"by\":\"pm\"}");
         assertEquals("system", advanced.get("stage").getAsString());

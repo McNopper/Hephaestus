@@ -43,6 +43,7 @@ public class PipelineWalkTest {
     }
 
     private String walkToTip(String id) {
+        recordProduct(id);
         for (String next : VStages.STAGES.subList(1, VStages.STAGES.size())) {
             store.update("p", id, Map.of("status", "in-review"));
             store.advance("p", id, "walker");
@@ -50,10 +51,16 @@ public class PipelineWalkTest {
         return store.get("p", id).stage;
     }
 
+    /** U-080: the walk carries one stage product so every definition exit passes the gate. */
+    private void recordProduct(String id) {
+        store.addArtifact("p", id, "doc", "docs/stage-product.md", "stage product", "fixture");
+    }
+
     @Test
     public void walkingDownTheVAdvancesThroughEveryStageClearingAssignees() {
         Task t = store.create("p", TaskStore.CreateSpec.of("walk me down the V"), "requirements");
         String id = t.id;
+        recordProduct(id);
         assertEquals("requirements", t.stage);
         assertEquals("create keeps the spec's role; the stage owns the role only from the first advance on",
                 "developer", t.role);

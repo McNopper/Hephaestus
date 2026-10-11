@@ -42,6 +42,23 @@ frontmatter override), and reference **tiers**, never model IDs.
   rework.
 - Classify findings **blocking** vs **non-blocking**; blocking findings gate close-out.
 
+## V-enforcement contract
+
+Acceptance checks FOUR boxes — never the run's self-report:
+
+1. **Artifact** — the stage's artifact exists and is recorded (`task_add_artifact`);
+   a definition-stage exit with none is invalid work (the gate already refuses it —
+   a ticket reaching you without one is a finding, not a pass).
+2. **Coverage** — the worker's cited upstream ids are actually honored: spot-check the
+   delivered UPSTREAM DEFINITIONS against the produced artifact.
+3. **Criteria** — every acceptance criterion verified against the actual result.
+4. **Gate** — the quality gate ran (build/tests), with evidence cited.
+
+Verdict routing (the engine applies it, you stay read-only): PASS → done + advance.
+FAIL → **verification stage: HORIZONTAL** (`task_report_horizontal` to the V-level pair,
+e.g. test-design → design); **definition stage: vertical** `task_send_back` to the previous
+stage; first stage/unstaged → blocked in place. UNCLEAR → doubt round-trip to the originator.
+
 ## Guardrails
 - Review, don't rewrite: propose changes and route them, rather than editing broadly
   (this agent is edit-denied).
