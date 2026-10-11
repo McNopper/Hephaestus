@@ -39,13 +39,14 @@ function Resolve-EclipseRoot([string]$scriptDir) {
                 return $candidate
             }
         }
-    } catch { }
+    } catch { Write-Verbose "no git common dir for $scriptDir" }
     return $scriptDir
 }
 $here = Resolve-EclipseRoot $here
 
 # 1) java
-$java = (Get-Command java -ErrorAction SilentlyContinue)?.Source
+$javaCmd = Get-Command java -ErrorAction SilentlyContinue
+$java = if ($javaCmd) { $javaCmd.Source } else { $null }
 if (-not $java -and $env:JAVA_HOME) {
     $candidate = Join-Path $env:JAVA_HOME $(if ($IsWindows) { "bin/java.exe" } else { "bin/java" })
     if (Test-Path -LiteralPath $candidate) { $java = $candidate }
@@ -106,7 +107,7 @@ $osgiJar = Find-PlatformJar "org.eclipse.osgi"
 #     its classpath (NoClassDefFoundError mid-run, live 2026-09-19). The
 #     versioned dir also keeps concurrent servers from locking each other's
 #     copies on Windows; old versions are pruned best-effort.
-function Stage-Jars([string[]]$jars, [string]$name) {
+function Publish-ToolClasspath([string[]]$jars, [string]$name) {
     $stageRoot = Join-Path (Split-Path -Parent $here) ".git/opencode-fleet/lib"
     try {
         $stage = Join-Path $stageRoot "$name/$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))"
@@ -128,7 +129,7 @@ function Stage-Jars([string[]]$jars, [string]$name) {
     return $staged
 }
 
-$cp = (Stage-Jars @($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName,
+$cp = (Publish-ToolClasspath @($fleetJar.FullName, $clientJar.FullName, $gitJar.FullName, $tasksJar.FullName,
        $toolsJar.FullName, $gsonJar.FullName, $jobsJar.FullName, $commonJar.FullName, $osgiJar.FullName) "fleet-tools") -join [IO.Path]::PathSeparator
 & $java -cp $cp "-Dfile.encoding=UTF-8" com.opencode.ide.fleet.FleetStdioMain --root $Root
 # Propagate the JVM's exit code: opencode must see a crashed MCP server as a failure.

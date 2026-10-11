@@ -1,6 +1,7 @@
 # Domains
 
 ## About this document
+
 - **Kind:** `doc` / reference (part of `.opencode/docs/`).
 - **Read by:** agents and maintainers; **written by:** maintainers.
 - **Related:** complements `contracts.md`; the dispatch map is mirrored in `project-manager-orchestrate-execution`.

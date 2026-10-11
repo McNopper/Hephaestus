@@ -13,4 +13,5 @@
 
   <artifactId>com.opencode.ide.ui.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
+
 </project>

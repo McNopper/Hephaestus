@@ -12,6 +12,7 @@ description: >
 # Software Implementation Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the software-* domain set; pairs with `test-software-implementation`.
@@ -34,6 +35,7 @@ In this lifecycle, a **unit** is the smallest implementation element with a clea
 interface; implementation fills in that unit's final behaviour/content.
 
 ## Core Principles
+
 1. Follow the existing codebase conventions before introducing new patterns.
 2. Implement the design; surface gaps instead of silently redesigning.
 3. Aim for an MVP: the smallest thing that works — but done to a very good standard.
@@ -60,6 +62,7 @@ Even for a hobby MVP, hold a high bar:
   keep behaviour unchanged.
 
 ## Default Output
+
 ```md
 # Implementation: <Feature / Fix>
 
@@ -106,5 +109,6 @@ you, and the proof comes *after* you:
    pair (see `test-software-implementation`); that is the right leg's verdict, not yours.
 
 ## When to Hand Off
+
 - **Up the chain:** unclear or missing design goes back to **software-design**.
 - **Across:** code behaviour is verified by **test-software-implementation** (unit test).

@@ -1,6 +1,7 @@
 # AI-first C++23 build template
 
 ## About this document
+
 - **Kind:** `doc` / C++ subtree README
 - **Read by:** humans adopting the C++ skeleton; **written by:** maintainers
 - **Related:** pairs with `cpp/AGENTS.md` (command manifest)
@@ -16,7 +17,7 @@ subjective style gates.
 
 ## Layout
 
-```
+```text
 cpp/
 ├── CMakeLists.txt          # build + analysis wiring
 ├── CMakePresets.json       # environment-conditional presets (Windows: default/release/clang64/mingw64/windows/analysis; Linux+WSL: linux)

@@ -35,7 +35,7 @@ Write-Host "[debug] eclipse pid=$($proc.Id)"
 
 function Read-Stream($stream, [int]$seconds) {
     # line-based read (ASCII) so multi-line console output is captured reliably
-    try { $stream.ReadTimeout = 800 } catch { }
+    try { $stream.ReadTimeout = 800 } catch { Write-Verbose "stream has no settable ReadTimeout" }
     $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
     $sb = New-Object System.Text.StringBuilder
     $deadline = (Get-Date).AddSeconds($seconds)
@@ -66,7 +66,7 @@ for ($i = 0; $i -lt 150; $i++) {
         $test.Connect("127.0.0.1", $Port)
         $test.Close()
         $connected = $true; break
-    } catch { }
+    } catch { Write-Verbose "console probe attempt failed" }
 }
 Write-Host "[debug] console port up=$connected after ${elapsed}s" -ForegroundColor Cyan
 
@@ -79,13 +79,13 @@ if ($connected) {
     [void](Read-Stream $client.GetStream() 3)  # drain banner/prompt
 
     Write-Host "`n========== control: ss org.eclipse.ui (proves console works) ==========" -ForegroundColor Yellow
-    Write-Host (Invoke-Osgi $client "ss org.eclipse.ui" 6)
+    Write-Host -Object (Invoke-Osgi -client $client -cmd "ss org.eclipse.ui" -wait 6)
 
     Write-Host "========== ss opencode ==========" -ForegroundColor Yellow
-    Write-Host (Invoke-Osgi $client "ss opencode" 6)
+    Write-Host -Object (Invoke-Osgi -client $client -cmd "ss opencode" -wait 6)
 
     Write-Host "========== diag com.opencode.ide.ui ==========" -ForegroundColor Yellow
-    Write-Host (Invoke-Osgi $client "diag com.opencode.ide.ui" 6)
+    Write-Host -Object (Invoke-Osgi -client $client -cmd "diag com.opencode.ide.ui" -wait 6)
     $client.Close()
 }
 
@@ -96,16 +96,16 @@ Start-Sleep -Seconds $UpSeconds
 # Descendants(), so walk the process tree ourselves - otherwise a child keeps
 # running and holds the throwaway workspace lock. Collect BEFORE killing the
 # parent: once it dies its children are re-parented and no longer match.
-function Get-DescendantIds([int]$parentId) {
+function Get-DescendantId([int]$parentId) {
     $ids = @()
     foreach ($child in @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$parentId" -ErrorAction SilentlyContinue)) {
         $ids += [int]$child.ProcessId
-        $ids += Get-DescendantIds ([int]$child.ProcessId)
+        $ids += Get-DescendantId ([int]$child.ProcessId)
     }
     return $ids
 }
 $descendants = @()
-try { $descendants = @(Get-DescendantIds $proc.Id) } catch { Write-Host "[debug] child scan failed: $_" }
+try { $descendants = @(Get-DescendantId $proc.Id) } catch { Write-Host "[debug] child scan failed: $_" }
 
 try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop; Write-Host "[debug] stopped eclipse pid=$($proc.Id)" }
 catch { Write-Host "[debug] stop failed: $_" }

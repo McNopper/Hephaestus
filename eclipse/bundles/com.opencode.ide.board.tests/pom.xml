@@ -13,4 +13,5 @@
 
   <artifactId>com.opencode.ide.board.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
+
 </project>

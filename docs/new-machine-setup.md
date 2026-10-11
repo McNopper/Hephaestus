@@ -1,6 +1,7 @@
 # New machine setup — Hephaestus
 
 ## About this document
+
 - **Kind:** `doc` / setup runbook for bringing a fresh machine up.
 - **Read by:** the maintainer on a new PC, or any agent bootstrapping one.
 - **Related:** `eclipse/INSTALL.md` (build/deploy detail), root `AGENTS.md`

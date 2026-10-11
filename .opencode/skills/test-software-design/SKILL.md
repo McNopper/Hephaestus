@@ -10,6 +10,7 @@ description: >
 # Component Test Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the test-software-* domain set; pairs with `software-design`.
@@ -35,6 +36,7 @@ to this software (linked in), not reusable outside it — that is a library's ro
 (→ test-software-architecture).
 
 ## Core Principles
+
 1. Test the component through its designed interface, not its internals.
 2. Verify each contract behaviour the design promises.
 3. Stub/fake external collaborators; exercise the component itself.
@@ -42,6 +44,7 @@ to this software (linked in), not reusable outside it — that is a library's ro
 5. Trace tests to design elements where it adds value.
 
 ## Default Output
+
 ```md
 # Component Tests: <Component>
 
@@ -77,5 +80,6 @@ they are *there* and *fulfilled*, and creates no new definition:
    questions go `clarification:` first.
 
 ## When to Hand Off
+
 - **Up the chain:** failures point back to **software-design** or its implementation.
 - **Down the chain:** isolated logic belongs to **test-software-implementation**; multi-component behaviour to **test-software-system**.

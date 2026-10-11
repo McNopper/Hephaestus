@@ -1,6 +1,7 @@
 # Testing Hephaestus
 
 ## About this document
+
 - **Kind:** `doc` / test guide: how to build, deploy and exercise the
   harness, and how to report what you find.
 - **Read by:** anyone asked to test the harness (no repo knowledge

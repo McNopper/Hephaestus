@@ -12,6 +12,7 @@ description: >
 # Document Self-Description (About this document)
 
 ## About this document
+
 - **Kind:** `skill` (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent that creates or rewrites a Markdown file; also humans authoring docs; **written by:** maintainers
 - **Related:** part of the `project-manager-*` domain set; standalone (no lifecycle pair) — works independently of the PM/ticket system.

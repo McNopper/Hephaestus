@@ -10,6 +10,7 @@ description: >
 # Acceptance Test Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the test-software-* domain set; pairs with `software-requirements`.
@@ -33,6 +34,7 @@ Acceptance is evaluated at the software-system level (integrated libraries and
 externally visible interfaces), never at package/folder level.
 
 ## Core Principles
+
 1. Test from the user's perspective against acceptance criteria.
 2. Map each acceptance test to a requirement / user story.
 3. Use Given/When/Then to keep scenarios clear.
@@ -40,6 +42,7 @@ externally visible interfaces), never at package/folder level.
 5. Don't test internal structure — only externally observable behaviour.
 
 ## Default Output
+
 ```md
 # Acceptance Tests: <Project / Feature>
 
@@ -76,5 +79,6 @@ they are *there* and *fulfilled*, and creates no new definition. This is the V t
    `clarification:` first.
 
 ## When to Hand Off
+
 - **Up the chain:** failures point back to **software-requirements** (gap or unmet need).
 - **Down the chain:** part-to-part wiring issues belong to **test-software-system**.

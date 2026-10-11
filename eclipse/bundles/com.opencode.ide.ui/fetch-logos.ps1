@@ -1,4 +1,4 @@
-# fetch-logos.ps1 — refresh the vendored provider logos for the Providers view.
+﻿# fetch-logos.ps1 — refresh the vendored provider logos for the Providers view.
 #
 # Retrieves provider logo SVGs from Artificial Analysis
 # (https://artificialanalysis.ai/img/logos/<slug>_small.svg), vendors them under

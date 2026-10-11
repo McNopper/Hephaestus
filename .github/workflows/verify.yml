@@ -39,6 +39,14 @@ jobs:
         working-directory: eclipse
         run: ./build.ps1 clean verify
 
+      - name: SCA - scan dependencies for known vulnerabilities
+        shell: pwsh
+        run: ./releng/scan-deps.ps1
+
+      - name: Lint PowerShell and Markdown
+        shell: pwsh
+        run: ./releng/lint.ps1
+
       - name: Preserve verification reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -77,7 +77,7 @@ the `ToolProvider` SPI.
 
 **Verified dependency graph (Require-Bundle / maven edges, no cycles):**
 
-```
+```text
 client → gson, {jobs, equinox.common}      ← the JobManager runtime allowlist
 tools  → gson
 tasks  → tools, gson

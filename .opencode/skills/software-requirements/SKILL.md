@@ -11,6 +11,7 @@ description: >
 # Software Requirements Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the software-* domain set; pairs with `test-software-requirements`.
@@ -33,6 +34,7 @@ minimal: only requirements that genuinely matter for a hobby project.
 When naming the full product, prefer **software system** for precision.
 
 ## Core Principles
+
 1. Write requirements that are testable and unambiguous, using **EARS** syntax (see below).
 2. State the *what* and *why*; leave the *how* to design skills.
 3. Capture both functional requirements and the non-functional requirements that matter.
@@ -48,7 +50,7 @@ testable, unambiguous sentences.
 
 General form:
 
-> **WHILE** <optional precondition(s)>, **WHEN** <optional trigger>, the <system name> **SHALL** <system response>
+> **WHILE** `<optional precondition(s)>`, **WHEN** `<optional trigger>`, the `<system name>` **SHALL** `<system response>`
 
 Rules: zero or many preconditions; zero or one trigger; exactly one system name; one or many
 system responses; clauses always appear in the same temporal order. Combine the five basic
@@ -71,6 +73,7 @@ constraints that can't be phrased as conditional behaviour) are a poor fit for E
 in the NFR block in plain, measurable prose.
 
 ## Default Output
+
 ```md
 # Requirements: <Project / Feature>
 
@@ -124,5 +127,6 @@ recorded, not just decided:
    Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off
+
 - **To system shape:** pass requirements to the **software-system** skill to decide the overall shape.
 - **To verification:** each requirement should map to an **acceptance test** (`test-software-requirements`) case.

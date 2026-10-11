@@ -1,6 +1,7 @@
 # Contracts
 
 ## About this document
+
 - **Kind:** `doc` / reference (part of `.opencode/docs/`).
 - **Read by:** agents and maintainers; **written by:** maintainers.
 - **Related:** complements `domains.md`; the ticket/artifact rules are enforced by the `task_*` MCP tools (the `tasks` pack of the Eclipse harness's `eclipse-build` endpoint, also served over stdio via `eclipse/tasks-tools.ps1`) and the `project-manager-create-ticket` skill.

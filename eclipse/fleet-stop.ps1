@@ -23,10 +23,11 @@ $ErrorActionPreference = "Stop"
 
 $stopped = @()
 
-function Stop-MatchingProcesses([string[]]$needles, [string]$kind) {
-    $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and ($needles | Where-Object { $_ -and $_.Length -gt 0 -and $_.CommandLine }) }
-    # explicit per-process matching (the pipeline predicate above cannot see $_ of the outer scope safely)
+function Stop-MatchingProcess {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([string[]]$needles, [string]$kind)
+    # explicit per-process matching (a pipeline predicate cannot see $_ of the
+    # outer scope safely, so filter on the command line directly)
     $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         $cmd = $_.CommandLine
         if (-not $cmd) { return $false }
@@ -36,7 +37,7 @@ function Stop-MatchingProcesses([string[]]$needles, [string]$kind) {
         return $false
     }
     foreach ($p in $procs) {
-        if ($WhatIf) {
+        if (-not $PSCmdlet.ShouldProcess("pid $($p.ProcessId)", "stop $kind")) {
             Write-Host "[fleet-stop] would stop $kind pid $($p.ProcessId)" -ForegroundColor Yellow
             continue
         }
@@ -51,11 +52,11 @@ function Stop-MatchingProcesses([string[]]$needles, [string]$kind) {
 }
 
 # 1) the stdio tool servers (this repo's launchers name their main classes)
-Stop-MatchingProcesses @("com.opencode.ide.fleet.FleetStdioMain", "com.opencode.ide.tasks.TasksStdioMain") "tool server"
+Stop-MatchingProcess -WhatIf:$WhatIf -needles @("com.opencode.ide.fleet.FleetStdioMain", "com.opencode.ide.tasks.TasksStdioMain") -kind "tool server"
 
 # 2) the fleet's spawned opencode serve instances (the engine owns these;
 #    killing a leaked one is exactly the B-004 recovery this automates)
-Stop-MatchingProcesses @("opencode serve", "opencode-serve") "opencode serve"
+Stop-MatchingProcess -WhatIf:$WhatIf -needles @("opencode serve", "opencode-serve") -kind "opencode serve"
 
 if ($WhatIf) {
     Write-Host "[fleet-stop] dry run complete - nothing stopped"

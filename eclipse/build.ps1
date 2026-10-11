@@ -38,7 +38,7 @@ function Resolve-JavaHome {
         foreach ($glob in @("/usr/lib/jvm/java-2*-openjdk-*", "/usr/lib/jvm/temurin-*", "/opt/java/*")) {
             if ($result) { break }
             foreach ($m in (Get-Item $glob -ErrorAction SilentlyContinue)) {
-                if (Test-Path (Join-Path $m.FullName "bin" "java")) { $result = $m.FullName; break }
+                if (Test-Path (Join-Path -Path (Join-Path -Path $m.FullName -ChildPath "bin") -ChildPath "java")) { $result = $m.FullName; break }
             }
         }
     }

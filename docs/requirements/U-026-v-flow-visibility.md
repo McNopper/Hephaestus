@@ -1,6 +1,7 @@
 # Requirements: U-026 — V-flow visibility: watch tickets travel stages 1-10 and see their send-backs
 
 ## About this document
+
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-026, stage `requirements`).
 - **Read by:** maintainers; any agent asking "what must V-flow visibility show?"; the tickets that complete the undelivered FRs (U-061/U-062, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
@@ -18,11 +19,13 @@ into visible flow: how far a ticket has travelled, where it moved back and
 why, and how a whole wave moved — without inventing new data.
 
 ## Users
+
 - **Product owner / human reviewer** — watches a wave drain and wants to see movement and setbacks at a glance.
 - **PM agent** — runs waves unattended; a per-wave movement digest is its review input.
 - **Any agent or human inspecting a ticket** — wants the stage journey inline on the card or its details.
 
 ## User Stories
+
 - **US-001:** As a product owner, I see each card's stage progress (e.g. `4/10`) so I know how far along it is without opening it.
 - **US-002:** As a product owner, I see a ticket's movement trace — stage transitions with timestamps and authors — so I can reconstruct its journey.
 - **US-003:** As a product owner, I see send-back events with their reasons so I understand why work came back.
@@ -47,11 +50,13 @@ per-wave summary of movements.
 - **FR-008 (ubiquitous):** U-029 pass-through events (`stage N passed: <reason>`) SHALL count as movement — the stage was visited, and the trace shows the rationale.
 
 ## Non-Functional Requirements
+
 - **NFR-PERF-001:** Deriving a journey or digest SHALL be O(history size) with no I/O beyond the store read already happening for the snapshot.
 - **NFR-COMPAT-001:** Additive only: no change to the status set, stage set, history schema or any transition's semantics.
 - **NFR-REDUND-001:** The card's progress indicator is duplicated in the ticket details trace (same data, two depths) — never two sources.
 
 ## Constraints & Assumptions
+
 - **C-001:** The `history` event vocabulary (`advanced to`, `sent back to`, `reported to`, `stage N passed`, `clarification to`, `review doubt`) is the movement vocabulary; parsing lives beside the store codec.
 - **C-002:** Stage numbering is the canonical `VStages` order (1 = `requirements` … 10 = `test-requirements`); the V reading order of U-028's chevrons is the same order.
 - **C-003 (assumption):** The digest attaches as a ticket comment on the wave's epic/head ticket or returns as tool output; placement is design-stage work.
@@ -64,6 +69,7 @@ per-wave summary of movements.
 - **AC-004 (FR-007):** Given the visible surfaces, when they render, then the store is unchanged (a projection test).
 
 ## Non-Goals
+
 - **No animation work** and no timeline UI beyond the digest (explicitly out).
 - No minimap, no wave replay, no forecasting.
 - No new stored state: no journey caches, no movement tables.
@@ -89,10 +95,12 @@ both in the product backlog.
 | FR-008 | Delivered | pass events count as movement (the codec recognizes `stage N passed`, TaskStore.java:684; StageJourney) |
 
 ## Open Questions
+
 - **Q-001:** Digest placement — epic ticket comment, tool output only, or both? (C-003.)
 - **Q-002:** Should the card's `<visited>/10` count stages entered after a rework twice? (Lean: count distinct stages visited; the trace shows repeats.)
 
 ## Traceability
+
 | Ticket AC | Covered by |
 |---|---|
 | Requirements doc section defines the flow-visibility feature: journey, movement events, what the user must SEE | this document (Goal, FR-001..FR-008) |

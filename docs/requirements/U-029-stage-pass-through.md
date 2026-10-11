@@ -1,6 +1,7 @@
 # Requirements: U-029 — Stage pass-through: every staged ticket visits all ten stages; non-applicable stages pass with a rationale
 
 ## About this document
+
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-029, stage `requirements`).
 - **Read by:** maintainers; any agent asking "what must stage pass-through do?"; the tickets that complete the undelivered FRs (U-057/U-058, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
@@ -14,6 +15,7 @@
 The V-pipeline must stay **visible and honest** — every staged ticket wanders through all ten stages, 1 to 10 — without **burning agent runs on stages where nothing applies** to the change (the user's example: a local change with no architecture-level impact). Today the only way past such a stage is a full dispatch that produces a hollow artifact, or an off-protocol shortcut that breaks the 1–10 trace. This feature makes the shortcut a first-class citizen: a stage with no applicable change **passes** — advancing exactly like a completed stage, with a recorded rationale, no dispatch, no charge — so the flow trace keeps showing ten visited stages while the fleet spends nothing on the empty ones.
 
 ## Users
+
 - **PM agent / wave loop (U-022 RecurringWaves, WavePlanner)** — drains waves; wants non-applicable stages to advance themselves instead of launching pointless sessions or parking tickets.
 - **Stage workers (requirements→implementation)** — want to name, in their artifact, the downstream stages their change does not touch, and trust the machinery to honor it.
 - **Reviewer agent (U-021 autonomous acceptance)** — judges in-review tickets; needs a legitimate way to say "this stage has no applicable work" instead of accepting a hollow artifact or bouncing the ticket.
@@ -21,6 +23,7 @@ The V-pipeline must stay **visible and honest** — every staged ticket wanders 
 - **Human Product Owner** — audits the 1–10 journey and every "why was there no work here?" through the ticket history and the U-026 flow trace.
 
 ## User Stories
+
 - **US-001:** As the PM agent running waves, I want non-applicable stages to advance with a recorded rationale instead of a dispatched worker, so that the V stays visible without spending budget on empty agent runs.
 - **US-002:** As a stage worker, I want to name the downstream stages my change does not touch, so that no agent is dispatched to fabricate artifacts for them.
 - **US-003:** As the reviewer, I want to pass a stage at acceptance when its work does not apply, so that I neither accept hollow artifacts nor create pointless rework.
@@ -59,6 +62,7 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 - **FR-014 (ubiquitous, uniformity):** THE pass SHALL be treated uniformly across every consumer — `task_readiness`, board badges and stage progress, auto-dispatch admission, wave planning, cost overview, flow trace — one consistent story everywhere (the U-027 FR-005 doctrine).
 
 ## Non-Functional Requirements
+
 - **NFR-COST-001:** A pass costs zero fleet budget — no session, no tokens, no cost-overview line; only the store transaction happens.
 - **NFR-COMPAT-001:** Additive only: existing history actions (`advanced to`, `sent back to`), the stage field, the status set, and all `task_*` schema keys remain unchanged; a store that never sees a pass behaves byte-for-byte like today.
 - **NFR-CONSIST-001:** One pass semantic everywhere (enforces FR-014): no surface may invent a second, divergent notion of "passed".
@@ -66,6 +70,7 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 - **NFR-TERM-001 (usability):** Tool and UI wording distinguishes the stage **pass** from review acceptance (`VERDICT: PASS`) and from the readiness kind `NOT_APPLICABLE`, so operators never conflate the three.
 
 ## Constraints & Assumptions
+
 - **C-001:** The task store stays plain Markdown, one file per ticket; a pass is recorded in ticket history (whether the tool is a dedicated `task_pass_stage` or a flag on `task_advance` — and whether forward declarations live in a ticket field or artifact markers — is design-stage work).
 - **C-002:** The one-stage-per-step transition is structural and preserved (FR-001) — "visit all ten" is enforced by the ladder, not by convention.
 - **C-003:** "Wave" and "sprint" are synonyms in prose; the schema key stays `sprint` (stability doctrine).
@@ -106,6 +111,7 @@ without launching a session); both in the product backlog.
 | FR-011–FR-014 | Rides the wiring | the readiness/uniformity semantics take effect when U-057/U-058 land |
 
 ## Open Questions
+
 - **Q-001:** Tool surface — dedicated `task_pass_stage(project, ticket, reason)` vs `task_advance(passed=true, reason=…)`; and its status gate (backlog states + `in-review`?) — design decides; requirements fix only the transition semantics (FR-002) and rejections (FR-003).
 - **Q-002:** Forward-declaration storage — ticket frontmatter list vs artifact marker convention (and how the dispatcher finds the *newest* declaration cheaply) — design.
 - **Q-003:** May the PM (or any store peer) record an at-rest pass without a prior declaration (FR-010 mentions it; C-006 defers the authority question)? Policy call at design.
@@ -113,6 +119,7 @@ without launching a session); both in the product backlog.
 - **Q-005:** Should `task_readiness` reasons flag pass-satisfaction with a structured marker beyond text (for U-026 styling, e.g. a "⟂" glyph)? Mirrors U-027 Q-002; decide at design.
 
 ## Non-Goals
+
 - No stage skipping, ever — a pass visits the stage in sequence; the ladder, the ten-stage set, and `VStages` stay untouched.
 - No new readiness kind — `NOT_APPLICABLE` keeps its existing meaning; a passed stage is simply completed.
 - No heuristic or automatic passes — an authorized declaration always precedes a pass (autonomy doctrine: no silent skipping by machinery).
@@ -122,6 +129,7 @@ without launching a session); both in the product backlog.
 - No change to review acceptance semantics (`VERDICT: PASS/FAIL/UNCLEAR`) beyond the reviewer's new option to pass a stage.
 
 ## Traceability
+
 | Ticket AC | Covered by |
 |---|---|
 | 1 — every staged ticket VISITS all ten stages; non-applicable stage advances with a recorded rationale instead of a full dispatch | FR-001, FR-002, FR-003; AC-001, AC-002 |

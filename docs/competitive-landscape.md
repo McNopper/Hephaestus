@@ -1,6 +1,7 @@
 # Competitive landscape — where the Hephaestus harness stands
 
 ## About this document
+
 - **Kind:** `doc` / market-position analysis (dated snapshot; not a plan)
 - **Read by:** evaluators, contributors and the human (Product Owner) deciding where to invest;
   **written by:** the `research` agent, 2026-10-07
@@ -203,71 +204,82 @@ and spend controls; **Models** = model flexibility; **Maturity** (stars from Git
 
 ## References (all fetched/confirmed 2026-10-07 unless noted)
 
-**Internal**
+### Internal
+
 - [1] **Hephaestus README.** Maintainers, 2026. `README.md` (repo root). — harness scope, early-stage/token warning, TUI-vs-Eclipse capability table. quality: vendor-doc (self).
 - [2] **SPICE/ASPICE alignment — the abstract process behind our workflow.** Maintainers, research dated 2026-10-07. `docs/spice-alignment.md`. — V-model mapping, source list for ASPICE/ISO material. quality: vendor-doc (self).
 - [3] **AGENTS.md — Hephaestus opencode workflow.** Maintainers, updated 2026-10-07. `AGENTS.md` (repo root). — store mediation, ticket states, V-pipeline, waves/budgets, model precedence (dispatch > ticket > stage policy > default). quality: vendor-doc (self).
 
-**opencode / Claude Code**
-- [4] **OpenCode docs — Intro.** Anomaly (opencode), 2026. https://opencode.ai/docs/ — surfaces (TUI/CLI/web/IDE), any-provider config, Plan/Build modes. quality: vendor-doc.
-- [5] **OpenCode docs — Agents.** Anomaly (opencode), 2026. https://opencode.ai/docs/agents/ — primary vs subagents, Task tool, per-agent model/permissions, `steps` cost cap. quality: vendor-doc.
-- [6] **Claude Code docs — Overview.** Anthropic, 2026. https://code.claude.com/docs/en/ — surfaces, parallel subagents, Routines/scheduled tasks, third-party providers. quality: vendor-doc.
-- [7] **Claude Code docs — Create custom subagents.** Anthropic, 2026. https://code.claude.com/docs/en/sub-agents — per-subagent model/tools/permissions, worktree isolation, maxTurns, usage limits. quality: vendor-doc.
-- [8] **Claude Code docs — Orchestrate teams of Claude Code sessions.** Anthropic, 2026. https://code.claude.com/docs/en/agent-teams — shared task list, self-claim + file locking, mailbox messaging, `TaskCompleted` veto hooks, experimental limitations. quality: vendor-doc.
-- [9] **Claude Code docs — Agent SDK overview.** Anthropic, 2026. https://code.claude.com/docs/en/agent-sdk/overview — Claude Code as a library; capabilities table. quality: vendor-doc.
+### opencode / Claude Code
 
-**GitHub Copilot**
-- [10] **GitHub Copilot on GitHub.com (cloud agent concepts).** GitHub, 2026. https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent — delegation from issues/PRs/chat, test+lint in ephemeral env, session limits (59 min, one branch/PR), chat↔session context, models link. quality: vendor-doc.
-- [11] **About Copilot automations.** GitHub, 2026. https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-automations — schedule/event triggers, tool scoping, rationale+confidence approvals, attribution/approval rules, billing, prompt-injection guards. quality: vendor-doc.
-- [12] **Models for GitHub Copilot.** GitHub, 2026. https://docs.github.com/en/copilot/concepts/models — multi-model, auto model selection, bring-your-own-key. quality: vendor-doc.
+- [4] **OpenCode docs — Intro.** Anomaly (opencode), 2026. <https://opencode.ai/docs/> — surfaces (TUI/CLI/web/IDE), any-provider config, Plan/Build modes. quality: vendor-doc.
+- [5] **OpenCode docs — Agents.** Anomaly (opencode), 2026. <https://opencode.ai/docs/agents/> — primary vs subagents, Task tool, per-agent model/permissions, `steps` cost cap. quality: vendor-doc.
+- [6] **Claude Code docs — Overview.** Anthropic, 2026. <https://code.claude.com/docs/en/> — surfaces, parallel subagents, Routines/scheduled tasks, third-party providers. quality: vendor-doc.
+- [7] **Claude Code docs — Create custom subagents.** Anthropic, 2026. <https://code.claude.com/docs/en/sub-agents> — per-subagent model/tools/permissions, worktree isolation, maxTurns, usage limits. quality: vendor-doc.
+- [8] **Claude Code docs — Orchestrate teams of Claude Code sessions.** Anthropic, 2026. <https://code.claude.com/docs/en/agent-teams> — shared task list, self-claim + file locking, mailbox messaging, `TaskCompleted` veto hooks, experimental limitations. quality: vendor-doc.
+- [9] **Claude Code docs — Agent SDK overview.** Anthropic, 2026. <https://code.claude.com/docs/en/agent-sdk/overview> — Claude Code as a library; capabilities table. quality: vendor-doc.
 
-**Cursor / Linear**
-- [13] **Cloud Agents.** Cursor, 2026. https://cursor.com/docs/cloud-agent — parallel cloud VMs, environments/builds, MCP, hooks, artifacts + remote desktop, spend limit, API pricing, entry points (Slack/GitHub/Linear/API). quality: vendor-doc.
-- [14] **Cursor docs — home & model matrix.** Cursor, 2026. https://cursor.com/docs — multi-vendor model list (Anthropic/OpenAI/Google/Z.ai/Moonshot/…). quality: vendor-doc.
-- [15] **Cursor background agents (changelog).** Linear, 2025-08-21. https://linear.app/changelog/2025-08-21-cursor-agent — issue delegation to an agent from the PM tool, agent status surfacing. quality: vendor-doc.
+### GitHub Copilot
 
-**Devin / Cognition**
-- [16] **Introducing Devin.** Cognition, 2026. https://docs.devin.ai/get-started/devin-intro — autonomous sessions, embedded shell/IDE/browser, Linear/Jira/Slack, CLI↔cloud handoff, credits. quality: vendor-doc.
-- [17] **Devin Desktop docs (served at docs.windsurf.com).** Cognition, 2026. https://docs.windsurf.com/ — Windsurf rebranded into Devin Desktop (`devin-desktop` packages, cognitionai doc assets). quality: vendor-doc.
-- [18] **Don't Build Multi-Agents.** Walden Yan, Cognition, 2025-06-12. https://cognition.ai/blog/dont-build-multi-agents — share-context principle, argument against parallel multi-agent coding (position, contested — cf. [36]). quality: company-blog.
+- [10] **GitHub Copilot on GitHub.com (cloud agent concepts).** GitHub, 2026. <https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent> — delegation from issues/PRs/chat, test+lint in ephemeral env, session limits (59 min, one branch/PR), chat↔session context, models link. quality: vendor-doc.
+- [11] **About Copilot automations.** GitHub, 2026. <https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-automations> — schedule/event triggers, tool scoping, rationale+confidence approvals, attribution/approval rules, billing, prompt-injection guards. quality: vendor-doc.
+- [12] **Models for GitHub Copilot.** GitHub, 2026. <https://docs.github.com/en/copilot/concepts/models> — multi-model, auto model selection, bring-your-own-key. quality: vendor-doc.
 
-**Google Jules**
-- [19] **Jules docs — Getting started.** Google, 2026. https://jules.google/docs — autonomous tasks in a cloud VM, **plan review/approval before code changes**, AGENTS.md support. quality: vendor-doc.
-- [20] **Jules docs — Limits and Plans.** Google, 2026. https://jules.google/docs/usage-limits — 15/100/300 tasks per day; 3/15/60 concurrent; Gemini tiering. quality: vendor-doc.
-- [21] **Jules: Google's autonomous AI coding agent.** Google, 2025. https://blog.google/innovation-and-ai/models-and-research/google-labs/jules — asynchronous agent, secure cloud VM, GitHub integration. quality: vendor-doc.
+### Cursor / Linear
 
-**Other coding agents/tools**
-- [22] **Codex CLI README.** OpenAI, 2026. https://github.com/openai/codex — local CLI + IDE + app + Codex Web; ChatGPT-plan or API-key auth. quality: vendor-doc.
-- [23] **Gemini CLI README.** Google, 2026. https://github.com/google-gemini/gemini-cli — open source, Gemini-only, free-tier quotas, GitHub Action, sandboxing, headless. quality: vendor-doc.
-- [24] **aider documentation.** Aider AI, 2026. https://aider.chat/docs/ — terminal pair programming, git integration, lint/test auto-fix, broad LLM provider list, leaderboards. quality: vendor-doc.
-- [25] **OpenHands docs — Introduction.** All Hands AI, 2026. https://docs.openhands.dev/ — canvas/SDK/Agent Server, Automation Server (scheduled + event-driven), Cloud with budget management. quality: vendor-doc.
-- [26] **SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering.** Yang et al., 2024. https://arxiv.org/abs/2405.15793 — ACI design; SWE-bench 12.5% / HumanEvalFix 87.7% at publication (venue not stated on the abstract page — **unverified**). quality: peer-review-pending/preprint (paper itself).
-- [27] **Meet Junie, Your Coding Agent by JetBrains.** A. Zakonov, JetBrains, 2025-01. https://blog.jetbrains.com/junie/2025/01/meet-junie-your-coding-agent-by-jetbrains — IDE agent, runs inspections/tests and verifies; SWE-bench Verified 53.6% (vendor-reported); blog index shows "Junie CLI, the LLM-agnostic coding agent, is now in Beta" (2026-03) and "Junie … Out of Beta" (2026-06). quality: company-blog.
+- [13] **Cloud Agents.** Cursor, 2026. <https://cursor.com/docs/cloud-agent> — parallel cloud VMs, environments/builds, MCP, hooks, artifacts + remote desktop, spend limit, API pricing, entry points (Slack/GitHub/Linear/API). quality: vendor-doc.
+- [14] **Cursor docs — home & model matrix.** Cursor, 2026. <https://cursor.com/docs> — multi-vendor model list (Anthropic/OpenAI/Google/Z.ai/Moonshot/…). quality: vendor-doc.
+- [15] **Cursor background agents (changelog).** Linear, 2025-08-21. <https://linear.app/changelog/2025-08-21-cursor-agent> — issue delegation to an agent from the PM tool, agent status surfacing. quality: vendor-doc.
 
-**Spec-driven / staged pipelines**
-- [28] **Spec Kit README.** GitHub, 2026. https://github.com/github/spec-kit — constitution→specify→plan→tasks→implement→converge; bug assess→fix→test with `verified/partial/failed`; 140k stars. quality: vendor-doc.
-- [29] **Understanding Spec-Driven-Development: Kiro, spec-kit, and Tessl.** Birgitta Böckeler, Thoughtworks (martinfowler.com), 2025-10-15. https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html — Kiro Requirements→Design→Tasks with requirement-number trace-back; spec-kit checklists as per-step "definition of done"; critical field observations. quality: reputable engineering blog (analysis).
+### Devin / Cognition
 
-**Frameworks**
-- [30] **LangGraph overview.** LangChain, 2026. https://docs.langchain.com/oss/python/langgraph/overview — state-graph orchestration, durable execution, HITL, LangSmith tracing/evals. quality: vendor-doc.
-- [31] **CrewAI docs — Introduction.** CrewAI, 2026. https://docs.crewai.com/en/introduction — Flows (state/event-driven) + Crews (role agents, delegation). quality: vendor-doc.
-- [32] **OpenAI Agents SDK.** OpenAI, 2026. https://openai.github.io/openai-agents-python/ — agents/handoffs/guardrails, HITL, tracing, sandbox agents. quality: vendor-doc.
-- [33] **Microsoft Agent Framework overview.** Microsoft, 2026 (page updated 2026-08-25). https://learn.microsoft.com/en-us/agent-framework/overview — successor to AutoGen + Semantic Kernel; agents + Harness Agent + graph/functional workflows; multi-language. quality: vendor-doc.
-- [34] **AutoGen documentation.** Microsoft, 2026. https://microsoft.github.io/autogen/stable/ — event-driven Core, AgentChat, Studio, extensions (MCP, Docker executor, gRPC runtime). quality: vendor-doc.
-- [35] **AG2 docs — Overview/Motivation.** AG2, 2026. https://docs.ag2.ai/docs/user-guide/motivation/ — divergence from AutoGen (2024-11), harness with middleware **token budgets**, HITL hooks, evaluation, multi-provider. quality: vendor-doc.
+- [16] **Introducing Devin.** Cognition, 2026. <https://docs.devin.ai/get-started/devin-intro> — autonomous sessions, embedded shell/IDE/browser, Linear/Jira/Slack, CLI↔cloud handoff, credits. quality: vendor-doc.
+- [17] **Devin Desktop docs (served at docs.windsurf.com).** Cognition, 2026. <https://docs.windsurf.com/> — Windsurf rebranded into Devin Desktop (`devin-desktop` packages, cognitionai doc assets). quality: vendor-doc.
+- [18] **Don't Build Multi-Agents.** Walden Yan, Cognition, 2025-06-12. <https://cognition.ai/blog/dont-build-multi-agents> — share-context principle, argument against parallel multi-agent coding (position, contested — cf. [36]). quality: company-blog.
 
-**Coordination-model evidence**
-- [36] **How we built our multi-agent research system.** Hadfield, Zhang, Lien, Scholz, Fox, Ford, Anthropic, 2025-06-13. https://www.anthropic.com/engineering/built-multi-agent-research-system — orchestrator–workers, ~15× chat tokens, 90.2% internal-eval gain (vendor-reported), coding less parallelizable, artifact-to-filesystem pattern, eval practice. quality: company-engineering-blog.
-- [37] **MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework.** Hong et al., 2023/2024. https://arxiv.org/abs/2308.00352 (ICLR 2024 Oral, listing at iclr.cc/virtual/2024/oral/19756) — SOPs in prompt sequences, assembly-line roles, agents "verify intermediate results". quality: peer-reviewed.
-- [38] **ChatDev: Communicative Agents for Software Development.** Qian et al., accepted to **ACL 2024** (per arXiv comments), 2024. https://arxiv.org/abs/2307.07924 — chat-chain phases (design/coding/testing), communicative de-hallucination. quality: peer-reviewed.
+### Google Jules
 
-**PM / traceability / standards**
-- [39] **ISO/IEC 15504-5:2012 (Withdrawn; revised by ISO/IEC TS 33061:2021).** ISO, 2012/2021. https://www.iso.org/standard/60555.html — process assessment model status: the 15504 series is superseded by the 330xx family. quality: standard.
-- [40] **Automotive SPICE PAM 3.1 (2017) and PAM 4.0 (2023).** VDA QMC. https://vda-qmc.de/wp-content/uploads/2023/02/Automotive_SPICE_PAM_31_EN.pdf and https://vda-qmc.de/wp-content/uploads/2023/12/Automotive-SPICE-PAM-v40.pdf — PRM/PAM, V-model process pairing, ISO/IEC 33004 conformance. *Confirmed via search-index excerpts of the official PDFs, not a full PDF re-fetch; mirrored by [2].* quality: standard.
-- [41] **Requirements Traceability guide (bidirectional traceability, RTM, change-impact analysis).** Jama Software, 2026. https://www.jamasoftware.com/requirements-management-guide/requirements-traceability/ — ALM-grade traceability concepts; also indexes an ASPICE 4.0 guide. quality: vendor-doc.
-- [42] **SWE-bench: Can Language Models Resolve Real-World GitHub Issues?** Jimenez et al., **ICLR 2024** (per arXiv comments), 2024. https://arxiv.org/abs/2310.06770 — de-facto outcome-verification benchmark (2,294 real GitHub issues). quality: peer-reviewed.
-- [43] **ReqToCode: Embedding Requirements Traceability as a Structural Property of the Codebase.** Schlathölter, 2026-03-14. https://arxiv.org/abs/2603.13999 — compile-time requirement traceability ("Traceables"); **preprint, explicitly not peer-reviewed**; its references cite Wang et al., FSE 2025 Companion on embedding traceability in LLM code generation (secondary — venue not re-verified). quality: preprint.
-- [44] **GitHub repository metadata API (stars, created/pushed dates, licenses).** GitHub, queried 2026-10-07. https://api.github.com/repos/… — maturity figures used in the matrix (Hephaestus 3★, opencode 212k★, Claude Code 150k★, Spec Kit 140k★, Codex 128k★, Gemini CLI 107k★, OpenHands 90k★, MetaGPT 71k★, AutoGen 61k★, CrewAI 59k★, aider 49k★, LangGraph 43k★, OpenAI Agents SDK 30k★, SWE-agent 20k★, AG2 5k★). quality: primary data source.
+- [19] **Jules docs — Getting started.** Google, 2026. <https://jules.google/docs> — autonomous tasks in a cloud VM, **plan review/approval before code changes**, AGENTS.md support. quality: vendor-doc.
+- [20] **Jules docs — Limits and Plans.** Google, 2026. <https://jules.google/docs/usage-limits> — 15/100/300 tasks per day; 3/15/60 concurrent; Gemini tiering. quality: vendor-doc.
+- [21] **Jules: Google's autonomous AI coding agent.** Google, 2025. <https://blog.google/innovation-and-ai/models-and-research/google-labs/jules> — asynchronous agent, secure cloud VM, GitHub integration. quality: vendor-doc.
+
+### Other coding agents/tools
+
+- [22] **Codex CLI README.** OpenAI, 2026. <https://github.com/openai/codex> — local CLI + IDE + app + Codex Web; ChatGPT-plan or API-key auth. quality: vendor-doc.
+- [23] **Gemini CLI README.** Google, 2026. <https://github.com/google-gemini/gemini-cli> — open source, Gemini-only, free-tier quotas, GitHub Action, sandboxing, headless. quality: vendor-doc.
+- [24] **aider documentation.** Aider AI, 2026. <https://aider.chat/docs/> — terminal pair programming, git integration, lint/test auto-fix, broad LLM provider list, leaderboards. quality: vendor-doc.
+- [25] **OpenHands docs — Introduction.** All Hands AI, 2026. <https://docs.openhands.dev/> — canvas/SDK/Agent Server, Automation Server (scheduled + event-driven), Cloud with budget management. quality: vendor-doc.
+- [26] **SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering.** Yang et al., 2024. <https://arxiv.org/abs/2405.15793> — ACI design; SWE-bench 12.5% / HumanEvalFix 87.7% at publication (venue not stated on the abstract page — **unverified**). quality: peer-review-pending/preprint (paper itself).
+- [27] **Meet Junie, Your Coding Agent by JetBrains.** A. Zakonov, JetBrains, 2025-01. <https://blog.jetbrains.com/junie/2025/01/meet-junie-your-coding-agent-by-jetbrains> — IDE agent, runs inspections/tests and verifies; SWE-bench Verified 53.6% (vendor-reported); blog index shows "Junie CLI, the LLM-agnostic coding agent, is now in Beta" (2026-03) and "Junie … Out of Beta" (2026-06). quality: company-blog.
+
+### Spec-driven / staged pipelines
+
+- [28] **Spec Kit README.** GitHub, 2026. <https://github.com/github/spec-kit> — constitution→specify→plan→tasks→implement→converge; bug assess→fix→test with `verified/partial/failed`; 140k stars. quality: vendor-doc.
+- [29] **Understanding Spec-Driven-Development: Kiro, spec-kit, and Tessl.** Birgitta Böckeler, Thoughtworks (martinfowler.com), 2025-10-15. <https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html> — Kiro Requirements→Design→Tasks with requirement-number trace-back; spec-kit checklists as per-step "definition of done"; critical field observations. quality: reputable engineering blog (analysis).
+
+### Frameworks
+
+- [30] **LangGraph overview.** LangChain, 2026. <https://docs.langchain.com/oss/python/langgraph/overview> — state-graph orchestration, durable execution, HITL, LangSmith tracing/evals. quality: vendor-doc.
+- [31] **CrewAI docs — Introduction.** CrewAI, 2026. <https://docs.crewai.com/en/introduction> — Flows (state/event-driven) + Crews (role agents, delegation). quality: vendor-doc.
+- [32] **OpenAI Agents SDK.** OpenAI, 2026. <https://openai.github.io/openai-agents-python/> — agents/handoffs/guardrails, HITL, tracing, sandbox agents. quality: vendor-doc.
+- [33] **Microsoft Agent Framework overview.** Microsoft, 2026 (page updated 2026-08-25). <https://learn.microsoft.com/en-us/agent-framework/overview> — successor to AutoGen + Semantic Kernel; agents + Harness Agent + graph/functional workflows; multi-language. quality: vendor-doc.
+- [34] **AutoGen documentation.** Microsoft, 2026. <https://microsoft.github.io/autogen/stable/> — event-driven Core, AgentChat, Studio, extensions (MCP, Docker executor, gRPC runtime). quality: vendor-doc.
+- [35] **AG2 docs — Overview/Motivation.** AG2, 2026. <https://docs.ag2.ai/docs/user-guide/motivation/> — divergence from AutoGen (2024-11), harness with middleware **token budgets**, HITL hooks, evaluation, multi-provider. quality: vendor-doc.
+
+### Coordination-model evidence
+
+- [36] **How we built our multi-agent research system.** Hadfield, Zhang, Lien, Scholz, Fox, Ford, Anthropic, 2025-06-13. <https://www.anthropic.com/engineering/built-multi-agent-research-system> — orchestrator–workers, ~15× chat tokens, 90.2% internal-eval gain (vendor-reported), coding less parallelizable, artifact-to-filesystem pattern, eval practice. quality: company-engineering-blog.
+- [37] **MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework.** Hong et al., 2023/2024. <https://arxiv.org/abs/2308.00352> (ICLR 2024 Oral, listing at iclr.cc/virtual/2024/oral/19756) — SOPs in prompt sequences, assembly-line roles, agents "verify intermediate results". quality: peer-reviewed.
+- [38] **ChatDev: Communicative Agents for Software Development.** Qian et al., accepted to **ACL 2024** (per arXiv comments), 2024. <https://arxiv.org/abs/2307.07924> — chat-chain phases (design/coding/testing), communicative de-hallucination. quality: peer-reviewed.
+
+### PM / traceability / standards
+
+- [39] **ISO/IEC 15504-5:2012 (Withdrawn; revised by ISO/IEC TS 33061:2021).** ISO, 2012/2021. <https://www.iso.org/standard/60555.html> — process assessment model status: the 15504 series is superseded by the 330xx family. quality: standard.
+- [40] **Automotive SPICE PAM 3.1 (2017) and PAM 4.0 (2023).** VDA QMC. <https://vda-qmc.de/wp-content/uploads/2023/02/Automotive_SPICE_PAM_31_EN.pdf> and <https://vda-qmc.de/wp-content/uploads/2023/12/Automotive-SPICE-PAM-v40.pdf> — PRM/PAM, V-model process pairing, ISO/IEC 33004 conformance. *Confirmed via search-index excerpts of the official PDFs, not a full PDF re-fetch; mirrored by [2].* quality: standard.
+- [41] **Requirements Traceability guide (bidirectional traceability, RTM, change-impact analysis).** Jama Software, 2026. <https://www.jamasoftware.com/requirements-management-guide/requirements-traceability/> — ALM-grade traceability concepts; also indexes an ASPICE 4.0 guide. quality: vendor-doc.
+- [42] **SWE-bench: Can Language Models Resolve Real-World GitHub Issues?** Jimenez et al., **ICLR 2024** (per arXiv comments), 2024. <https://arxiv.org/abs/2310.06770> — de-facto outcome-verification benchmark (2,294 real GitHub issues). quality: peer-reviewed.
+- [43] **ReqToCode: Embedding Requirements Traceability as a Structural Property of the Codebase.** Schlathölter, 2026-03-14. <https://arxiv.org/abs/2603.13999> — compile-time requirement traceability ("Traceables"); **preprint, explicitly not peer-reviewed**; its references cite Wang et al., FSE 2025 Companion on embedding traceability in LLM code generation (secondary — venue not re-verified). quality: preprint.
+- [44] **GitHub repository metadata API (stars, created/pushed dates, licenses).** GitHub, queried 2026-10-07. <https://api.github.com/repos/…> — maturity figures used in the matrix (Hephaestus 3★, opencode 212k★, Claude Code 150k★, Spec Kit 140k★, Codex 128k★, Gemini CLI 107k★, OpenHands 90k★, MetaGPT 71k★, AutoGen 61k★, CrewAI 59k★, aider 49k★, LangGraph 43k★, OpenAI Agents SDK 30k★, SWE-agent 20k★, AG2 5k★). quality: primary data source.
 
 ## Open questions / follow-ups
 
@@ -278,3 +290,48 @@ and spend controls; **Models** = model flexibility; **Maturity** (stars from Git
 - Jules' "Planning Critic" (vendor changelog claims a 9.5% task-failure reduction) was only
   visible via search index — verify directly before citing.
 - Re-run this landscape quarterly: this snapshot is dated 2026-10-07 and the segment moves fast.
+
+[1]: README.md
+[2]: docs/spice-alignment.md
+[3]: AGENTS.md
+[4]: https://opencode.ai/docs/
+[5]: https://opencode.ai/docs/agents/
+[6]: https://code.claude.com/docs/en/
+[7]: https://code.claude.com/docs/en/sub-agents
+[8]: https://code.claude.com/docs/en/agent-teams
+[9]: https://code.claude.com/docs/en/agent-sdk/overview
+[10]: https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-cloud-agent
+[11]: https://docs.github.com/en/copilot/concepts/agents/cloud-agent/about-automations
+[12]: https://docs.github.com/en/copilot/concepts/models
+[13]: https://cursor.com/docs/cloud-agent
+[14]: https://cursor.com/docs
+[15]: https://linear.app/changelog/2025-08-21-cursor-agent
+[16]: https://docs.devin.ai/get-started/devin-intro
+[17]: https://docs.windsurf.com/
+[18]: https://cognition.ai/blog/dont-build-multi-agents
+[19]: https://jules.google/docs
+[20]: https://jules.google/docs/usage-limits
+[21]: https://blog.google/innovation-and-ai/models-and-research/google-labs/jules
+[22]: https://github.com/openai/codex
+[23]: https://github.com/google-gemini/gemini-cli
+[24]: https://aider.chat/docs/
+[25]: https://docs.openhands.dev/
+[26]: https://arxiv.org/abs/2405.15793
+[27]: https://blog.jetbrains.com/junie/2025/01/meet-junie-your-coding-agent-by-jetbrains
+[28]: https://github.com/github/spec-kit
+[29]: https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html
+[30]: https://docs.langchain.com/oss/python/langgraph/overview
+[31]: https://docs.crewai.com/en/introduction
+[32]: https://openai.github.io/openai-agents-python/
+[33]: https://learn.microsoft.com/en-us/agent-framework/overview
+[34]: https://microsoft.github.io/autogen/stable/
+[35]: https://docs.ag2.ai/docs/user-guide/motivation/
+[36]: https://www.anthropic.com/engineering/built-multi-agent-research-system
+[37]: https://arxiv.org/abs/2308.00352
+[38]: https://arxiv.org/abs/2307.07924
+[39]: https://www.iso.org/standard/60555.html
+[40]: https://vda-qmc.de/wp-content/uploads/2023/02/Automotive_SPICE_PAM_31_EN.pdf
+[41]: https://www.jamasoftware.com/requirements-management-guide/requirements-traceability/
+[42]: https://arxiv.org/abs/2310.06770
+[43]: https://arxiv.org/abs/2603.13999
+[44]: https://api.github.com/repos/…

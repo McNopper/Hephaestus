@@ -1,6 +1,7 @@
 # SPICE/ASPICE alignment — the abstract process behind our workflow
 
 ## About this document
+
 - **Kind:** `doc` / analysis: how the Hephaestus process model maps onto
   ISO/IEC 15504 (SPICE) and Automotive SPICE.
 - **Read by:** anyone reasoning about the harness's process rules (the

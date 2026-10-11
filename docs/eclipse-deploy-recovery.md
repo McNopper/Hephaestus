@@ -1,6 +1,7 @@
 # Eclipse deploy and install recovery
 
 ## About this document
+
 - **Kind:** `doc` / operational runbook for deploying the plugin jars into a
   running Eclipse CDT install and for recovering a damaged install.
 - **Read by:** anyone deploying or testing the plugin on a real Eclipse;

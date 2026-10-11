@@ -11,6 +11,7 @@ description: >
 # Cost Estimation Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the project-manager-* domain set; standalone (no lifecycle pair).
@@ -44,6 +45,7 @@ This skill **does not** author, order, or execute tasks; it prices them. Task or
 tiering, and execution belong to `project-manager-orchestrate-execution`.
 
 ## Core Principles
+
 1. **Method is durable; numbers are swappable.** The estimation *formula* is stable;
    token sizes and prices are inputs that change over time.
 2. **Rate card in ONE place.** Keep model prices in the single table below, labelled
@@ -68,8 +70,8 @@ For each task in the execution manifest:
 4. **Aggregate:** sum per tier and overall; derive a range:
    - **cheap** = no retries, no reopened iterations,
    - **expected** = planned retries + 1 rubberduck pass where required,
-    - **worst-case** = max retries + max agile rework iterations (from the manifest's
-      iteration guard).
+   - **worst-case** = max retries + max agile rework iterations (from the manifest's
+     iteration guard).
 
 ## Rate card (illustrative rates — verify before relying on them)
 
@@ -108,6 +110,7 @@ When a spend cap is given (e.g. "~$X today", `run.budget_cap_usd`):
    the cap.
 
 ## Default Output
+
 ```md
 # Cost Estimation
 
@@ -138,6 +141,7 @@ When a spend cap is given (e.g. "~$X today", `run.budget_cap_usd`):
 ```
 
 ## Notes / Hand Off
+
 - Task tiering/ordering/execution → hand off to `project-manager-orchestrate-execution`.
 - Ambiguous lifecycle routing → hand off to `project-manager-route-request`.
 - Ticket / wave budgeting in the ticket workflow (`sprint` field = wave) → hand off to the `project-manager` agent (tickets carry `story_points`; a `cost` field can be added later to feed actuals).

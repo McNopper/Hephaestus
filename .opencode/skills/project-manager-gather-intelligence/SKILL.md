@@ -11,6 +11,7 @@ description: >
 # Live Intelligence Gathering Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the `project-manager-*` domain set; the measured counterpart of `project-manager-estimate-costs`
@@ -47,7 +48,7 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 
 `GET /api/session` returns a **list envelope**, not a bare array:
 
-```
+```json
 { data: [ { id, projectID, title, agent, parentID,
             model: { id, providerID, variant },
             time: { created, updated, idle, viewed, archived },   // epoch millis → duration = updated - created
@@ -69,15 +70,18 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 
 1. **Collect** — query every configured server. Simplest path (`opencode api get` does the
    port discovery **and** the Basic auth for you). PowerShell:
+
    ```powershell
    $sessions = (opencode api get /api/session | ConvertFrom-Json).data   # unwrap the envelope
    # flatten: children roll up into parents
    $roots = $sessions | Where-Object { -not $_.parentID }
    ```
+
    bash: `opencode api get /api/session | jq '[.data[] | select(.parentID == null)]'`
 
    Explicit alternative (raw HTTP — you resolve the base URL and send Basic auth yourself).
    PowerShell:
+
    ```powershell
    $base = (opencode api get /api/info | ConvertFrom-Json).urls[0]
    $pw   = (Get-Content "$HOME/.local/state/opencode/service.json" -Raw | ConvertFrom-Json).password
@@ -86,12 +90,15 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
                 [Text.Encoding]::UTF8.GetBytes("opencode:$pw")) }
    $sessions = (Invoke-RestMethod "$base/api/session" -Headers $hdr).data
    ```
+
    bash:
+
    ```bash
    BASE=$(opencode api get /api/info | jq -r '.urls[0]')
    PW=$(jq -r '.password' ~/.local/state/opencode/service.json)   # legacy fallback: ~/.config/opencode/service.json
    curl -s -u "opencode:$PW" "$BASE/api/session" | jq '[.data[] | select(.parentID == null)]'
    ```
+
 2. **Map session → ticket** — fleet sessions carry the ticket id in their
    title: workers are `[<id>] <title>`, reviews `[<id>] review: <title>`
    (U-054). Map by that prefix first; the belt-and-braces fallback is the
@@ -103,10 +110,12 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
    `fleet actuals:` format; the Board's cost overview and the dispatch budget
    parse **only that prefix** (any other format, e.g. `telemetry: …`, is
    invisible to them):
-   ```
+
+   ```text
    task_add_comment(project, ticket_id,
      comment: "fleet actuals: cost <C> USD, tokens <T> (in <I> / out <O> / reasoning <R>), agent <name>, model <provider/model>")
    ```
+
    (The engine's `FleetTelemetry` emits exactly this shape; omit the parts you
    do not have — `cost 1.5 USD` alone parses.)
    Record once per session (check history first — idempotent re-runs must not double-count).

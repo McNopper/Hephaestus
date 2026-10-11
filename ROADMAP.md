@@ -1,6 +1,7 @@
 # Hephaestus ROADMAP
 
 ## About this document
+
 - **Kind:** `doc` / the forward-looking plan — open work only. The past
   lives in the changelog (`docs/HISTORY.md`).
 - **Read by:** anyone planning the next step — human or agent; **written

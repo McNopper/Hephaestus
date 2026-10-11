@@ -14,6 +14,7 @@ description: >
 # Code Repo Map Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** own `code-` domain; pairs with `code-dependency` (map = where things are, dependency skill = how they connect); consumed by fleet workers as step 0 of a ticket in unfamiliar territory.
@@ -25,12 +26,14 @@ You deliberately stay **shallow and cheap**: probes, not reads.
 ## Scope
 
 This skill **owns**:
+
 - discovering the top-level layout (directories, build systems, module lists),
 - locating build, test, lint, and config entry points,
 - one-line responsibility statements for each key module/package,
 - emitting the map as a single Markdown document or chat section.
 
 This skill **does not**:
+
 - read entire files or explain implementations,
 - map dependencies or detect cycles (that is `code-dependency`),
 - change code — it only reads and reports.

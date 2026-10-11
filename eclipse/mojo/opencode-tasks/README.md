@@ -32,7 +32,7 @@ short prefix fails out of the box — `No plugin found for prefix
 Install the plugin into the local repository once per clone (the
 `bundles/...` modules provide the in-reactor dependency of this module):
 
-```
+```bash
 cd eclipse
 .\build.ps1 -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.tasks -pl mojo/opencode-tasks -DskipTests install
 ```
@@ -42,7 +42,7 @@ Run it from a module directory (the goals need a Maven project): `-N` executes
 the goal once instead of once per reactor module, and the store root is found
 by walking up from the basedir:
 
-```
+```bash
 .\build.ps1 -N com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync
 .\build.ps1 -N com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan
 ```
@@ -85,7 +85,7 @@ keys and their order survive. Unfixable findings always fail the build; fixable 
 fail it only with `-Dopencode.tasks.strict=true` (default: warn). Fixes never delete or
 rename ticket files and never write outside the store root.
 
-```
+```bash
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync  # validate, warn on fixables
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.strict  # ... and fail on fixables
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.fix=true
@@ -104,7 +104,7 @@ status columns in canonical order (paused included) with counts, ticket lines
 (`[id] title — role, points, assignee, ⚠ blocked: reason`), an Epics section with open
 ticket counts, and a totals line (total/done points). The store is only read.
 
-```
+```bash
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan  # latest active sprint per project
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan -Dopencode.tasks.sprint=S-01
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan -Dopencode.tasks.out=target/board
@@ -117,7 +117,7 @@ when a project has none, the "(no sprint)" scope (tickets with `sprint: null`) i
 
 Plain Maven module (JUnit 4, `src/test/java`), part of the Tycho reactor:
 
-```
+```bash
 cd eclipse
 .\build.ps1 -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.tasks -pl mojo/opencode-tasks clean verify
 ```

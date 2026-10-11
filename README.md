@@ -14,6 +14,7 @@
 > can; let the fleet run only what pays for itself.
 
 ## About this document
+
 - **Kind:** `doc` / repo README (top-level entry point)
 - **Read by:** humans evaluating/adopting the template; **written by:** maintainers
 - **Related:** pairs with `AGENTS.md` (workflow conventions) and the skill/agent set under `.opencode/`
@@ -173,7 +174,7 @@ The **task store** (`.opencode/tasks/<project>/`, one Markdown file per ticket) 
 once. Agents read/write it through the `task_*` MCP tools; humans can read the files
 directly (and hand edits are tolerated between tool writes). Ticket states:
 
-```
+```text
 product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
    (incomplete on sprint close ───────────────────────────────────────────────────────────────┘)
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
@@ -301,7 +302,7 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
 > same surface — one surface, two transports; `graphics` is stdio. None implement
 > `resources`, `prompts`, cancellation, or progress. That is sufficient for opencode
 > tool calls.
-
+>
 > **No plugin sources ship.** `.opencode/` carries only skills, agents, docs and
 > the task store — there is no `package.json` and no `node_modules` under it;
 > a fresh clone needs no `npm install` there. The harness integrates with

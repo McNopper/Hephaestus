@@ -10,6 +10,7 @@ description: >
 # Artificial Analysis Model Leaderboard
 
 ## About this document
+
 - **Kind:** `skill` (reusable live leaderboard research capability)
 - **Read by:** agents answering model-selection and cost-comparison requests; **written by:** maintainers
 - **Related:** standalone research utility; the market side of the cost loop —

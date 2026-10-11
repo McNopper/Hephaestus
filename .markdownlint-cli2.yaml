@@ -1,0 +1,20 @@
+# markdownlint-cli2 configuration (U-086 - code-quality-matrix: Markdown row).
+# Run: npx -y markdownlint-cli2  (local + CI, same entry point)
+config:
+  MD013: false
+  MD060: false
+  # Rationale (QUALITY.md findings policy - trim rules that contradict the repo
+  # voice, never silence individual findings):
+  # - MD013 line-length fires on every wide table row and naturally wrapped
+  #   prose; a rule that flags the entire corpus teaches people to ignore lint.
+  # - MD060 table column style: tables in this repo mix compact and padded
+  #   separator styles per document; both render identically - style, not
+  #   correctness.
+  # Structural rules stay ON (headings, lists, links, code fences, ...).
+globs:
+  - "**/*.md"
+ignores:
+  # the task store is runtime data - task_doctor lints it (QUALITY.md)
+  - ".opencode/tasks/**"
+  - "**/node_modules/**"
+  - "**/target/**"

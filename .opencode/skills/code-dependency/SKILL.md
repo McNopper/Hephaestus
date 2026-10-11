@@ -12,6 +12,7 @@ description: >
 # Code Dependency Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** own `code-` domain; pairs loosely with `software-architecture` (library boundaries).
@@ -26,12 +27,14 @@ skim in seconds, not a call graph.
 ## Scope
 
 This skill **owns**:
+
 - grouping the code into nodes (package/library/namespace),
 - resolving directed dependencies *between* those nodes,
 - detecting dependency cycles,
 - emitting the Markdown + Mermaid block diagram.
 
 This skill **does not**:
+
 - enumerate classes, files, or functions inside a node,
 - produce call graphs or control flow,
 - refactor or change code — it only reads and reports.
@@ -110,6 +113,7 @@ block-beta
 ````
 
 ### Mermaid `block` notes
+
 - Use `columns N` to set the grid, then place nodes; long labels go in quotes: `A["my pkg"]`.
 - Directed edge: `A --> B`. Undirected/related: `A --- B`. Label an edge with `A -- "via X" --> B`.
 - Composite/grouping blocks are allowed: `block:id` defines a group; nest nodes inside.
@@ -117,6 +121,7 @@ block-beta
 - Keep node ids ASCII-safe (no spaces/dots in the id; put the pretty name in quotes).
 
 ## When to Hand Off
+
 - A flagged cycle or wrong layering → raise with **software-architecture** (library boundaries).
 - Per-library interface detail → **software-design**.
 - This skill is read-only; any fix lives in a normal ticket/worker flow, not here.

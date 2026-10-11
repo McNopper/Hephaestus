@@ -1,6 +1,7 @@
 # Requirements: U-028 — Board polish pack: WIP indicators and V chevron connectors
 
 ## About this document
+
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-028, stage `requirements`).
 - **Read by:** maintainers; any agent asking "what must the WIP count and the V chevrons do?".
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
@@ -38,11 +39,13 @@ cheap answers to two standing reading questions, nothing more.
   this ticket adapts or descopes.
 
 ## Users
+
 - **Human Product Owner (the single dev)** — primary reader; steers the fleet from the Board and wants load and flow at a glance.
 - **PM agent / wave loop** — indirect: reads the task store, not the Board pixels; unaffected by this feature (compat constraint).
 - **The V-chain's verification leg** — consumes this document's acceptance criteria at `test-*` stages and final acceptance.
 
 ## User Stories
+
 - **US-001:** As the single developer steering the agent fleet, I want the number of in-progress tickets visible per V stage column and board-wide, so that I can judge the fleet's current load at a glance — without switching to the Fleet view or counting ▶ cards by hand.
 - **US-002:** As a Board reader, I want the V's reading order drawn as a chevron chain from stage 1 to stage 10, so that the two arms read as one continuous flow — work enters at the top left, turns at the vertex, and climbs to acceptance.
 
@@ -72,11 +75,13 @@ whose geometry `VStageLayout` renders as two arms with the vertex turn at the bo
 - **FR-010 (ubiquitous):** THE chevron chain SHALL render whenever the V-model stages layout renders, including on a fully empty board — the V gestalt holds on an empty board exactly as the always-render columns do (U-016 doctrine).
 
 ## Non-Functional Requirements
+
 - **NFR-PERF-001:** WIP counts SHALL derive from the snapshot a refresh already computes (no additional store reads); chevrons are static decoration — neither may add measurable refresh or layout time.
 - **NFR-COMPAT-001:** All existing board behavior SHALL remain unchanged: layouts, drag-drop (status drops, stage drops, the send-back reason contract), filters (blocked-only, bugs-only, text filter, stage visibility, hidden statuses), persisted settings, epic swimlanes, the untracked and archive rows. No new persisted setting is introduced — chevrons and WIP counts are always on.
 - **NFR-A11Y-001:** The reading order stays carried by the numbered headers and their tooltips; chevrons are decorative redundancy, so non-visual access loses nothing.
 
 ## Constraints & Assumptions
+
 - **C-001:** Board-side only: the `com.opencode.ide.board` bundle's SWT-free model projections plus the Board view rendering. No task-store schema, `task_*` tool, fleet or dispatch change (the count never gates anything — see FR-004).
 - **C-002:** `VStageLayout`/`VStages` stays the single source of the V geometry and reading order; the view derives connector placement from it (U-016 doctrine: geometry cannot drift from the canonical ladder).
 - **C-003:** Explicitly secondary to U-026 — on any board-surface collision, U-026 wins; this ticket adapts or descopes (see *Scope & Priority*).
@@ -112,12 +117,14 @@ same era; HISTORY.md H9 records the wave). The board half is pinned by
 | FR-006–FR-010 | Delivered | the nine directional chevron connectors derived from `VStageLayout`/`VStages` (BoardPolishPackTest) |
 
 ## Open Questions
+
 - **Q-001:** Exact chevron placement and visual form (gap between stacked column cells, header-edge markers, or an overlay) — a design-stage decision; requirements fix only the nine connectors, their directions, and the hierarchy rules.
 - **Q-002:** Exact home and format of the board-wide WIP figure (extending the readiness badge to `n ready · m stale · w wip` vs a sibling label) — a design-stage decision.
 - **Q-003:** Should a future WIP surface distinguish fleet-claimed running agents from other in-progress claims (`PeerJobReconstructor` data)? Deliberately out of scope here (C-004); revisit together with any future WIP-limits ticket.
 - **Q-004:** Do chevrons need a visibility toggle? Assumed no — always-on, quiet decoration; revisit only if live use complains.
 
 ## Non-Goals
+
 - **No WIP limits** — no maximum, threshold, warning or policy anywhere; the kanban WIP-limit concept is deliberately absent "yet" (a future ticket would own it).
 - No fleet-liveness distinction in the WIP count — count is by status only (see Q-003).
 - No per-lane WIP counts in the epic-swimlanes layout — the board-wide surface covers it.
@@ -126,6 +133,7 @@ same era; HISTORY.md H9 records the wave). The board half is pinned by
 - No change to the flat Progress layout's existing column counts (its `in-progress (n)` header already reports that column's WIP).
 
 ## Traceability
+
 | Ticket AC | Covered by |
 |---|---|
 | 1 — WIP visibility on in-progress, count only, no limits concept yet | FR-001–FR-005; AC-001–AC-005 |

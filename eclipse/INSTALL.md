@@ -147,9 +147,11 @@ one-time setup:
    on stop; the port is **dynamic** — the preference page has no port field,
    only the bind hostname). Alternatively set **Mode = CONNECT** in
    **Window → Preferences → OpenCode** and start the server yourself:
-   ```
+
+   ```bash
    opencode serve --hostname 127.0.0.1 --port 4096
    ```
+
    (If you set `OPENCODE_SERVER_PASSWORD`, also enter it in the preference page.)
 2. **Window → Perspective → Open Perspective → Other… → OpenCode** — the chat
    fills the right side, every other view is one tab in the left stack.
@@ -184,7 +186,7 @@ one-time setup:
       *Preferences -> OpenCode -> Advertise rendering* (U-055).
 5. The **Board** view (PM kanban over the repo's `.opencode/tasks/` store: six status
     columns — *paused* included — or the ten V-stage pipeline columns, sprint selector
-    + goal, blocked flags, ticket details with artifact links, live refresh) and the
+    - goal, blocked flags, ticket details with artifact links, live refresh) and the
     **Fleet** view (a tree of engine → wave → job (ticket) → worker session → subagents →
     console/shell tasks, with per-job diff/folder/watch actions; jobs launched by peer
     engines group under their own root; *Take over* opens the worktree and marks the job

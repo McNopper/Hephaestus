@@ -1,0 +1,12 @@
+[
+  {
+    "id": "GHSA-7pqw-9j4j-h8q3",
+    "package": "extract-zip",
+    "reason": "No upstream fix exists (fixed: none). Dev-only transitive of puppeteer-core -> @puppeteer/browsers (browser-archive unpacking), and this repo never invokes that path: renderer-check connects puppeteer-core to an EXISTING browser, it never downloads/extracts one. Revisit when puppeteer-core moves past ^24.0.0 (owner decision ef14520 pinned it)."
+  },
+  {
+    "id": "GHSA-jmr9-qjv8-65gv",
+    "package": "extract-zip",
+    "reason": "Same as GHSA-7pqw-9j4j-h8q3: unfixed upstream, dev-only, unpack path never invoked in this repo."
+  }
+]

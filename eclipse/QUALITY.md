@@ -14,9 +14,14 @@
 | Check | Tool | When | Fails the build? |
 |---|---|---|---|
 | Style / clean-code lint | Checkstyle (`releng/checkstyle.xml`) | every `verify`, every module | **yes** (error-severity rules) |
+| Architecture rules (package level) | ArchUnit over the reactor bytecode (`bundles/com.opencode.ide.arch.tests`; namespace, layer graph, Eclipse-free purity, bundle cycles) | every `verify` | **yes** |
 | Clean architecture + encoding | `releng/check-architecture.ps1` (exec check, repo convention: layers, no fixed paths, no mojibake) | every `validate`, once per reactor | **yes** |
 | Eclipse-free purity | per-bundle pwsh import scans: `ban-eclipse-imports` (client/git/fleet; `-DskipEclipseBan=true` skips) and `check-eclipse-free` (tools/tasks, not skippable) | every build | **yes** |
 | Bug patterns | SpotBugs (`-Pquality`, effort Max / threshold High) | `verify -Pquality` | no — report-only for now |
+| Coverage | JaCoCo (`0.8.15`, report-only — no failing threshold) | every `verify`; HTML per module at `*/target/site/jacoco/index.html`; test-module execs carry the full-run instrumentation (production-bundle HTML aggregation → U-088) | no — report lane |
+| PowerShell lint | PSScriptAnalyzer (`PSScriptAnalyzerSettings.psd1`; Write-Host excluded with rationale — console scripts' interface) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
+| Markdown lint | markdownlint-cli2 (`.markdownlint-cli2.yaml`; MD013/MD060 trimmed with rationale — repo voice; task store excluded) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
+| Dep vuln (SCA) | osv-scanner via `releng/scan-deps.ps1` (pinned v2.6.0 + checksum-verified; reactor poms + npm lockfile; findings fail unless listed with rationale in `releng/scan-deps-baseline.json`) | every `verify` CI run (both legs); locally `.\releng\scan-deps.ps1` | **yes** (any non-baselined finding fails) |
 | Duplication (≥100 tokens) | PMD CPD (`-Pquality`) | `verify -Pquality` | yes, within the profile |
 | chat-web checks | Node `renderer-check` / `bridge-check` / `mermaid-check` | `mvn verify` (chat module) | yes |
 | C++ lint/format/analysis | clang-format, cppcheck, clang-tidy + sanitizer and analysis lanes (the `cpp-tools` skill) | `cpp/ … verify` | yes |
@@ -30,7 +35,7 @@ The dependency graph, verified against the bundles' `META-INF/MANIFEST.MF`
 `Require-Bundle` lists (internal edges; `{…}` = Eclipse platform bundles) and
 enforced by `check-architecture.ps1` on every build:
 
-```
+```text
 board  → chat · fleet · core · tasks · git · client (+ {workbench, compare})  ← no ui edge
 chat   → core · client (+ {workbench})                                         ← no ui edge
 ui     → core · client · tools (+ {workbench})

@@ -11,6 +11,7 @@ description: >
 # PM Operating Model (Scrum-like, wave-based)
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the project-manager-* domain set; standalone (no lifecycle pair).
@@ -40,7 +41,7 @@ enforce the Definition of Done. Worker agents are dispatched (by the
 
 ## Ticket states (the workflow)
 
-```
+```text
 product-backlog --wave planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
       ^                                          |                       |                    |
       `--- on wave close, incomplete <---'     `--- review FAIL: send-back / blocked in place --'   |

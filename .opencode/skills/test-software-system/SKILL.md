@@ -10,6 +10,7 @@ description: >
 # Integration Test Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the test-software-* domain set; pairs with `software-system`.
@@ -34,6 +35,7 @@ Integrations should be defined by real interfaces/contracts between components,
 libraries, and externals — not by package/folder adjacency.
 
 ## Core Principles
+
 1. Test real interactions across interfaces, not mocked-out ones.
 2. Focus on the parts and data flows that carry the most risk.
 3. Use realistic but disposable test data and environments.
@@ -41,6 +43,7 @@ libraries, and externals — not by package/folder adjacency.
 5. Cover the main success path plus key failure-at-the-boundary cases.
 
 ## Default Output
+
 ```md
 # Integration Tests: <Interaction>
 
@@ -75,5 +78,6 @@ they are *there* and *fulfilled*, and creates no new definition:
    questions go `clarification:` first.
 
 ## When to Hand Off
+
 - **Up the chain:** failures point back to **software-system**.
 - **Adjacent chains:** single-component behaviour → **test-software-design**; user-facing outcomes → **test-software-requirements**.

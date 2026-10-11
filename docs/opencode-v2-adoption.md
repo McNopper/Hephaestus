@@ -33,7 +33,7 @@ option.
    machinery.
 
 Discovered capability question order: `GET /openapi.json` (the live contract)
--> https://opencode.ai/v2/docs/ -> the `opencode` skill -> ask. If v2 lacks
+-> <https://opencode.ai/v2/docs/> -> the `opencode` skill -> ask. If v2 lacks
 something, record it here as a justified exception instead of building around
 it silently.
 

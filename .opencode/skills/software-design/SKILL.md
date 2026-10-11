@@ -11,6 +11,7 @@ description: >
 # Software Design Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the software-* domain set; pairs with `test-software-design`.
@@ -38,6 +39,7 @@ is a library's job (→ software-architecture). Package/folder layout is only or
 boundaries are defined by responsibilities and interfaces.
 
 ## Core Principles
+
 1. Design to the interfaces other components depend on; keep them small.
 2. Apply established design patterns where they genuinely fit — never force one.
 3. Define data structures and their invariants explicitly.
@@ -60,6 +62,7 @@ For a hobby/MVP project, reach for a pattern only when it removes real duplicati
 or coupling; otherwise prefer plain, simple code. Name any pattern you apply.
 
 ## Default Output
+
 ```md
 # Design: <Library / Component>
 
@@ -102,6 +105,7 @@ recorded, not just decided:
    first). Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off
+
 - **Up the chain:** boundary/structure questions go back to **software-architecture**.
 - **Down the chain:** pass the design to **software-implementation**.
 - **Across:** components and contracts are verified by **test-software-design** (component test).

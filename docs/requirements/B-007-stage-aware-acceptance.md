@@ -1,6 +1,7 @@
 # Requirements: B-007 — Stage-aware acceptance: the auto-accept reviewer must judge definition-leg artifacts, not just code diffs
 
 ## About this document
+
 - **Kind:** `doc` / requirements definition (stage artifact of ticket B-007, stage `requirements`).
 - **Read by:** maintainers; any agent asking "what must stage-aware acceptance do?".
 - **Written by:** the requirements-stage worker (role `developer`, skill `software-requirements`).
@@ -14,6 +15,7 @@
 The autonomous acceptance machinery (U-021) currently judges every run with a code-diff bias: it expects acceptance-criterion file paths in the branch diff and treats anything else as an analysis-only failure. That is correct for the implementation stage and **false for the entire definition leg** — live on 2026-09-19, U-026's requirements-stage run was rejected although its diff (ticket + requirements doc) was exactly the correct stage-1 output, and B-005/U-026 also hit the settle check because their store-side work landed through the `task_*` tools in the main store, not as worktree edits. This feature makes acceptance **stage-aware**: each V stage declares what counts as evidence, all three checkpoints apply that matrix, and reviewer doubt round-trips to the originator once before anything is blocked — so `blocked` on a ticket always means *needs-a-human*, never *an engine heuristic misfired*.
 
 ## Users
+
 - **Definition-leg stage workers (requirements/system/architecture/design)** — produce docs, ticket-body/AC updates and store records as their correct output; must not be rejected for not producing code.
 - **Reviewer agent (U-021 autonomous acceptance)** — needs a per-stage evidence matrix to judge against, instead of one code-diff-shaped rule.
 - **Engine / merge machinery (settle check, merge gate, auto-dispatch, waves)** — must stop manufacturing false `blocked` tickets that park the autonomous loop.
@@ -21,6 +23,7 @@ The autonomous acceptance machinery (U-021) currently judges every run with a co
 - **Human Product Owner** — wants `blocked` to be a reliable escalation signal: when a ticket is blocked, a human is genuinely required.
 
 ## User Stories
+
 - **US-001:** As a definition-leg stage worker, I want my ticket/doc/store artifacts accepted as valid evidence, so that a correct requirements or architecture run is not rejected for lacking a code diff.
 - **US-002:** As the reviewer agent, I want the ticket's stage to tell me which evidence classes to expect, so that I judge each stage by its own contract.
 - **US-003:** As the PM running waves, I want reviewer doubt to round-trip to the originator for one retry before blocking, so that `blocked` always means needs-a-human and the loop keeps draining.
@@ -56,6 +59,7 @@ The autonomous acceptance machinery (U-021) currently judges every run with a co
 - **FR-013 (ubiquitous):** THE per-stage evidence matrix SHALL be pinned by automated tests: one test row per V stage asserting which evidence classes satisfy and which refuse, plus the FR-008 regression cases (definition-leg store-side-only run accepted; analysis-only implementation run still refused).
 
 ## Non-Functional Requirements
+
 - **NFR-COMPAT-001:** Additive only: verdict shapes (`PASS`/`FAIL`/`UNCLEAR`), stage set, status set, store schema keys and the engine-applies-the-verdict doctrine (U-021) are unchanged; a run at `implementation` behaves byte-for-byte like today except where doubt-routing (FR-009/010/011) deliberately changes the first outcome.
 - **NFR-AUDIT-001:** Every acceptance decision — accept, retry-routed doubt, refusal, block — is attributable (author + reason + stage) in ticket comments/history; no silent state changes.
 - **NFR-AUTONOMY-001:** The autonomy doctrine holds: the machinery resolves what it can (originator retry) and escalates only exhausted cases; after this feature, a definition-leg false rejection must never again be the reason a wave parks.
@@ -63,6 +67,7 @@ The autonomous acceptance machinery (U-021) currently judges every run with a co
 - **NFR-CONSIST-001:** One evidence matrix, three consumers (FR-005): no checkpoint-specific divergence, and the reviewer's *prompt* states the matrix row so the judging model sees the same contract the gates enforce.
 
 ## Constraints & Assumptions
+
 - **C-001:** The ticket's `stage` field (nullable; `VStages` canonical) is the matrix key — no new stage taxonomy.
 - **C-002:** The task store stays plain Markdown; "store-side changes count as produced work" (FR-006) means the machinery inspects the store/ticket state attributable to the run, not a new side channel.
 - **C-003:** U-029 passes pair with this feature: a passed stage produces no artifact by design and must never trip the evidence matrix — the matrix only judges stages that actually ran.
@@ -95,6 +100,7 @@ polish (chevrons, WIP counts) shipped in the same pass.
 | FR-013 | Delivered | one pinned test row per V stage (StageEvidenceTest) plus the regression cases |
 
 ## Open Questions
+
 - **Q-001:** Where does the evidence matrix live — a code-level mapping beside `VStages`, or store/config data the PM can tune? Requirements fix only that it is single-sourced and stage-keyed (FR-001, FR-005); placement is design.
 - **Q-002:** What exactly counts as "goldens" on the verification leg (render references, recorded fixtures, expected-output files)? The verification stages' own requirements refine this; the matrix needs the class, not the format.
 - **Q-003:** Retry bookkeeping — comment-marker convention vs a ticket field counting doubt round-trips for the current stage; and whether a human clearing the blocker resets the budget. Design decides; FR-010 fixes only the semantics.
@@ -102,6 +108,7 @@ polish (chevrons, WIP counts) shipped in the same pass.
 - **Q-005:** Interaction with U-029 reviewer passes (FR-006 there): when the reviewer passes a stage, the evidence matrix is not consulted at all — confirm at design that the pass path bypasses, not weakens, these gates.
 
 ## Non-Goals
+
 - No change to the verdict vocabulary or the engine-applies-the-verdict doctrine (U-021 stands; the reviewer judges, the engine transitions).
 - No relaxation of the implementation-stage gate — analysis-only implementation runs remain refused; this feature removes false rejections, not real ones.
 - No new readiness kinds, no stage-set changes, no phase gates — the async-pipeline doctrine stands.
@@ -110,6 +117,7 @@ polish (chevrons, WIP counts) shipped in the same pass.
 - No changes to model tiers, reviewer agent selection, or cost accounting beyond the bounded retry (NFR-COST-001).
 
 ## Traceability
+
 | Ticket AC | Covered by |
 |---|---|
 | 1 — stage-appropriate evidence: definition leg accepts ticket-body/AC + doc/store paths; implementation expects code+tests; verification expects tests/goldens | FR-001, FR-002, FR-003, FR-004, FR-005, NFR-CONSIST-001; AC-001 |

@@ -1,6 +1,7 @@
 # Emoji vocabulary (U-074)
 
 ## About this document
+
 - **Kind:** `doc` — the ONE canonical emoji mapping for the harness UI.
 - **Read by:** anyone adding a visible control, status text or doc illustration;
   **written by:** maintainers.
@@ -35,7 +36,8 @@ second emoji for a concept already listed.
 | action: fork | 🔀 | chat queue row |
 | action: background a session | ⤵ | chat composer button/label (U-064) |
 
-**Rules**
+## Rules
+
 - No emoji where a native image already exists (Eclipse toolbar icons stay).
 - Header markers are font-sized text (never images) — nothing renders smaller
   than the glyphs around it (owner feedback 2026-10-07).

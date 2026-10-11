@@ -1,6 +1,7 @@
 # History
 
 ## About this document
+
 - **Kind:** `doc` / changelog - the chronological record of milestones,
   sessions and findings.
 - **Read by:** anyone reconstructing *why* the current state is what it is;
@@ -9,10 +10,12 @@
   evolution is kept **only** here.
 
 ## H0 — Consolidation ✅ 2026-08-17
+
 Full reactor build green (~181 Java + 105 JS). Root hygiene, path
 independence, `ActivityTracker` port. See git history for detail.
 
 ## H1 — Task board on Maven storage ✅ 2026-08-18
+
 Store + tools landed 2026-08-17; v2 + mojos + dogfood landed 2026-08-18.
 Dogfood cutover: `hephaestus` project seeded, S-01 carried the first
 delivery tickets. Operational lesson: MCP servers started by a session
@@ -21,40 +24,48 @@ server holds the tasks/tools jars open — during builds use
 `-Dmaven.clean.failOnError=false` or stop the server PIDs.
 
 ## H2 — Eclipse surfaces ✅ 2026-08-18
+
 Board + Fleet views, provider logos, Server view. Code-level; live UI check
 rides the deferred Eclipse pass.
 
 ## H3 — Scale & depth ✅ 2026-08-18
+
 Plural connections with virtualized viewers, SSE-driven fleet completion,
 session detail window, chat abort/tool-parts/copy-code, first CDT
 ProjectContext + markers bridge.
 
 ## H4 — CDT integration & chat polish ✅ 2026-08-18
+
 Code-level; live checks ride the deferred pass.
 
 ## H5 — opencode deep integration ✅ 2026-08-23 (waves 1–6)
+
 Every endpoint the client calls exists in the opencode v1.18.21 spec; the
 entire previously-unused surface was consumed (TUI take-over, permissions
 queue, command/shell, find/file, session lifecycle, project/vcs, config
 PATCH, provider auth, global events). Six waves in one day.
 
 ## H6 — Dataflow V-pipeline ✅ functionally complete 2026-08-23
+
 Stage field + advance/send-back, readiness machinery, V-pipeline board with
 unmissable blocked state, per-stage fleet dispatch with SelfClaimPrompt.
 Adopted as async pipeline (no phase gates).
 
 ## H7 — Chat-first control plane (adopted 2026-08-25)
+
 Chat is the PRIMARY interface; Eclipse views are conveniences. `fleet_*`
 MCP tools over stdio; store is the ground truth (never chat-rooted).
 First cut landed 2026-08-25.
 
 ## Session 2026-08-25 — docs reconciliation
+
 Split contracts.md/domains.md; review-wave defect fixes (32 files); docs
 aligned with repo reality via four audit agents; positioning note (the
 harness is deliberate weight for complex projects; the plain TUI suffices
 for simple ones).
 
 ## Milestone P — Permissions & safety ✅ 2026-08-26 (S-04)
+
 `fleet_permissions`/`fleet_permissions_answer` tools; the PermissionQueue
 wired into the headless engine; generated server passwords
 (`FleetControl.resolvePassword`); auto-dispatch defaults hardened
@@ -64,6 +75,7 @@ store auto-sync after headless launches, staged live smoke suite
 (`FleetLiveSmokeTest`), context-menu spike (U-001).
 
 ## Milestone V — First real fleet run ✅ PASSED 2026-08-28
+
 The marker-file smoke (V-007) ran end-to-end: spawn/auth → pre-claim commit
 → worktree → executor worker (1345 tokens, $0.00) → completion detection →
 merge-back → artifacts + `fleet actuals` → store auto-sync (which also
@@ -77,12 +89,14 @@ staged the TaskStore's transient `.lock` file — dirty forever once staged).
 The quickstart landed as `docs/fleet-quickstart.md`.
 
 ## Session 2026-08-29 — watchdog redesign
+
 Prompt POST on its own thread; probe-authoritative completion; stall
 = idle-and-silent only; `fleet_job_details`; merge guard proven live
 (W-004 auto-committed; a lazy worker refused honestly). Navi chain 4/6
 stages MERGED (R/S/A/D verified against the pinned binding table).
 
 ## Session 2026-09-13 — review + rubberduck + opencode-docs + hardening
+
 Store git discipline path-scoped to `.opencode/tasks` (repo-wide `add -A`
 auto-committed+pushed unrelated WIP). Watchdog v2 (busy resets the stall
 clock; permission waits pause it; budget timeout aborts). Peer store writes
@@ -91,8 +105,8 @@ verified stable 1.18.21→1.18.30 (pin bump recommended with an OpenAPI
 `/doc` smoke; `prompt_async`, `DELETE/PATCH /session/:id`, `/children`
 available since our pin). Stop-list confirmed. Full-repo docs consistency
 audit applied. Evening session: F-001 (release-on-failure + readiness
-BLOCKED>RUNNING + total-failure contract), R2 RepoGate, R3 (drain-then-kill
-+ crash cleanup), F-002 (`fleet_reset`, merge reaping, startup
+BLOCKED>RUNNING + total-failure contract), R2 RepoGate, R3 (drain-then-kill -
+crash cleanup), F-002 (`fleet_reset`, merge reaping, startup
 reconciliation), F-003 (cross-engine dispatch guard via atomic marker file)
 — all landed, tested, pushed.
 
@@ -130,7 +144,7 @@ The first full wave after the v2 migration then exposed the next layer:
 TEN workers stalled identically (PT5M idle-silent). Root cause: opencode
 resolves local MCP commands relative to the SESSION directory, worker
 sessions live in worktrees, worktrees carry no target/ jars - every worker
-silently lost its task_* tools and spiraled into hand-replicating store
+silently lost its task_*tools and spiraled into hand-replicating store
 semantics until the watchdog fired. Fixed in both MCP launchers
 (worktree-aware resolution via git common-dir; verified by an MCP
 handshake from inside a worktree). Second live gap: v2 completion
@@ -149,6 +163,7 @@ subagents+console tasks parity), U-042 (v2 background tasks), B-008
 over the TCP protocol; docs updated: AGENTS.md, fleet-quickstart).
 
 ## H7.1 - Hardening, waves and the v2 migration (2026-09-14 to 2026-09-23)
+
 The engine's reliability era. 2026-09-14: the production-readiness sweep
 (G-001..G-006), UI batches A-C, the cross-process git/admission gates and the
 first live deployment. 2026-09-16: the tuning-table sweep (G-004) and the V-006
@@ -164,6 +179,7 @@ completion judge), the JobManager everywhere move, and v2/TUI feature parity
 T-004/T-005 chat surfaces). Tickets are the record of each finding.
 
 ## H8 - v2 capability alignment - 2026-09-25
+
 Strict reuse policy audited against the live `GET /openapi.json` contract
 (130+ operations, docs/opencode-v2-adoption.md): a capability comes from the
 first tier that has it - opencode v2, then Eclipse, our own code only where
@@ -371,6 +387,7 @@ check-architecture layer).
 **Docs:** AGENTS.md truth pass (fleet ships disabled; pump runs in whichever
 host starts it; FAIL routing; NEEDS-HUMAN; traceability = role+epic today) +
 a **Debugging discipline** section (the 2026-09-23 retro's six rules, adopted
+
 - its 5 s output-drain window is 60 s now). READMEs, INSTALL, ARCHITECTURE,
 QUALITY, DISTRIBUTED-FLEETS, chat-web/mojo READMEs, the runbooks and the
 adoption matrix made current; `docs/status-quo-review.md` and

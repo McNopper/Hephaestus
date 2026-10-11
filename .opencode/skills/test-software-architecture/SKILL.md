@@ -10,6 +10,7 @@ description: >
 # Library Test Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the test-software-* domain set; pairs with `software-architecture`.
@@ -37,6 +38,7 @@ Package/folder layout is only an implementation detail unless the architecture
 explicitly maps it.
 
 ## Core Principles
+
 1. Verify library boundaries and allowed dependency direction.
 2. Test the library's public contract, not its internals.
 3. Check declared quality attributes at a practical level.
@@ -44,6 +46,7 @@ explicitly maps it.
 5. Trace each check to an architecture decision or rule.
 
 ## Default Output
+
 ```md
 # Library Tests: <Library>
 
@@ -75,5 +78,6 @@ they are *there* and *fulfilled*, and creates no new definition:
    (`task_send_back`); questions go `clarification:` first.
 
 ## When to Hand Off
+
 - **Up the chain:** failures point back to **software-architecture**.
 - **Adjacent chains:** component behaviour → **test-software-design**; system wiring → **test-software-system**.

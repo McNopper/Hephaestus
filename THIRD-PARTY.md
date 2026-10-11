@@ -19,7 +19,7 @@ project license.
 ## Pillow (Python) — version ≥10.0
 
 - **License:** HPND (Historical Permission Notice and Disclaimer)
-- **Upstream:** https://python-pillow.org / https://github.com/python-pillow/Pillow
+- **Upstream:** <https://python-pillow.org> / <https://github.com/python-pillow/Pillow>
 - **Used by:** `mcp/graphics`
 - **Copyright:**
   - Copyright © 2010 by Jeffrey A. Crystal and contributors
@@ -47,19 +47,19 @@ SOFTWARE.
 ## NumPy (Python) — version ≥1.24
 
 - **License:** BSD-3-Clause
-- **Upstream:** https://numpy.org / https://github.com/numpy/numpy
+- **Upstream:** <https://numpy.org> / <https://github.com/numpy/numpy>
 - **Used by:** `mcp/graphics`
 - **Copyright:** Copyright (c) 2005-2024, NumPy Developers. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-* Redistributions of source code must retain the above copyright notice, this
+- Redistributions of source code must retain the above copyright notice, this
   list of conditions and the following disclaimer.
-* Redistributions in binary form must reproduce the above copyright notice,
+- Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
-* Neither the name of the NumPy Developers nor the names of its contributors may
+- Neither the name of the NumPy Developers nor the names of its contributors may
   be used to endorse or promote products derived from this software without
   specific prior written permission.
 
@@ -147,10 +147,10 @@ so they are redistributed with the deployed plugin.
 
 | Library | License | Upstream | Vendored files |
 |---|---|---|---|
-| markdown-it | MIT | https://github.com/markdown-it/markdown-it | `markdown-it.min.js` |
-| mermaid | MIT | https://github.com/mermaid-js/mermaid | `mermaid.min.js` |
-| KaTeX | MIT | https://github.com/KaTeX/KaTeX | `katex/katex.min.js`, `katex/katex.min.css`, `katex/fonts/*` (~60 font files) |
-| highlight.js | BSD-3-Clause | https://github.com/highlightjs/highlight.js | `hljs/highlight.min.js`, `hljs/cmake.min.js`, `hljs/github.min.css`, `hljs/github-dark.min.css` |
+| markdown-it | MIT | <https://github.com/markdown-it/markdown-it> | `markdown-it.min.js` |
+| mermaid | MIT | <https://github.com/mermaid-js/mermaid> | `mermaid.min.js` |
+| KaTeX | MIT | <https://github.com/KaTeX/KaTeX> | `katex/katex.min.js`, `katex/katex.min.css`, `katex/fonts/*` (~60 font files) |
+| highlight.js | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> | `hljs/highlight.min.js`, `hljs/cmake.min.js`, `hljs/github.min.css`, `hljs/github-dark.min.css` |
 
 **markdown-it** — Copyright (c) 2014 Vitaly Puzrin, Andrei Kuncin
 
@@ -213,19 +213,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 The bundled KaTeX font files are part of KaTeX and carry its MIT notice; see
-https://github.com/KaTeX/KaTeX/tree/main/fonts for per-font attribution.
+<https://github.com/KaTeX/KaTeX/tree/main/fonts> for per-font attribution.
 
 **highlight.js** — Copyright (c) 2006-2026 Ivan Sagalaev and contributors
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-* Redistributions of source code must retain the above copyright notice, this
+- Redistributions of source code must retain the above copyright notice, this
   list of conditions and the following disclaimer.
-* Redistributions in binary form must reproduce the above copyright notice,
+- Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
-* Neither the name of the copyright holder nor the names of its contributors may
+- Neither the name of the copyright holder nor the names of its contributors may
   be used to endorse or promote products derived from this software without
   specific prior written permission.
 

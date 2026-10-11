@@ -10,6 +10,7 @@ description: >
 # Software System Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the software-* domain set; pairs with `test-software-system`.
@@ -35,6 +36,7 @@ tech-choice list.
 Package/folder layout is organizational only; it is not the system decomposition itself.
 
 ## Core Principles
+
 1. Start from the requirements; map each major part back to a need.
 2. Choose the simplest stack that works; prefer tools you already know.
 3. Name external/system interfaces (APIs, files, services) and what crosses them.
@@ -42,6 +44,7 @@ Package/folder layout is organizational only; it is not the system decomposition
 5. Do not over-build — pick the smallest viable system shape.
 
 ## Default Output
+
 ```md
 # System: <Project>
 
@@ -82,6 +85,7 @@ recorded, not just decided:
    first). Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off
+
 - **Up the chain:** missing/unclear needs go back to **software-requirements**.
 - **Down the chain:** pass the shape to **software-architecture** for structure.
 - **Across:** wired-together behaviour is verified by **test-software-system** (integration test).

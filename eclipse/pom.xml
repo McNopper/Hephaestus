@@ -43,6 +43,7 @@
     <module>bundles/com.opencode.ide.mcp</module>
     <module>bundles/com.opencode.ide.mcp.tests</module>
     <module>mojo/opencode-tasks</module>
+<module>bundles/com.opencode.ide.arch.tests</module>
     <module>features/com.opencode.ide.feature</module>
     <module>releng/com.opencode.ide.repository</module>
   </modules>
@@ -132,6 +133,38 @@
           </execution>
         </executions>
       </plugin>
+      <!-- U-085 coverage lane (code-quality-matrix: Java/Coverage): report-only,
+           no threshold - the report is the refactor safety net -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.15</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+            <configuration>
+              <!-- default property name argLine: surefire picks it up at fork
+                   time and tycho-surefire gets it via ${argLine} below. NEVER
+                   declare it in <properties> - a pom property bakes ${...} to
+                   empty at model interpolation, before prepare-agent can set it -->
+              <destFile>${project.build.directory}/jacoco.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
 
     <pluginManagement>
@@ -159,6 +192,12 @@
           <groupId>org.eclipse.tycho</groupId>
           <artifactId>tycho-surefire-plugin</artifactId>
           <version>${tycho.version}</version>
+          <configuration>
+            <!-- JaCoCo agent into the forked OSGi test JVM (U-085): under Tycho
+                 prepare-agent sets tycho.testArgLine (not argLine) - resolved at
+                 mojo injection, deliberately NOT declared in <properties> -->
+            <argLine>${tycho.testArgLine}</argLine>
+          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>

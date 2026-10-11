@@ -1,6 +1,7 @@
 # Fleet quickstart — your first headless dispatch
 
 ## About this document
+
 - **Kind:** `guide` (quickstart how-to for the task fleet's headless flow).
 - **Read by:** newcomers to Hephaestus — humans or agents — who want to dispatch their first ticket; **written by:** maintainers (ticket V-005).
 - **Related:** `AGENTS.md` (workflow conventions), `eclipse/README.md` and `eclipse/ARCHITECTURE.md` (engine internals), `eclipse/DISTRIBUTED-FLEETS.md` (multi-machine store discipline). This is the newcomer path: seed ticket → dispatch → poll → merge → verify.
@@ -153,7 +154,7 @@ its `opencode serve` spawn lazily on first dispatch).
 A successful run shows status `in-review`, a `git` artifact (`opencode/T-001`,
 the merged fleet branch), and an actuals comment like:
 
-```
+```text
 fleet actuals: cost 0.0123 USD, tokens 6761 (in 6736 / out 3 / reasoning 22), agent executor, model zai/glm-5.3
 ```
 

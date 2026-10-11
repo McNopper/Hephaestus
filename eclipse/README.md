@@ -8,6 +8,7 @@ Platform 4.40 (SimRel 2026-06), Java 21, CDT 12.5. The tool layer is a language-
 Python/other packs plug in later.
 
 ## About this document
+
 - **Kind:** `doc` / subproject README (the Eclipse harness's entry point).
 - **Read by:** humans building, deploying or hacking on the harness; agents orienting in `eclipse/`.
 - **Written by:** maintainers.
@@ -56,7 +57,7 @@ run headless; the IDE is the human's overview + takeover surface. See
 [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md) for running one shared board across several
 machines (store git status + *Sync store* in the Board view).
 
-```
+```text
 eclipse/
 ├── build.ps1                      # thin wrapper: resolves a JDK, then runs the Maven Wrapper
 ├── deploy-dev.ps1                 # copies the built bundle JARs to <eclipse-install>\dropins\opencode-ide\plugins\
@@ -219,9 +220,11 @@ dependency rules above). The reactor also assembles the p2 update site at
    client running: the plugin **attaches to the shared background service** by
    default and starts it when missing (it can also spawn a private server — the
    *Attach to the shared opencode service (v2)* preference controls this):
-   ```
+
+   ```bash
    opencode serve --hostname 127.0.0.1 --port 4096
    ```
+
    (If you set `OPENCODE_SERVER_PASSWORD`, also fill it in below.)
 2. **Window → Perspective → Open Perspective → Other… → OpenCode**.
 3. The perspective opens **chat-first**: the Chat view takes the large right
@@ -254,7 +257,7 @@ reviews its own work through the Board, the fleet engine and the store.
   servers + Skills sections, saved permissions, integration connect flows, working sets,
   fuzzy file search); Session Details (lifecycle, two-phase truth, environment replace,
   import preview, attach skill, suggest title, subagents + shell consoles); Background view
-  + attention notifications; the six-column PM Board with V-pipeline layout, cost overview,
+  - attention notifications; the six-column PM Board with V-pipeline layout, cost overview,
   launch/take-over/shutdown, **Auto ▶** and **Waves ▶** pumps; the Fleet tree with per-job
   diffs and permissions; CDT ProjectContext + diagnostic markers.
 - **TUI parity (chat-first control plane):** the whole ticket/sprint workflow via the `tasks`
@@ -266,6 +269,7 @@ reviews its own work through the Board, the fleet engine and the store.
   verification step.
 
 **Strategic direction (see [`../ROADMAP.md`](../ROADMAP.md) for the full plan):**
+
 - **Multi-language later** → new `ToolProvider` implementations (Python first candidate); the
   chat/server/git layers are language-agnostic.
 - **Second coding-agent backend** → behind the client seam, extracted when one actually

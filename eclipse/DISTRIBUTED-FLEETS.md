@@ -1,6 +1,7 @@
 # Distributed fleets — one board, many machines
 
 ## About this document
+
 - **Kind:** doc / design note for the distributed-fleet operating mode.
 - **Read by:** anyone planning to run Hephaestus with several opencode servers on different machines against one task store; **written by:** maintainers.
 - **Related:** `../ROADMAP.md` ("Parked / non-goals": distributed fleets are done-and-dormant), `README.md` (bundle map), `ARCHITECTURE.md` (single-machine architecture). Records the sharding-vs-single-repo decision and the sync discipline the tooling implements.

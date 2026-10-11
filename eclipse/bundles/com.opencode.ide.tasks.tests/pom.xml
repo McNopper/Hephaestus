@@ -13,4 +13,5 @@
 
   <artifactId>com.opencode.ide.tasks.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
+
 </project>

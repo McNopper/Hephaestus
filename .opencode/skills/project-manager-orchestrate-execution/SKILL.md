@@ -11,6 +11,7 @@ description: >
 # Plan Orchestration Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the `project-manager-*` domain set; standalone (no lifecycle pair).
@@ -105,7 +106,7 @@ For each plan item, emit tickets with `role` set so the right agent claims them:
 
 ## The agile loop (per ticket)
 
-```
+```text
 sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept--> done
                           ^                                  |
                           `-- review FAIL: send-back / blocked in place --'
@@ -146,6 +147,7 @@ exists only inside the unwired resolution pass — `ResolutionPolicy` /
 ## Bubble-up -> escalation
 
 When an agent cannot proceed:
+
 1. It passes the question back to the **originator agent** first
    (`clarification:` send-back, up to 3 round-trips) — never to the human first.
 2. Only after that attempt does it set `blocked` + `blocker` on the ticket

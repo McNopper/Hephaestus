@@ -1,6 +1,7 @@
 # AGENTS.md — Hephaestus opencode workflow
 
 ## About this document
+
 - **Kind:** `doc` / repo-level workflow convention (auto-loaded by opencode from the git root).
 - **Read by:** any agent operating in this repo; **written by:** maintainers.
 - **Related:** pairs with `README.md`; tiers and selection rules live in the `project-manager-orchestrate-execution` skill; concrete models are setup-local (`opencode.json` default + agent frontmatter — none committed).
@@ -153,7 +154,7 @@ sessions (both launchers resolve the built jars from the **main checkout** when 
 inside a fleet worktree — worktrees carry no `target/` build output); opencode prefixes them with the server name (`tasks_task_*` /
 `eclipse-build_task_*`) — the tool/wire names stay `task_*`. States:
 
-```
+```text
 product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
    (incomplete on sprint close ──────────────────────────────────────────────────────────────┘)
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update

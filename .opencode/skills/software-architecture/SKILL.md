@@ -11,6 +11,7 @@ description: >
 # Software Architecture Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the software-* domain set; pairs with `test-software-architecture`.
@@ -38,6 +39,7 @@ layout can support the architecture, but package boundaries are not the same
 thing as library boundaries.
 
 ## Core Principles
+
 1. Group responsibilities into a few cohesive libraries with explicit interfaces; avoid a big ball of mud.
 2. Evaluate the established architecture patterns and choose one (or a small mix) that fits.
 3. Define dependency direction so libraries don't cycle.
@@ -67,6 +69,7 @@ or Repository) and justify it; avoid distributed patterns (Microservices, SOA,
 Event-Driven, CQRS, P2P) unless a requirement truly demands them.
 
 ## Default Output
+
 ```md
 # Architecture: <Project>
 
@@ -108,6 +111,7 @@ recorded, not just decided:
    `clarification:` first). Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off
+
 - **Up the chain:** shape/stack questions go back to **software-system**.
 - **Down the chain:** pass library boundaries to **software-design**.
 - **Across:** boundaries and dependency rules are verified by **test-software-architecture** (library test).

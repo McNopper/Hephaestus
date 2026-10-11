@@ -10,6 +10,7 @@ description: >
 # Unit Test Skill
 
 ## About this document
+
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the test-software-* domain set; pairs with `software-implementation`.
@@ -33,6 +34,7 @@ A unit should be tested through its explicit interface/contract; package/folder
 boundaries are not unit-test boundaries.
 
 ## Core Principles
+
 1. Test observable behaviour, not implementation details.
 2. Keep tests deterministic, isolated, and fast.
 3. Cover the happy path plus the few negatives/boundaries that matter.
@@ -40,6 +42,7 @@ boundaries are not unit-test boundaries.
 5. Follow the project's existing test framework and conventions.
 
 ## Default Output
+
 ```md
 # Unit Tests: <Unit>
 
@@ -75,5 +78,6 @@ they are *there* and *fulfilled*, and creates no new definition:
    questions go `clarification:` first.
 
 ## When to Hand Off
+
 - **Up the chain:** failures point back to **software-implementation**.
 - **Down the chain:** behaviour spanning components belongs to **test-software-design** (component test).

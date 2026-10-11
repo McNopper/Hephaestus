@@ -1,6 +1,7 @@
 # AGENTS.md — C++23 AI-first template
 
 ## About this document
+
 - **Kind:** `doc` / C++ subtree workflow convention (loaded when working under `cpp/`)
 - **Read by:** the `cpp-tools` agent and any agent doing C++ work; **written by:** maintainers
 - **Related:** pairs with `cpp/README.md`; driven by the `cpp-tools` skill and `cpp-tools` agent

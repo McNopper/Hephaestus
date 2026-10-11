@@ -1,6 +1,7 @@
 # Requirements: U-027 — Readiness consults the archive; safe auto-archiving of done tickets
 
 ## About this document
+
 - **Kind:** `doc` / requirements definition (stage artifact of ticket U-027, stage `requirements`).
 - **Read by:** maintainers; any agent asking "what must archive-aware readiness do?"; the tickets that complete the undelivered FRs (U-059/U-060, see the delivery status below).
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
@@ -19,12 +20,14 @@ returns **wave-close auto-archiving**, behind a flag, gated so automation never 
 done ticket a live ticket still needs.
 
 ## Users
+
 - **PM agent / wave loop (U-022 RecurringWaves)** — closes drained waves; wants done tickets to leave the board automatically and safely.
 - **Dispatch machinery (auto-dispatch, WavePlanner, task_readiness consumers)** — admits tickets by readiness verdict; must keep epic chains flowing across archived upstreams.
 - **Fleet stage workers** — consult upstream evidence (the epic chain) before claiming work; an archived done upstream is finished evidence, not missing evidence.
 - **Human Product Owner** — keeps a lean active board and traceability into `_archive/`; must never be surprised by a broken chain or lost ticket data.
 
 ## User Stories
+
 - **US-001:** As the PM agent running recurring waves, I want closed waves to archive their drained done tickets automatically, so that the active board stays lean without me (or a human) pruning it.
 - **US-002:** As the dispatch machinery, I want an archived done upstream to satisfy its epic-chain downstream exactly as the live ticket did, so that archiving never orphans a stage and waves keep draining.
 - **US-003:** As the human Product Owner, I want auto-archive off by default and conservative when on, so that flipping the automation on cannot hide evidence a live chain still uses — and never loses ticket history.
@@ -68,12 +71,14 @@ board, the flow-visibility work (U-026) and humans tracing a live chain. A chain
 together, when it has fully drained — coarse, simple, and impossible to get wrong.
 
 ## Non-Functional Requirements
+
 - **NFR-PERF-001:** With hundreds of archived tickets (envelope: 500 archived + 100 live), readiness evaluation SHALL stay in the same order of magnitude as today's live-only evaluation — the archive is consulted per evaluation, never re-scanned per live ticket.
 - **NFR-REL-001:** Readiness and wave close SHALL tolerate an absent `_archive/` directory, an empty one, and unparsable entries (skip + warn) — no crash paths through the archive.
 - **NFR-COMPAT-001:** Verdict kinds and their precedence, the manual Archive action (commit `deff2d1`), the `archived()` listing, and all `task_*` schema keys SHALL remain unchanged; a store with no archived tickets SHALL behave identically to today.
 - **NFR-SAFE-001 (data safety):** Archiving SHALL be lossless and effectively atomic — the archived copy is written before the live file is removed; interruption leaves at worst a duplicate, never a gap.
 
 ## Constraints & Assumptions
+
 - **C-001:** Storage stays plain Markdown, one file per ticket, `_archive/` as the sibling directory (live — commit `deff2d1`) — no database, no new format.
 - **C-002:** `StageReadiness` remains a pure function over one snapshot (no I/O, no clock) — archived evidence enters as data, preserving the pure core (design stage picks the mechanism).
 - **C-003:** The automation hooks wave close (`task_close_sprint`), covering both manual close and the U-022 recurring loop's drained-wave close — no second timer.
@@ -114,11 +119,13 @@ closing wave); both in the product backlog.
 | FR-010 | Delivered | the store-level `_archive/` move preserves the record verbatim (commit `deff2d1`) |
 
 ## Open Questions
+
 - **Q-001:** Flag storage mechanics (per-project field in `_meta.json`, board preference, or fleet tuning) — a design-stage decision; requirements fix only: per project, OFF by default, togglable from Board or tool surface.
 - **Q-002:** Should `task_readiness` rows mark *which* evidence tickets are archived beyond the reason text (a structured field)? Nice-to-have for U-026 flow visibility; decide at design.
 - **Q-003:** A dwell time before auto-archive (archive N closes after done) was considered and left out — immediate-at-close matches the ticket; revisit only if live operation shows churn.
 
 ## Non-Goals
+
 - No auto-unarchive/restore path or UI (manual file move remains possible by construction).
 - No archive retention, compression, or garbage collection.
 - No change to the manual Archive action or the board's Archive view (commit `deff2d1` semantics stand).
@@ -126,6 +133,7 @@ closing wave); both in the product backlog.
 - No change to wave-close semantics beyond the guarded archiving step.
 
 ## Traceability
+
 | Ticket AC | Covered by |
 |---|---|
 | 1 — readiness evaluates upstream satisfaction including ARCHIVED tickets | FR-001, FR-002, FR-005; AC-001, AC-002, AC-009 |

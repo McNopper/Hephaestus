@@ -13,4 +13,5 @@
 
   <artifactId>com.opencode.ide.chat.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
+
 </project>

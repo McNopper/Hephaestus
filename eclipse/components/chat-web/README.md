@@ -25,7 +25,7 @@ a requirement.
 
 ## Layout
 
-```
+```text
 components/chat-web/
   web/                     the component itself (serve this directory as-is)
     chat.html              entry page, loads everything below
@@ -80,6 +80,7 @@ of throwing silently inside `browser.execute()`.
 | `__clear()` | none | Empties the transcript. |
 
 Notes:
+
 - `__appendDelta` / `__appendReasoningDelta` / `__setAssistantText` identify
   the bubble by `mid`; a missing bubble is created on demand, so ordering is
   fault-tolerant.
@@ -106,7 +107,7 @@ page tolerates them being absent, e.g. in a plain browser):
 | `__javaForkAt(messageId: string)` | A message's hover **⑂ Fork here** button was clicked; the host forks the session at that server message id. |
 | `__javaInboxAction(action: "steer"\|"queue"\|"cancel", messageId: string)` | A queued prompt's **Steer now** / **Deliver next** / **Cancel** button was clicked. The host applies the verb server-side (`steer` = deliver now interrupting the active run, `queue` = deliver after it, `cancel` = remove) and re-pushes the inbox list; on failure the item stays and the host shows a notice. |
 | `__javaFileQuery(query: string)` | The @-autocomplete row wants the matches for `query` (fired when the host opens it via `__setFileQuery`). The host runs the server-side file search AND fetches the reference catalog (cached after the first read), fuzzy-filters both, caps the lists and answers with `__setFileCompletions`. |
-| `__javaFilePick(value: string)` | A completion row was clicked — a file PATH or an alias reference NAME; the host replaces the `@`-token in its composer input with `@value ` (the reference stays plain text in the message — the server/model resolves it). |
+| `__javaFilePick(value: string)` | A completion row was clicked — a file PATH or an alias reference NAME; the host replaces the `@`-token in its composer input with `@value` (the reference stays plain text in the message — the server/model resolves it). |
 | `__javaFormReply(formId: string, answersJson: string)` | A question-form card's **Submit** button was clicked (U-014). `answersJson` is the answer map keyed by the form's own field keys (`{<fieldKey>: string \| number \| boolean \| string[]}`); the host POSTs it through the session's form-reply verb and re-reads the forms — on failure the card stays and the host shows a notice. |
 | `__javaFormCancel(formId: string)` | A question-form card's **Cancel** button was clicked (U-014); the host cancels the form server-side and re-reads the forms. |
 
@@ -174,7 +175,7 @@ page tolerates them being absent, e.g. in a plain browser):
   them — ALIAS reference roots above the FILES (group headers separate the
   two; the `selected` row is the host's keyboard highlight and spans both
   groups). Clicks hand the picked value to `__javaFilePick` (a path or an
-  alias name); the host replaces the `@`-token with `@value ` as plain
+  alias name); the host replaces the `@`-token with `@value` as plain
   text — nothing is ever injected into the message content. Rows render via
   `textContent`-only.
 - **Question forms (U-014):** the forms the session's run raised render as
@@ -192,7 +193,7 @@ page tolerates them being absent, e.g. in a plain browser):
 Requires Node.js on PATH (only for the checks — the component itself is
 build-free):
 
-```
+```text
 node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render (58 checks)
 node bridge-check.mjs     # executes chat.js in a VM with a DOM shim (move-semantics
                           # appendChild, innerHTML serialization of appended trees)
