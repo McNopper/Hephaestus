@@ -89,6 +89,7 @@ are closed as indexes; the work lives in the rows below):
 | D-003 | which upstream writes make downstream work STALE (today: any write) | only status/stage/artifact changes |
 | D-004 | tier→model mapping + the rubberduck's cross-vendor model (none pinned today) | tiers stay guidance; pin a named other-vendor rubberduck model |
 | U-043 | "blocked" as a store state instead of an orthogonal flag | DECIDED + LANDED 2026-10-07 (U-067/U-068/U-069) |
+| — | public GitHub Pages landing site for Hephaestus | DECIDED **NO** 2026-10-11 (owner) — README/GIF suffice |
 | U-078..U-082 | V-enforcement contract: stage artifacts required, coverage delivered automatically, done as a four-box gate verdict, horizontal/vertical loop routing | DECIDED + LANDED 2026-10-11 (owner's process rules; wave S-07) |
 
 ## Human actions
