@@ -280,5 +280,54 @@
         </plugins>
       </build>
     </profile>
+
+    <!-- U-089 optional cells (owner: "make them optional") - opt-in profiles,
+         never part of plain verify or CI. The licenses cell lives in
+         releng/scan-deps.ps1 (-Licenses): the matrix's cited
+         license-maven-plugin goal (aggregate-add-third-party) was removed from
+         every maintained mycila version (4.6/5.1.2 expose only
+         check/format/help/remove), so the cell goes to osv-scanner's
+         license mode - free, reliable, already pinned here (the matrix's
+         selection bar, applied to a stale tool citation). -->
+
+    <!-- Error Prone (matrix Java/Static): the plugin jar rides the compile
+         CLASSPATH as a provided-scope project dependency (-Xplugin:ErrorProne
+         discovers plugins on javac's classpath, NOT on the maven-compiler
+         plugin realm - the "Plug-in nicht gefunden" lesson), so plain-javac
+         modules pick it up through their existing default-compile binding
+         while the Tycho modules (ECJ) never run it - that is the documented
+         scope limit, not a contradiction. provided = compiled-against,
+         packaged nowhere. The JDK module exports come from
+         eclipse/.mvn/jvm.config (in-process javac, no fork). -->
+    <profile>
+      <id>errorprone</id>
+      <dependencies>
+        <dependency>
+          <groupId>com.google.errorprone</groupId>
+          <artifactId>error_prone_core</artifactId>
+          <version>2.50.0</version>
+          <scope>provided</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.13.0</version>
+            <configuration>
+              <compilerArgs>
+                <!-- Error Prone's required javac flags, each learned from its own
+                     error message: policy pair + the JDK 21 type-annotation symbol -->
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                <arg>-Xplugin:ErrorProne</arg>
+              </compilerArgs>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>

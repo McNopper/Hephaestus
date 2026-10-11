@@ -378,6 +378,16 @@ public final class ServerLabels {
     return fallback;
   }
 
+  /**
+   * U-066 machine-scope row suffix: the session's project directory, appended to the Name column so
+   * sessions from all projects stay distinguishable ("" for a missing directory). Pure - the view
+   * decides WHEN to ask (machine scope only).
+   */
+  public static String sessionDirectoryLabel(Session session) {
+    String dir = session == null ? null : session.directory();
+    return dir == null || dir.isEmpty() ? "" : " — " + dir;
+  }
+
   /** Top-level sessions (no {@code parentID}), most recently updated first. */
   public static List<Session> topLevelSessions(List<Session> sessions) {
     return sessions.stream()

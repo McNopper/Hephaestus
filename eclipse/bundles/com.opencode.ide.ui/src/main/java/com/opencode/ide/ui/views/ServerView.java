@@ -27,6 +27,8 @@ import com.opencode.ide.ui.model.MigrationBanner;
 import com.opencode.ide.ui.model.ProjectVcs;
 import com.opencode.ide.ui.model.ServerLabels;
 import com.opencode.ide.ui.model.ServerSelection;
+import com.opencode.ide.ui.model.SessionScope;
+import com.opencode.ide.ui.model.SessionScopePreferences;
 import com.opencode.ide.ui.model.WorkingSet;
 import com.opencode.ide.ui.session.ServiceText;
 import com.opencode.ide.ui.session.SessionActivity;
@@ -893,11 +895,42 @@ public class ServerView extends ViewPart implements Refreshable {
     collapseAllAction.setToolTipText("Collapse all categories and sessions");
     collapseAllAction.setImageDescriptor(icon("collapse-all"));
 
+    // U-066 scope toggle: REPO keeps the historical working-directory scoping;
+    // MACHINE widens the Sessions list to the whole machine (capped), with each
+    // row labeled by its location.directory. The choice persists.
+    Action sessionScopeAction =
+        new Action("Machine scope", Action.AS_CHECK_BOX) {
+          @Override
+          public void run() {
+            SessionScope next = isChecked() ? SessionScope.MACHINE : SessionScope.REPO;
+            sessionScope = next;
+            SessionScopePreferences prefs = SessionScopePreferences.forPlugin();
+            prefs.set(next);
+            try {
+              prefs.save();
+            } catch (org.osgi.service.prefs.BackingStoreException e) {
+              com.opencode.ide.ui.internal.UiActivator.getDefault()
+                  .getLog()
+                  .log(
+                      new org.eclipse.core.runtime.Status(
+                          org.eclipse.core.runtime.Status.ERROR,
+                          com.opencode.ide.ui.internal.UiActivator.PLUGIN_ID,
+                          "Could not save the session scope preference",
+                          e));
+            }
+            refresh();
+          }
+        };
+    sessionScopeAction.setToolTipText(
+        "Sessions scope: unchecked = this repository (default), checked = every session on this machine");
+    sessionScopeAction.setChecked(sessionScope == SessionScope.MACHINE);
+
     IToolBarManager toolBar = getViewSite().getActionBars().getToolBarManager();
     toolBar.add(refreshAction);
     toolBar.add(reconnectAction);
     toolBar.add(expandAllAction);
     toolBar.add(collapseAllAction);
+    toolBar.add(sessionScopeAction);
   }
 
   /**
@@ -986,6 +1019,13 @@ public class ServerView extends ViewPart implements Refreshable {
   private volatile String lastScopeDir;
 
   /**
+   * U-066: the Sessions scope toggle - REPO (default, byte-identical historical behavior) or
+   * MACHINE (every session on this machine, labeled by its directory). Read from the persisted
+   * preference at construction; written on the UI thread by the toolbar toggle.
+   */
+  private volatile SessionScope sessionScope = SessionScopePreferences.forPlugin().get();
+
+  /**
    * The v1-migration banner line of the last refresh (U-046 slice 2): {@code null} = nothing to
    * show (completed, absent endpoint, or not yet answered). Delivered async by {@link
    * #updateMigrationBanner} - the content description picks it up via {@link #migrationSuffix()}.
@@ -1025,10 +1065,17 @@ public class ServerView extends ViewPart implements Refreshable {
     }
     lastScopeDir = scopeDir;
     List<Agent> agents = connection.getClient().getAgents(scopeDir);
-    // v2 session state is global per user: scope the primary view to the
-    // connection's working directory, or every project on the machine
-    // would show up here
-    List<Session> sessions = connection.getClient().getSessions(scopeDir);
+    // v2 session state is global per user: REPO scope keeps the historical
+    // scoping (the connection's working directory - otherwise every project
+    // on the machine would show up here); MACHINE (U-066) widens ONLY the
+    // Sessions list to the whole machine, labeled per row - the agents/skills/
+    // MCP lists stay repo-scoped in both modes. BOTH scopes pass LIST_LIMIT:
+    // the server's default page (50) silently truncated any project past 50
+    // sessions, and the owner wants ALL sessions shown (2026-10-11).
+    List<Session> sessions =
+        connection
+            .getClient()
+            .getSessions(SessionScope.dirFor(sessionScope, scopeDir), SessionScope.LIST_LIMIT);
     Map<String, SessionStatus> statuses = connection.getClient().getSessionStatus();
     List<McpServerInfo> mcpServers = safeMcp(connection.getClient(), scopeDir);
     List<SkillInfo> skills = safeSkills(connection.getClient(), scopeDir);
@@ -1067,7 +1114,7 @@ public class ServerView extends ViewPart implements Refreshable {
       OpencodeClient client = connection.client();
       HealthStatus health = client.getHealth();
       List<Agent> agents = manager.agents(connection); // cached (30s TTL / disconnect)
-      List<Session> sessions = client.getSessions();
+      List<Session> sessions = client.getSessions(null, SessionScope.LIST_LIMIT);
       Map<String, SessionStatus> statuses = client.getSessionStatus();
       List<McpServerInfo> mcpServers = safeMcp(client, null);
       List<SkillInfo> skills = safeSkills(client, null);
@@ -1729,6 +1776,14 @@ public class ServerView extends ViewPart implements Refreshable {
     return ServerLabels.ownerOf(roots, session, node -> node.sessions, current);
   }
 
+  /**
+   * U-066: machine scope appends the session's project directory to every session row (both tree
+   * positions - the Sessions category and agent-nested rows); repo scope never changes a label.
+   */
+  private String sessionScopeSuffix(Session s) {
+    return sessionScope == SessionScope.MACHINE ? ServerLabels.sessionDirectoryLabel(s) : "";
+  }
+
   String name(Object element) {
     if (element instanceof ServerNode node) {
       return ServerLabels.serverName(node.info());
@@ -1778,10 +1833,11 @@ public class ServerView extends ViewPart implements Refreshable {
     if (element instanceof AgentSessionNode nested) {
       // nested under the agent row: bare title (the agent is the parent row)
       return ServerLabels.nestedSessionName(
-          nested.session(), isWorking(agentNodeOwner(nested.agent()), nested.session()));
+              nested.session(), isWorking(agentNodeOwner(nested.agent()), nested.session()))
+          + sessionScopeSuffix(nested.session());
     }
     if (element instanceof Session s) {
-      return ServerLabels.sessionName(s, isWorking(ownerOf(s), s));
+      return ServerLabels.sessionName(s, isWorking(ownerOf(s), s)) + sessionScopeSuffix(s);
     }
     return String.valueOf(element);
   }

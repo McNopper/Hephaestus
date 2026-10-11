@@ -188,12 +188,34 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
   @Override
   public List<Session> getSessions(String directory) throws OpencodeException {
-    String path = "/session";
+    return getList(sessionListPath(directory, 0), Session.class);
+  }
+
+  /**
+   * U-066: the session list with an explicit result cap - {@code directory} scopes exactly like
+   * {@link #getSessions(String)} (plain parameter, backslash-escaped; the bracket form is silently
+   * ignored server-side), {@code limit > 0} appends {@code &limit=...} (the service pages at 50 by
+   * default), {@code limit <= 0} keeps the server default. Package-private static so the URL shape
+   * is unit-testable without a server (byte-pinned by SessionListPathTest).
+   */
+  @Override
+  public List<Session> getSessions(String directory, int limit) throws OpencodeException {
+    return getList(sessionListPath(directory, limit), Session.class);
+  }
+
+  // public: the URL shape is unit-tested from the client.tests bundle (OSGi
+  // forbids same-package-across-bundles access at runtime); the class itself
+  // is internal, so this is not API surface.
+  public static String sessionListPath(String directory, int limit) {
+    StringBuilder path = new StringBuilder("/session");
     if (directory != null && !directory.isBlank()) {
-      path +=
-          "?directory=" + URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20");
+      path.append("?directory=")
+          .append(URLEncoder.encode(directory, StandardCharsets.UTF_8).replace("+", "%20"));
     }
-    return getList(path, Session.class);
+    if (limit > 0) {
+      path.append(path.indexOf("?") >= 0 ? "&limit=" : "?limit=").append(limit);
+    }
+    return path.toString();
   }
 
   @Override

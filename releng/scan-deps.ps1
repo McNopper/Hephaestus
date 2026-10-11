@@ -6,9 +6,16 @@
 # Policy: any finding fails UNLESS it is listed in scan-deps-baseline.json with a
 # written rationale (the recorded-debt exception: unfixed-upstream, dev-only).
 #
-# Local:  .\releng\scan-deps.ps1
+#   .\releng\scan-deps.ps1              vulnerability scan (the gate)
+#   .\releng\scan-deps.ps1 -Licenses    license inventory per dependency (U-089:
+#                                        matrix Java/License cell - the cited
+#                                        mycila goal is gone from maintained
+#                                        versions, osv-scanner covers it free)
+#
+# Exit 0 = clean; anything else = findings (printed) or a tool failure.
 param(
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$Licenses
 )
 $ErrorActionPreference = "Stop"
 
@@ -58,6 +65,27 @@ function Get-ScanRoot {
 
 $scanner = Resolve-Scanner
 $root = Get-ScanRoot
+
+if ($Licenses) {
+    # U-089 license inventory (matrix Java/License): report the SPDX license of
+    # every discovered dependency. Report-only - allowlist enforcement lands once
+    # this landscape has been reviewed (QUALITY.md row documents the cell).
+    if (-not $Quiet) {
+        Write-Host "osv-scanner $Version ($scanner) - license inventory"
+        Write-Host "scanning: $root"
+    }
+    # Native-call hardening: SNAPSHOT-resolution stderr chatter must not kill
+    # the script under PS 5.1's Stop policy (same pattern as the vuln scan).
+    $ErrorActionPreference = "Continue"
+    & $scanner scan source -r $root --licenses
+    $licenseExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    # Exit semantics: osv's code 1 here means "known vulnerabilities reported"
+    # (the baseline gate lives in the DEFAULT mode of this script) - the license
+    # inventory itself succeeded. Codes above 1 are tool failures and pass through.
+    if ($licenseExit -le 1) { exit 0 }
+    exit $licenseExit
+}
 
 $baselinePath = Join-Path $PSScriptRoot "scan-deps-baseline.json"
 $baseline = @()
