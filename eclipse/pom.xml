@@ -281,6 +281,83 @@
       </build>
     </profile>
 
+    <!-- U-088 coverage gate (opt-in, `-Pcoverage`; QUALITY.md table): adds a
+         threshold check and a reactor-wide aggregate report on top of the
+         always-on report-only lane (U-085). jacoco has no aggregate check
+         goal, so the pieces bind where they are actually expressible:
+         - check runs per module at BUNDLE scope (55% covered lines, build
+           fails below). jacoco SKIPS a module whose own exec file is absent -
+           every production Tycho bundle is exec-less (its tests execute in
+           the *.tests fragment, whose forked OSGi JVM carries the agent), so
+           a per-bundle threshold on those bundles is not expressible at all.
+           The rule therefore binds where in-module test execution meets
+           production-only classes: the mojo plugin (plain surefire,
+           target/classes only). The include is deliberately the mojo package,
+           NOT com/opencode/ide/**: the test fragments' own classes share the
+           production packages (com.opencode.ide.tools.tests hosts classes in
+           com.opencode.ide.tools; arch.tests carries never-executed probe
+           fixtures), so a broad include would measure test code against the
+           threshold. Production-bundle coverage is measured by the aggregate
+           report below, which reads the fragments' full-run exec data.
+         - report-aggregate is root-only (inherited=false). The parent builds
+           FIRST in the reactor, so within one clean run the aggregate sees no
+           exec data yet (empty report, non-failing); on an already-built
+           tree - the normal gate flow - the exec files are present and the
+           report is complete. A dedicated last-position report module is the
+           same-run-complete alternative; deliberately out of scope here. -->
+    <profile>
+      <id>coverage</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.15</version>
+            <executions>
+              <execution>
+                <id>report-aggregate</id>
+                <inherited>false</inherited>
+                <phase>verify</phase>
+                <goals>
+                  <goal>report-aggregate</goal>
+                </goals>
+                <configuration>
+                  <dataFileIncludes>
+                    <dataFileInclude>**/target/jacoco.exec</dataFileInclude>
+                  </dataFileIncludes>
+                  <outputDirectory>${maven.multiModuleProjectDirectory}/target/site/jacoco-aggregate</outputDirectory>
+                </configuration>
+              </execution>
+              <execution>
+                <id>coverage-check</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+                <configuration>
+                  <includes>
+                    <include>com/opencode/ide/mojo/**</include>
+                  </includes>
+                  <rules>
+                    <rule>
+                      <element>BUNDLE</element>
+                      <limits>
+                        <limit>
+                          <counter>LINE</counter>
+                          <value>COVEREDRATIO</value>
+                          <minimum>0.55</minimum>
+                        </limit>
+                      </limits>
+                    </rule>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
     <!-- U-089 optional cells (owner: "make them optional") - opt-in profiles,
          never part of plain verify or CI. The licenses cell lives in
          releng/scan-deps.ps1 (-Licenses): the matrix's cited

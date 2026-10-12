@@ -234,7 +234,9 @@ public class ChatView extends ViewPart {
           // then flip the Stop control off while a reply is in flight.
           boolean inFlight = controller != null ? controller.isSending() : sending;
           if (sendButton != null && !sendButton.isDisposed()) {
-            sendButton.setEnabled(!inFlight);
+            // U-092: always enabled - while a run is in flight the button STEERS
+            // (injects the input into the running turn) instead of being disabled
+            sendButton.setEnabled(true);
           }
           if (stopButton != null && !stopButton.isDisposed()) {
             // inline Stop control: appears in the input row only while a
@@ -1354,6 +1356,11 @@ public class ChatView extends ViewPart {
     boolean queued;
     if (selection.kind() == CommandComposer.Kind.COMMAND) {
       queued = controller.submit(selection, null);
+    } else if (controller.isSending()) {
+      // U-092 direct injection: ENTER during a running turn steers it immediately
+      // (delivery=steer reaches the live turn; Alt+Enter still parks in the inbox)
+      controller.steer(selection.message());
+      queued = false;
     } else {
       queued = controller.submit(null, outgoingMessage(selection.message()));
     }

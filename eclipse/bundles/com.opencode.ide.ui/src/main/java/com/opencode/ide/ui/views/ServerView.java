@@ -395,6 +395,19 @@ public class ServerView extends ViewPart implements Refreshable {
         };
     openInChat.setToolTipText("Resume this session in a chat window");
     menu.add(openInChat);
+    org.eclipse.jface.action.Action steer =
+        new org.eclipse.jface.action.Action("Steer\u2026") {
+          @Override
+          public void run() {
+            Session s = selectedSession();
+            if (s != null && s.id() != null) {
+              steerSessionDialog(s.id());
+            }
+          }
+        };
+    steer.setToolTipText(
+        "U-092: inject a message into this session's RUNNING turn (delivery=steer, no interrupt)");
+    menu.add(steer);
     org.eclipse.jface.action.Action copySessionId =
         new org.eclipse.jface.action.Action("Copy session id") {
           @Override
@@ -1854,6 +1867,31 @@ public class ServerView extends ViewPart implements Refreshable {
       return ServerLabels.sessionName(s, isWorking(ownerOf(s), s)) + sessionScopeSuffix(s);
     }
     return String.valueOf(element);
+  }
+
+  /**
+   * U-092: prompts for a message and injects it into the session's RUNNING turn (delivery=steer,
+   * fire-and-forget) - works on any session row, including running subagents (parentID set). The
+   * turn's own stream surfaces the injected message and the answer; no refresh needed here.
+   */
+  private void steerSessionDialog(String sessionId) {
+    org.eclipse.jface.dialogs.InputDialog dialog =
+        new org.eclipse.jface.dialogs.InputDialog(
+            getSite().getShell(),
+            "Steer session",
+            "Message to inject into the running turn (" + sessionId + "):",
+            null,
+            s -> s == null || s.isBlank() ? "Enter a non-empty message" : null);
+    if (dialog.open() != org.eclipse.jface.window.Window.OK) {
+      return;
+    }
+    String text = dialog.getValue().trim();
+    try {
+      OpencodeConnection.getInstance().getClient().steerSession(sessionId, text);
+    } catch (Exception e) {
+      org.eclipse.jface.dialogs.MessageDialog.openError(
+          getSite().getShell(), "Steer failed", String.valueOf(e.getMessage()));
+    }
   }
 
   /**

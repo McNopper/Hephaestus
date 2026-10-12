@@ -661,9 +661,11 @@ public final class ChatSessionController {
   }
 
   /**
-   * Sends with an explicit delivery (T-005 send-time parity): {@code null} or {@code "steer"} sends
-   * normally (interrupting an active run), {@code "queue"} parks the prompt in the session inbox
-   * (v2 Alt+Enter).
+   * Sends with an explicit delivery (T-005 send-time parity): {@code null} or {@code "steer"} posts
+   * the prompt (on an idle session it starts a run and this call waits for the reply; mid-run
+   * steering uses {@link #steer(String)} instead - the probed server contract injects
+   * delivery=steer prompts into the RUNNING turn without an interrupt), {@code "queue"} parks the
+   * prompt in the session inbox (v2 Alt+Enter).
    */
   public void send(OutgoingMessage message, String delivery) {
     if (sending) {
@@ -684,6 +686,32 @@ public final class ChatSessionController {
       host.error("send failed unexpectedly", t);
       sending = false;
       host.sendingChanged(false);
+    }
+  }
+
+  /**
+   * U-092 direct injection: injects {@code text} into the RUNNING turn (delivery=steer,
+   * fire-and-forget) while a reply is in flight - the user line renders immediately, the post runs
+   * on a background job, and the {@code sending} state stays untouched (the running job owns the
+   * turn; its own stream delivers the answer). A no-op when nothing is in flight - use {@link
+   * #send(OutgoingMessage)} instead.
+   */
+  public void steer(String text) {
+    if (!sending || text == null || text.isBlank() || sessionId == null) {
+      return;
+    }
+    renderer.appendUser(text);
+    String sid = sessionId;
+    host.runInBackground("Steering opencode chat", () -> runSteerJob(sid, text));
+  }
+
+  private void runSteerJob(String sid, String text) {
+    try {
+      connection.getClient().steerSession(sid, text);
+      host.info("steer: injected into the running turn");
+    } catch (OpencodeException e) {
+      String failure = e.getMessage();
+      host.runOnUi(() -> renderer.notice("⚠ Steer failed: " + failure));
     }
   }
 

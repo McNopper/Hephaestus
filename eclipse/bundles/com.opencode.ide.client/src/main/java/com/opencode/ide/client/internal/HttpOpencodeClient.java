@@ -1087,6 +1087,29 @@ public final class HttpOpencodeClient implements OpencodeClient {
   }
 
   @Override
+  public void steerSession(String sessionId, String text) throws OpencodeException {
+    // U-092 direct injection: delivery=steer reaches a RUNNING turn mid-flight (live-probed
+    // 2026-10-12, service 2.0.27); fire-and-forget - the turn's own stream delivers the answer,
+    // so no reply polling here.
+    String path = "/session/" + sessionId + "/prompt";
+    JsonObject body = new JsonObject();
+    body.addProperty("text", text == null ? "" : text);
+    body.addProperty("delivery", "steer");
+    HttpResponse<String> response =
+        send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
+    int status = response.statusCode();
+    if (status >= 400) {
+      throw new OpencodeException(
+          "opencode POST /api"
+              + path
+              + " failed: HTTP "
+              + status
+              + " - "
+              + truncate(response.body(), ClientTuning.SNIPPET_MAX));
+    }
+  }
+
+  @Override
   public void abortSession(String sessionId) throws OpencodeException {
     // v2 renamed POST /session/:id/abort to /interrupt
     String path = "/session/" + sessionId + "/interrupt";

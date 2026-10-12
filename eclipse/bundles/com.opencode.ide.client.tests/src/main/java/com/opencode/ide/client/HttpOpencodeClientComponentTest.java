@@ -1028,6 +1028,26 @@ public class HttpOpencodeClientComponentTest {
   }
 
   @Test
+  public void steerSessionPostsDeliverySteerOnThePromptRoute() throws Exception {
+    client.steerSession("ses_run", "also do X");
+
+    assertEquals("POST", lastMethod.get());
+    assertEquals(
+        "U-092: injection rides the prompt route", "/api/session/ses_run/prompt", lastPath.get());
+    assertTrue(
+        "the body carries the steer delivery: " + lastBody.get(),
+        lastBody.get().contains("\"delivery\":\"steer\""));
+    assertTrue(
+        "the injected text travels: " + lastBody.get(), lastBody.get().contains("also do X"));
+  }
+
+  @Test
+  public void steerSessionPropagatesHttpErrors() {
+    // stub convention: a session id containing "error" answers 500 on every /api/session route
+    org.junit.Assert.assertThrows(OpencodeException.class, () -> client.steerSession("error", "x"));
+  }
+
+  @Test
   public void abortDoesNotTreatAuthorizationFailureAsSuccess() {
     org.junit.Assert.assertThrows(OpencodeException.class, () -> client.abortSession("ses_denied"));
   }

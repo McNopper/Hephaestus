@@ -552,6 +552,18 @@ public interface OpencodeClient {
   }
 
   /**
+   * {@code POST /api/session/:id/prompt} with {@code delivery=steer} - U-092 direct injection:
+   * injects {@code text} into the session's RUNNING turn. The user message lands mid-turn and the
+   * model incorporates it (live probe 2026-10-12, service 2.0.27: HTTP 200, the reply continues
+   * without an interrupt). Fire-and-forget - returns as soon as the server accepted the prompt; the
+   * running turn's own stream delivers the answer. Works on any session id, including subagent
+   * sessions (parentID set) and idle sessions (where it behaves like a fresh prompt).
+   */
+  default void steerSession(String sessionId, String text) throws OpencodeException {
+    throw new UnsupportedOperationException("steerSession requires the HTTP client");
+  }
+
+  /**
    * {@code POST /api/session/:id/interrupt} - interrupt the running agent. A 404 is treated as
    * already idle; other HTTP and transport errors raise {@link OpencodeException}.
    *
