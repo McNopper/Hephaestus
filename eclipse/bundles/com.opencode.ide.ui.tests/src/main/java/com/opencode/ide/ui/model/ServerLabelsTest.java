@@ -148,13 +148,33 @@ public class ServerLabelsTest {
   }
 
   @Test
-  public void sessionNameAppendsWorkingSuffixOnlyWhileWorking() {
+  public void sessionNameCarriesExactlyOneStateGlyphAlways() {
+    // owner rule "always one icon": idle ○ (grey ring), working 🏃, failed 🔴 - never none,
+    // never two
     Session s = named("s1", "Fix build", "build");
 
-    assertEquals("build — Fix build", ServerLabels.sessionName(s, false));
-    assertEquals("build — Fix build  • working", ServerLabels.sessionName(s, true));
-    assertEquals("Fix build", ServerLabels.nestedSessionName(s, false));
-    assertEquals("Fix build  • working", ServerLabels.nestedSessionName(s, true));
+    assertEquals("○ build — Fix build", ServerLabels.sessionName(s, false));
+    assertEquals("🏃 build — Fix build", ServerLabels.sessionName(s, true));
+    assertEquals("○ Fix build", ServerLabels.nestedSessionName(s, false));
+    assertEquals("🏃 Fix build", ServerLabels.nestedSessionName(s, true));
+  }
+
+  @Test
+  public void sessionNameMarksAFailedRunWithTheRedGlyph() {
+    Session failed =
+        new Session("s9", null, "Fix build", "build", null, null, null, null, null, "failed", null);
+
+    assertEquals("🔴 build — Fix build", ServerLabels.sessionName(failed, false));
+    // working beats failed in the glyph: an actually running session is not red
+    assertEquals("🏃 build — Fix build", ServerLabels.sessionName(failed, true));
+  }
+
+  @Test
+  public void sessionDetailCarriesTheLiveCost() {
+    Session costly =
+        new Session("s1", null, "Fix build", "build", null, null, null, 1.5d, null, null, null);
+
+    assertEquals("idle • $1.50", ServerLabels.sessionDetail(costly, null, null));
   }
 
   @Test
@@ -250,9 +270,9 @@ public class ServerLabelsTest {
                     List.of(new ToolActivity("edit", "Main.java", State.COMPLETED)))),
             Map.of());
 
-    assertEquals("thinking…", ServerLabels.trackerLabel(thinking, "s1"));
-    assertEquals("tool: edit — Main.java", ServerLabels.trackerLabel(toolWithFile, "s1"));
-    assertEquals("tool: bash", ServerLabels.trackerLabel(toolWithoutFile, "s1"));
+    assertEquals("🧠 thinking…", ServerLabels.trackerLabel(thinking, "s1"));
+    assertEquals("✏️ tool: edit — Main.java", ServerLabels.trackerLabel(toolWithFile, "s1"));
+    assertEquals("⌨️ tool: bash", ServerLabels.trackerLabel(toolWithoutFile, "s1"));
     assertNull(ServerLabels.trackerLabel(completedOnly, "s1"));
     assertNull(ServerLabels.trackerLabel(toolWithFile, "other"));
     assertNull(ServerLabels.trackerLabel(null, "s1"));

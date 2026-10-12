@@ -177,11 +177,19 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.0.21, 141 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.21.txt` next to this file)
+## Current contract cross-check (live v2.0.27, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.27.txt` next to this file - the 2.0.21 snapshot stays for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
 diff mechanical). New surface classes need a tier decision before they land:
+
+| New since v2.0.21 (live 2.0.27) | Operations | Decision |
+|---|---|---|
+| **External integration connect** | `POST integration/{id}/connect/external` (`integration.connect.external`) | **Not for us yet** - an external-identity OAuth connect verb; no plugin feature consumes it (the plugin uses the existing `integration/oauth` + `integration/key` flows). Re-visit with any provider-integration feature |
+
+Owner policy (2026-10-12): the harness is not in production - **always ride the
+latest opencode version**; the binary updates via npm and the pin follows the
+live service after each cross-check.
 
 | New since v2.0.19 (live 2.0.21) | Operations | Decision |
 |---|---|---|

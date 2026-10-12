@@ -166,15 +166,9 @@ public record TicketRow(
    * </pre>
    */
   public static String statusSymbol(String status) {
-    return switch (status == null ? "" : status) {
-      case "product-backlog" -> "\uD83D\uDCCC"; // 📌
-      case "sprint-backlog" -> "\uD83D\uDCCB"; // 📋
-      case "in-progress" -> "\uD83C\uDFC3"; // 🏃
-      case "in-review" -> "\uD83D\uDC40"; // 👀
-      case "done" -> "\u2705"; // ✅
-      case "blocked" -> "\uD83D\uDEAB"; // no-entry sign (the state)
-      default -> "";
-    };
+    // U-093: the vocabulary moved to the shared client Emojis home so the Server view
+    // speaks the identical language - this delegate keeps the board API stable.
+    return com.opencode.ide.client.Emojis.statusSymbol(status);
   }
 
   /**
@@ -183,13 +177,8 @@ public record TicketRow(
    * spaces).
    */
   public static String typeEmoji(String type) {
-    return switch (type == null ? "" : type.trim().toLowerCase()) {
-      case "bug" -> "\uD83D\uDC1E"; // lady beetle
-      case "story" -> "\uD83D\uDCD6"; // open book
-      case "task" -> "\uD83D\uDEE0\uFE0F"; // hammer and wrench
-      case "spike" -> "\u26A1\uFE0F"; // high voltage
-      default -> "";
-    };
+    // U-093: moved to the shared client Emojis home (see statusSymbol).
+    return com.opencode.ide.client.Emojis.typeEmoji(type);
   }
 
   /**

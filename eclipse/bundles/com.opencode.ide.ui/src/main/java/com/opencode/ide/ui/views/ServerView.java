@@ -1786,9 +1786,19 @@ public class ServerView extends ViewPart implements Refreshable {
 
   String name(Object element) {
     if (element instanceof ServerNode node) {
-      return ServerLabels.serverName(node.info());
+      return com.opencode.ide.client.Emojis.SERVER + " " + ServerLabels.serverName(node.info());
     }
     if (element instanceof CategoryNode c) {
+      // U-093: colorful category headers (one emoji per section, matching the rows beneath)
+      String sectionEmoji =
+          switch (c.kind) {
+            case AGENTS -> com.opencode.ide.client.Emojis.AGENT;
+            case SESSIONS -> com.opencode.ide.client.Emojis.SESSION;
+            case ACTIVE_FILES -> com.opencode.ide.client.Emojis.FILE;
+            case WORKING_SET -> com.opencode.ide.client.Emojis.FILE;
+            case MCP_SERVERS -> com.opencode.ide.client.Emojis.MCP;
+            case SKILLS -> com.opencode.ide.client.Emojis.SKILL;
+          };
       int count =
           switch (c.kind) {
             case AGENTS -> c.server.agents.size();
@@ -1806,19 +1816,23 @@ public class ServerView extends ViewPart implements Refreshable {
             case SESSIONS -> (int) ServerLabels.busyCount(c.server.sessions, c.server.statuses);
             default -> 0;
           };
-      return ServerLabels.categoryName(c.label, count, working);
+      return sectionEmoji + " " + ServerLabels.categoryName(c.label, count, working);
     }
     if (element instanceof FileActivity f) {
-      return ServerLabels.fileActivityName(f);
+      return com.opencode.ide.client.Emojis.FILE + " " + ServerLabels.fileActivityName(f);
     }
     if (element instanceof FileStatus file) {
-      return WorkingSet.entryLabel(file);
+      return com.opencode.ide.client.Emojis.FILE + " " + WorkingSet.entryLabel(file);
     }
     if (element instanceof McpServerInfo mcp) {
-      return mcp.id() == null ? "(unnamed)" : mcp.id();
+      return com.opencode.ide.client.Emojis.MCP
+          + " "
+          + (mcp.id() == null || mcp.id().isEmpty() ? "(unnamed)" : mcp.id());
     }
     if (element instanceof SkillInfo skill) {
-      return skill.name() == null ? "(unnamed)" : skill.name();
+      return com.opencode.ide.client.Emojis.SKILL
+          + " "
+          + (skill.name() == null || skill.name().isEmpty() ? "(unnamed)" : skill.name());
     }
     if (element instanceof Agent a) {
       // definition row: bare name, plus " — n running" while live
@@ -1927,42 +1941,11 @@ public class ServerView extends ViewPart implements Refreshable {
     return "";
   }
 
+  /**
+   * U-093: every row's ONE icon is the emoji in its label text (colorful, DPI-proof, no image
+   * files) - so this returns {@code null} for everything and the icon column carries no images.
+   */
   Image icon(Object element) {
-    if (element instanceof ServerNode) {
-      return UiActivator.image(UiActivator.ICON_SERVER);
-    }
-    if (element instanceof CategoryNode) {
-      return UiActivator.image(UiActivator.ICON_CATEGORY);
-    }
-    if (element instanceof AgentSessionNode nested) {
-      return icon(nested.session()); // same (busy-aware) icon as the Sessions category
-    }
-    if (element instanceof Session s) {
-      // busy/thinking sessions get a distinct (orange) bubble so changes are visible at a glance;
-      // the busy flag comes from the node's statuses, fed by SSE events AND the /session/status
-      // poller
-      ServerNode node = ownerOf(s);
-      boolean active =
-          ServerLabels.isBusy(node == null ? null : node.statuses, s)
-              || (node != null && node.activity.containsKey(s.id()))
-              || ServerLabels.sessionActive(tracker.snapshot(), s.id());
-      return UiActivator.image(SessionBusyPoller.iconKey(active));
-    }
-    if (element instanceof Agent) {
-      return UiActivator.image(UiActivator.ICON_AGENT);
-    }
-    if (element instanceof McpServerInfo) {
-      return UiActivator.image(UiActivator.ICON_MCP);
-    }
-    if (element instanceof SkillInfo) {
-      return UiActivator.image(UiActivator.ICON_SKILL);
-    }
-    if (element instanceof FileActivity) {
-      return UiActivator.image(UiActivator.ICON_FILE);
-    }
-    if (element instanceof FileStatus) {
-      return UiActivator.image(UiActivator.ICON_FILE);
-    }
     return null;
   }
 

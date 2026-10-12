@@ -133,21 +133,21 @@ public class AgentSessionsTest {
 
   @Test
   public void agentNameAppendsRunningCountOnlyWhenPresent() {
-    assertEquals("build — 2 running", AgentSessions.agentName("build", 2));
-    assertEquals("build — 1 running", AgentSessions.agentName("build", 1));
-    assertEquals("build", AgentSessions.agentName("build", 0)); // zero sessions: unchanged label
-    assertEquals("(unnamed) — 2 running", AgentSessions.agentName(null, 2));
-    assertEquals("(unnamed)", AgentSessions.agentName(null, 0));
-    assertEquals("(unnamed)", AgentSessions.agentName("", 0));
+    assertEquals("🤖 build — 2 running", AgentSessions.agentName("build", 2));
+    assertEquals("🤖 build — 1 running", AgentSessions.agentName("build", 1));
+    assertEquals("🤖 build", AgentSessions.agentName("build", 0)); // zero sessions: unchanged label
+    assertEquals("🤖 (unnamed) — 2 running", AgentSessions.agentName(null, 2));
+    assertEquals("🤖 (unnamed)", AgentSessions.agentName(null, 0));
+    assertEquals("🤖 (unnamed)", AgentSessions.agentName("", 0));
   }
 
   @Test
   public void agentNameAppendsWorkingCountProminently() {
-    assertEquals("build — 2 running  • 1 working", AgentSessions.agentName("build", 2, 1));
-    assertEquals("build — 2 running", AgentSessions.agentName("build", 2, 0));
-    assertEquals("build — 1 running  • 1 working", AgentSessions.agentName("build", 1, 1));
-    assertEquals("build", AgentSessions.agentName("build", 0, 0));
-    assertEquals("(unnamed) — 1 running  • 1 working", AgentSessions.agentName(null, 1, 1));
+    assertEquals("🤖 build — 2 running  • 1 working", AgentSessions.agentName("build", 2, 1));
+    assertEquals("🤖 build — 2 running", AgentSessions.agentName("build", 2, 0));
+    assertEquals("🤖 build — 1 running  • 1 working", AgentSessions.agentName("build", 1, 1));
+    assertEquals("🤖 build", AgentSessions.agentName("build", 0, 0));
+    assertEquals("🤖 (unnamed) — 1 running  • 1 working", AgentSessions.agentName(null, 1, 1));
   }
 
   @Test

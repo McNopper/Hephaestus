@@ -46,13 +46,6 @@ public final class ServerLabels {
 
   private ServerLabels() {}
 
-  /**
-   * Row-name suffix marking a session that is currently working (itself or via a busy subagent
-   * under it) — same visual weight as the {@code (offline)} tag, so busy rows stand out in the name
-   * column.
-   */
-  private static final String WORKING_SUFFIX = "  • working";
-
   // ---------- server ----------
 
   /** Label of a server root: fixed for the primary, label/url + offline tag for remotes. */
@@ -169,8 +162,7 @@ public final class ServerLabels {
    * via its icon and status.
    */
   public static String sessionName(Session s, boolean working) {
-    String name = sessionName(s);
-    return working ? name + WORKING_SUFFIX : name;
+    return rowPrefix(s, working) + sessionName(s);
   }
 
   /**
@@ -191,8 +183,24 @@ public final class ServerLabels {
    * boolean)}.
    */
   public static String nestedSessionName(Session s, boolean working) {
-    String name = nestedSessionName(s);
-    return working ? name + WORKING_SUFFIX : name;
+    return rowPrefix(s, working) + nestedSessionName(s);
+  }
+
+  /**
+   * U-093 row prefix, owner rule "always one icon": EVERY session row carries exactly one state
+   * glyph — 🏃 while the session (or a subagent under it) works, 🔴 when its run ended failed, ○
+   * when idle (the grey monochrome ring - Unicode has no grey emoji). Vocabulary from the shared
+   * {@code Emojis} home.
+   */
+  public static String rowPrefix(Session s, boolean working) {
+    if (working) {
+      // working beats failed: a re-running session is live NOW - the failure is history
+      return com.opencode.ide.client.Emojis.WORKING + " ";
+    }
+    if (s != null && "failed".equalsIgnoreCase(s.outcome())) {
+      return com.opencode.ide.client.Emojis.FAILED + " ";
+    }
+    return com.opencode.ide.client.Emojis.IDLE + " ";
   }
 
   /**
@@ -201,6 +209,9 @@ public final class ServerLabels {
    */
   public static String sessionDetail(Session s, String live, String status) {
     StringBuilder sb = new StringBuilder(live != null ? live : (status == null ? "idle" : status));
+    if (s.cost() != null && s.cost() > 0d) {
+      sb.append(" • $").append(String.format(java.util.Locale.ROOT, "%.2f", s.cost()));
+    }
     if (s.parentID() != null) {
       sb.append(" • subagent");
     }
@@ -271,7 +282,7 @@ public final class ServerLabels {
       return null;
     }
     if (session.thinking()) {
-      return "thinking…";
+      return com.opencode.ide.client.Emojis.THINKING + " thinking…";
     }
     ToolActivity running =
         session.activity().stream()
@@ -281,9 +292,10 @@ public final class ServerLabels {
     if (running == null) {
       return null;
     }
+    String glyph = com.opencode.ide.client.Emojis.toolGlyph(running.tool()) + " ";
     return running.file() != null
-        ? "tool: " + running.tool() + " — " + running.file()
-        : "tool: " + running.tool();
+        ? glyph + "tool: " + running.tool() + " — " + running.file()
+        : glyph + "tool: " + running.tool();
   }
 
   /** Whether the snapshot currently sees activity (running/thinking/tool) for the session. */

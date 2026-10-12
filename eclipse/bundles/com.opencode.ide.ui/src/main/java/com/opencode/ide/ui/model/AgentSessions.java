@@ -108,7 +108,10 @@ public final class AgentSessions {
    * plain name.
    */
   public static String agentName(String name, int running, int working) {
-    String base = (name == null || name.isEmpty()) ? "(unnamed)" : name;
+    String base =
+        com.opencode.ide.client.Emojis.AGENT
+            + " "
+            + ((name == null || name.isEmpty()) ? "(unnamed)" : name);
     StringBuilder sb = new StringBuilder(base);
     if (running > 0) {
       sb.append(" — ").append(running).append(" running");
