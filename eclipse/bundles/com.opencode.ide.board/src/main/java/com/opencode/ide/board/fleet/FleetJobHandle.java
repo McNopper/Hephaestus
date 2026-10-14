@@ -22,6 +22,8 @@ public record FleetJobHandle(
     RUNNING,
     COMPLETED,
     MERGED,
+    /** The engine's stage-pass settle (U-058): no session ever ran. */
+    PASSED,
     FAILED
   }
 

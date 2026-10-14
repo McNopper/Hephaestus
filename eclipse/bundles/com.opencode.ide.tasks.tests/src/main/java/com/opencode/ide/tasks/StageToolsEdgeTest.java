@@ -38,6 +38,31 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
     assertTrue("the NotFound channel names the missing ticket", text.contains("T-404 not found"));
   }
 
+  /** U-057: the pass-through tool surfaces passStage's rejections, same channels as advance. */
+  @Test
+  public void passStageMissingTicketIsANotFoundErrorResult() {
+    String text =
+        callErrorText(
+            "task_pass_stage",
+            "{\"project\":\"p\",\"ticket_id\":\"T-404\",\"reason\":\"no impact\"}");
+    assertTrue("the NotFound channel names the missing ticket", text.contains("T-404 not found"));
+  }
+
+  /** U-057: a rejected pass is an isError result that wrote nothing. */
+  @Test
+  public void passStageAtTheVTipIsRejectedAndChangesNothing() {
+    callOk("task_create", "{\"project\":\"p\",\"title\":\"tip\",\"stage\":\"test-requirements\"}");
+    String text =
+        callErrorText(
+            "task_pass_stage",
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"no impact\"}");
+    assertTrue(text.contains("V tip"));
+    assertEquals(
+        "a rejected pass leaves the stage alone",
+        "test-requirements",
+        new TaskStore(root).get("p", "T-001").stage);
+  }
+
   @Test
   public void sendBackWithBlankReasonIsAnInvalidErrorResult() {
     callOk("task_create", "{\"project\":\"p\",\"title\":\"a\",\"stage\":\"system\"}");

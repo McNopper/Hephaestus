@@ -53,6 +53,18 @@ public class StageRoutingTest extends StoreTestHarness {
     }
   }
 
+  /** U-057: an unstaged legacy ticket cannot pass - no guessing, same as {@code advance}. */
+  @Test
+  public void passStageRejectsATicketWithoutAStage() {
+    String id = store.create("p", TaskStore.CreateSpec.of("legacy"), null).id;
+    try {
+      store.passStage("p", id, "no impact", "agent");
+      fail("a ticket with no stage must be rejected");
+    } catch (RuntimeException e) {
+      assertTrue(String.valueOf(e.getMessage()), e.getMessage().contains("no stage"));
+    }
+  }
+
   @Test
   public void theVTipCanNeverPass() {
     String id = staged(VStages.last(), "product-backlog");

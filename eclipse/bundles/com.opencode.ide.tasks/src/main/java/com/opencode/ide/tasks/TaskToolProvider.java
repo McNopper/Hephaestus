@@ -24,8 +24,10 @@ import java.util.Map;
  * close-sprint returns, traceability pairing - so worker agents and the {@code pm-*} skills keep
  * working after a pure rename. On top of that pack, {@code task_advance}/{@code task_send_back}
  * drive the V-model pipeline (stage hand-forward with the in-review/done quality gate, and the
- * blocked hand-back loop; see {@link VStages}), and {@code task_readiness} exposes the {@link
- * StageReadiness} dispatch verdicts so the PM agent can ask what's runnable right now.
+ * blocked hand-back loop; see {@link VStages}), {@code task_pass_stage} records the U-029 stage
+ * pass-through (same transition, a rationale instead of a dispatch), and {@code task_readiness}
+ * exposes the {@link StageReadiness} dispatch verdicts so the PM agent can ask what's runnable
+ * right now.
  *
  * <p>Parameter names keep the historical {@code ticket_id}/{@code project} spellings for
  * compatibility with existing agent prose ("task" and "ticket" name the same thing; the store calls
@@ -149,6 +151,15 @@ public final class TaskToolProvider implements ToolProvider {
         return json(
             store
                 .advance(reqStr(a, "project"), reqStr(a, "ticket_id"), optStr(a, "by", null))
+                .toJson());
+      case "task_pass_stage":
+        return json(
+            store
+                .passStage(
+                    reqStr(a, "project"),
+                    reqStr(a, "ticket_id"),
+                    reqStr(a, "reason"),
+                    optStr(a, "by", null))
                 .toJson());
       case "task_send_back":
         return json(
@@ -501,6 +512,28 @@ public final class TaskToolProvider implements ToolProvider {
                 obj -> {
                   obj.add("project", strP());
                   obj.add("ticket_id", strP());
+                  obj.add("by", strP());
+                })));
+    out.add(
+        new McpTool(
+            "task_pass_stage",
+            "PASS a ticket's current V-model pipeline stage through without work (the U-029 "
+                + "pass-through verb): the stage's work does not apply to this change. Effect: "
+                + "exactly task_advance's - stage and role move to the next stage's, status resets "
+                + "to product-backlog, the assignee is cleared - but no stage artifact is required "
+                + "and history records 'stage <N> passed: <reason>'. Rejected with a blank reason, "
+                + "a ticket with no stage, or at the V tip (test-requirements): the journey always "
+                + "ends with a real acceptance run.",
+            schema(
+                new String[] {"project", "ticket_id", "reason"},
+                obj -> {
+                  obj.add("project", strP());
+                  obj.add("ticket_id", strP());
+                  obj.add(
+                      "reason",
+                      strP(
+                          "Why the stage has no applicable work; becomes the 'stage <N> passed: "
+                              + "<reason>' history entry."));
                   obj.add("by", strP());
                 })));
     out.add(

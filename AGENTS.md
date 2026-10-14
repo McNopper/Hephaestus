@@ -100,9 +100,11 @@ through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
 feature (e.g. no architecture-level change needed) is a **pass-through**:
 the ticket advances with a recorded rationale ("no architecture impact:
 local change") instead of a full dispatch. Every stage is visited; not
-every stage does work. (Pass-through is library-level only —
-`TaskStore.passStage`, no tool and no production caller; the wiring is
-tracked by U-049.)
+every stage does work. The pass-through verb is
+`task_pass_stage(project, ticket_id, reason)` (history `stage N passed:
+<reason>`), and a `pass-declare: <stage> - <reason>` ticket comment makes
+the launch path record that pass instead of starting a session - zero
+sessions, zero charge (U-057/U-058).
 
 **Pump strategy (library-level only):** the intended tick order resolves
 BLOCKED ITEMS FIRST — route a blocked ticket to the previous stage (vertical

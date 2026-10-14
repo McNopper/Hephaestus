@@ -13,11 +13,12 @@ import java.util.Map;
  * <p>A pure function over one project's ticket list (e.g. {@code TaskStore.list(project, null,
  * null, null, null)}): no file I/O, no clock - every timestamp comes from the tickets. The store
  * models <b>one ticket flowing through the stages</b> ({@code advance}/{@code sendBack} rewrite the
- * {@code stage} field in place), so upstream evidence is either the ticket's own gated advance
- * history ("advanced to X" proves the ladder stage before X finished, because advance requires
- * in-review/done) or another ticket of the epic chain (the epic parent {@code u.id == t.epic}, as
- * the traceability pairing uses, or a sibling {@code u.epic == t.epic}) sitting in the upstream
- * stage with status done/in-review.
+ * {@code stage} field in place), so upstream evidence is either the ticket's own gated flow history
+ * ("advanced to X" proves the ladder stage before X finished, because advance requires
+ * in-review/done; a U-029 {@code stage <N> passed: ...} event proves the same - a recorded pass IS
+ * a completed stage, U-058/FR-011) or another ticket of the epic chain (the epic parent {@code u.id
+ * == t.epic}, as the traceability pairing uses, or a sibling {@code u.epic == t.epic}) sitting in
+ * the upstream stage with status done/in-review.
  *
  * <p>Upstream of a definition stage is the previous ladder stage; upstream of a verification stage
  * is its paired definition stage (test-design waits on design, test-implementation on
@@ -164,7 +165,8 @@ public final class StageReadiness {
       return finishedOrBacklog(t, "stage 'requirements' has no upstream");
     }
     Task viaEpic = satisfiedViaEpicChain(t, upstream, tickets);
-    if (viaEpic == null && !flowedFromUpstream(t, upstream)) {
+    String flow = flowEvidence(t, upstream);
+    if (viaEpic == null && flow == null) {
       if ("done".equals(t.status) && !epicChainHasStage(t, upstream, tickets)) {
         return new Readiness(
             Kind.NOT_APPLICABLE,
@@ -179,7 +181,7 @@ public final class StageReadiness {
           Kind.WAIT_UPSTREAM,
           "no done/in-review ticket in upstream stage '"
               + upstream
-              + "' (epic chain or own advance history)");
+              + "' (epic chain or own flow history)");
     }
     // U-081: proof of upstream work is the artifact, not the label - a
     // done/in-review upstream with nothing recorded cannot satisfy its
@@ -215,6 +217,13 @@ public final class StageReadiness {
       return finishedOrBacklog(
           t,
           "upstream '" + upstream + "' satisfied by " + viaEpic.id + " (" + viaEpic.status + ")");
+    }
+    // flow != null here (the null case returned WAIT_UPSTREAM above): a pass
+    // event names itself as the evidence (FR-011), an advance keeps its
+    // established wording
+    if (!("advanced to " + VStages.next(upstream)).equals(flow)) {
+      return finishedOrBacklog(
+          t, "upstream '" + upstream + "' satisfied by own pass history (" + flow + ")");
     }
     return finishedOrBacklog(
         t,
@@ -282,20 +291,31 @@ public final class StageReadiness {
   }
 
   /**
-   * True when {@code t}'s own history proves it left the upstream stage through the quality gate:
-   * an "advanced to {@code next(upstream)}" event, which the store only writes from in-review/done.
+   * The ticket's own flow-history evidence that it left {@code upstream} through a quality gate:
+   * the {@code advanced to next(upstream)} event (the store only writes it from in-review/done) or
+   * the U-029 pass event {@code stage <N> passed: <reason>} for that same ladder rung - a recorded
+   * pass is a completed stage, so it satisfies the downstream exactly like an advance (U-058,
+   * FR-011); {@code null} when the history proves nothing.
+   *
+   * @return the matching history action, or {@code null}
    */
-  private static boolean flowedFromUpstream(Task t, String upstream) {
+  private static String flowEvidence(Task t, String upstream) {
     String gate = VStages.next(upstream);
-    if (gate == null) {
-      return false;
+    if (gate == null || t.history == null) {
+      return null;
     }
+    String advance = "advanced to " + gate;
+    String pass = "stage " + (VStages.STAGES.indexOf(upstream) + 1) + " passed:";
     for (Task.HistoryEvent e : t.history) {
-      if (e != null && ("advanced to " + gate).equals(e.action())) {
-        return true;
+      String action = e == null ? null : e.action();
+      if (action == null) {
+        continue;
+      }
+      if (advance.equals(action) || action.startsWith(pass)) {
+        return action;
       }
     }
-    return false;
+    return null;
   }
 
   /**

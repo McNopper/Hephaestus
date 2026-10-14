@@ -177,11 +177,15 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.0.27, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.27.txt` next to this file - the 2.0.21 snapshot stays for the diff history)
+## Current contract cross-check (live v2.0.28, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.28.txt` next to this file - the 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
 diff mechanical). New surface classes need a tier decision before they land:
+
+| New since v2.0.27 (live 2.0.28) | Operations | Decision |
+|---|---|---|
+| *No operation changes* - 2.0.28 is identical to 2.0.27 (142 vs 142 operation lines; 0 added, 0 removed, 0 changed) | - | **Nothing to consume** - the pin bump is version-only. The routes we use are unchanged, verified live 2026-10-14: `POST .../prompt` body is still `{text, delivery(steer\|queue), ...}` under `additionalProperties:false`, `PATCH .../inbox/{id}` is still `{delivery}` (`Session.Inbox.Delivery` = `steer`\|`queue`), `GET /api/session` still takes `limit`/`order`/`directory`/`cursor`, `GET /api/event` is unchanged, and `opencode serve` still accepts `--hostname`/`--port` (the 2.0.28 `--port` removal only affected the VS Code extension launch path, opencode#49084) |
 
 | New since v2.0.21 (live 2.0.27) | Operations | Decision |
 |---|---|---|

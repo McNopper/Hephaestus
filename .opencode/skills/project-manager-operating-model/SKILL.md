@@ -50,7 +50,9 @@ blocked = a state (status:blocked + resume_to:str + blocker:str); a blocked tick
           had their attempt)
 paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update
 stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back ->
-          previous stage (blocked + reason)
+          previous stage (blocked + reason); task_pass_stage -> next stage's backlog with a
+          recorded "stage <N> passed: <reason>" instead of a dispatch (a pass-declare: <stage> -
+          <reason> comment on the ticket makes the launch path record that pass: zero sessions)
 ```
 
 | State | Meaning | Artifact |

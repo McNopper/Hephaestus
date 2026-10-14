@@ -77,7 +77,12 @@ public final class SelfClaimPrompt {
       return false;
     }
     for (Task.HistoryEvent event : ticket.history) {
-      if (event.action() != null && event.action().startsWith("advanced to ")) {
+      // U-058: a recorded stage pass (FR-011) proves the journey just like an
+      // advance - an all-passes history must not read as "nothing above this
+      // stage exists yet"
+      if (event.action() != null
+          && (event.action().startsWith("advanced to ")
+              || (event.action().startsWith("stage ") && event.action().contains(" passed: ")))) {
         return true;
       }
     }

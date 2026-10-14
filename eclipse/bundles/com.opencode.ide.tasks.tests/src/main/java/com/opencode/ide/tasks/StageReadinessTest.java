@@ -211,6 +211,48 @@ public class StageReadinessTest {
     assertTrue(r.reason(), r.reason().contains("advanced to system"));
   }
 
+  /** U-058/FR-011: a recorded stage pass satisfies the downstream like a completed stage. */
+  @Test
+  public void ownPassHistorySatisfiesUpstreamLikeAnAdvance() {
+    Task t = ticket("T-900", "design", "product-backlog");
+    history(t, "stage 3 passed: no architecture impact: local change");
+
+    StageReadiness.Readiness r = StageReadiness.evaluate(List.of(t)).get("T-900");
+
+    assertEquals(
+        "the passed architecture stage counts as finished", StageReadiness.Kind.READY, r.kind());
+    assertTrue(r.reason(), r.reason().contains("pass history"));
+    assertTrue("the reason names the pass as the evidence", r.reason().contains("stage 3 passed"));
+  }
+
+  /** U-058: a pass of ANOTHER rung proves nothing - no fabricated satisfaction. */
+  @Test
+  public void aPassOfADifferentRungDoesNotSatisfyTheUpstream() {
+    Task t = ticket("T-900", "design", "product-backlog");
+    history(t, "stage 2 passed: no system impact");
+
+    assertEquals(
+        "stage 2 (system) says nothing about architecture, design's upstream",
+        StageReadiness.Kind.WAIT_UPSTREAM,
+        StageReadiness.evaluate(List.of(t)).get("T-900").kind());
+  }
+
+  /**
+   * U-058 the deadlock guard: a store-recorded pass must leave the NEXT stage dispatchable -
+   * without the pass counting as flow evidence the pump would park the ticket at WAIT_UPSTREAM
+   * forever.
+   */
+  @Test
+  public void aStoreRecordedPassKeepsTheNextStageDispatchable() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("pass me"), "architecture");
+    store.passStage("p", t.id, "no architecture impact: local change", "agent");
+
+    StageReadiness.Readiness r = snapshot().get(t.id);
+
+    assertEquals(StageReadiness.Kind.READY, r.kind());
+    assertTrue(r.reason(), r.reason().contains("stage 3 passed"));
+  }
+
   @Test
   public void ownFlowIsNeverStaleByTimestamp() {
     String id = walkTo("test-design");

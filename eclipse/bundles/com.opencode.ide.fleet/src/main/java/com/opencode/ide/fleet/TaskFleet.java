@@ -4,6 +4,7 @@ import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.git.WorktreeManager;
+import com.opencode.ide.tasks.StageDeclarations;
 import com.opencode.ide.tasks.StageEvidence;
 import com.opencode.ide.tasks.StageReadiness;
 import com.opencode.ide.tasks.Task;
@@ -275,9 +276,10 @@ public final class TaskFleet {
    * @param timeout how long to await the agent session
    * @param bootstrap optional pre-prompt shell command in the new session (best-effort, never gates
    *     the launch; {@code null} or a blank command means none - see {@link Bootstrap})
-   * @return the final job: {@code MERGED} on success, or {@code FAILED} with the ticket blocked
+   * @return the final job: {@code MERGED} on success, {@code FAILED} with the ticket blocked
    *     (submit failure, timeout, merge conflict - the worktree is kept for post-mortem in all
-   *     cases)
+   *     cases), or {@code PASSED} when the current stage carried a no-impact declaration and the
+   *     engine recorded the stage pass instead of running any session (U-058)
    * @throws IllegalStateException if the ticket is blocked, already done, or already has a fleet
    *     job in flight
    */
@@ -338,12 +340,12 @@ public final class TaskFleet {
 
   /**
    * The launch lifecycle, one named stage per method: validation ({@link #launchableTicket}) &rarr;
-   * pre-claim on the main branch ({@link #claimAndCommit}) &rarr; submit + watchdog ({@link
-   * #runSession}) &rarr; merge-back + bookkeeping + telemetry + reap ({@link #mergeAndRecord})
-   * &rarr; optional autonomous acceptance ({@link #reviewSettledTicket}, U-021). Every stage
-   * failure routes through {@link #blocked} so the ticket never strands as a zombie claim, and the
-   * permission watch that started with the session is dropped on EVERY outcome (the {@code
-   * finally}).
+   * U-058 stage pass ({@link #passDeclaredStage}: no session at all) &rarr; pre-claim on the main
+   * branch ({@link #claimAndCommit}) &rarr; submit + watchdog ({@link #runSession}) &rarr;
+   * merge-back + bookkeeping + telemetry + reap ({@link #mergeAndRecord}) &rarr; optional
+   * autonomous acceptance ({@link #reviewSettledTicket}, U-021). Every stage failure routes through
+   * {@link #blocked} so the ticket never strands as a zombie claim, and the permission watch that
+   * started with the session is dropped on EVERY outcome (the {@code finally}).
    */
   private FleetJob launchGuarded(
       String project,
@@ -353,6 +355,12 @@ public final class TaskFleet {
       Bootstrap bootstrap,
       String modelOverride) {
     Task ticket = launchableTicket(project, taskId);
+    // U-058: honor a declared no-impact stage BEFORE any launch side effect -
+    // nothing is claimed, no worktree exists, no session starts
+    FleetJob passed = passDeclaredStage(project, ticket);
+    if (passed != null) {
+      return passed;
+    }
     runner.claimProject(baseWorktree, project, taskId);
     FleetJob unclaimed = claimAndCommit(project, taskId, baseWorktree);
     if (unclaimed != null) {
@@ -436,6 +444,58 @@ public final class TaskFleet {
       throw new IllegalStateException("ticket " + taskId + " is already done");
     }
     return ticket;
+  }
+
+  /**
+   * Stage 0b - U-058 stage pass (U-029 FR-004/FR-005/FR-010): honors a forward-declared no-impact
+   * stage INSTEAD of launching a worker. The ticket's CURRENT stage carries an active {@link
+   * StageDeclarations} declaration (a {@code pass-declare: <stage> - <reason>} comment - see that
+   * class for why comments are the declaration source), so the engine records the pass through
+   * {@link TaskStore#passStage} and settles the dispatch as {@link FleetJob.State#PASSED} before
+   * anything else happens: no store claim, no commit, no worktree, no session, no review, zero
+   * charge. Every dispatch path (auto-dispatch, waves, the Board, {@code fleet_dispatch}) runs
+   * through this check, so a declaration is honored wherever a launch would start - the newest
+   * declaration governs, and a stage without an active one launches normally.
+   *
+   * <p>The V tip and unstaged/legacy tickets are never passed (FR-003: the journey always ends with
+   * a real acceptance run); they fall through to the ordinary launch. A store rejection of the pass
+   * is logged and the launch proceeds, so a bad declaration can only cost a dispatch, never block
+   * the pump.
+   *
+   * @return the PASSED job, or {@code null} when no declaration applies (then the launch proceeds)
+   */
+  private FleetJob passDeclaredStage(String project, Task ticket) {
+    if (ticket.stage == null
+        || !VStages.isValid(ticket.stage)
+        || VStages.next(ticket.stage) == null) {
+      return null;
+    }
+    StageDeclarations.Declaration declaration = StageDeclarations.forStage(ticket, ticket.stage);
+    if (declaration == null) {
+      return null;
+    }
+    try {
+      Task passed = store.passStage(project, ticket.id, declaration.reason(), declaration.by());
+      com.opencode.ide.client.ClientLog.info(
+          "fleet "
+              + ticket.id
+              + ": stage pass recorded instead of a launch (reached '"
+              + passed.stage
+              + "', declared by "
+              + declaration.by()
+              + ")");
+      return new FleetJob(ticket.id, null, null, FleetJob.State.PASSED, null);
+    } catch (TaskStore.Invalid e) {
+      LOG.log(
+          Level.WARNING,
+          "fleet "
+              + ticket.id
+              + ": stage pass rejected ("
+              + e.getMessage()
+              + "); dispatching normally",
+          e);
+      return null;
+    }
   }
 
   /**

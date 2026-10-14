@@ -135,9 +135,11 @@ A ticket with a `stage` visits **ALL ten V stages** (requirements → system →
 architecture → design → implementation → test-implementation → test-design →
 test-architecture → test-system → test-requirements). The pass-through — a
 stage where nothing applies advances with a recorded rationale instead of a
-full dispatch — is **library-level only**: `TaskStore.passStage` exists but
-there is no `task_pass_stage` tool and no production caller, so today a staged
-ticket needs a full dispatch at each stage (U-049 tracks the wiring). Stages
+full dispatch - is wired: `task_pass_stage(project, ticket_id, reason)` is the
+pass-through verb (history `stage <N> passed: <reason>`), and a
+`pass-declare: <stage> - <reason>` comment on the ticket makes the launch path
+record that pass instead of starting a session (U-057/U-058; newest
+declaration governs, the V tip never passes). Stages
 run **concurrently** (no phase gates, no ordering enforcement): `task_advance`
 moves the ticket to the next stage's backlog, `task_send_back` to the previous
 one (blocked with reason). (A horizontal "report to the V-pair stage" route
