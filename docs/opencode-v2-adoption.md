@@ -177,11 +177,15 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.0.28, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.28.txt` next to this file - the 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (live v2.0.29, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.29.txt` next to this file - the 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
 diff mechanical). New surface classes need a tier decision before they land:
+
+| New since v2.0.28 (live 2.0.29) | Operations | Decision |
+|---|---|---|
+| *No operation changes* - 2.0.29 is identical to 2.0.28 (142 vs 142 operation lines; 0 added, 0 removed, 0 changed) | - | **Nothing to consume** - the pin bump is version-only. The routes we use are unchanged, verified live 2026-10-14: `POST .../prompt` is still `{text, delivery(steer\|queue), ...}` under `additionalProperties:false`, `PATCH .../inbox/{id}` is still `{delivery}` (`Session.Inbox.Delivery` = `steer`\|`queue`), `GET /api/session` still takes `limit`/`order`/`search`/`parentID`/`directory`/`cursor`, `GET /api/event` is still `text/event-stream`, and `interrupt`/`fork`/`session.remove` are present. Behavior-only release notes - none touching a route we consume: responses hitting their output-token limit continue automatically (bounded retries), centrally managed configuration now takes precedence over local/user configuration, the access-policy config moves to the top-level `policies` key (still accepts `experimental.policies`), plus Desktop/TUI client UX (provider-account management, remote-pairing QR for the existing `pair` route, steered messages shown as pending immediately) |
 
 | New since v2.0.27 (live 2.0.28) | Operations | Decision |
 |---|---|---|

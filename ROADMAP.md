@@ -52,12 +52,14 @@ the docs describe them as unwired.
    resulting mojibake); every wave starts with the upstream cross-check
    (below).
 
-## Now — wave-2026-10-02 (E-006, coherence debt wave 1)
+## Now — 2026-10-14 (upstream rounds + pass-through wave closed)
 
-Landed 2026-10-02: all 25 tickets (docs truth passes T-011..T-025, engine
-defects B-014..B-023, store/client/UI gains U-053..U-055) are **in
-orchestrator review** — the store (`task_board`) is their status source.
-History: docs/HISTORY.md, H13.
+Latest: **v0.1.9 released** (stage pass-through, V-chain walk, pin 2.0.28).
+S-13 (U-095, upstream round **2.0.29** — verified-identical surface, 142
+operations) is **done but unreleased**: its changeset sits in the working
+tree until the owner schedules the next release date. The store
+(`task_board`) is the status source; waves S-10..S-13 are closed and
+`task_doctor` is ok. History: docs/HISTORY.md, H13.
 
 ## Next — wave 2 (after wave 1's gate is green)
 
@@ -66,8 +68,8 @@ are closed as indexes; the work lives in the rows below):
 
 | Ticket | Chunk |
 |---|---|
-| U-057 | `task_pass_stage` tool (store history event + tests) — U-049/1 |
-| U-058 | pump passes a stage without launching a session — U-049/2, completes U-029 |
+| ~~U-057~~ | ✅ done (S-12): `task_pass_stage` tool shipped — U-049/1 |
+| ~~U-058~~ | ✅ done (S-12): pump passes a stage via `pass-declare:` comment without launching — U-049/2, completes U-029 |
 | U-050 | resolution-first ticks in the production schedulers (U-031; one mechanism, one lane) |
 | U-052 | `inputs changed:` markers recorded by the pump (pairs with D-003) |
 | U-059 | archive pool into every production readiness call — U-051/1 |
@@ -77,8 +79,9 @@ are closed as indexes; the work lives in the rows below):
 | T-027 | diagnose the ubuntu CI leg (spike; one small fix ticket per root cause) |
 | T-028 | store audit: artifacts for done tickets |
 | T-029 | store audit: wave timestamps + the malformed id |
-| T-026 | walk the five V-chains to `test-requirements` (needs U-058) |
-| U-063 | upstream round: opencode 2.0.21 — endpoint smoke + pin bump (standing rule) |
+| ~~T-026~~ | ✅ done (2026-10-14): five V-chains walked to `test-requirements` with recorded reasons |
+| ~~U-063~~ | ✅ superseded as a one-off: upstream rounds are now continuous — done through **2.0.29** (U-095); the standing cross-check rule below governs |
+| U-096 | Collected agent-questions surface — subagent questions visible in-session + one list of all pending asks (owner TUI observation 2026-10-14: a subagent asked him a question; several can ask at once) |
 
 ## Decisions needed (Product Owner)
 
@@ -94,6 +97,9 @@ are closed as indexes; the work lives in the rows below):
 
 ## Human actions
 
+- **Release scheduling** — next cut (≥ v0.1.10) to be dated by the owner;
+  the 2.0.29 cross-check round (U-095) is done but unreleased in the
+  working tree. (Last cut: v0.1.9, 2026-10-14.)
 - **T-002** — the live in-Eclipse verification pass (the deep dive); its
   todos include the T-010 follow-ups: live streaming text in the chat, the
   repaired Board glyphs, the mid-pipeline readiness badges.
@@ -108,10 +114,11 @@ are closed as indexes; the work lives in the rows below):
 Every open E-006 child is exactly one row here; the section disappears when
 E-006 closes. **Where a row below contradicts `AGENTS.md`, the row is right.**
 
-- Five documented mechanisms are still library-level only (pass-through
-  U-057/U-058, resolution-first U-050, archive-aware readiness U-059,
-  auto-archive U-060, `inputs changed:` markers U-052) — the docs say so and
-  point at the tickets.
+- Four documented mechanisms are still library-level only (resolution-first
+  U-050, archive-aware readiness U-059, auto-archive U-060, `inputs
+  changed:` markers U-052) — the docs say so and point at the tickets.
+  (Pass-through U-057/U-058 **wired 2026-10-14**: `task_pass_stage` +
+  `pass-declare:` comments; AGENTS.md and the skills carry the truth.)
 - `task_traceability` pairs by role+epic, not artifacts or V level — D-001.
 - Release versioning: both tags built as `0.1.0-SNAPSHOT` — D-002.
 - STALE fires on any upstream write, even bookkeeping — D-003.
@@ -147,6 +154,15 @@ pack (the cpp-tools agent runs commands via bash).
   (`docs/opencode-v2-adoption.md`). Upstream ships daily and the matrix
   drifts silently otherwise — that drift is this project's dominant risk.
   Never adopt an unprobed call: probe the live contract first.
+- **Repo carries V-model content only** (2026-10-15, owner decision): skills
+  (`software-*`, `test-software-*`, `project-manager-*`) and agents
+  (orchestrator, manifest-author, executor, reviewer, rubberduck, research,
+  project-manager) are the whole set; MCP servers are only `tasks` and
+  `fleet`. Specialized skills and metrics live elsewhere (their source is
+  the user) — removed content is quarantined at `C:\Temp\Hephaestus`
+  (code-dependency, code-licenses, code-repo-map, code-quality-matrix,
+  cpp-tools, graphics-render-comparison, research-artificial-analysis-models,
+  cpp-tools agent, graphics-expert agent, graphics MCP server).
 - TUI parity is the floor, not the goal: hold "same or more features than
   the official TUI" and use the harness where it is genuinely better.
 - Refactor cadence: every second session.

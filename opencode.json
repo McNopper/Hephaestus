@@ -11,10 +11,6 @@
         "type": "local",
         "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
         "disabled": true
-      },
-      "graphics": {
-        "type": "local",
-        "command": ["python", "mcp/graphics/server.py"]
       }
     }
   }
