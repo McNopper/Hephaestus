@@ -39,6 +39,18 @@ the TUI already covers.)*
 > want tracked, multi-agent, sprint-based execution. Likewise, `project-manager-doc-about` (and any
 > skill) works standalone, independent of PM.
 
+## The flow and the final check (owner decision 2026-10-15)
+
+Hephaestus owns **the V-model flow** — how work passes: definitions move down
+(requirements → system → architecture → design → implementation), verification
+comes back up, with artifacts, coverage, evidence and DONE as a gate verdict.
+The **final check** is a different thing: the per-project quality/architecture
+gate (global skills + the project's own gate configuration) invoked at each
+stage's acceptance. It is project-specific and never owned by Hephaestus —
+so no specialized skills or metrics get committed to this repo; they come
+from the user or live in the project itself. Where a new check is wanted, it
+belongs in the project's own files, not as a Hephaestus feature.
+
 ## Skills are discovered flat by domain
 
 opencode loads every `SKILL.md` under `.opencode/skills/*/`. There are no subfolders by

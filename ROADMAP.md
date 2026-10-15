@@ -154,14 +154,21 @@ pack (the cpp-tools agent runs commands via bash).
   (`docs/opencode-v2-adoption.md`). Upstream ships daily and the matrix
   drifts silently otherwise — that drift is this project's dominant risk.
   Never adopt an unprobed call: probe the live contract first.
-- **Repo carries V-model content only** (2026-10-15, owner decision): skills
-  (`software-*`, `test-software-*`, `project-manager-*`) and agents
-  (orchestrator, manifest-author, executor, reviewer, rubberduck, research,
-  project-manager) are the whole set; MCP servers are only `tasks` and
-  `fleet`. Specialized skills and metrics live elsewhere (their source is
-  the user) — removed content is quarantined at `C:\Temp\Hephaestus`
-  (code-dependency, code-licenses, code-repo-map, code-quality-matrix,
-  cpp-tools, graphics-render-comparison, research-artificial-analysis-models,
+- **The flow and the final check** (owner decision 2026-10-15): Hephaestus
+  owns the V-model flow — how work passes (definitions → verification,
+  artifacts, coverage, DONE as a gate verdict). The final check = the
+  per-project quality/architecture gate (global skills + project-owned gate
+  config) invoked at each stage's acceptance; project-specific, never owned
+  by Hephaestus. Specialized skills and metrics never get committed here;
+  they come from the user or live in the project. New checks belong in the
+  project's own files, not as harness features.
+  Repo therefore carries V-model content only: skills (`software-*`,
+  `test-software-*`, `project-manager-*`) and agents (orchestrator,
+  manifest-author, executor, reviewer, rubberduck, research,
+  project-manager); MCP servers are only `tasks` and `fleet`. Previously
+  removed content is quarantined at `C:\Temp\Hephaestus` (code-dependency,
+  code-licenses, code-repo-map, code-quality-matrix, cpp-tools,
+  graphics-render-comparison, research-artificial-analysis-models,
   cpp-tools agent, graphics-expert agent, graphics MCP server).
 - TUI parity is the floor, not the goal: hold "same or more features than
   the official TUI" and use the harness where it is genuinely better.
