@@ -87,11 +87,11 @@ are closed as indexes; the work lives in the rows below):
 
 | Ticket | Question | Recommendation |
 |---|---|---|
-| D-001 | what `task_traceability` counts as a verified pair (today: role+epic only — 101/121 tickets read as orphans) | own V-journey **and** verification artifacts, with V-level matching |
-| D-002 | release versioning (both tags built as `0.1.0-SNAPSHOT`) | set the version on the release commit, tag, bump to next `-SNAPSHOT` |
-| D-003 | which upstream writes make downstream work STALE (today: any write) | only status/stage/artifact changes |
-| D-004 | tier→model mapping + the rubberduck's cross-vendor model (none pinned today) | tiers stay guidance; pin a named other-vendor rubberduck model |
-| U-043 | "blocked" as a store state instead of an orthogonal flag | DECIDED + LANDED 2026-10-07 (U-067/U-068/U-069) |
+| D-001 | what `task_traceability` counts as a verified pair | DECIDED 2026-10-07 — widen to three signals (role+epic, own V-journey, test artifacts); implementation U-070 (in-review) |
+| D-002 | release versioning (both tags built as `0.1.0-SNAPSHOT`) | DECIDED 2026-10-07 — set the version on the release commit, tag, bump to next `-SNAPSHOT` (script: T-030) |
+| D-003 | which upstream writes make downstream work STALE (today: any write) | **open** — recommendation: only status/stage/artifact changes |
+| D-004 | tier→model mapping + the rubberduck's cross-vendor model | DECIDED 2026-10-07 — tiers stay guidance; no committed model ids |
+| U-043 | "blocked" as a store state instead of an orthogonal flag | DECIDED 2026-10-07 — children U-067/U-068/U-069 landing (in-review) |
 | — | public GitHub Pages landing site for Hephaestus | DECIDED **NO** 2026-10-11 (owner) — README/GIF suffice |
 | U-078..U-082 | V-enforcement contract: stage artifacts required, coverage delivered automatically, done as a four-box gate verdict, horizontal/vertical loop routing | DECIDED + LANDED 2026-10-11 (owner's process rules; wave S-07) |
 
@@ -119,10 +119,8 @@ E-006 closes. **Where a row below contradicts `AGENTS.md`, the row is right.**
   changed:` markers U-052) — the docs say so and point at the tickets.
   (Pass-through U-057/U-058 **wired 2026-10-14**: `task_pass_stage` +
   `pass-declare:` comments; AGENTS.md and the skills carry the truth.)
-- `task_traceability` pairs by role+epic, not artifacts or V level — D-001.
-- Release versioning: both tags built as `0.1.0-SNAPSHOT` — D-002.
-- STALE fires on any upstream write, even bookkeeping — D-003.
-- No per-tier model map; rubberduck runs on the default vendor — D-004.
+- STALE fires on any upstream write, even bookkeeping — D-003 (the one open
+  decision; recommendation: only status/stage/artifact changes).
 
 ## Parked / non-goals
 

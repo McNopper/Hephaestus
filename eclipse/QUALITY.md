@@ -29,7 +29,7 @@
 | Dep vuln (SCA) | osv-scanner via `releng/scan-deps.ps1` (pinned v2.6.0 + checksum-verified; reactor poms + npm lockfile; findings fail unless listed with rationale in `releng/scan-deps-baseline.json`) | every `verify` CI run (both legs); locally `.\releng\scan-deps.ps1` | **yes** (any non-baselined finding fails) |
 | Duplication (≥100 tokens) | PMD CPD (`-Pquality`) | `verify -Pquality` | yes, within the profile |
 | chat-web checks | Node `renderer-check` / `bridge-check` / `mermaid-check` | `mvn verify` (chat module) | yes |
-| C++ lint/format/analysis | clang-format, cppcheck, clang-tidy + sanitizer and analysis lanes (the `cpp-tools` skill) | `cpp/ … verify` | yes |
+| C++ lint/format/analysis | clang-format, cppcheck, clang-tidy + sanitizer and analysis lanes | `cpp/ … verify` | yes |
 
 The release gate is `.\build.ps1 clean verify -Pquality`; the inner loop is
 `.\build.ps1 verify` (see `AGENTS.md` for the cadence rule).

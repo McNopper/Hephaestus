@@ -1,5 +1,0 @@
-Pillow>=10.0
-numpy>=1.24
-# Optional: enables the FLIP perceptual metric in graphics_compare_renders.
-# When absent, that metric is reported as unavailable (flip_available=false).
-# flip>=0.1

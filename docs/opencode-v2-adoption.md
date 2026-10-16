@@ -11,8 +11,8 @@
   scoping tickets.
 - **Related:** `AGENTS.md` (host discipline), `eclipse/ARCHITECTURE.md`
   (bundle layout), `ROADMAP.md` (the feature backlog), the live contract:
-  `GET /openapi.json` of the running service (last cross-check: v2.0.19,
-  138 operations - see the cross-check section below).
+  `GET /openapi.json` of the running service (last cross-check: v2.0.30,
+  142 operations, 2026-10-16 - see the cross-check section below).
 
 ## The strict policy
 
@@ -177,11 +177,15 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.0.29, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.29.txt` next to this file - the 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (live v2.0.30, 142 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.0.30.txt` next to this file - the 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
 diff mechanical). New surface classes need a tier decision before they land:
+
+| New since v2.0.29 (live 2.0.30) | Operations | Decision |
+|---|---|---|
+| *No operation changes* - 2.0.30 is identical to 2.0.29 (142 vs 142 operation lines; 0 added, 0 removed, 0 changed) | - | **Nothing to consume** - the pin bump is version-only. The routes we use are unchanged, verified live 2026-10-16: `POST .../prompt` is still `{id, text, files, agents, skills, metadata, delivery, resume}` under `additionalProperties:false` with `delivery` = `Session.Inbox.Delivery` (`steer`\|`queue`), `PATCH .../inbox/{id}` is still `{delivery}`, `GET /api/session` still takes `limit`/`order`/`search`/`parentID`/`directory`/`cursor` (plus `project`/`subpath`), `GET /api/event` is still `text/event-stream`, and `interrupt`/`fork`/`session.remove` are present. Client-side release - nothing touching a route we consume: TUI `/diff` docked side panel on by default (#55780), Desktop per-turn changed-files timeline (#55064), session-tab keyboard navigation (#54277), instructions glob/URL loading with hot-reload (#55539), Claude Code discovery toggles (#55774), dual-shape V1/V2 config schema (#55524), the retired session-sharing backend and `/share` removed (#55716 - upstream finalized what our chat already flagged as not implemented), the Windows background service defaulting to port 45278 (#55547 - the shared service our discovery attaches to), MCP compatibility fixes (elicitation, catalog/codemode skip, `*.localhost` OAuth), and MCP tool input exposed as `metadata.input` on permission requests (#51062 - a payload enrichment on the permission route we already consume; surfacing it in our permission dialogs is an optional enhancement, not an overlap). Overlap hunt 2026-10-16: every 2.0.30 feature is TUI/Desktop client UI or server-internal behavior - no RETIRE candidate; our diffs, steering, machine-wide views, live labels and permission surfaces stay (capability parity, not UI simulation) |
 
 | New since v2.0.28 (live 2.0.29) | Operations | Decision |
 |---|---|---|

@@ -61,14 +61,11 @@ domain — the **domain is in the name**. Naming convention: `<domain>-<descript
 | `software-` | Definition (what/how) | `software-requirements`, `software-system`, `software-architecture`, `software-design`, `software-implementation` |
 | `test-software-` | Verification of a definition level | `test-software-implementation`, `-design`, `-architecture`, `-system`, `-requirements` |
 | `project-manager-` | Project management | `project-manager-operating-model`, `project-manager-orchestrate-execution`, `project-manager-route-request`, `project-manager-audit-traceability`, `project-manager-estimate-costs`, `project-manager-gather-intelligence`, `project-manager-create-ticket`, `project-manager-doc-about` |
-| `cpp-` | C++ execution utility | `cpp-tools` (methodology; the `cpp-tools` agent runs the commands) |
-| `graphics-` | Graphics utility (thin) | `graphics-render-comparison` (the heavy lifting is the `mcp.graphics` tools) |
-| `code-` | Code analysis | `code-dependency` (package/namespace dependency map → Mermaid block diagram), `code-licenses` (third-party license audit → compatibility table + remediation), `code-repo-map` (probe-don't-read orientation map: layout, build/test entry points, module one-liners) |
-| `research-` | Live research utility | `research-artificial-analysis-models` (Artificial Analysis leaderboard → filtered, cost-sorted Markdown table) |
 
 Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-author`,
-`executor`, `reviewer`, `rubberduck`, `research`, `project-manager`); domain agents keep their prefix
-(`cpp-tools`, `graphics-expert`).
+`executor`, `reviewer`, `rubberduck`, `research`, `project-manager`). Domain agents were
+curated out of the repo (2026-10-15): specialized skills and agents come from the user,
+not from Hephaestus (quarantine: `C:\Temp\Hephaestus`).
 
 ## The ticket / sprint workflow (the PM)
 
@@ -273,16 +270,15 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
   (`task_send_back` → previous stage, `clarification:` first, max 3 round-trips). Cover in
   place otherwise — never flow back by reflex.
 
-## C++ and graphics are tools, not a separate lifecycle
+## C++ and graphics tooling lives outside the repo
 
-- **C++**: the `cpp-tools` **agent** runs CMake configure/build, clang-format, cppcheck,
-  clang-tidy, clang-scan-deps via bash and reads their reports (methodology in the
-  `cpp-tools` skill); there is no separate C++ MCP server.
-- **Graphics**: window capture, RenderDoc capture, and render comparison are **MCP tools**
-  in `mcp.graphics` (`graphics_screenshot`, `graphics_renderdoc_capture`,
-  `graphics_renderdoc_frame`, `graphics_compare_renders`). The `graphics-expert` agent
-  (pinned to `very-high`) drives them for frontier-level graphics work; `graphics-render-comparison`
-  is the thin methodology skill.
+The 2026-10-15 curation moved the specialized lanes out (quarantine at
+`C:\Temp\Hephaestus`): the `cpp-tools` methodology skill and agent, the
+`graphics-render-comparison` skill, the `graphics-expert` agent, and the
+`mcp.graphics` server. The `cpp/` C++ project and its own `verify` target
+remain in the repo (its lanes are listed in `eclipse/QUALITY.md`); any C++
+or graphics methodology for that project comes from the user, not from
+Hephaestus.
 
 ## Chat-first control plane (H7)
 
@@ -355,7 +351,6 @@ Concretely, a chat agent can already:
   3. **ours only** where neither host has the thing (task store, V-pipeline
      steering) - and never a parallel mechanism for something a tier above
      already does: that is a defect, not an extension.
-- capture/compare renders via `mcp.graphics`.
 
 The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
 (explicit project/sprint, concurrency and cost-admission budget),
@@ -386,7 +381,7 @@ servers/skills)/Providers/Board
 views, the MCP build-tools endpoint `eclipse-build`, a git-worktree agent fleet, and the
 headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
 
-- **v2 in this client (last live cross-check: v2.0.19, 2026-09-29; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
+- **v2 in this client (last live cross-check: v2.0.30, 2026-10-16; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
   Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
   single `/api/event` stream (v2 event names; `location.directory` scopes client-side). The
   interactive connection **attaches to the shared background service** by default
@@ -435,14 +430,13 @@ escalate (never de-escalate) when uncertain.
 
 ## Custom agents (`.opencode/agent/`)
 
-Lean, flat, model-neutral (except `graphics-expert`):
+Lean, flat, model-neutral:
 
 - **Coordination (unprefixed):** `orchestrator` (kicks off the sprint; workers self-claim),
   `manifest-author` (high-tier plan + execution manifest), `executor` (open-tier task execution;
   records artifacts), `reviewer` (high-tier final review; edit-denied), `rubberduck`
   (cross-vendor critic; edit-denied), `research` (authoritative-source investigation;
   validated synthesis), `project-manager` (Scrum Master + PO proxy; always present).
-- **Domain agents:** `cpp-tools` (C++ execution), `graphics-expert` (very-high; graphics).
 
 ## Debugging discipline
 

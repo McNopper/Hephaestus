@@ -1,9 +1,0 @@
-[project]
-name = "hephaestus-mcp-graphics"
-version = "1.0.0"
-description = "Graphics MCP server for Hephaestus: window capture, RenderDoc capture, render comparison."
-requires-python = ">=3.10"
-dependencies = ["Pillow>=10.0", "numpy>=1.24"]
-
-[project.scripts]
-mcp-graphics = "server:main"
