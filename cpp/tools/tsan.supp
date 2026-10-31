@@ -1,0 +1,7 @@
+# ThreadSanitizer suppressions - keep this list SHORT and justified.
+# Every entry needs a reason; measure the noise floor before adding one.
+#
+# Format: suppression-type: frame-pattern  # reason
+#
+# deadlocks: none suppressed on purpose - a deadlock is exactly the defect
+# class this lane exists to catch.

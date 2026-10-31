@@ -1,0 +1,14 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Fleet Tests
+Bundle-SymbolicName: com.opencode.ide.fleet.tests
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: com.opencode.ide.fleet;bundle-version="0.1.0",
+  com.opencode.ide.client;bundle-version="0.1.0",
+  com.google.gson;bundle-version="2.10.0",
+  com.opencode.ide.git;bundle-version="0.1.0",
+  com.opencode.ide.tasks;bundle-version="0.1.0",
+  com.opencode.ide.tools;bundle-version="0.1.0",
+  org.junit;bundle-version="4.13.0"

@@ -1,0 +1,3 @@
+# The task store is machine-rewritten Markdown: pin LF so a CRLF checkout
+# doesn't turn every task write into a whole-file diff.
+.opencode/tasks/** text eol=lf

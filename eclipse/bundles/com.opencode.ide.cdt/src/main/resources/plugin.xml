@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+  <!-- Persistent (P) text marker carrying opencode tool diagnostics.
+       Full type id: com.opencode.ide.cdt.diagnostic (see MarkerApplier.MARKER_TYPE). -->
+  <extension id="diagnostic" name="OpenCode Diagnostic" point="org.eclipse.core.resources.markers">
+    <super type="org.eclipse.core.resources.textmarker"/>
+    <persistent value="true"/>
+  </extension>
+
+</plugin>

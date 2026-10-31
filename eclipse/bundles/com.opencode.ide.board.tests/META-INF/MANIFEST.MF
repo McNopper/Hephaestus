@@ -1,0 +1,15 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Board Tests
+Bundle-SymbolicName: com.opencode.ide.board.tests
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: com.opencode.ide.board;bundle-version="0.1.0",
+  com.opencode.ide.tasks;bundle-version="0.1.0",
+  com.opencode.ide.fleet;bundle-version="0.1.0",
+  com.opencode.ide.client;bundle-version="0.1.0",
+  com.opencode.ide.chat;bundle-version="0.1.0",
+  com.opencode.ide.git;bundle-version="0.1.0",
+  com.google.gson;bundle-version="2.10.0",
+  org.junit;bundle-version="4.13.0"

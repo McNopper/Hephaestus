@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Core Tests
+Bundle-SymbolicName: com.opencode.ide.core.tests
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: com.opencode.ide.core;bundle-version="0.1.0",
+ com.opencode.ide.client;bundle-version="0.1.0",
+ org.eclipse.equinox.preferences,
+ org.junit;bundle-version="4.13.0"

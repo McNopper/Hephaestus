@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+  <feature id="com.opencode.ide.feature" version="0.0.0">
+    <category name="com.opencode.ide"/>
+  </feature>
+  <category-def name="com.opencode.ide" label="OpenCode IDE"/>
+</site>

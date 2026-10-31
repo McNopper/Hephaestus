@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.opencode.ide</groupId>
+    <artifactId>com.opencode.ide.parent</artifactId>
+    <version>0.1.11-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>com.opencode.ide.chat</artifactId>
+  <packaging>eclipse-plugin</packaging>
+
+  <!--
+    The chat renderer is the host-reusable web component in
+    ../../components/chat-web (plain static files, no OSGi). This bundle only
+    packages it: the maven-resources-plugin copies components/chat-web/web into
+    the jar under web/ at process-resources, exactly where the sources used to
+    live under src/main/resources.
+
+    The chat page is JavaScript, so it needs JS-level tests in the build
+    (run from the component directory):
+      renderer-check.mjs - vendor libs load and actually render markdown/math
+      bridge-check.mjs   - EXECUTES the Java->JS bridge against a DOM shim
+      mermaid-check.mjs  - renders diagrams in real headless Edge (SKIPs when
+                           Edge or puppeteer-core is unavailable)
+    bridge-check exists because a broken bridge used to fail silently in Eclipse
+    (Browser.execute returns true even when the page script throws).
+    Requires Node on PATH; skip with -DskipNodeChecks=true.
+  -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>copy-chat-web-assets</id>
+            <phase>process-resources</phase>
+            <goals><goal>copy-resources</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/web</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${maven.multiModuleProjectDirectory}/components/chat-web/web</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>web-renderer-check</id>
+            <phase>test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>node</executable>
+              <arguments>
+                <argument>${maven.multiModuleProjectDirectory}/components/chat-web/renderer-check.mjs</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>web-bridge-check</id>
+            <phase>test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>node</executable>
+              <arguments>
+                <argument>${maven.multiModuleProjectDirectory}/components/chat-web/bridge-check.mjs</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>web-mermaid-check</id>
+            <phase>test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>node</executable>
+              <arguments>
+                <argument>${maven.multiModuleProjectDirectory}/components/chat-web/mermaid-check.mjs</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+        <configuration>
+          <workingDirectory>${maven.multiModuleProjectDirectory}/components/chat-web</workingDirectory>
+          <skip>${skipNodeChecks}</skip>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <properties>
+    <skipNodeChecks>false</skipNodeChecks>
+  </properties>
+</project>

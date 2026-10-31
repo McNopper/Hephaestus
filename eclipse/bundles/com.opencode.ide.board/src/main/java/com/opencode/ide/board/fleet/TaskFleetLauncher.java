@@ -1,0 +1,652 @@
+package com.opencode.ide.board.fleet;
+
+import com.opencode.ide.chat.ChatPermissionSink;
+import com.opencode.ide.chat.ChatPermissions;
+import com.opencode.ide.client.OpencodeClient;
+import com.opencode.ide.client.activity.PermissionRequest;
+import com.opencode.ide.core.OpencodeConnection;
+import com.opencode.ide.fleet.Bootstrap;
+import com.opencode.ide.fleet.DispatchGuard;
+import com.opencode.ide.fleet.FleetJob;
+import com.opencode.ide.fleet.FleetPermissionBridge;
+import com.opencode.ide.fleet.FleetRunner;
+import com.opencode.ide.fleet.FleetTuning;
+import com.opencode.ide.fleet.MaintenanceGate;
+import com.opencode.ide.fleet.PermissionQueue;
+import com.opencode.ide.fleet.RoleAgents;
+import com.opencode.ide.fleet.SseSessionEvents;
+import com.opencode.ide.fleet.TaskFleet;
+import com.opencode.ide.fleet.dispatch.DispatchScheduler.LaunchAttempt;
+import com.opencode.ide.git.WorktreeManager;
+import com.opencode.ide.tasks.TaskStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+/**
+ * Production {@link FleetLauncher}: adapts the headless {@link TaskFleet} engine to the board's
+ * one-call seam.
+ *
+ * <p>Process-wide by design: one shared daemon executor and one {@link TaskFleet} — and therefore
+ * one merge-back lock — per store root, so parallel launches from multiple Board view instances
+ * still merge serially. The executor is never shut down (daemon threads, Eclipse-session lifetime,
+ * mirroring {@link com.opencode.ide.board.model.FleetJobsModel#getDefault()}). The most recently
+ * constructed launcher's client/worktree suppliers feed fleet creation (the Board view
+ * re-constructs the launcher when its inputs change). An optional per-launch {@link Bootstrap}
+ * (supplier-injected, re-read at launch time) rides every fleet launch while set.
+ *
+ * <p>Fleet cache: entries are keyed by {@code (root, suppliers-generation)}. Every constructor
+ * publishes a new generation, so a per-root fleet built from old suppliers is never served
+ * afterwards — the next launch rebuilds with the current suppliers (stale-generation entries are
+ * pruned on the next creation for that root). Creation uses one monitor per root (double-checked
+ * get/lock/create), so a launch for root B never waits behind a seconds-long server spawn for root
+ * A.
+ *
+ * <p>Completion is the fleet watchdog's probe loop (see {@link TaskFleet}); the primary
+ * connection's single {@code /event} stream (reached via {@link OpencodeConnection} listeners)
+ * feeds only the permission bridge here.
+ */
+public final class TaskFleetLauncher implements FleetLauncher {
+
+  private static final ExecutorService EXECUTOR =
+      com.opencode.ide.client.WorkerPools.executor("board-fleet-launch");
+
+  private static final Map<CacheKey, TaskFleet> FLEETS_BY_ROOT = new ConcurrentHashMap<>();
+
+  /** One monitor per store root, so creations for different roots never queue behind each other. */
+  private static final ConcurrentHashMap<Path, Object> ROOT_LOCKS = new ConcurrentHashMap<>();
+
+  private static final AtomicLong GENERATION = new AtomicLong();
+
+  /**
+   * Process-wide queue of permission requests raised by unattended fleet sessions (ROADMAP H5 item
+   * 1): the bridge feeds it from the primary connection's event stream, the Fleet view's
+   * "Permissions (n)" action drains it. Answers post through the primary connection's client (which
+   * may block while it spawns the server - answer off the UI thread).
+   */
+  private static final PermissionQueue PERMISSIONS =
+      new PermissionQueue(
+          (sessionId, permissionId, response, remember) ->
+              OpencodeConnection.getInstance()
+                  .getClient()
+                  .respondToPermission(sessionId, permissionId, response, remember));
+
+  /**
+   * Feeds {@link #PERMISSIONS} from the primary event stream; sessions are watched via the runner's
+   * session-created callback.
+   */
+  private static final FleetPermissionBridge PERMISSION_BRIDGE =
+      new FleetPermissionBridge(PERMISSIONS);
+
+  /** Guards the one-time bridge subscription (Eclipse-session lifetime, never unsubscribed). */
+  private static final AtomicBoolean PERMISSION_BRIDGE_SUBSCRIBED = new AtomicBoolean();
+
+  /**
+   * Feeds chat-session (non-fleet) permission asks into {@link #PERMISSIONS} — the same queue the
+   * Fleet view's "Permissions (n)" action drains; a {@code replied} event marks the request
+   * answered so stale entries drop from {@code pending()}.
+   */
+  private static final ChatPermissionSink CHAT_SINK =
+      new ChatPermissionSink() {
+        @Override
+        public void asked(PermissionRequest request, OpencodeClient client) {
+          PERMISSIONS.offer(request);
+        }
+
+        @Override
+        public void replied(String sessionId, String requestId) {
+          PERMISSIONS.offer(
+              new PermissionRequest(
+                  sessionId, requestId, null, null, null, PermissionRequest.Status.ANSWERED));
+        }
+      };
+
+  /** Guards the one-time chat-sink registration (Eclipse-session lifetime, never cleared). */
+  private static final AtomicBoolean CHAT_SINK_SET = new AtomicBoolean();
+
+  /** Suppliers snapshot + its generation, published as one immutable value per construction. */
+  private record SuppliersState(long generation, Suppliers suppliers) {}
+
+  private record CacheKey(Path root, long generation) {}
+
+  private static volatile SuppliersState state = new SuppliersState(0, Suppliers.unset());
+
+  private record Suppliers(Supplier<OpencodeClient> clients, Supplier<WorktreeManager> worktrees) {
+
+    static Suppliers unset() {
+      return new Suppliers(
+          () -> {
+            throw new IllegalStateException("no TaskFleetLauncher constructed yet");
+          },
+          () -> {
+            throw new IllegalStateException("no TaskFleetLauncher constructed yet");
+          });
+    }
+  }
+
+  private final Supplier<Path> storeRootSupplier;
+
+  /**
+   * Supplies the optional per-launch bootstrap (re-read at launch time; see the 4-arg constructor).
+   */
+  private final Supplier<Bootstrap> bootstrapSupplier;
+
+  private final Executor executor;
+  private final Function<Path, TaskFleet> fleets;
+
+  /**
+   * The per-launch engine call ({@link TaskFleet#launch(String, String, Path, Duration, Bootstrap)}
+   * with {@link FleetTuning#DEFAULT_TICKET_BUDGET}); a swappable seam so tests can capture what the
+   * launcher hands to the fleet (see {@link #useEngineLaunchForTests}).
+   */
+  @FunctionalInterface
+  public interface EngineLaunch {
+
+    FleetJob launch(
+        TaskFleet fleet,
+        String project,
+        String taskId,
+        Path repoRoot,
+        Duration timeout,
+        Bootstrap bootstrap);
+
+    /** Manual lambda overrides stay compatible; auto keeps the real ownership/rework contract. */
+    default FleetJob launchAuto(
+        TaskFleet fleet,
+        String project,
+        String taskId,
+        Path repoRoot,
+        Duration timeout,
+        DispatchGuard guard,
+        boolean includeStale,
+        Bootstrap bootstrap) {
+      return fleet.launchAuto(project, taskId, repoRoot, timeout, guard, includeStale, bootstrap);
+    }
+  }
+
+  private static final EngineLaunch REAL_ENGINE_LAUNCH =
+      (fleet, project, taskId, repoRoot, timeout, bootstrap) ->
+          fleet.launch(project, taskId, repoRoot, timeout, bootstrap);
+
+  /** The engine call used per launch; volatile so an injected test seam applies immediately. */
+  private static volatile EngineLaunch engineLaunch = REAL_ENGINE_LAUNCH;
+
+  /**
+   * The graceful-shutdown engine call ({@link TaskFleet#shutdownForMaintenance(String, Path,
+   * String, String)}); a swappable seam so tests can capture what the launcher hands to the fleet
+   * (see {@link #useEngineShutdownForTests}) — the U-045 mirror of {@link EngineLaunch}.
+   */
+  @FunctionalInterface
+  public interface EngineShutdown {
+
+    Map<String, Object> shutdown(
+        TaskFleet fleet, String project, Path repoRoot, String reason, String by);
+  }
+
+  /** The {@code by} recorded on paused tickets and history when the Board shuts down (U-045). */
+  public static final String SHUTDOWN_BY = "board-shutdown";
+
+  private static final EngineShutdown REAL_ENGINE_SHUTDOWN =
+      (fleet, project, repoRoot, reason, by) ->
+          fleet.shutdownForMaintenance(project, repoRoot, reason, by);
+
+  /** The engine call used per shutdown; volatile so an injected test seam applies immediately. */
+  private static volatile EngineShutdown engineShutdown = REAL_ENGINE_SHUTDOWN;
+
+  /**
+   * @param clientSupplier supplies the opencode client; may block (spawn) — called on the executor
+   *     thread only
+   * @param worktreesSupplier supplies the worktree manager (git CLI backed)
+   * @param storeRootSupplier supplies the current task-store root ({@code <repo>/.opencode/tasks});
+   *     called at launch time so toolbar changes take effect
+   */
+  public TaskFleetLauncher(
+      Supplier<OpencodeClient> clientSupplier,
+      Supplier<WorktreeManager> worktreesSupplier,
+      Supplier<Path> storeRootSupplier) {
+    this(clientSupplier, worktreesSupplier, storeRootSupplier, () -> null);
+  }
+
+  /**
+   * @param bootstrapSupplier supplies the optional per-launch bootstrap (see {@link Bootstrap});
+   *     re-read at launch time so store edits apply without a restart; a {@code null} supply or a
+   *     failing supplier degrades to no bootstrap and never blocks the launch
+   */
+  public TaskFleetLauncher(
+      Supplier<OpencodeClient> clientSupplier,
+      Supplier<WorktreeManager> worktreesSupplier,
+      Supplier<Path> storeRootSupplier,
+      Supplier<Bootstrap> bootstrapSupplier) {
+    this(clientSupplier, worktreesSupplier, storeRootSupplier, bootstrapSupplier, EXECUTOR);
+  }
+
+  /** Executor-injected adapter; the caller retains executor ownership. */
+  public TaskFleetLauncher(
+      Supplier<OpencodeClient> clientSupplier,
+      Supplier<WorktreeManager> worktreesSupplier,
+      Supplier<Path> storeRootSupplier,
+      Supplier<Bootstrap> bootstrapSupplier,
+      Executor executor) {
+    this(
+        clientSupplier,
+        worktreesSupplier,
+        storeRootSupplier,
+        bootstrapSupplier,
+        executor,
+        TaskFleetLauncher::fleetFor);
+  }
+
+  /** Engine-provider seam for isolated adapter tests without the Eclipse connection singleton. */
+  public TaskFleetLauncher(
+      Supplier<OpencodeClient> clientSupplier,
+      Supplier<WorktreeManager> worktreesSupplier,
+      Supplier<Path> storeRootSupplier,
+      Supplier<Bootstrap> bootstrapSupplier,
+      Executor executor,
+      Function<Path, TaskFleet> fleets) {
+    state =
+        new SuppliersState(
+            GENERATION.incrementAndGet(), new Suppliers(clientSupplier, worktreesSupplier));
+    this.storeRootSupplier = storeRootSupplier;
+    this.bootstrapSupplier = bootstrapSupplier;
+    this.executor = Objects.requireNonNull(executor, "executor");
+    this.fleets = Objects.requireNonNull(fleets, "fleets");
+  }
+
+  /** The process-wide queue of pending permission requests raised by fleet sessions. */
+  public static PermissionQueue permissions() {
+    return PERMISSIONS;
+  }
+
+  @Override
+  public FleetJobHandle launch(String project, String ticketId) {
+    return launch(project, ticketId, null, null);
+  }
+
+  @Override
+  public FleetJobHandle launchAuto(String project, String ticketId, boolean includeStale) {
+    return launchAuto(project, ticketId, includeStale, null);
+  }
+
+  @Override
+  public FleetJobHandle launchAuto(
+      String project, String ticketId, boolean includeStale, LaunchAttempt attempt) {
+    return launch(project, ticketId, includeStale, attempt);
+  }
+
+  private FleetJobHandle launch(
+      String project, String ticketId, Boolean includeStale, LaunchAttempt attempt) {
+    Path storeRoot = storeRootSupplier.get();
+    Path repoRoot = repoRootOf(storeRoot);
+    String worktreeGuess =
+        repoRoot == null
+            ? null
+            : com.opencode.ide.git.FleetGit.worktreePath(repoRoot, ticketId).toString();
+    if (repoRoot == null || !Files.exists(repoRoot.resolve(".git"))) {
+      FleetJobHandle failed =
+          new FleetJobHandle(
+              ticketId,
+              null,
+              worktreeGuess,
+              FleetJobHandle.State.FAILED,
+              "no git repository at " + repoRoot + " (store root " + storeRoot + ")");
+      FleetJobsModelHolder.model().add(failed);
+      return failed;
+    }
+    // P1-3: the Board's launch path rides the SAME cross-engine dispatch
+    // marker as FleetControl.dispatch — a Board launch and a chat
+    // fleet_dispatch of the same ticket can never both pre-claim.
+    com.opencode.ide.fleet.DispatchGuard guard;
+    try {
+      guard = DispatchGuard.acquire(repoRoot, project, ticketId);
+    } catch (com.opencode.ide.fleet.DispatchGuard.AdmissionDeferred e) {
+      throw e; // keep peer races retryable; do not replace a peer's RUNNING row
+    } catch (RuntimeException e) {
+      FleetJobHandle failed =
+          new FleetJobHandle(
+              ticketId,
+              null,
+              worktreeGuess,
+              FleetJobHandle.State.FAILED,
+              "cannot create the dispatch guard: " + e.getMessage());
+      FleetJobsModelHolder.model().add(failed);
+      return failed;
+    }
+    FleetJobHandle running =
+        new FleetJobHandle(
+            ticketId, null, worktreeGuess, FleetJobHandle.State.RUNNING, "launching…");
+    Path launchRepoRoot = repoRoot;
+    Runnable work =
+        () -> {
+          FleetJobHandle result;
+          try {
+            TaskFleet fleet = fleets.apply(storeRoot);
+            // G-004: the run budget comes straight from the fleet engine's
+            // knob table — no parallel timeout constant here
+            result =
+                map(
+                    includeStale == null
+                        ? engineLaunch.launch(
+                            fleet,
+                            project,
+                            ticketId,
+                            launchRepoRoot,
+                            FleetTuning.DEFAULT_TICKET_BUDGET,
+                            currentBootstrap())
+                        : engineLaunch.launchAuto(
+                            fleet,
+                            project,
+                            ticketId,
+                            launchRepoRoot,
+                            FleetTuning.DEFAULT_TICKET_BUDGET,
+                            guard,
+                            includeStale,
+                            currentBootstrap()));
+          } catch (RuntimeException e) {
+            if (includeStale != null
+                && attempt != null
+                && e instanceof DispatchGuard.AdmissionDeferred) {
+              attempt.deferred();
+            }
+            result =
+                new FleetJobHandle(
+                    ticketId,
+                    null,
+                    worktreeGuess,
+                    FleetJobHandle.State.FAILED,
+                    String.valueOf(e.getMessage()));
+          } catch (Error e) {
+            // never funnel an Error (OOM & co.) into a UI row — rethrow, the
+            // daemon executor dies with a log, the JVM decides
+            throw e;
+          } finally {
+            // always release the marker (crash leaves it for reconciliation)
+            guard.close();
+          }
+          FleetJobsModelHolder.model().update(result);
+        };
+    try {
+      FleetJobsModelHolder.model().add(running);
+      executor.execute(work);
+    } catch (RuntimeException e) {
+      guard.close();
+      FleetJobHandle failed =
+          new FleetJobHandle(
+              ticketId,
+              null,
+              worktreeGuess,
+              FleetJobHandle.State.FAILED,
+              "cannot schedule launch: " + e.getMessage());
+      FleetJobsModelHolder.model().update(failed);
+      return failed;
+    } catch (Error e) {
+      guard.close();
+      throw e;
+    }
+    return running;
+  }
+
+  /**
+   * U-045: the Board's graceful shutdown for maintenance — the same ordered teardown the chat
+   * {@code fleet_shutdown} tool runs, against THIS launcher's cached engines: (1) PARK admissions
+   * via the maintenance gate ({@link TaskFleet#shutdownForMaintenance(String, Path, String,
+   * String)} engages it; every dispatch path then refuses with a clear 'maintenance' reason), (2)
+   * CHECKPOINT each in-flight worker — WIP committed to its task branch, ticket PAUSED — and (3)
+   * KILL a serve this Eclipse session spawned (an attached shared service keeps running), evicting
+   * the root's cached fleets so the next launch rebuilds on the fresh client. Spawns nothing: with
+   * no cached fleet (nothing was ever launched here) the gate still engages — the engine-less path
+   * mirrors {@code FleetControl}.
+   *
+   * <p>Runs on the caller's thread (the view schedules it off SWT); checkpointing is git + store
+   * work, never a server call.
+   *
+   * @param project the store project to pause tickets in
+   * @param reason the maintenance reason (recorded on the gate + tickets)
+   * @return the shutdown report (maintenance, checkpointed, paused, in_flight_residue,
+   *     serve_killed_pid)
+   */
+  public Map<String, Object> shutdownForMaintenance(String project, String reason) {
+    Path storeRoot = storeRootSupplier == null ? null : storeRootSupplier.get();
+    Path normalizedRoot = storeRoot == null ? null : storeRoot.toAbsolutePath().normalize();
+    Path repoRoot = repoRootOf(storeRoot);
+    String why = reason == null || reason.isBlank() ? "maintenance" : reason;
+    List<Object> checkpointed = new ArrayList<>();
+    List<Object> paused = new ArrayList<>();
+    List<Object> residue = new ArrayList<>();
+    boolean parked = false;
+    if (normalizedRoot != null) {
+      for (Map.Entry<CacheKey, TaskFleet> entry : FLEETS_BY_ROOT.entrySet()) {
+        if (!normalizedRoot.equals(entry.getKey().root())) {
+          continue;
+        }
+        Map<String, Object> part =
+            engineShutdown.shutdown(entry.getValue(), project, repoRoot, why, SHUTDOWN_BY);
+        parked = true;
+        checkpointed.addAll(asList(part.get("checkpointed")));
+        paused.addAll(asList(part.get("paused")));
+        residue.addAll(asList(part.get("in_flight_residue")));
+      }
+    }
+    if (!parked && repoRoot != null) {
+      try {
+        MaintenanceGate.engage(repoRoot, why);
+      } catch (java.io.IOException e) {
+        throw new IllegalStateException("cannot engage the maintenance gate: " + e.getMessage(), e);
+      }
+    }
+    long serveKilledPid = killSpawnedServe(normalizedRoot);
+    Map<String, Object> report = new LinkedHashMap<>();
+    report.put("maintenance", why);
+    report.put("checkpointed", List.copyOf(checkpointed));
+    report.put("paused", List.copyOf(paused));
+    report.put("in_flight_residue", List.copyOf(residue));
+    report.put("serve_killed_pid", serveKilledPid);
+    return report;
+  }
+
+  /**
+   * Kills THIS session's spawned serve (never an attached shared service) and drops the root's
+   * cached fleets: they hold clients of the dead serve, and the next launch must rebuild on the
+   * fresh one — the board-side equivalent of {@code FleetControl}'s recycle-on-shutdown.
+   * Best-effort: the gate and checkpoints already happened, so a kill failure degrades to "serve
+   * outlives the shutdown" and never fails the report.
+   *
+   * @return the killed pid, or {@code 0} when this session spawned no serve
+   */
+  private static long killSpawnedServe(Path normalizedRoot) {
+    try {
+      OpencodeConnection connection = OpencodeConnection.getInstance();
+      Long pid = connection.getSpawnedProcessId();
+      if (pid == null) {
+        return 0L;
+      }
+      connection.refresh(); // stops the spawned serve; the next getClient() respawns
+      if (normalizedRoot != null) {
+        for (CacheKey key : FLEETS_BY_ROOT.keySet()) {
+          if (normalizedRoot.equals(key.root())) {
+            FLEETS_BY_ROOT.remove(key); // stale clients of the killed serve
+          }
+        }
+      }
+      return pid;
+    } catch (RuntimeException | LinkageError e) {
+      return 0L;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<Object> asList(Object value) {
+    return value instanceof List<?> list ? (List<Object>) list : List.of();
+  }
+
+  /**
+   * The fleet for {@code storeRoot}, built from the CURRENT suppliers generation. Per-root monitor
+   * (never the map), double-checked: waiting for root A's spawn does not stall a creation for root
+   * B.
+   */
+  private static TaskFleet fleetFor(Path storeRoot) {
+    Path root = storeRoot.toAbsolutePath().normalize();
+    SuppliersState current = state;
+    TaskFleet fleet = FLEETS_BY_ROOT.get(new CacheKey(root, current.generation()));
+    if (fleet != null) {
+      return fleet;
+    }
+    Object lock = ROOT_LOCKS.computeIfAbsent(root, r -> new Object());
+    synchronized (lock) {
+      current = state; // a new launcher may have been constructed while we waited
+      CacheKey key = new CacheKey(root, current.generation());
+      fleet = FLEETS_BY_ROOT.get(key);
+      if (fleet != null) {
+        return fleet;
+      }
+      fleet = createFleet(current.suppliers(), root);
+      FLEETS_BY_ROOT.put(key, fleet);
+      prune(root, key.generation());
+      return fleet;
+    }
+  }
+
+  /** Drops this root's entries from older suppliers generations (lazy eviction). */
+  private static void prune(Path root, long keepGeneration) {
+    for (CacheKey key : FLEETS_BY_ROOT.keySet()) {
+      if (key.root().equals(root) && key.generation() != keepGeneration) {
+        FLEETS_BY_ROOT.remove(key);
+      }
+    }
+  }
+
+  private static TaskFleet createFleet(Suppliers current, Path storeRoot) {
+    OpencodeClient client = current.clients().get();
+    connectPermissionBridge();
+    // The runner reports each session it creates through the
+    // session-created callback, so the bridge watches it from creation -
+    // BEFORE the prompt call, where unattended asks wait.
+    return new TaskFleet(
+            new FleetRunner(client, current.worktrees().get(), PERMISSION_BRIDGE::sessionStarted),
+            new TaskStore(storeRoot),
+            new RoleAgents(),
+            null,
+            PERMISSION_BRIDGE)
+        // U-021 autonomous acceptance: a merged run that settles
+        // in-review gets a reviewer session whose verdict drives
+        // done+advance / send-back through the store — the V
+        // pipeline drives itself per stage
+        .withAutonomousAcceptance();
+  }
+
+  /**
+   * Subscribes the permission bridge to the primary connection's SSE fan-out exactly once per
+   * process (idempotent across fleet rebuilds).
+   */
+  private static void connectPermissionBridge() {
+    if (PERMISSION_BRIDGE_SUBSCRIBED.compareAndSet(false, true)) {
+      primaryEventSubscriber().subscribe(PERMISSION_BRIDGE::onEvent);
+    }
+  }
+
+  /**
+   * Registers {@link #CHAT_SINK} with the chat bundle's permission seam, once per process
+   * (idempotent; last-set-wins registry, so later explicit sets still win).
+   */
+  public static void connectChatPermissions() {
+    if (CHAT_SINK_SET.compareAndSet(false, true)) {
+      ChatPermissions.setSink(CHAT_SINK);
+    }
+  }
+
+  /**
+   * @return the sink feeding chat-session asks into {@link #permissions()}
+   */
+  public static ChatPermissionSink chatPermissionSink() {
+    return CHAT_SINK;
+  }
+
+  /** Subscribes to the primary connection's SSE fan-out; the handle unsubscribes. */
+  private static SseSessionEvents.Subscriber primaryEventSubscriber() {
+    return listener -> {
+      OpencodeConnection connection = OpencodeConnection.getInstance();
+      com.opencode.ide.client.OpencodeEventListener adapter = listener::accept;
+      connection.addEventListener(adapter);
+      return () -> connection.removeEventListener(adapter);
+    };
+  }
+
+  private static FleetJobHandle map(FleetJob job) {
+    return new FleetJobHandle(
+        job.taskId(),
+        job.sessionId(),
+        job.worktree() == null ? null : job.worktree().toString(),
+        FleetJobHandle.State.valueOf(job.state().name()),
+        job.detail());
+  }
+
+  private static Path repoRootOf(Path storeRoot) {
+    if (storeRoot == null) {
+      return null;
+    }
+    Path opencode = storeRoot.getParent();
+    return opencode == null ? null : opencode.getParent();
+  }
+
+  /**
+   * The stored bootstrap for this launch, or {@code null} when unset/unavailable — never blocks a
+   * launch.
+   */
+  private Bootstrap currentBootstrap() {
+    if (bootstrapSupplier == null) {
+      return null;
+    }
+    try {
+      return bootstrapSupplier.get();
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Test seam: replaces the per-launch engine call ({@link #resetForTests()} restores the real
+   * one).
+   */
+  public static void useEngineLaunchForTests(EngineLaunch override) {
+    engineLaunch = Objects.requireNonNull(override, "override");
+  }
+
+  /**
+   * Test seam: replaces the graceful-shutdown engine call ({@link #resetForTests()} restores the
+   * real one).
+   */
+  public static void useEngineShutdownForTests(EngineShutdown override) {
+    engineShutdown = Objects.requireNonNull(override, "override");
+  }
+
+  /**
+   * Test seam: clear the process-wide fleet cache, root locks, supplier state and engine seams
+   * (isolates launcher tests).
+   */
+  public static void resetForTests() {
+    FLEETS_BY_ROOT.clear();
+    ROOT_LOCKS.clear();
+    state = new SuppliersState(0, Suppliers.unset());
+    engineLaunch = REAL_ENGINE_LAUNCH;
+    engineShutdown = REAL_ENGINE_SHUTDOWN;
+  }
+
+  /** Indirection so tests can substitute the observed registry if ever needed. */
+  static final class FleetJobsModelHolder {
+    static com.opencode.ide.board.model.FleetJobsModel model() {
+      return com.opencode.ide.board.model.FleetJobsModel.getDefault();
+    }
+  }
+}

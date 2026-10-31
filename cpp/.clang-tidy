@@ -1,0 +1,58 @@
+---
+# AI-first clang-tidy profile.
+#
+# Goal: let an agent *detect real problems fast* in otherwise well-written
+# code. It deliberately omits subjective/style checks (magic numbers,
+# identifier length, brace and function-size mandates, swappable parameters)
+# that only add friction while code is being generated.
+#
+# Disabled on purpose:
+#   * modernize-use-trailing-return-type     - stylistic, high churn
+#   * bugprone-easily-swappable-parameters   - noisy, subjective
+#   * bugprone-exception-escape              - pervasive false positive
+#                                              (iostreams in main() may
+#                                              "throw" from the platform STL)
+#   * portability-avoid-pragma-once          - the template uses #pragma once
+#                                              by design
+#
+# NOTE: comments must stay OUTSIDE the folded "Checks:" scalar below, or they
+# become part of the value and silently break the check list.
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -portability-avoid-pragma-once
+
+# Only correctness-oriented findings fail the build. Modernization stays a
+# warning so AI-generated code is guided, not blocked.
+WarningsAsErrors: >
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  bugprone-*
+
+# Analyse our own headers (include/, src/, tests/) wherever they sit in the
+# compile database, which stores absolute paths. The leading "^(src|...)"
+# form never matches absolute paths, so match the directory segment instead.
+HeaderFilterRegex: '.*[\\/](include|src|tests)[\\/].*'
+
+FormatStyle: file
+
+CheckOptions:
+  - key: modernize-loop-convert.MinConfidence
+    value: reasonable
+
+  - key: modernize-use-nullptr.NullMacros
+    value: 'NULL'
+
+  - key: modernize-pass-by-value.IncludeStyle
+    value: llvm
+
+  - key: modernize-replace-auto-ptr.IncludeStyle
+    value: llvm

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+  <extension point="org.eclipse.ui.perspectives">
+    <perspective
+          id="com.opencode.ide.ui.perspective"
+          name="OpenCode"
+          class="com.opencode.ide.ui.OpencodePerspective"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.views">
+    <category id="com.opencode.ide.ui" name="OpenCode"/>
+    <view
+          id="com.opencode.ide.ui.views.ServerView"
+          name="Server"
+          icon="icons/server.png"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.ui.views.ServerView"/>
+    <view
+          id="com.opencode.ide.ui.views.ProvidersView"
+          name="Providers"
+          icon="icons/providers.png"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.ui.views.ProvidersView"/>
+    <view
+          id="com.opencode.ide.ui.repo"
+          name="Repo"
+          icon="icons/file.png"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.ui.views.RepoView"/>
+    <view
+          id="com.opencode.ide.ui.views.SessionDetailsView"
+          name="Session Details"
+          icon="icons/agent.png"
+          category="com.opencode.ide.ui"
+          allowMultiple="true"
+          class="com.opencode.ide.ui.views.SessionDetailsView"/>
+    <view
+          id="com.opencode.ide.ui.views.BackgroundView"
+          name="Background"
+          icon="icons/session-busy.png"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.ui.views.BackgroundView"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.preferencePages">
+    <page
+          id="com.opencode.ide.ui.preferences.connection"
+          name="OpenCode"
+          class="com.opencode.ide.ui.preferences.ConnectionPreferencePage"/>
+    <page
+          id="com.opencode.ide.ui.preferences.attention"
+          name="Attention"
+          category="com.opencode.ide.ui.preferences.connection"
+          class="com.opencode.ide.ui.attention.AttentionPreferencePage"/>
+  </extension>
+
+  <extension point="org.eclipse.core.runtime.preferences">
+    <initializer
+          class="com.opencode.ide.ui.attention.AttentionPreferenceInitializer"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.commands">
+    <category
+          id="com.opencode.ide.ui.category"
+          name="OpenCode"/>
+    <command
+          id="com.opencode.ide.ui.openPerspective"
+          name="Open OpenCode Perspective"
+          description="Switch to the OpenCode perspective"
+          categoryId="com.opencode.ide.ui.category"/>
+    <command
+          id="com.opencode.ide.ui.refreshViews"
+          name="Refresh OpenCode Views"
+          description="Reload the Server and Providers views from the opencode server"
+          categoryId="com.opencode.ide.ui.category"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.handlers">
+    <handler
+          commandId="com.opencode.ide.ui.openPerspective"
+          class="com.opencode.ide.ui.handlers.OpenPerspectiveHandler"/>
+    <handler
+          commandId="com.opencode.ide.ui.refreshViews"
+          class="com.opencode.ide.ui.handlers.RefreshViewsHandler"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.startup">
+    <startup class="com.opencode.ide.ui.internal.AgentToolsStartup"/>
+    <startup class="com.opencode.ide.ui.attention.AttentionStartup"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.bindings">
+    <key
+          commandId="com.opencode.ide.ui.openPerspective"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+O"/>
+    <key
+          commandId="com.opencode.ide.ui.refreshViews"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+R"/>
+  </extension>
+
+</plugin>

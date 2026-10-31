@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0"
+               name="com.opencode.ide.core.internal.McpRegistrationComponent"
+               immediate="true"
+               activate="activate"
+               deactivate="deactivate">
+  <reference name="connection"
+             interface="com.opencode.ide.core.OpencodeConnection"
+             cardinality="1..1"
+             policy="dynamic"
+             bind="bindConnection"
+             unbind="unbindConnection"/>
+  <reference name="mcp"
+             interface="com.opencode.ide.mcp.McpInfo"
+             cardinality="0..1"
+             policy="dynamic"
+             bind="bindMcp"
+             unbind="unbindMcp"/>
+  <implementation class="com.opencode.ide.core.internal.McpRegistrationComponent"/>
+</scr:component>

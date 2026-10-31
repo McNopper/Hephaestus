@@ -1,0 +1,250 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Debug (Ninja)",
+      "description": "Debug build with all AI-first analysis enabled (native LLVM clang on PATH).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_CLANG_TIDY": "ON",
+        "ENABLE_CLANG_TIDY_IN_BUILD": "ON",
+        "ENABLE_CPPCHECK": "ON",
+        "ENABLE_CPPCHECK_IN_BUILD": "OFF",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (Ninja)",
+      "description": "Optimized build; in-build analysis off for fast compiles.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_CLANG_TIDY_IN_BUILD": "OFF",
+        "ENABLE_CPPCHECK_IN_BUILD": "OFF",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "OFF"
+      }
+    },
+    {
+      "name": "clang64",
+      "displayName": "Windows (MSYS2 CLANG64, Ninja)",
+      "description": "MSYS2 CLANG64 toolchain (clang + ninja from the clang64 environment). Run from a CLANG64 shell so C:/msys64/clang64/bin is on PATH - the preset only names the compilers, it never pins an install path. Emits compile_commands.json, so the full clang-tidy/cppcheck gate works with the MSYS2 tools.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-clang64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_CLANG_TIDY": "ON",
+        "ENABLE_CLANG_TIDY_IN_BUILD": "ON",
+        "ENABLE_CPPCHECK": "ON",
+        "ENABLE_CPPCHECK_IN_BUILD": "OFF",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "ON"
+      }
+    },
+    {
+      "name": "mingw64",
+      "displayName": "Windows (MSYS2 MINGW64 gcc, Ninja)",
+      "description": "MSYS2 MINGW64 toolchain (gcc + ninja from the mingw64 environment). Run from a MINGW64 shell so C:/msys64/mingw64/bin is on PATH. compile_commands.json is exported; clang-tidy over a gcc compile database usually works but flag mismatches can surface - triage those as warnings, not gates.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-mingw64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "ON"
+      }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows (Visual Studio 18 2026, MSVC)",
+      "description": "MSVC build via the Visual Studio generator (default: VS 2026 / 'Visual Studio 18 2026'). Builds and tests work; the Clang-based AI analysis is skipped (toolchain allowlist) because the Visual Studio generator does not emit a compile_commands.json (CMAKE_EXPORT_COMPILE_COMMANDS only does so for Ninja/Makefiles generators) - MSVC itself is fine; pair it with the Ninja generator to get a compile database. To target a different Visual Studio, change the generator to its '<major> <year>' string (e.g. 'Visual Studio 17 2022', 'Visual Studio 16 2019') - CMake requires the year in the generator name, so it cannot be left unversioned.",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build-windows",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "ON"
+      }
+    },
+    {
+      "name": "linux",
+      "displayName": "Linux (Ninja, gcc)",
+      "description": "Linux build - including WSL: run from inside the distro (e.g. 'wsl -d Ubuntu') with cmake + ninja + gcc installed; the preset is selected automatically because it is conditioned on hostSystemName == Linux (the Windows presets hide there and vice versa). clang-tidy/cppcheck are enabled but skip gracefully with a status line when the tools are not installed (plain WSL Ubuntu ships without them). Building the repo in place via /mnt/c works for smoke tests but is I/O-bound (9p mount) - clone into the WSL filesystem for serious iteration.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-linux",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_CLANG_TIDY": "ON",
+        "ENABLE_CLANG_TIDY_IN_BUILD": "OFF",
+        "ENABLE_CPPCHECK": "ON",
+        "ENABLE_CPPCHECK_IN_BUILD": "OFF",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "OFF"
+      }
+    },
+    {
+      "name": "analysis",
+      "displayName": "Analysis (Ninja)",
+      "description": "Fast configure for the on-demand tidy/cppcheck/docs report targets; no in-build analysis.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-analysis",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_CLANG_TIDY": "ON",
+        "ENABLE_CLANG_TIDY_IN_BUILD": "OFF",
+        "ENABLE_CPPCHECK": "ON",
+        "ENABLE_CPPCHECK_IN_BUILD": "OFF",
+        "ENABLE_TESTING": "ON",
+        "ENABLE_DOXYGEN": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "clang64",
+      "configurePreset": "clang64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "mingw64",
+      "configurePreset": "mingw64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "linux",
+      "configurePreset": "linux",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "verify",
+      "configurePreset": "default",
+      "targets": ["verify"],
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "verify-full",
+      "configurePreset": "default",
+      "targets": ["verify-full"],
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "tidy",
+      "configurePreset": "analysis",
+      "targets": ["tidy"],
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "cppcheck-xml",
+      "configurePreset": "analysis",
+      "targets": ["cppcheck-xml"],
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "docs",
+      "configurePreset": "analysis",
+      "targets": ["docs"],
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "clang64",
+      "configurePreset": "clang64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mingw64",
+      "configurePreset": "mingw64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux",
+      "configurePreset": "linux",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

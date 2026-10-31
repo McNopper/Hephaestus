@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Tasks
+Bundle-SymbolicName: com.opencode.ide.tasks
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Require-Bundle: com.opencode.ide.tools;bundle-version="0.1.0",
+ com.google.gson;bundle-version="2.10.0"
+Export-Package: com.opencode.ide.tasks;version="0.1.11"
+Bundle-RequiredExecutionEnvironment: JavaSE-21

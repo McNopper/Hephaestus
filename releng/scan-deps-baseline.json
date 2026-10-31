@@ -1,0 +1,22 @@
+[
+  {
+    "id": "GHSA-7pqw-9j4j-h8q3",
+    "package": "extract-zip",
+    "reason": "No upstream fix exists (fixed: none). Dev-only transitive of puppeteer-core -> @puppeteer/browsers (browser-archive unpacking), and this repo never invokes that path: renderer-check connects puppeteer-core to an EXISTING browser, it never downloads/extracts one. Revisit when puppeteer-core moves past ^24.0.0 (owner decision ef14520 pinned it)."
+  },
+  {
+    "id": "GHSA-jmr9-qjv8-65gv",
+    "package": "extract-zip",
+    "reason": "Same as GHSA-7pqw-9j4j-h8q3: unfixed upstream, dev-only, unpack path never invoked in this repo."
+  },
+  {
+    "id": "GHSA-rxp7-6hxx-x8q5",
+    "package": "ip-address",
+    "reason": "No upstream fix (vulnerable <= 10.7.3, which is the latest release; ReDoS in Address6 zone-id parsing). Dev-only transitive of puppeteer-core (CDP transport) in chat-web's check scripts; the scripts connect puppeteer to a local Edge with literal addresses, never untrusted input. Revisit when puppeteer-core bumps ip-address."
+  },
+  {
+    "id": "GHSA-mrhx-c7xc-m3w5",
+    "package": "zod",
+    "reason": "Fix requires zod 4.6.6 (major). Dev-only transitive of puppeteer-core 24 (schema validation of its own launch options); forcing zod 4 via overrides would break puppeteer's usage. The scripts validate only local, self-authored payloads. Revisit when puppeteer-core moves to zod 4."
+  }
+]

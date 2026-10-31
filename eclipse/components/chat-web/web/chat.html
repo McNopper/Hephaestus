@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OpenCode Chat</title>
+<link rel="stylesheet" href="katex/katex.min.css">
+<!-- highlight.js themes: exactly one is enabled, switched by __setTheme -->
+<link rel="stylesheet" href="hljs/github.min.css" id="hljs-light">
+<link rel="stylesheet" href="hljs/github-dark.min.css" id="hljs-dark" disabled>
+<script src="katex/katex.min.js"></script>
+<script src="markdown-it.min.js"></script>
+<script src="hljs/highlight.min.js"></script>
+<script src="hljs/cmake.min.js"></script>
+<script src="mermaid.min.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  /* only #chat scrolls - without overflow:hidden here the document scrolls too
+     and the view shows two vertical scroll bars */
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  /* column layout: transcript on top, the composer queue row (session
+     inbox) pinned below it - right above the host's input row */
+  body {
+    display: flex; flex-direction: column;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    background: var(--bg, #ffffff);
+    color: var(--fg, #1f1f1f);
+  }
+  body.dark {
+    --bg: #1e1e1e; --fg: #d4d4d4;
+    --bubble-user-bg: #0b3a6f; --bubble-user-fg: #ffffff;
+    --bubble-ai-bg: #2a2a2a;
+    --border: #3c3c3c; --code-bg: #141414; --muted: #9a9a9a;
+  }
+  body.light, body:not(.dark) {
+    --bg: #ffffff; --fg: #1f1f1f;
+    --bubble-user-bg: #1a6ac0; --bubble-user-fg: #ffffff;
+    --bubble-ai-bg: #f3f3f3;
+    --border: #d0d0d0; --code-bg: #f5f5f5; --muted: #777777;
+  }
+  #chat { padding: 10px 12px 16px 12px; overflow-y: auto; overflow-x: hidden;
+          flex: 1 1 auto; min-height: 0; }
+  .msg { margin: 8px 0; display: flex; position: relative; }
+  .msg.user { justify-content: flex-end; }
+  /* fork-at-message (TUI parity): hover button on every message that has a
+     server-assigned id; user messages sit right-aligned, so their button goes
+     to the LEFT to not cover the bubble */
+  .fork-btn { position: absolute; top: 0; right: 2px; padding: 1px 8px;
+              font: inherit; font-size: 11px; cursor: pointer;
+              color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+              border-radius: 4px; opacity: 0; transition: opacity 0.15s; z-index: 3; }
+  .msg.user .fork-btn { right: auto; left: 2px; }
+  .msg:hover .fork-btn, .fork-btn:focus-visible { opacity: 0.9; }
+  .fork-btn:hover { opacity: 1; }
+  .bubble {
+    max-width: 88%; padding: 8px 12px; border-radius: 10px;
+    overflow-wrap: break-word; line-height: 1.45;
+  }
+  .msg.user .bubble { background: var(--bubble-user-bg); color: var(--bubble-user-fg); }
+  .msg.assistant .bubble { background: var(--bubble-ai-bg); border: 1px solid var(--border); flex: 1; }
+  /* doc mode (?doc=1): the page doubles as a read-only document renderer
+     (ticket details) - full width so mermaid diagrams are not squeezed */
+  .doc .bubble { max-width: 100%; }
+  .bubble p { margin: 0.35em 0; }
+  .bubble pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+                padding: 8px; overflow-x: auto; position: relative; }
+  .bubble code { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+  .bubble :not(pre) > code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+  .bubble table { border-collapse: collapse; margin: 6px 0; }
+  .bubble th, .bubble td { border: 1px solid var(--border); padding: 4px 8px; }
+  .bubble blockquote { border-left: 3px solid var(--border); margin: 6px 0; padding-left: 10px; color: var(--muted); }
+  .bubble img { max-width: 100%; }
+  /* long formulas scroll instead of overflowing the bubble */
+  .bubble .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; margin: 0.5em 0; }
+  .bubble .katex { font-size: 1.05em; }
+  .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .notice { font-size: 12px; color: var(--muted); margin: 6px 4px; text-align: center;
+             /* /help and friends render multi-line command lists */
+             white-space: pre-line; }
+  /* streaming: only the trailing in-progress block stays raw text under the
+     cursor (completed blocks are rendered markdown above it) */
+  .stream-raw { white-space: pre-wrap; overflow-wrap: anywhere;
+                font-family: Consolas, "Courier New", monospace; font-size: 12px; margin: 0.35em 0; }
+  .thinking { color: var(--muted); font-style: italic; margin: 2px 0;
+              animation: thinking-pulse 1.4s ease-in-out infinite; }
+  @keyframes thinking-pulse { 50% { opacity: 0.45; } }
+  /* processing spinner: the opencode TUI's circling-squares language (user
+     direction 2026-09-16) - ONE shared animation for the streaming cursor
+     and the waiting indicator; four squares, the highlight walks clockwise */
+  .spin { display: inline-grid; grid-template-columns: repeat(2, 5px); gap: 2px;
+          vertical-align: text-bottom; }
+  .spin i { width: 5px; height: 5px; background: var(--fg); opacity: 0.15;
+            animation: sq-circle 1s linear infinite; }
+  .spin i:nth-child(2) { animation-delay: 0.25s; }  /* top-right */
+  .spin i:nth-child(4) { animation-delay: 0.5s; }   /* bottom-right */
+  .spin i:nth-child(3) { animation-delay: 0.75s; }  /* bottom-left */
+  @keyframes sq-circle { 0% { opacity: 1; } 25%, 100% { opacity: 0.15; } }
+  /* waiting indicator: spinner bubble shown the moment a prompt echoes
+     (submit), covering the gap until the reply's first assistant bubble
+     appears (or an error/abort notice clears it) */
+  .msg.assistant.waiting .bubble { display: inline-flex; padding: 10px 14px; flex: 0 0 auto; }
+  /* the streaming cursor IS the spinner (replaces the blinking block) */
+  .cursor { margin-left: 3px; }
+  .reasoning { border-left: 3px solid var(--muted); color: var(--muted); font-size: 12px;               padding-left: 8px; margin: 4px 0; }
+  .reasoning > summary { cursor: pointer; user-select: none; }
+  .reasoning-body { white-space: pre-wrap; }
+  /* reasoning visibility toggle (__setReasoningVisible): hidden reasoning
+     stays in the DOM - toggling back never re-streams anything */
+  .hide-reasoning details.reasoning { display: none; }
+  .mermaid { display: flex; justify-content: center; margin: 8px 0; }
+  .mermaid svg { max-width: 100%; }
+  .error { color: #e5554f; }
+  /* compact tool-call lines (tool parts of assistant messages) */
+  .tool-line { font-family: Consolas, "Courier New", monospace; font-size: 11px;
+               color: var(--muted); margin: 3px 0; padding: 1px 6px 1px 8px;
+               border-left: 2px solid var(--border); overflow-wrap: anywhere; }
+  .tool-line.tool-running { animation: tool-pulse 1.2s ease-in-out infinite; }
+  .tool-line.tool-completed { opacity: 0.85; }
+  .tool-line.tool-error { color: #e5554f; border-left-color: #e5554f; }
+  @keyframes tool-pulse { 50% { opacity: 0.45; } }
+  /* copy button on every code fence (theme-aware, no external assets) */
+  .copy-btn { position: absolute; top: 4px; right: 4px; padding: 1px 8px;
+              font: inherit; font-size: 11px; cursor: pointer;
+              color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+              border-radius: 4px; opacity: 0.7; }
+  pre:hover .copy-btn, .copy-btn:focus { opacity: 1; }
+  .copy-btn.copied { color: #3fb950; border-color: #3fb950; opacity: 1; }
+  /* composer queue row (T-005 management surface): prompts parked in the
+     session inbox (the host's "Send to Queue", v2 Alt+Enter) with per-item
+     Steer now / Deliver next / Cancel; lives outside #chat so transcript
+     wipes never eat it, hidden while empty */
+  #inbox { flex: 0 0 auto; max-height: 30%; overflow-y: auto;
+           padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #inbox:empty { display: none; }
+  .inbox-title { font-size: 11px; color: var(--muted); margin: 2px 0 4px 0; }
+  .inbox-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .inbox-text { flex: 1 1 auto; white-space: pre-wrap; overflow-wrap: anywhere;
+                font-size: 12px; padding: 3px 8px; border-left: 2px solid var(--border); }
+  .inbox-btn { flex: 0 0 auto; padding: 1px 8px; font: inherit; font-size: 11px;
+               cursor: pointer; color: var(--fg); background: var(--bg);
+               border: 1px solid var(--border); border-radius: 4px; }
+  .inbox-btn:hover { border-color: var(--fg); }
+  .inbox-btn.inbox-cancel:hover { border-color: #e5554f; color: #e5554f; }
+  /* question forms (U-014): answerable cards for the forms the session's
+     run raised - title, leniently-rendered fields, Submit/Cancel. Lives
+     outside #chat (transcript wipes never eat it) and persists until
+     replied/cancelled, so an unanswered ask is always visible (no silent
+     hang); hidden while empty. All content is textContent-only. */
+  #forms { flex: 0 0 auto; max-height: 45%; overflow-y: auto;
+           padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #forms:empty { display: none; }
+  .form-card { border: 1px solid var(--border); border-radius: 8px;
+               background: var(--bubble-ai-bg); padding: 8px 10px; margin: 6px 0; }
+  .form-title { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+  .form-field { margin: 6px 0; }
+  .form-label { display: block; font-size: 12px; margin-bottom: 2px;
+                overflow-wrap: anywhere; }
+  .form-input { font: inherit; font-size: 12px; padding: 2px 6px;
+                color: var(--fg); background: var(--bg);
+                border: 1px solid var(--border); border-radius: 4px; }
+  .form-option { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .form-btn { padding: 1px 12px; font: inherit; font-size: 12px; cursor: pointer;
+              color: var(--fg); background: var(--bg);
+              border: 1px solid var(--border); border-radius: 4px; }
+  .form-btn:hover { border-color: var(--fg); }
+  .form-btn:disabled { opacity: 0.6; cursor: default; }
+  .form-status { font-size: 11px; color: var(--muted); }
+  /* @-file autocomplete (U-012): proposals for the @-token the host's
+     composer caret is in, pinned right above the host's input row (next to
+     the inbox row); hidden while empty. Rows are textContent-only - a
+     hostile path can never inject markup. */
+  #file-complete { flex: 0 0 auto; max-height: 30%; overflow-y: auto;
+                   padding: 4px 12px 6px 12px; border-top: 1px solid var(--border); }
+  #file-complete:empty { display: none; }
+  .file-complete-title { font-size: 11px; color: var(--muted); margin: 2px 0 4px 0; }
+  .file-complete-item { font-family: Consolas, "Courier New", monospace; font-size: 12px;
+                        padding: 2px 8px; border-left: 2px solid var(--border);
+                        cursor: pointer; overflow-wrap: anywhere; }
+  .file-complete-item:hover { border-left-color: var(--fg); }
+  .file-complete-item.selected { border-left-color: var(--bubble-user-bg);
+                                 color: var(--fg); font-weight: 600; }
+  /* @-alias reference roots (U-047): the alias group renders ABOVE the
+     files; group headers separate the two, and alias rows drop the
+     monospace file styling so names read as references, not paths */
+  .file-complete-group { font-size: 11px; color: var(--muted); margin: 4px 0 2px 0; }
+  .file-complete-item.file-complete-alias { font-family: inherit; font-style: italic; }
+</style>
+</head>
+<body>
+<div id="chat"></div>
+<div id="forms"></div>
+<div id="file-complete"></div>
+<div id="inbox"></div>
+<script src="chat.js"></script>
+</body>
+</html>

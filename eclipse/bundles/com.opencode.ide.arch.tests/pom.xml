@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.opencode.ide</groupId>
+    <artifactId>com.opencode.ide.parent</artifactId>
+    <version>0.1.11-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>com.opencode.ide.arch.tests</artifactId>
+  <packaging>jar</packaging>
+
+  <name>OpenCode IDE - Architecture Tests</name>
+  <description>ArchUnit rules (code-quality-matrix: Java / Arch rules): the QUALITY.md
+    layer graph, the com.opencode.ide namespace and the Eclipse-free purity rule as
+    executable tests over the reactor bytecode. Plain jar on purpose - it reads
+    target/classes from disk instead of resolving bundles, so it must build after
+    every production bundle.</description>
+
+  <dependencies>
+    <!-- fixtures reference real bundle classes (the boundary seeded proof) -->
+    <dependency>
+      <groupId>com.opencode.ide</groupId>
+      <artifactId>com.opencode.ide.tasks</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.opencode.ide</groupId>
+      <artifactId>com.opencode.ide.board</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit</artifactId>
+      <version>1.2.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+</project>

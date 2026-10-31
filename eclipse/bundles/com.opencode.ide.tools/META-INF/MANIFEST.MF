@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Tools
+Bundle-SymbolicName: com.opencode.ide.tools
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Require-Bundle: com.google.gson;bundle-version="2.10.0"
+Export-Package: com.opencode.ide.tools;version="0.1.11",
+ com.opencode.ide.tools.cpp;version="0.1.11"
+Bundle-RequiredExecutionEnvironment: JavaSE-21

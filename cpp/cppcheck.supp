@@ -1,0 +1,23 @@
+# cppcheck suppressions
+#
+# Format: one suppression id per line (optionally id:file:line).
+# See: https://cppcheck.sourceforge.io/manual.pdf (section "Suppressions").
+#
+# Keep this list short and justified. Prefer inline // cppcheck-suppress
+# comments for one-off, local suppressions over global entries here.
+
+# System/standard-library headers are not analysed; silence the advisory
+# that fires when cppcheck cannot find them.
+missingIncludeSystem
+
+# Informational messages produced by --enable=all / cppcheck itself, not
+# code findings.
+checkersReport
+
+# Do not fail when a suppression in this file matches nothing (keeps the
+# template usable before any real code exists).
+unmatchedSuppression
+
+# Library/public-API functions look "unused" to a per-project analysis even
+# though consumers call them. Only relevant to the exhaustive profile.
+unusedFunction

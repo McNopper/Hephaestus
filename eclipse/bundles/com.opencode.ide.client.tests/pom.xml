@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.opencode.ide</groupId>
+    <artifactId>com.opencode.ide.parent</artifactId>
+    <version>0.1.11-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>com.opencode.ide.client.tests</artifactId>
+  <packaging>eclipse-test-plugin</packaging>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-surefire-plugin</artifactId>
+        <configuration>
+          <failIfNoTests>true</failIfNoTests>
+          <!-- test-speed knobs: reply polling and the marker-less quiet window
+               run at test speed here; production defaults stay in ClientTuning
+               (the tests pin semantics, not wall-clock) -->
+          <environmentVariables>
+            <CLIENT_REPLY_POLL_MS>25</CLIENT_REPLY_POLL_MS>
+            <CLIENT_TURN_QUIET_MS>250</CLIENT_TURN_QUIET_MS>
+          </environmentVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "mcp": {
+    "servers": {
+      "tasks": {
+        "type": "local",
+        "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"]
+      },
+      "fleet": {
+        "type": "local",
+        "command": ["pwsh", "-NoProfile", "-File", "eclipse/fleet-tools.ps1"],
+        "disabled": true
+      }
+    }
+  }
+}

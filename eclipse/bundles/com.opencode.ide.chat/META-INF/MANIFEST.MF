@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Chat
+Bundle-SymbolicName: com.opencode.ide.chat;singleton:=true
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-Activator: com.opencode.ide.chat.internal.ChatActivator
+Bundle-ActivationPolicy: lazy
+Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
+ com.opencode.ide.core;bundle-version="0.1.0",
+ org.eclipse.ui,
+ org.eclipse.jface,
+ org.eclipse.swt,
+ org.eclipse.core.runtime,
+ com.google.gson;bundle-version="2.10.0"
+Export-Package: com.opencode.ide.chat,
+ com.opencode.ide.chat.internal;x-friends:="com.opencode.ide.chat.tests"
+Bundle-RequiredExecutionEnvironment: JavaSE-21

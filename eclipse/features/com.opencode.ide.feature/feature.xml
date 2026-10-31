@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="com.opencode.ide.feature"
+      label="OpenCode IDE"
+      version="0.1.11.qualifier"
+      provider-name="OpenCode">
+
+  <description>
+     Eclipse integration for opencode.
+  </description>
+
+  <plugin id="com.opencode.ide.core" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.client" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.ui" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.chat" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.cdt" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.git" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.fleet" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.tools" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.tasks" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.board" version="0.0.0" unpack="false"/>
+  <plugin id="com.opencode.ide.mcp" version="0.0.0" unpack="false"/>
+</feature>

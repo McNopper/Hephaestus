@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.opencode.ide</groupId>
+    <artifactId>com.opencode.ide.parent</artifactId>
+    <version>0.1.11-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>opencode-tasks</artifactId>
+  <packaging>maven-plugin</packaging>
+
+  <name>OpenCode Tasks Maven Plugin</name>
+  <description>opencode-tasks:sync (validate/normalize the .opencode/tasks store) and
+    opencode-tasks:plan (render the sprint board as Markdown/HTML). Maven plans, CMake builds —
+    the mojos never invoke a compiler.</description>
+
+  <properties>
+    <maven.version>3.9.9</maven.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.opencode.ide</groupId>
+      <artifactId>com.opencode.ide.tasks</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.10.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-plugin-api</artifactId>
+      <version>${maven.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.maven.plugin-tools</groupId>
+      <artifactId>maven-plugin-annotations</artifactId>
+      <version>3.13.1</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-plugin-plugin</artifactId>
+        <version>3.13.1</version>
+        <configuration>
+          <goalPrefix>opencode-tasks</goalPrefix>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!-- U-089 optional cell: PIT mutation testing (matrix Java/Mutation).
+         Module-local on purpose: this is the plain-javac module with a real
+         production + test suite; the OSGi test fragments are out of scope
+         (documented QUALITY limit). Active only with -Pmutation. -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.30.0</version>
+            <configuration>
+              <targetClasses>
+                <param>com.opencode.ide.mojo.*</param>
+              </targetClasses>
+              <targetTests>
+                <param>com.opencode.ide.mojo.*</param>
+              </targetTests>
+            </configuration>
+            <executions>
+              <execution>
+                <id>mutation</id>
+                <goals>
+                  <goal>mutationCoverage</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

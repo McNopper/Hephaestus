@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Hephaestus code-quality rules (see eclipse/QUALITY.md). Deliberately lean
+  and high-signal: clean-code rules that catch real defects and smells without
+  churn on whitespace taste. Enforced at `verify` for every module; expand
+  the set only when the whole reactor is already green under it.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+
+    <module name="TreeWalker">
+        <!-- dead code / correctness -->
+        <module name="UnusedImports"/>
+        <module name="RedundantImport"/>
+        <module name="EmptyStatement"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="StringLiteralEquality"/>
+        <module name="EqualsHashCode"/>
+        <module name="FallThrough"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="NoFinalizer"/>
+        <module name="CovariantEquals"/>
+
+        <!-- clean code shape -->
+        <module name="NeedBraces"/>
+        <module name="OneStatementPerLine"/>
+        <module name="OuterTypeFilename"/>
+        <module name="TypeName">
+            <property name="severity" value="warning"/>
+        </module>
+        <module name="MethodName">
+            <property name="severity" value="warning"/>
+        </module>
+        <module name="MemberName">
+            <property name="severity" value="warning"/>
+        </module>
+        <module name="LocalVariableName">
+            <property name="severity" value="warning"/>
+        </module>
+    </module>
+</module>

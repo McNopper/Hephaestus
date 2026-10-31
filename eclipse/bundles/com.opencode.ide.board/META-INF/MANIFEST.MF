@@ -1,0 +1,25 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - Board
+Bundle-SymbolicName: com.opencode.ide.board;singleton:=true
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-Activator: com.opencode.ide.board.internal.BoardPlugin
+Bundle-ActivationPolicy: lazy
+Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
+ com.opencode.ide.core;bundle-version="0.1.0",
+ com.opencode.ide.tasks;bundle-version="0.1.0",
+ com.opencode.ide.fleet;bundle-version="0.1.0",
+ com.opencode.ide.git;bundle-version="0.1.0",
+ com.opencode.ide.chat;bundle-version="0.1.0",
+ com.google.gson;bundle-version="2.10.0",
+ org.eclipse.ui,
+ org.eclipse.compare,
+ org.eclipse.core.runtime,
+ org.eclipse.core.resources;bundle-version="3.20.0",
+ org.eclipse.jface,
+ org.eclipse.swt
+Export-Package: com.opencode.ide.board.model;version="0.1.11",
+ com.opencode.ide.board.fleet;version="0.1.11",
+ com.opencode.ide.board.internal;version="0.1.11";x-friends:="com.opencode.ide.board.tests"
+Bundle-RequiredExecutionEnvironment: JavaSE-21

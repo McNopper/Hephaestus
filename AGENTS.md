@@ -1,0 +1,483 @@
+# AGENTS.md — Hephaestus opencode workflow
+
+## About this document
+
+- **Kind:** `doc` / repo-level workflow convention (auto-loaded by opencode from the git root).
+- **Read by:** any agent operating in this repo; **written by:** maintainers.
+- **Related:** pairs with `README.md`; tiers and selection rules live in the `project-manager-orchestrate-execution` skill; concrete models are setup-local (`opencode.json` default + agent frontmatter — none committed).
+
+Repository-level conventions for agentic work in this repository. Hephaestus is an
+**opencode-native**, **domain-organized** system: skills and agents are flat under
+`.opencode/` and named by `<domain>-<descriptor>`; project management is a concrete,
+Scrum-like ticket/sprint workflow over the **task store** (`.opencode/tasks/`, one
+Markdown file per ticket) served as `task_*` MCP tools; C++ and graphics tooling are
+first-class agents / MCP tools.
+
+## Two scopes
+
+*(Positioning: this harness is deliberate weight for
+COMPLEX projects — board, tickets, docs, V-pipeline are opt-in structure. For a
+simple project the plain opencode TUI suffices; anyone loading the Eclipse
+plugin has chosen the machinery on purpose. Keep that bar: don't grow structure
+the TUI already covers.)*
+
+- **A whole initiative / project** → the **PM agent** (`project-manager`) runs the Scrum workflow
+  over tickets in the task store (one subdirectory per project; multiple projects
+  coexist). The maintainer acts as the product owner: writes the brief/goal, prioritizes the backlog,
+  and resolves the NEEDS-HUMAN escalations - tickets that are blocked
+  (status=blocked) with no
+  live fleet job retrying them. Acceptance itself is the engine's review pass: a PASS
+  verdict moves the ticket to done. Issues bubble up to the PM and only human-worthy
+  ones are escalated.
+- **A software change inside a project** → a ticket of the right `role` is claimed by a
+  worker, which uses the matching `software-*` / `test-software-*` skill, and records
+  its artifact back on the ticket.
+
+> **The PM/ticket system is optional.** Every skill and agent can be used **directly** by a
+> human (or by another agent) with no ticket, sprint, or task store involved — for
+> ad-hoc work, just invoke the skill or `/agents` you need. Use the PM system only when you
+> want tracked, multi-agent, sprint-based execution. Likewise, `project-manager-doc-about` (and any
+> skill) works standalone, independent of PM.
+
+## The flow and the final check
+
+Hephaestus owns **the V-model flow** — how work passes: definitions move down
+(requirements → system → architecture → design → implementation), verification
+comes back up, with artifacts, coverage, evidence and DONE as a gate verdict.
+The **final check** is a different thing: the per-project quality/architecture
+gate (global skills + the project's own gate configuration) invoked at each
+stage's acceptance. It is project-specific and never owned by Hephaestus —
+so no specialized skills or metrics get committed to this repo; they come
+from the user or live in the project itself. Where a new check is wanted, it
+belongs in the project's own files, not as a Hephaestus feature.
+
+## Skills are discovered flat by domain
+
+opencode loads every `SKILL.md` under `.opencode/skills/*/`. There are no subfolders by
+domain — the **domain is in the name**. Naming convention: `<domain>-<descriptor>`.
+
+| Domain prefix | Meaning | Example skills |
+|---|---|---|
+| `software-` | Definition (what/how) | `software-requirements`, `software-system`, `software-architecture`, `software-design`, `software-implementation` |
+| `test-software-` | Verification of a definition level | `test-software-implementation`, `-design`, `-architecture`, `-system`, `-requirements` |
+| `project-manager-` | Project management | `project-manager-operating-model`, `project-manager-orchestrate-execution`, `project-manager-route-request`, `project-manager-audit-traceability`, `project-manager-estimate-costs`, `project-manager-gather-intelligence`, `project-manager-create-ticket`, `project-manager-doc-about` |
+
+Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-author`,
+`executor`, `reviewer`, `rubberduck`, `research`, `project-manager`). Domain agents were
+curated out of the repo (2026-10-15): specialized skills and agents come from the user,
+not from Hephaestus (quarantine: `C:\Temp\Hephaestus`).
+
+## The ticket / sprint workflow (the PM)
+
+**Paired verification:** when a ticket ENTERS a
+definition stage, its paired verification criteria are created and LINKED in
+the same motion - requirements -> acceptance criteria, system -> integration
+criteria, architecture -> library tests, design -> component tests,
+implementation -> unit tests - so that by the time the V reaches the right
+leg, the tests already exist and decide done / not-done. The pair is written
+at stage ENTRY, not at review time: link the criteria as artifacts on the
+ticket (`task_add_artifact`). `task_traceability` pairs with THREE signals
+(D-001, implemented as U-070): the **role + epic link** (`tester` verifying a
+definition), its **own journey when it walked both legs** (a definition entry
+then a `test-*` stage - `advance()` flips the role on entry to the test leg,
+so the wandered ticket pairs with itself), and a
+**test-shaped artifact** (`*.tests/` path) - `pm` requirements count as
+definitions; the row reports `via`/`self_verified` so a genuine pair is
+distinguishable from inflation, and a definition with no signal still reports
+as an orphan (the `project-manager-audit-traceability` skill drives the
+manual artifact-level audit). A definition
+stage without its linked verification counterpart is incomplete work.
+
+**How work moves (the reporting lines):** the flow is either **along the
+V** or **horizontal for validation** - nothing moves any other way. When a
+stage succeeds, it **divides its result and passes it further**: outputs
+feed the next stage down/up the V (and the epic chain when a ticket
+decomposes). When something **blocks, it goes back to the origin** - the
+stage it came from, where a **requirement can clarify it** (a new or
+updated requirement upstream answers the implementation question, then the
+work flows down again; horizontally, a failed validation returns to the
+definition that produced it). The loop is automatable to a degree:
+clarification round-trips run between agents up to their limit, and every
+outcome is **tracked as effort** - `fleet actuals:` carry cost/tokens and
+the ticket's artifacts carry the results - which is exactly why links to
+results and artifacts live ON the tickets: the maintainer tracks effort and
+evidence without reading code, and escalates (NEEDS-HUMAN) only when the
+round-trips are exhausted.
+
+**V-model execution:** a staged ticket wanders
+through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
+feature (e.g. no architecture-level change needed) is a **pass-through**:
+the ticket advances with a recorded rationale ("no architecture impact:
+local change") instead of a full dispatch. Every stage is visited; not
+every stage does work. The pass-through verb is
+`task_pass_stage(project, ticket_id, reason)` (history `stage N passed:
+<reason>`), and a `pass-declare: <stage> - <reason>` ticket comment makes
+the launch path record that pass instead of starting a session - zero
+sessions, zero charge (U-057/U-058).
+
+**Pump strategy (resolution-first, wired):** every tick of the production
+schedulers resolves BLOCKED ITEMS FIRST — route a blocked ticket to the
+previous stage (vertical send-back on the definition chain) or report it
+horizontally (the verification-definition pair at the same V level), then
+dispatch the resolution attempt with the blocked reason as context — and
+only then plans new launches, NEEDS-HUMAN as the last resort after agents
+had their attempt (round-trip limit 3). All three schedulers (the fleet's
+`FleetControl` auto loop, the `RecurringWaves` drain, the Board's
+`BoardDispatch`) set the resolver: `DispatchScheduler.withResolution`,
+routes picked by `ResolutionPolicy`, store moves executed by
+`ResolutionMoves` (U-050). One attempt per ticket per tick (no hot loops),
+and attempts count against concurrency and the cost budget like any
+launch. A blocked ticket only stays put once no agent route remains.
+
+**The repo works as one:** skills, agents, docs,
+store and engine form a single system - after behavior changes, the
+corresponding skills/agents/docs are revisited in the same flow (coherence
+passes run as tickets, e.g. U-030). Divergence between what the engine does and
+what the skills prescribe is a defect, not cosmetics. Known divergences that are
+not fixed yet are listed in `ROADMAP.md` (*Coherence debt*) - where an entry there
+contradicts this file, the entry is right.
+
+**Autonomy target:** waves run themselves on a
+recurring basis — agents execute, review, accept and advance; the maintainer's
+ONLY regular duty is resolving **NEEDS-HUMAN items** — tickets whose blocked
+flag is set with no live fleet job retrying them; clearing the blocker
+returns them to the pump. Everything else should need zero end-user action.
+U-021 (reviewer auto-accept + auto-advance), U-022 (recurring waves +
+escalation surface) and U-023 (clarification loop: agents pass back to the
+originator agent; round-trip limits escalate to the maintainer) implement this —
+the Hephaestus principle: fully autonomous fleets and waves, the maintainer as
+last resort.
+
+**Terminology:** the UI says **wave**, not sprint —
+a wave is a named batch of agent work, planned on demand and drained in minutes
+by the fleet (no weekly cadence, no time-box). The store field, tool names
+(`task_plan_sprint`) and ticket frontmatter keep `sprint` as the schema key for
+stability; treat "wave" and "sprint" as synonyms everywhere else.
+
+The **task store** stores **tickets** and **sprints**, scoped per **project** (one
+subdirectory of `.opencode/tasks/` each, so several independent projects run at once).
+**The store is the ground truth — the single coordination blackboard.** The Eclipse Board
+is a projection of it, and every agent (a user's chat session, a fleet worker, the
+auto-dispatcher) is a *peer* that reads and writes the store; no agent owns or messages
+another. Coordination is store-mediated — claim a ticket, record the artifact, move the
+state — so several agents and several users can work the same project **in parallel
+without blocking each other**: the atomic `task_claim` is the only serialization point,
+and it serializes tickets, not people. The store is served as `task_*` MCP tools — by
+the Eclipse harness's `eclipse-build` endpoint when Eclipse runs, and by the `tasks`
+stdio launcher (`eclipse/tasks-tools.ps1`, configured in `opencode.json`) for TUI-only
+sessions (both launchers resolve the built jars from the **main checkout** when invoked
+inside a fleet worktree — worktrees carry no `target/` build output); opencode prefixes them with the server name (`tasks_task_*` /
+`eclipse-build_task_*`) — the tool/wire names stay `task_*`. States:
+
+```text
+product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
+   (incomplete on sprint close ──────────────────────────────────────────────────────────────┘)
+paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
+blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
+  returns to resume_to (default sprint-backlog); done and paused can never be blocked
+stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason); task_report_horizontal -> the V-level pair stage (blocked + reason; the route for a failed validation)
+```
+
+**Write discipline.** Store writes go through the `task_*` tools (or the engine API),
+never through scripts or bulk hand edits: the engine keeps the invariants (a done ticket
+is never blocked, every change leaves a history event, every ticket file stays
+parseable) that direct writes silently break - `task_doctor` reports unparsable ticket
+files. Where the API has no verb (correcting a wrong artifact ref), make the smallest
+hand edit, verify it with `task_get` + `task_doctor`, and record a comment on the
+ticket. Text files are UTF-8: never round-trip them through Windows PowerShell 5.1
+`Get-Content`/`Set-Content` (it re-encodes through the ANSI code page); use the editor
+tools or byte-level UTF-8 I/O - the quality gate rejects the resulting mojibake.
+
+**Chunk small.** One ticket = one independently verifiable change (one file lane,
+one mechanism, one doc pass). If a ticket would grow past ~3 story points or mixes
+concerns, split it — smaller chunks are easier to track, verify, review and re-run.
+Todos list the steps *within* one change; they are not a substitute for decomposition.
+
+Readiness machinery (H6 dataflow): `task_readiness` reports, per ticket, whether its
+stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no stage,
+or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
+all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
+run; STALE means an epic-chain upstream was updated after the downstream ran (any write
+to the upstream counts). The PM agent can use it to ask "what's
+runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
+(*Auto ▶*: launches every runnable sprint ticket under a concurrency + cost-budget cap).
+
+- A worker **self-claims** by role: `task_claim(role=…)` atomically finds the next
+  matching ticket, moves it to `in-progress`, sets `assignee`. Two agents never get the
+  same ticket. A returned ticket (`task_release`) can be picked up by a *different*
+  agent.
+- When a worker produces an artifact (file, git commit/branch, doc), it records it with
+  `task_add_artifact(kind=file|git|path|url|doc, ref=…)` **before** moving to `in-review` —
+  the ticket is the hand-off contract.
+- A review FAIL routes by stage: `task_send_back` to the **previous stage's
+  backlog**, blocked with the reviewer's reasons (the maintainer-escalation signal) — the
+  first stage and unstaged tickets have nowhere to go back to and are blocked in
+  place. An UNCLEAR verdict round-trips the doubt to the originator (one retry per
+  stage visit); an unstaged ticket stays in `in-review` with the doubt as a comment.
+- See `project-manager-operating-model` for Scrum events, the Definition of Done, and the
+  bubble-up → escalation rule; `project-manager-create-ticket` for how to fill a ticket; `project-manager-route-request`
+  when the next step is ambiguous; `project-manager-audit-traceability` for the definition→verification matrix.
+
+## Canonical composition hierarchy & the V pipeline
+
+The dividing line is **reuse scope** (static-vs-shared linkage is a build decision):
+
+- **Unit** → smallest implementation element with a clear interface.
+- **Component** → composed of units; **internal** to this software (linked in).
+- **Library** → composed of components; **independently deployable and reusable outside
+  this software**; exposes a clear interface and dependency rules.
+- **Software system** → composed of libraries plus external/system interfaces.
+- **Package/folder** (and language *modules*) → organization only; not a lifecycle level.
+
+Verification maps by level: `test-software-implementation` (unit) ↔ `software-implementation`,
+`test-software-design` (component) ↔ `software-design`, `test-software-architecture` (library)
+↔ `software-architecture`, `test-software-system` (integration) ↔ `software-system`,
+`test-software-requirements` (acceptance) ↔ `software-requirements`.
+
+The V-model is used as an **async pipeline**, not a phase gate: stages run **concurrently**,
+each finished stage's ticket feeds the next stage's backlog, and a stage that cannot proceed
+sends the ticket back with a reason. There are **no phase gates and no ordering enforcement**
+— the ticket's `stage` field (nullable; `VStages` in the tasks bundle is canonical) only
+steers dispatch (stage → role → skill) and the prompt the fleet gives the worker:
+
+| Stage | Role | Skill |
+|---|---|---|
+| `requirements` | pm | `software-requirements` |
+| `system` | architect | `software-system` |
+| `architecture` | architect | `software-architecture` |
+| `design` | developer | `software-design` |
+| `implementation` | developer | `software-implementation` |
+| `test-implementation` | tester | `test-software-implementation` |
+| `test-design` | tester | `test-software-design` |
+| `test-architecture` | tester | `test-software-architecture` |
+| `test-system` | tester | `test-software-system` |
+| `test-requirements` | tester | `test-software-requirements` |
+
+**V-enforcement — the process the harness forces (U-078..U-082):**
+
+- **Every definition stage CREATES a persistent artifact** (the stage's document, recorded
+  with `task_add_artifact`); `task_advance` refuses a definition-stage exit without one
+  (a rationale recorded as a doc artifact counts) and `task_doctor` lints legacy
+  done/in-review definition tickets that carry none ("the architecture was not done").
+- **Top-down coverage is automatic:** the dispatch prompt injects the governing UPSTREAM
+  DEFINITIONS (epic-chain tickets + artifact refs) — a `done` upstream with no artifact
+  yields a GOVERNING DEFINITION MISSING block, and non-bug work with nothing above it at
+  all is forced to write the missing abstraction first. The right leg's artifacts are
+  persistent truth; it only validates they are *there* and *fulfilled*.
+- **DONE is a gate verdict, not an agent's claim:** artifact · coverage (upstream ids
+  cited) · every acceptance criterion verified · quality gate ran — "it works" is proven
+  on the paired `test-*` stage, and readiness refuses an upstream that claims done with
+  no artifact (backfill unblocks).
+- **Routing — two triggers only:** a FAILED VALIDATION loops **horizontally**
+  (`task_report_horizontal` → the V-level pair, e.g. test-design → design; the reviewer's
+  FAIL verdict routes by stage kind); a MISSING or WRONG definition loops **vertically**
+  (`task_send_back` → previous stage, `clarification:` first, max 3 round-trips). Cover in
+  place otherwise — never flow back by reflex.
+
+## C++ and graphics tooling lives outside the repo
+
+The 2026-10-15 curation moved the specialized lanes out (quarantine at
+`C:\Temp\Hephaestus`): the `cpp-tools` methodology skill and agent, the
+`graphics-render-comparison` skill, the `graphics-expert` agent, and the
+`mcp.graphics` server. The `cpp/` C++ project and its own `verify` target
+remain in the repo (its lanes are listed in `eclipse/QUALITY.md`); any C++
+or graphics methodology for that project comes from the user, not from
+Hephaestus.
+
+## Chat-first control plane (H7)
+
+**Chat is the primary interface — everything is triggerable from an opencode chat session;
+the Eclipse views (Board buttons, dialogs, launchers) are optional conveniences on top.**
+
+**Chat-first ≠ chat-rooted:** once work is dispatched, the chat session is a *launcher
+and peer*, not the root of a command tree. A running worker reports to its **ticket**
+(status, artifacts, actuals) — never back into the dispatching session, which sees only
+`fleet_fleet_jobs` state until the work lands in the store. To follow dispatched work:
+poll the store (`tasks_task_get`, `fleet_fleet_jobs`), do not wait on or address the
+worker session. This store-mediated coordination is exactly what lets one user run
+several agents in parallel on a project without anyone blocking anyone.
+
+Concretely, a chat agent can already:
+
+- run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
+- **dispatch the fleet** via the `fleet` server — which ships **disabled** in
+  `opencode.json` (`"disabled": true`); enable it for TUI sessions by flipping that
+  to `false`, or reconnect at runtime with `POST /api/experimental/mcp/fleet/connect`:
+  `fleet_fleet_dispatch` (async launch for
+  one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
+  ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
+  residue itself (B-006) — "branch already exists" now means real unmerged work, never
+  engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is
+  progress-aware (B-008): it is a NO-PROGRESS window that progressing sessions
+  never hit (busy alone is not progress), an absolute run cap is the backstop, and
+  every abort records a
+  diagnostic snapshot (last assistant text, last tool call, pending request) on the
+  ticket). Model
+  selection is a **cost lever on the ticket**: the optional `model` field
+  (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run costs —
+  small well-specified tickets deserve cheap models; `fleet_dispatch(model=…)` overrides
+  per run. The reviewer pass stays on the server default. The launch
+  precedence is: `fleet_dispatch(model=...)` > ticket `model` > the **per-stage
+  policy** (Dispatch settings -> stage models, U-072: one `provider/model[#variant]`
+  per V-stage) > server default.
+  `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
+  progress probe: busy/messages/complete — "are we moving?"),
+  `fleet_fleet_job_activity` (deep live observation of one job's session: current
+  activity, tools used, shell commands, subagents, tokens/cost),
+  `fleet_fleet_reset` (consume a settled run's worktree/branch residue and release
+  the ticket to sprint-backlog), `fleet_fleet_shutdown` (the one graceful maintenance
+  stop: parks admissions and the loops, checkpoints in-flight workers, pauses their
+  tickets, kills the spawned serve),
+  `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer
+  permission asks of unattended runs — once/always/reject),
+  `fleet_fleet_sync_store` / `fleet_fleet_status_store` / `fleet_fleet_recover_store`
+  (distributed-fleet store discipline, **scoped to `.opencode/tasks`** — never touches
+  the rest of the repo). The fleet spawns its own authenticated `opencode serve` on
+  first dispatch (a fresh password is generated when `OPENCODE_SERVER_PASSWORD` is
+  unset) and kills it on shutdown.
+- **Host discipline** : background work runs in
+  **opencode** (its service already executes requests and shells in the
+  background) or in **Eclipse** (the JobManager runs every task as a Job in
+  one fixed `JobGroup`) — anything else is reinventing the wheel. The
+  automatic fleet pump (auto-dispatch / recurring waves) runs in **whichever
+  host starts it**: the Eclipse Board, or the fleet stdio JVM when a chat
+  session calls `fleet_fleet_auto_start` / `fleet_fleet_waves_start` — the
+  loop pumps in that host's `FleetControl` for as long as that host runs.
+  There is no detached fleet daemon and no third host.
+- **Strict reuse policy** (full matrix in
+  `docs/opencode-v2-adoption.md`) - decide EVERY capability in this order:
+  1. **the opencode harness** - if opencode v2 already provides it (sessions,
+     shells, PTYs, worktrees, VCS, permissions, forms, MCP management:
+     check `GET /openapi.json` first), do it WITH opencode - adopt the verb,
+     never reimplement it.
+  2. **the Eclipse harness** - otherwise use what the platform gives (Jobs,
+     Progress, preferences, scheduling rules, views, editors).
+  3. **ours only** where neither host has the thing (task store, V-pipeline
+     steering) - and never a parallel mechanism for something a tier above
+     already does: that is a defect, not an extension.
+
+The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
+(explicit project/sprint, concurrency and cost-admission budget),
+`fleet_fleet_auto_status`, and `fleet_fleet_auto_stop`. Board and chat share the
+headless scheduling policy and repository reservations.
+
+The U-022 **recurring-waves mode** is chat-triggerable via `fleet_fleet_waves_start`
+(per project, optional first wave, concurrency + hard-stop cost budget),
+`fleet_fleet_waves_status` (active wave, waves planned, stop reason, and the
+**NEEDS-HUMAN rows** — every ticket blocked with no in-flight retry), and
+`fleet_fleet_waves_stop`. When the active wave drains, the next wave is planned
+automatically from the prioritized backlog (top-priority READY tickets) — no human
+click between waves. The loop parks while NEEDS-HUMAN tickets wait (clearing a
+blocker resumes it automatically; the Board's readiness badge carries the
+needs-me count) and stops cleanly on budget exhaustion or when nothing is
+plannable. OFF by default.
+
+Not yet chat-triggerable: *proactive* ask-surfacing inside
+the dispatching chat (answering works via `fleet_fleet_permissions*`) and
+board rendering. For unattended runs, prefer making risky
+actions `deny` in the opencode permission config instead of `ask` — an unanswered ask
+holds the run until answered (the watchdog pauses, it does not decide).
+
+## eclipse/ — the IDE harness
+
+The Eclipse plugin (`eclipse/`) is the **agentic harness**: chat plus Server (agents/sessions/MCP
+servers/skills)/Providers/Board
+views, the MCP build-tools endpoint `eclipse-build`, a git-worktree agent fleet, and the
+headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
+
+- **v2 in this client (last live cross-check: v2.2.5, 2026-10-31; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
+  Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
+  single `/api/event` stream (v2 event names; `location.directory` scopes client-side). The
+  interactive connection **attaches to the shared background service** by default
+  (`OpencodeServiceDiscovery`; preference-controlled, spawn as fallback). Two v2 realities to
+  keep in mind when touching this code: **session state is global per user** (the Server view
+  scopes via `?directory=`), **event streams are per-process** — which is why the fleet
+  deliberately keeps spawning its own `opencode serve`. TUI steering is gone in v2 and text/symbol search has no v2
+  equivalent; session share is NOT implemented for v2 sessions (the v2.0.19 TUI's
+  own /share toasts "not implemented"; the share config field is v1 legacy) - the
+  chat shows the same honest notice.
+- **Build:** `cd eclipse; .\build.ps1 clean verify` (Java 21 + Tycho; Node for the chat-web checks).
+  Fast inner loop: `.\build.ps1 verify` (incremental — seconds, vs minutes for `clean`);
+  reserve `clean verify` for the release gate / pre-deploy. `-DskipNodeChecks=true`
+  skips the chat-web checks, opt-in `-T 2` trades a little CPU for wall clock (off by
+  default — keep the system responsive), and each test bundle boots its own OSGi test
+  runtime (Tycho) — that startup dominates short builds.
+  **Quality gate** (`eclipse/QUALITY.md`): every `verify` runs Checkstyle
+  (clean-code lint, enforced) and, once per reactor, the clean-architecture exec check
+  (dependency direction + no fixed paths + no mojibake, enforced); `verify -Pquality` adds
+  SpotBugs (report-only) and PMD-CPD duplication checks — the release gate is
+  `.\build.ps1 clean verify -Pquality`.
+- **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
+- **Docs:** `eclipse/README.md`, `eclipse/ARCHITECTURE.md`, and the root `ROADMAP.md`.
+
+## Model tiers (model-neutral agents)
+
+Agents and docs reference **tiers**, never hard-coded model IDs. No default
+model and no per-agent model override are committed (decision D-004:
+contributors use different providers) - each setup
+configures its own `opencode.json` default and, where needed, an agent
+frontmatter `model:`; resolve the concrete model through `/models`. The Eclipse chat's selector combos
+commit deliberately: un-armed drift (wheel/pointer traffic over the selector
+row) reverts; only an opened-dropdown pick or Enter changes the model. Tiers and their selection rules are
+defined in `project-manager-orchestrate-execution`.
+
+| Tier | Selection rule |
+|---|---|
+| `very-low` | cheapest/fastest for trivial, mechanical edits |
+| `low` | best available open-weight model — **default executor** |
+| `mid` | balanced general model for standard impl/tests |
+| `high` | top-capability reasoning + large context — **planning + review** |
+| `very-high` | frontier/highest-risk — **run twice & reconcile** |
+
+Tier-selection rule: pick the **lowest tier whose criteria still satisfy the task**;
+escalate (never de-escalate) when uncertain.
+
+**Provider/model choices are LOCAL settings, never committed (D-004, owner
+directive 2026-10-31):** which provider or model a user selects lives only in
+local configuration — the Eclipse preference store and the user-global
+`opencode.json`, both outside the repository. No committed content — docs,
+code, examples, test fixtures, the ticket store — names a concrete provider or
+model id; use `<provider>/<model>` placeholders. The one exception is the
+generic provider-catalog support itself (ProviderLogos / fetch-logos and their
+public slug mapping, THIRD-PARTY.md attribution), which any user of any
+provider needs and carries no information about this setup. Enforcement:
+CI runs `releng\check-no-provider-ids.ps1` on every push, and
+`releng\init-local-settings.ps1` generates the local settings skeleton
+on a fresh machine (the file lives in the user profile, outside the repo).
+
+## Custom agents (`.opencode/agent/`)
+
+Lean, flat, model-neutral:
+
+- **Coordination (unprefixed):** `orchestrator` (kicks off the sprint; workers self-claim),
+  `manifest-author` (high-tier plan + execution manifest), `executor` (open-tier task execution;
+  records artifacts), `reviewer` (high-tier final review; edit-denied), `rubberduck`
+  (cross-vendor critic; edit-denied), `research` (authoritative-source investigation;
+  validated synthesis), `project-manager` (Scrum Master + PO proxy; always present).
+
+## Debugging discipline
+
+- **Evidence before theory:** one decisive probe (grep the logs, dump the
+  state) before the first hypothesis.
+- **Fix the failure class, not the instance.**
+- **No hacks - always the proper solution.** Fix at the layer that owns the
+  problem; never paper over a wrong model with a special case, a derived
+  mirror or a transitional band-aid. If the domain says X (e.g. "blocked is
+  a state"), implement X — everywhere, in one motion
+  ("No hacks! Put this somewhere! Always proper solutions.").
+- **No source edits while a gate runs**; validate an edited script by running it.
+- **Every engine outcome that is not success is logged where it happens.**
+- **Tests assert contracts, not implementation details** (ordering or
+  "last-ness" is an implementation detail unless the contract says so).
+- **Status claims cite tool output, never intent.**
+
+## opencode feature usage (recommended)
+
+- Plan mode (`Tab`) for multi-file / multi-phase changes before implementation.
+- `/agents` to select a coordination or domain agent.
+- `/models` to pick a model for a task (tiers resolve here). Connect whichever
+  providers you use via `/connect`.
+- The `orchestrator` dispatches concurrent subagents (Task tool) for parallel tickets;
+  workers self-claim the rest via `task_claim`.
+- Skills auto-load from `.opencode/skills/`; reference files with `@`.
+- Run the project's verification gate (e.g. `cpp/` `verify` target) via bash before merge.

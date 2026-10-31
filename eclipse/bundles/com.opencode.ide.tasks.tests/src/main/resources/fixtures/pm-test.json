@@ -1,0 +1,234 @@
+{
+  "seq": {
+    "T": 5
+  },
+  "tickets": {
+    "T-001": {
+      "id": "T-001",
+      "title": "Capture requirements for demo tracker",
+      "description": "",
+      "type": "story",
+      "status": "product-backlog",
+      "blocked": false,
+      "blocker": null,
+      "sprint": null,
+      "story_points": 3,
+      "priority": "high",
+      "role": "pm",
+      "assignee": null,
+      "acceptance_criteria": [
+        "User stories documented",
+        "NFRs listed"
+      ],
+      "labels": [],
+      "epic": null,
+      "artifacts": [],
+      "created_at": "2026-07-16T04:24:36.093683+00:00",
+      "updated_at": "2026-07-16T04:56:07.651404+00:00",
+      "history": [
+        {
+          "ts": "2026-07-16T04:24:36.093696+00:00",
+          "action": "created",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.625036+00:00",
+          "action": "todo_added:Draft user stories",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.634606+00:00",
+          "action": "todo_added:List NFRs",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.642906+00:00",
+          "action": "todo_added:Review with PO",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.651413+00:00",
+          "action": "todo_toggled:1",
+          "by": null
+        }
+      ],
+      "comments": [],
+      "todos": [
+        {
+          "text": "Draft user stories",
+          "done": false
+        },
+        {
+          "text": "List NFRs",
+          "done": true
+        },
+        {
+          "text": "Review with PO",
+          "done": false
+        }
+      ]
+    },
+    "T-002": {
+      "id": "T-002",
+      "title": "Design module layout for tracker",
+      "description": "",
+      "type": "task",
+      "status": "product-backlog",
+      "blocked": false,
+      "blocker": null,
+      "sprint": null,
+      "story_points": 5,
+      "priority": "medium",
+      "role": "architect",
+      "assignee": null,
+      "acceptance_criteria": [],
+      "labels": [],
+      "epic": null,
+      "artifacts": [],
+      "created_at": "2026-07-16T04:24:36.114656+00:00",
+      "updated_at": "2026-07-16T04:24:36.114665+00:00",
+      "history": [
+        {
+          "ts": "2026-07-16T04:24:36.114668+00:00",
+          "action": "created",
+          "by": null
+        }
+      ],
+      "comments": []
+    },
+    "T-003": {
+      "id": "T-003",
+      "title": "Implement core ticket store",
+      "description": "",
+      "type": "task",
+      "status": "product-backlog",
+      "blocked": false,
+      "blocker": null,
+      "sprint": null,
+      "story_points": 8,
+      "priority": "high",
+      "role": "developer",
+      "assignee": null,
+      "acceptance_criteria": [],
+      "labels": [],
+      "epic": null,
+      "artifacts": [],
+      "created_at": "2026-07-16T04:24:36.129615+00:00",
+      "updated_at": "2026-07-16T04:56:07.692932+00:00",
+      "history": [
+        {
+          "ts": "2026-07-16T04:24:36.129674+00:00",
+          "action": "created",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.660202+00:00",
+          "action": "todo_added:Define store schema",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.669267+00:00",
+          "action": "todo_added:Implement CRUD",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.677199+00:00",
+          "action": "todo_added:Add file locking",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.684998+00:00",
+          "action": "todo_toggled:0",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.692940+00:00",
+          "action": "todo_toggled:1",
+          "by": null
+        }
+      ],
+      "comments": [],
+      "todos": [
+        {
+          "text": "Define store schema",
+          "done": true
+        },
+        {
+          "text": "Implement CRUD",
+          "done": true
+        },
+        {
+          "text": "Add file locking",
+          "done": false
+        }
+      ]
+    },
+    "T-004": {
+      "id": "T-004",
+      "title": "Write unit tests for ticket store",
+      "description": "",
+      "type": "task",
+      "status": "product-backlog",
+      "blocked": false,
+      "blocker": null,
+      "sprint": null,
+      "story_points": 5,
+      "priority": "medium",
+      "role": "tester",
+      "assignee": null,
+      "acceptance_criteria": [],
+      "labels": [],
+      "epic": null,
+      "artifacts": [],
+      "created_at": "2026-07-16T04:24:36.146231+00:00",
+      "updated_at": "2026-07-16T04:56:07.700877+00:00",
+      "history": [
+        {
+          "ts": "2026-07-16T04:24:36.146242+00:00",
+          "action": "created",
+          "by": null
+        },
+        {
+          "ts": "2026-07-16T04:56:07.700885+00:00",
+          "action": "todo_added:Cover create/list/get/update",
+          "by": null
+        }
+      ],
+      "comments": [],
+      "todos": [
+        {
+          "text": "Cover create/list/get/update",
+          "done": false
+        }
+      ]
+    },
+    "T-005": {
+      "id": "T-005",
+      "title": "Investigate cross-process lock behavior",
+      "description": "",
+      "type": "spike",
+      "status": "product-backlog",
+      "blocked": false,
+      "blocker": null,
+      "sprint": null,
+      "story_points": 2,
+      "priority": "low",
+      "role": "developer",
+      "assignee": null,
+      "acceptance_criteria": [],
+      "labels": [],
+      "epic": null,
+      "artifacts": [],
+      "created_at": "2026-07-16T04:24:36.161696+00:00",
+      "updated_at": "2026-07-16T04:24:36.161703+00:00",
+      "history": [
+        {
+          "ts": "2026-07-16T04:24:36.161706+00:00",
+          "action": "created",
+          "by": null
+        }
+      ],
+      "comments": []
+    }
+  }
+}

@@ -1,0 +1,257 @@
+# Fleet quickstart — your first headless dispatch
+
+## About this document
+
+- **Kind:** `guide` (quickstart how-to for the task fleet's headless flow).
+- **Read by:** newcomers to Hephaestus — humans or agents — who want to dispatch their first ticket; **written by:** maintainers (ticket V-005).
+- **Related:** `AGENTS.md` (workflow conventions), `eclipse/README.md` and `eclipse/ARCHITECTURE.md` (engine internals), `eclipse/DISTRIBUTED-FLEETS.md` (multi-machine store discipline). This is the newcomer path: seed ticket → dispatch → poll → merge → verify.
+
+## What runs where (read this first)
+
+- **The task store is the ground truth.** `.opencode/tasks/` (one Markdown file per
+  ticket) is the single coordination blackboard. Workers report to their *ticket* —
+  status, artifacts, actuals — never back to the session that dispatched them.
+- **Your chat session is a launcher and a peer**, not a command tree. After a
+  dispatch, follow progress by polling the store (`task_get`) and `fleet_jobs`; do
+  not wait on or address the worker session.
+- **Eclipse is optional.** The Board's Launch/Sync buttons are conveniences over the
+  exact same engine; this guide never needs the IDE.
+
+## Prerequisites
+
+| Need | Check | Notes |
+|---|---|---|
+| JDK 21+ | `java -version` | On PATH or via `JAVA_HOME` — **both** stdio servers require it: `tasks-tools.ps1` and `fleet-tools.ps1` throw without a JDK 21+ (the bundles are JavaSE-21). |
+| git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
+| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.0.19 (endpoint-verified against the v2 API — on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
+| pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
+| Built jars | see below | The stdio servers load jars from `eclipse/bundles/*/target/`. |
+
+Build the bundles the two MCP servers need (from the repo root, Windows):
+
+```pwsh
+cd eclipse
+.\build.ps1 clean verify
+```
+
+Use the full reactor: isolated `-pl` builds can fail Tycho dependency resolution.
+The first build also populates the Tycho p2 cache the launchers resolve gson from.
+
+Optional hardening: set `OPENCODE_SERVER_PASSWORD` before starting opencode. The
+spawned server honors it; otherwise the engine generates a fresh random password so
+it never runs unauthenticated.
+
+## The two MCP servers
+
+Both come from `opencode.json` — no Eclipse running required:
+
+| Server | Launcher | Serves |
+|---|---|---|
+| `tasks` | `eclipse/tasks-tools.ps1` | the `task_*` pack — tickets, sprints, claims, comments, artifacts |
+| `fleet` | `eclipse/fleet-tools.ps1` | the `fleet_*` pack — dispatch, jobs, permissions, store sync |
+
+opencode prefixes tool names with the server name, so in a session you call
+`tasks_task_create` / `fleet_fleet_dispatch`; on the JSON-RPC wire the names are
+bare (`task_create`, `fleet_dispatch`). When Eclipse *is* running, its
+`eclipse-build` endpoint serves the same `task_*` pack (`eclipse-build_task_*`).
+You don't type these names — ask in chat ("create a ticket …") and the model calls
+the tool — but the steps below name them so you know what happened.
+
+Both launchers also work from inside a fleet worktree: when the jars are missing
+locally (worktrees carry no `target/` build output) they resolve them from the
+**main checkout** via git's common-dir — worker sessions keep their `task_*`
+tools.
+
+## Enable the fleet server (once per repo)
+
+The `fleet` MCP server ships **disabled** (`"disabled": true` in
+`opencode.json` — fleets eat tokens; nothing auto-starts). Before the first
+dispatch, enable it for this repo:
+
+1. Set the fleet entry to `"disabled": false`. v2's config schema knows
+   `disabled`, not the legacy `enabled` key — unknown keys are silently
+   dropped, so `"enabled": true` does nothing.
+2. Connect the server scoped to the repo:
+   `POST /api/experimental/mcp/fleet/connect?location[directory]=<repo>`
+   (Basic auth; password in `~/.local/state/opencode/service.json`).
+
+From Eclipse instead: the Fleet view's *Enable Fleet* button — the Board has
+no enable toggle (its `Auto ▶`/`Waves ▶` drive dispatch loops, not the
+server). If the `fleet_*` tools are missing from your session, the server
+was never connected for this directory.
+
+## First run, end to end
+
+### Optional automatic dispatch
+
+After planning tickets into a sprint, call `fleet_fleet_auto_start`:
+
+```json
+{ "project": "myproject", "sprint": "S-01", "max_concurrent": 4,
+  "cost_budget_usd": 5, "include_stale": false }
+```
+
+`fleet_fleet_auto_status` reports this engine's loop and scope;
+`fleet_fleet_auto_stop` stops admissions while accepted jobs settle normally.
+The loop polls every five seconds and uses the same readiness policy as the Board.
+Board and chat schedulers count the shared repository reservations and serialize
+capacity-check plus reservation. Explicit manual dispatch can exceed the scheduler
+cap. Cost is an admission estimate (recorded project spend plus estimated in-flight
+work), not a hard billing limit. Failed tickets stay blocked until reviewed/reset.
+Loop settings last for this MCP process; restart explicitly after a process restart.
+
+`fleet_reset` reserves the ticket before cleanup and refuses a live peer's marker.
+Dead-owner markers are swept; unknown/malformed ownership is retained for inspection.
+
+Use distinct ticket prefixes across projects in the same repository. Fleet branch
+names remain ID-based; persistent `.project` metadata binds each slot to its owning
+project, even after reset/reaping. A colliding project is refused. Legacy unowned
+worktree/branch residue requires ownership investigation and explicit recovery;
+it is not automatically adopted or deleted.
+
+### One-ticket dispatch
+
+**1. Seed a ticket** — `tasks_task_create` (status lands in `product-backlog`):
+
+```json
+{ "project": "myproject", "title": "Add a greeting endpoint",
+  "description": "Return a friendly greeting from the API.",
+  "role": "developer", "story_points": 2,
+  "acceptance_criteria": ["GET /greet returns 200 with a greeting body"] }
+```
+
+**2. Plan a sprint** — `tasks_task_plan_sprint` moves tickets to `sprint-backlog`
+(the dispatchable state):
+
+```json
+{ "project": "myproject", "sprint_id": "S-01",
+  "goal": "Ship the greeting.", "ticket_ids": ["T-001"] }
+```
+
+**3. Dispatch** — `fleet_fleet_dispatch` is async and returns immediately:
+
+```json
+{ "project": "myproject", "ticket_id": "T-001", "timeout_minutes": 30 }
+```
+
+Guards: the ticket must exist, be unblocked, not `done`, and not already in flight.
+`timeout_minutes` is a **no-progress window** (default 30, max 1440): observed
+progress resets it, so a session that keeps making progress is never
+budget-killed. The absolute backstop is the separate **4 h hard run cap**
+(`FLEET_HARD_RUN_CAP_MS`).
+
+**4. Poll** — `fleet_fleet_jobs` shows the live snapshot per ticket:
+`RUNNING` → `COMPLETED` → `MERGED`, or `FAILED` with a `detail`, plus `session_id`
+and `worktree`. An empty list means nothing has been dispatched yet (the engine and
+its `opencode serve` spawn lazily on first dispatch).
+
+**5. Verify on the ticket** — `tasks_task_get`:
+
+```json
+{ "project": "myproject", "ticket_id": "T-001" }
+```
+
+A successful run shows status `in-review`, a `git` artifact (`opencode/T-001`,
+the merged fleet branch), and an actuals comment like:
+
+```text
+fleet actuals: cost 0.0123 USD, tokens 6761 (in 6736 / out 3 / reasoning 22), agent executor, model <provider>/<model>
+```
+
+Those comments are the measured cost baseline; they accumulate on tickets.
+
+### What a dispatch does under the hood
+
+1. Pre-claims the ticket in the main store (`in-progress`, assignee `fleet`).
+2. Creates branch `opencode/T-001` and worktree `<repo>/.git/opencode-fleet/T-001`
+   (hidden from `git status`).
+3. Maps the ticket's role to an agent — developer/tester → `executor`, architect →
+   `manifest-author`, pm → `project-manager`, cpp-engineer → `cpp-tools`,
+   graphics-engineer → `graphics-expert` (unknown role = server default) — and sends
+   it the ticket as a self-claim prompt in the worktree.
+4. Awaits completion, merges the branch back (serialized), records bookkeeping,
+   then best-effort syncs the store's git repo.
+5. Settle reaps the merged worktree + branch (F-002), so the ticket's next stage
+   starts from a clean slate; a dispatch that still finds residue whose tip is
+   already merged reclaims it automatically (B-006) — "branch already exists"
+   is now only raised for real unmerged work (inspect it, or `fleet_reset`).
+6. **Automatic review after the merge (U-021, on in production):** when the
+   merged launch leaves the ticket `in-review`, the engine dispatches a
+   **second, read-only REVIEW session** under the `reviewer` agent — another
+   paid session; its actuals land on the ticket like any worker run, and the
+   wave budget absorbs its cost. It judges the acceptance criteria against the
+   recorded artifacts and the verification gate, and the engine applies the
+   parsed verdict:
+   - **PASS** → ticket marked `done` + advanced into the next stage's backlog
+     (`task_advance`) — no human click.
+   - **FAIL** → the loop the stage's work demands: a VERIFICATION stage fails
+     **horizontally** (`task_report_horizontal` to its V-level pair, e.g.
+     test-design → design), a DEFINITION stage back **vertically**
+     (`task_send_back` to the previous stage), with the reviewer's reasons,
+     blocked (the maintainer-escalation signal); an unstaged ticket or the first
+     stage has nowhere to go and is blocked in place.
+   - **UNCLEAR** (or a failed/unparsable review) → the doubt round-trips to
+     the originator — the ticket returns to its own stage's backlog for one
+     retry per stage visit; only a repeating doubt escalates to blocked. An
+     unstaged ticket stays `in-review` with a `review: UNCLEAR` comment and
+     waits for a human accept.
+
+## When the worker asks for permission
+
+Unattended sessions that hit a permission ask stall until you answer (within the
+timeout). Watch and answer from chat:
+
+- `fleet_fleet_permissions` — lists pending asks: `permission_id`, `session_id`,
+  `permission`, `title`, `patterns`. Empty when nobody is waiting.
+- `fleet_fleet_permissions_answer`:
+
+```json
+{ "permission_id": "per_1", "response": "once", "remember": false }
+```
+
+`once` approves this occurrence, `always` approves every matching ask, `reject`
+denies it; `remember: true` persists the decision as a rule. Practical corollary:
+don't dispatch blocked or risky tickets unattended — an unanswered ask burns the
+run's whole timeout.
+
+## Store sync and recover
+
+For one machine you can ignore this. With several machines sharing the store's git
+repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim → push**:
+
+- `fleet_fleet_status_store` — one line: branch, ahead/behind, changed files.
+- `fleet_fleet_sync_store` — `add -A` (scoped to the store subtree — it can never
+  sweep unrelated repo WIP into a fleet commit), commit, `pull --rebase`, push (optional
+  `message` for the commit). Runs automatically, best-effort, after every launch.
+- If sync reports `PULL_CONFLICT` (a rebase is wedged): `fleet_fleet_recover_store`
+  aborts the rebase and **keeps local commits**; then sync again or resolve by
+  hand. A lost claim simply means re-dispatch.
+
+## When things go wrong
+
+| Symptom | Meaning | Recovery |
+|---|---|---|
+| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout — the no-progress window elapsed with zero progress (progress resets it, B-008; a busy-but-progressing session is only ever stopped by the absolute 4 h hard run cap); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| worktree still in `.git/opencode-fleet/` | kept for post-mortem after failures (successful settles reap worktree+branch automatically) | inspect it, then delete |
+| dispatch refused: "refusing to auto-reclaim" | the stale branch carries real unmerged commits or uncommitted edits — never raised for mere bookkeeping (B-006) | inspect the worktree/branch, then `fleet_reset` or merge by hand |
+| dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |
+| dispatch refused: "is blocked" | a blocker flag is set | read it via `tasks_task_get`, clear it first |
+
+## Next steps
+
+- `tasks_task_board` / `tasks_task_readiness` — what's in flight and what's runnable now.
+- `AGENTS.md` — states, the V-pipeline stages, and the chat-first control plane.
+- `eclipse/DISTRIBUTED-FLEETS.md` — running one store across many machines.
+
+## Stopping the engine
+
+The fleet engine lives in your session's `fleet` MCP server process — closing
+the session ends its runs (bookkeeping survives on the tickets). The automatic
+pump (auto-dispatch / recurring waves) runs in **whichever host started it** —
+the Eclipse Board, or the fleet stdio JVM when a chat session calls
+`fleet_fleet_auto_start` / `fleet_fleet_waves_start` — and pumps for as long
+as that host runs. There is no detached fleet daemon (V-006 is retired). To
+stop deliberately: the `fleet_fleet_shutdown` tool, `eclipse/fleet-stop.ps1`,
+or the Board's *Shutdown...* button — parks admissions, checkpoints + pauses
+in-flight workers, and kills a spawned serve (never an attached shared
+service).

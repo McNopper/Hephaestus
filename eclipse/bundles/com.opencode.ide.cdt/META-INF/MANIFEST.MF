@@ -1,0 +1,21 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCode IDE - CDT
+Bundle-SymbolicName: com.opencode.ide.cdt;singleton:=true
+Bundle-Version: 0.1.11.qualifier
+Bundle-Vendor: OpenCode
+Bundle-Activator: com.opencode.ide.cdt.CdtPlugin
+Bundle-ActivationPolicy: lazy
+Require-Bundle: com.opencode.ide.core;bundle-version="0.1.0",
+ org.eclipse.cdt.core,
+ org.eclipse.core.resources,
+ org.eclipse.core.runtime,
+ org.eclipse.ui,
+ org.eclipse.ui.ide,
+ org.eclipse.jface
+Service-Component: OSGI-INF/CdtProjectContext.xml,
+ OSGI-INF/MarkerApplier.xml
+Export-Package: com.opencode.ide.cdt,
+ com.opencode.ide.cdt.markers,
+ com.opencode.ide.cdt.internal;x-friends:="com.opencode.ide.cdt.tests"
+Bundle-RequiredExecutionEnvironment: JavaSE-21

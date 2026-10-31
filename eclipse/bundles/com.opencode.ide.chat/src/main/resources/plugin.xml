@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+  <extension point="org.eclipse.ui.views">
+    <view
+          id="com.opencode.ide.chat.views.ChatView"
+          name="Chat"
+          icon="icons/chat.png"
+          allowMultiple="true"
+          category="com.opencode.ide.ui"
+          class="com.opencode.ide.chat.views.ChatView"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.commands">
+    <command
+          id="com.opencode.ide.chat.openChat"
+          name="Open Chat"
+          description="Open a chat window - with a model (new session) or a sessionId (resume)">
+      <commandParameter
+            id="com.opencode.ide.chat.openChat.providerId"
+            name="Provider"
+            optional="true"/>
+      <commandParameter
+            id="com.opencode.ide.chat.openChat.modelId"
+            name="Model"
+            optional="true"/>
+      <commandParameter
+            id="com.opencode.ide.chat.openChat.agentId"
+            name="Agent"
+            optional="true"/>
+      <commandParameter
+            id="com.opencode.ide.chat.openChat.sessionId"
+            name="Session"
+            optional="true"/>
+    </command>
+    <command
+          id="com.opencode.ide.chat.newChat"
+          name="New Chat"
+          description="Open a new chat window with a fresh session"/>
+    <command
+          id="com.opencode.ide.chat.abort"
+          name="Abort Chat Reply"
+          description="Abort the reply currently being generated in the active chat view"/>
+    <command
+          id="com.opencode.ide.chat.background"
+          name="Background Chat Session"
+          description="Background the active chat session's long-running work and keep working (the composer also takes the TUI's Ctrl+B)"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.handlers">
+    <handler
+          commandId="com.opencode.ide.chat.openChat"
+          class="com.opencode.ide.chat.handlers.OpenChatHandler"/>
+    <handler
+          commandId="com.opencode.ide.chat.newChat"
+          class="com.opencode.ide.chat.handlers.NewChatHandler"/>
+    <handler
+          commandId="com.opencode.ide.chat.abort"
+          class="com.opencode.ide.chat.handlers.AbortChatHandler"/>
+    <handler
+          commandId="com.opencode.ide.chat.background"
+          class="com.opencode.ide.chat.handlers.BackgroundSessionHandler"/>
+  </extension>
+
+  <extension point="org.eclipse.ui.bindings">
+    <key
+          commandId="com.opencode.ide.chat.openChat"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+C"/>
+    <key
+          commandId="com.opencode.ide.chat.newChat"
+          contextId="org.eclipse.ui.contexts.window"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+N"/>
+    <key
+          commandId="com.opencode.ide.chat.abort"
+          contextId="org.eclipse.ui.contexts.window"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+A"/>
+    <key
+          commandId="com.opencode.ide.chat.background"
+          contextId="org.eclipse.ui.contexts.window"
+          schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+          sequence="CTRL+ALT+SHIFT+B"/>
+  </extension>
+
+</plugin>

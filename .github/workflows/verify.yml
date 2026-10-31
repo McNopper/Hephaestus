@@ -1,0 +1,62 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            blocking: true
+          - os: ubuntu-latest
+            # Keep diagnostic-only until Linux has completed the entire verification gate.
+            blocking: false
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.blocking }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build and verify
+        shell: pwsh
+        working-directory: eclipse
+        run: ./build.ps1 clean verify
+
+      - name: SCA - scan dependencies for known vulnerabilities
+        shell: pwsh
+        run: ./releng/scan-deps.ps1
+
+      - name: Lint PowerShell and Markdown
+        shell: pwsh
+        run: ./releng/lint.ps1
+
+      - name: No provider/model identifiers in committed content (D-004)
+        shell: pwsh
+        run: ./releng/check-no-provider-ids.ps1
+
+      - name: Preserve verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-reports-${{ matrix.os }}
+          path: |
+            eclipse/**/target/surefire-reports/**
+            eclipse/**/target/work/data/.metadata/.log
+          if-no-files-found: warn
