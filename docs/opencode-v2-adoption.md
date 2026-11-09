@@ -11,8 +11,8 @@
   scoping tickets.
 - **Related:** `AGENTS.md` (host discipline), `eclipse/ARCHITECTURE.md`
   (bundle layout), `ROADMAP.md` (the feature backlog), the live contract:
-  `GET /openapi.json` of the running service (last cross-check: v2.2.5,
-  169 operations, 2026-10-31 - see the cross-check section below).
+  `GET /openapi.json` of the running service (last cross-check: v2.2.6,
+  170 operations, 2026-11-09 - see the cross-check section below).
 
 ## The strict policy
 
@@ -177,7 +177,7 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.2.5, 169 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.2.5.txt` next to this file - the 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (live v2.2.6, 170 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.2.6.txt` next to this file - the 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
@@ -243,6 +243,10 @@ guarantees we arrive by adoption, not by competition.
 | W9 | `experimental.voice.*` (models, session) | 2.1.3 | Churning (instructions added 2.1.3, removed 2.2.0) | Any voice surface | Deliberate non-interest |
 | W10 | `experimental.todo` (config) + `todowrite` | 2.1.0 | Opt-in; TUI-side display | A session-todo read path of our own | A stable read ROUTE appears → unblocks U-013 |
 | W11 | `experimental.persistentPty.*` (operationIds renamed 2.2.1) | 2.1.0 | Live incl. Windows | Wiring our PTY surfaces to the experimental namespace | Prefix drops → revisit the platform-blocked PTY note |
+
+| New since v2.2.5 (live 2.2.6) | Operations | Decision |
+|---|---|---|
+| 2.2.6 (published Nov 6; auto-applied here by Nov 9 - caught by the standing probe, no behavioral incident). | +1 added, 0 removed, 0 renamed | The +1 is `GET /api/experimental/job` (`experimental.job.list`, #60698: background shell/subagent/image job listing with session/kind/status filters) → **W13 (watch)**: no-overlap surface; would serve the fleet watchdog's progress probing (B-008) and U-099's resume-vs-fresh decision if adopted, but FleetRunner tracks its own jobs today. Behavioral notes (release notes, none breaking our consumption): `/api/*` refuses disallowed browser origins and serves file reads as sandboxed downloads (#62422 - the chat-web browser component's media/preview loads go into the live smoke test), `session_move` across projects asks `external_directory` permission first (#62204 - an unanswered ask stalls unattended runs; keep worker moves inside the project or pre-authorize), scripted `opencode run` gains `-w/--worktree` (#60712) and `--archived` (#61270) - fleet-adjacent but `run`-only: our worktree lifecycle + merge-back stays ours and worker sessions are created via `session.create`, MCP servers get a 2s connect wait plus `~` expansion and legacy stdio handling before the first model call (#60490/#61496/#61817/#59031 - hardens the tasks/fleet stdio launchers), provider requests retry while their host is unreachable (#61880 - noted on parked U-098, no plan change), noninteractive `run` waits indefinitely for background jobs and SIGTERM exits 143 (#60699/#61911 - scripted `run` usage needs explicit timeouts), shared MCP connections (`pool: true`, #61185) and the Code Mode bytecode VM (`experimental.codemode_vm`, #62358) are opt-in and unwatched for now. |
 
 | New since v2.2.2 (live 2.2.5) | Operations | Decision |
 |---|---|---|

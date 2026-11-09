@@ -14,12 +14,24 @@ try {
     # ---- PowerShell: PSScriptAnalyzer with the repo settings ----
     $settings = Join-Path $repo "PSScriptAnalyzerSettings.psd1"
     if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
-        # non-interactive install (CI runners ship it; bare machines get it once)
+        # non-interactive install (CI runners ship it; bare machines get it once).
+        # pwsh 7.5+ ships PSResourceGet - the supported path there (the legacy
+        # Install-PackageProvider NuGet feed is retired and fails on it). Older
+        # stacks keep the classic PowerShellGet bootstrap.
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $ConfirmPreference = 'None'
-        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false -Scope CurrentUser | Out-Null
-        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-        Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -Confirm:$false -AllowClobber
+        if (Get-Module -ListAvailable Microsoft.PowerShell.PSResourceGet) {
+            # PSResourceGet does not create its repository store dir on first use;
+            # Install-PSResource -Trust skips the untrusted-repo prompt (no Set-PSResourceRepository
+            # needed - it fails on a virgin store where PSResourceRepository.xml does not exist yet)
+            $storeDir = Join-Path $env:LOCALAPPDATA "PSResourceGet"
+            if (-not (Test-Path $storeDir)) { New-Item -ItemType Directory -Path $storeDir -Force | Out-Null }
+            Install-PSResource PSScriptAnalyzer -Scope CurrentUser -Trust -WarningAction SilentlyContinue
+        } else {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Confirm:$false -Scope CurrentUser | Out-Null
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -Confirm:$false -AllowClobber
+        }
     }
     $findings = Invoke-ScriptAnalyzer -Path $repo -Recurse -Settings $settings
     if ($findings.Count -gt 0) {
