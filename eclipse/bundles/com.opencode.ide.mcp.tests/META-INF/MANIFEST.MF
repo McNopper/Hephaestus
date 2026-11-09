@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: OpenCode IDE - MCP Tests
 Bundle-SymbolicName: com.opencode.ide.mcp.tests
-Bundle-Version: 0.1.11.qualifier
+Bundle-Version: 0.1.11
 Bundle-Vendor: OpenCode
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Require-Bundle: com.opencode.ide.mcp;bundle-version="0.1.0",

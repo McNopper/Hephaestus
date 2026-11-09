@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: OpenCode IDE - Chat
 Bundle-SymbolicName: com.opencode.ide.chat;singleton:=true
-Bundle-Version: 0.1.11.qualifier
+Bundle-Version: 0.1.11
 Bundle-Vendor: OpenCode
 Bundle-Activator: com.opencode.ide.chat.internal.ChatActivator
 Bundle-ActivationPolicy: lazy

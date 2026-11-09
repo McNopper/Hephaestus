@@ -2,7 +2,7 @@
 <feature
       id="com.opencode.ide.feature"
       label="OpenCode IDE"
-      version="0.1.11.qualifier"
+      version="0.1.11"
       provider-name="OpenCode">
 
   <description>
