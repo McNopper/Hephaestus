@@ -93,7 +93,9 @@ public final class TaskToolProvider implements ToolProvider {
                   strList(a, "acceptance_criteria"),
                   strList(a, "labels"),
                   optStr(a, "epic", null),
-                  orDefault(optStr(a, "id_prefix", null), "T"));
+                  orDefault(optStr(a, "id_prefix", null), "T"),
+                  a.has("blocked") && !a.get("blocked").isJsonNull() ? reqBool(a, "blocked") : null,
+                  optStr(a, "blocker", null));
           String project = reqStr(a, "project");
           Task created = store.create(project, spec, optStr(a, "stage", null));
           String model = optStr(a, "model", null);
@@ -449,6 +451,12 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("labels", arrP());
                   obj.add("epic", strP());
                   obj.add("id_prefix", strP());
+                  obj.add("blocked", boolP());
+                  obj.add(
+                      "blocker",
+                      strP(
+                          "Required with blocked=true: why the ticket is born blocked (U-067: "
+                              + "status moves to blocked, resume_to remembers product-backlog)."));
                 })));
     out.add(
         new McpTool(

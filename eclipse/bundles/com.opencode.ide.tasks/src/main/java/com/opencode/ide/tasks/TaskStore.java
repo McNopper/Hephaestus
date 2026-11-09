@@ -93,7 +93,39 @@ public final class TaskStore {
       List<String> acceptanceCriteria,
       List<String> labels,
       String epic,
-      String idPrefix) {
+      String idPrefix,
+      Boolean blocked,
+      String blocker) {
+
+    /**
+     * Legacy 10-arg shape (pre B-026): a ticket created without a blocked state. Kept so every
+     * existing call site keeps its signature; new code uses the canonical 12-arg form.
+     */
+    public CreateSpec(
+        String title,
+        String description,
+        String type,
+        String role,
+        String priority,
+        Integer storyPoints,
+        List<String> acceptanceCriteria,
+        List<String> labels,
+        String epic,
+        String idPrefix) {
+      this(
+          title,
+          description,
+          type,
+          role,
+          priority,
+          storyPoints,
+          acceptanceCriteria,
+          labels,
+          epic,
+          idPrefix,
+          null,
+          null);
+    }
 
     /** Builder-ish factory with pm defaults. */
     public static CreateSpec of(String title) {
@@ -177,6 +209,13 @@ public final class TaskStore {
       throw new Invalid(
           "stage must be one of " + VStages.STAGES + " (or null), got '" + stage + "'");
     }
+    boolean bornBlocked = Boolean.TRUE.equals(spec.blocked());
+    if (bornBlocked && (spec.blocker() == null || spec.blocker().isBlank())) {
+      throw new Invalid("blocked=true requires a non-empty blocker reason (B-026)");
+    }
+    if (spec.blocker() != null && !spec.blocker().isBlank() && !bornBlocked) {
+      throw new Invalid("blocker requires blocked=true (B-026)");
+    }
     requireNoNullItems(spec.acceptanceCriteria(), "acceptance_criteria");
     requireNoNullItems(spec.labels(), "labels");
     return transaction(
@@ -199,6 +238,11 @@ public final class TaskStore {
             t.labels = new ArrayList<>(spec.labels());
           }
           t.epic = spec.epic();
+          if (bornBlocked) {
+            // B-026/U-067: blocked is a STATE entered at birth - the status moves to
+            // blocked and resume_to remembers product-backlog for the one door out.
+            t.enterBlocked(spec.blocker());
+          }
           t.createdAt = now();
           t.updatedAt = t.createdAt;
           t.history("created", null);
