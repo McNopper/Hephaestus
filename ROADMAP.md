@@ -18,16 +18,23 @@ the task board. **Prime rule: never build in the plugin what Hephaestus
 already provides.** For a simple project the plain opencode TUI suffices —
 this harness is deliberate weight for complex projects, chosen on purpose.
 
-**Where we are.** `v0.1.1` is released and pushed. The 2026-10-02 coherence
-review (docs/HISTORY.md, H12) compared docs, skills, agents and the store
-against the engine; everything it found is now split into the tickets of
-**E-006** (*Coherence debt*), cut along **exclusive file lanes** so several
-agents can work in parallel. Wave 1 (25 tickets, docs + small engine
-defects) landed the same day and is in orchestrator review; three
-mechanisms the docs promise are still not wired into production
-(archive-aware readiness, auto-archive on close, `inputs changed:` markers
-— U-059, U-060, U-052); until they land, the docs describe them as
-unwired.
+**Fleet scope (decision D-005, 2026-11-09).** The durable core is: the task
+store (coordination blackboard), the V-model pipeline semantics, the
+budget-admission pump, and the Eclipse host integration. Everything below
+that layer — worktree lifecycle, session retry/resume, model selection,
+scheduling, background-job accounting, the permission-reply protocol — is
+adopted from upstream as it lands, never rebuilt (evidence and per-vendor
+verdicts: `docs/fleet-redundancy-review-2026-11.md`). First adoption chunk:
+U-106 (FleetRunner onto the server worktree APIs).
+
+**Where we are.** `v0.1.10` is released (first cut through
+`eclipse/releng/release.ps1`, gate green 28/28) and the history was squashed
+to a single commit (2026-10-31) so that provider/model choices are LOCAL
+settings only (D-004; enforced by the CI gate `releng/check-no-provider-ids.ps1`,
+bootstrap generator `releng/init-local-settings.ps1`). The reactor is
+`0.1.11-SNAPSHOT`, deployed to the live install, pin 2.2.6 == live service.
+The store (`task_board`) is the status source; `task_doctor` is ok.
+History: docs/HISTORY.md.
 
 ## How to take over (for agents)
 
@@ -52,36 +59,46 @@ unwired.
    resulting mojibake); every wave starts with the upstream cross-check
    (below).
 
-## Now (upstream rounds + pass-through wave closed)
+## Now
 
-Latest: **v0.1.9 released** (stage pass-through, V-chain walk, pin 2.1.0 as of
-the latest upstream cross-check). S-13 (U-095, upstream round **2.0.29** —
-verified-identical surface) and the rounds since are **done but unreleased**:
-committed, awaiting the next scheduled release. The store
-(`task_board`) is the status source; `task_doctor` is ok. History:
-docs/HISTORY.md.
+Latest release: **v0.1.10** (single-commit history, D-004-clean by design).
+Reactor: `0.1.11-SNAPSHOT`, deployed to the live install; upstream
+cross-checks are continuous (standing rule below), currently through
+**2.2.6** (+1 op = `experimental.job.list`, W13 watch). The active campaign
+is **queue 1** (sprint S-08): the self-contained backlog executed strictly
+sequentially — store/tool fixes (B-026 done: `task_create` honors
+blocked/blocker; U-094, T-029, D-003 closure, T-028, B-025), the Batch-A
+engine chunks (U-052/059/060/061/062), the upstream-adoption tickets
+(U-100, U-102, U-104, U-106, U-099), build perf (T-007/T-008) and the
+responsiveness spike (U-075). Anything needing the owner at the keyboard or
+real-model budget (the T-002 live pass incl. U-037, the T-027 blocking
+flip, U-090) is deliberately planned last.
 
-## Next — wave 2 (after wave 1's gate is green)
-
-Decomposed per the chunk-small rule (umbrellas U-049/U-051/U-056/T-020/T-021
-are closed as indexes; the work lives in the rows below):
+## Next — queue 1 (sprint S-08; the store is the status source)
 
 | Ticket | Chunk |
 |---|---|
 | ~~U-057~~ | ✅ done (S-12): `task_pass_stage` tool shipped — U-049/1 |
 | ~~U-058~~ | ✅ done (S-12): pump passes a stage via `pass-declare:` comment without launching — U-049/2, completes U-029 |
-| U-050 | resolution-first ticks in the production schedulers (U-031; one mechanism, one lane) |
-| U-052 | `inputs changed:` markers recorded by the pump (pairs with D-003) |
+| ~~U-050~~ | ✅ done (2026-10-16): resolution-first ticks wired in all three production schedulers |
+| ~~B-026~~ | ✅ done (2026-11-09): `task_create` honors blocked/blocker (U-067 state at birth) |
+| U-094 | explicit sprint ids teach the planSprint counter (fix designed) |
+| U-052 | `inputs changed:` markers recorded by the pump (carries the decided D-003) |
 | U-059 | archive pool into every production readiness call — U-051/1 |
 | U-060 | `auto_archive` on `task_close_sprint`, wave-scoped — U-051/2, completes U-027 |
 | U-061 | wave digest recorded on plan/close in the store — U-056/1 |
 | U-062 | Board renders the shared digest; settle Q-001/C-003 — U-056/2 |
-| T-027 | diagnose the ubuntu CI leg (spike; one small fix ticket per root cause) |
+| T-027 | diagnose the ubuntu CI leg — leg green since 2026-10-29; the blocking flip is the owner's call |
 | T-028 | store audit: artifacts for done tickets |
 | T-029 | store audit: wave timestamps + the malformed id |
-| ~~T-026~~ | ✅ done (2026-10-14): five V-chains walked to `test-requirements` with recorded reasons |
-| ~~U-063~~ | ✅ superseded as a one-off: upstream rounds are now continuous — done through **2.0.29** (U-095); the standing cross-check rule below governs |
-| U-096 | Collected agent-questions surface — subagent questions visible in-session + one list of all pending asks (field observation: a subagent question was visible only in the TUI; several can ask at once) |
+| U-106 | NEW (fleet review 2026-11-09): FleetRunner onto the server worktree APIs — adopt-and-remove; merge-back stays ours |
+| U-100 | wave lessons via upstream instruction entries (substrate confirmed by the fleet review) |
+| U-102 | adopt upstream `fs.watch` for store watching; remove TaskStoreWatcher |
+| U-104 | stage→agent mapping + governing-definitions injection (mechanism = native agent definitions, D-004-local models) |
+| U-099 | retry re-enters the existing session — policy over the native steering route |
+| T-007 | build perf phase 1: target-platform diet, dev profile, stable qualifier |
+| T-008 | build perf phase 2: hybrid test lane (queued behind T-007) |
+| U-075 | TUI-vs-Eclipse responsiveness — measured spike, report-only |
 
 ## Decisions needed
 
@@ -89,25 +106,30 @@ are closed as indexes; the work lives in the rows below):
 |---|---|---|
 | D-001 | what `task_traceability` counts as a verified pair | DECIDED 2026-10-07 — widen to three signals (role+epic, own V-journey, test artifacts); implementation U-070 (in-review) |
 | D-002 | release versioning (both tags built as `0.1.0-SNAPSHOT`) | DECIDED 2026-10-07 — set the version on the release commit, tag, bump to next `-SNAPSHOT` (script: T-030) |
-| D-003 | which upstream writes make downstream work STALE (today: any write) | **open** — recommendation: only status/stage/artifact changes |
+| D-003 | which upstream writes make downstream work STALE (today: any write) | DECIDED 2026-10-07 — option B: only status/stage/artifact changes count (`inputs_changed_at` stamp); implementation folded into U-052 |
 | D-004 | tier→model mapping + the rubberduck's cross-vendor model | DECIDED 2026-10-07 — tiers stay guidance; no committed model ids |
+| **D-005** | is the fleet still required, given upstream's native fleet primitives (worktrees, teams, budgets)? | DECIDED **2026-11-09** — keep store + V-model + admission pump + Eclipse host as the core; adopt upstream mechanics as they land (evidence: `docs/fleet-redundancy-review-2026-11.md`; first chunk U-106) |
 | U-043 | "blocked" as a store state instead of an orthogonal flag | DECIDED 2026-10-07 — children U-067/U-068/U-069 landing (in-review) |
 | - | public GitHub Pages landing site for Hephaestus | DECIDED **NO** - README/GIF suffice |
 | U-078..U-082 | V-enforcement contract: stage artifacts required, coverage delivered automatically, done as a four-box gate verdict, horizontal/vertical loop routing | DECIDED + LANDED (process rules; wave S-07) |
 
 ## Human actions
 
-- **Release scheduling** - next cut (≥ v0.1.10) to be scheduled;
-  the cross-check rounds since v0.1.9 (U-095 through 2.2.0) are committed
-  but unreleased. (Last cut: v0.1.9.)
-- **T-002** — the live in-Eclipse verification pass (the deep dive); its
-  todos include the T-010 follow-ups: live streaming text in the chat, the
-  repaired Board glyphs, the mid-pipeline readiness badges.
-- **U-037** — live automatic-dispatch acceptance run; needs an explicit go
-  (it spends real-model tokens).
-- **U-009** — Agent Tools console live verification (rides with T-002).
+- **T-002** — the standing end-of-arc live pass (re-scoped 2026-11-09; the
+  checklist lives in docs/TESTING.md). Includes **U-037** (the live
+  auto-dispatch acceptance, folded in the same day — it spends real-model
+  tokens and runs when the pass is armed), the U-096 follow-ups (live
+  streaming text, Board glyphs, mid-pipeline readiness badges) and
+  U-009 (Agent Tools console live verification).
+- **T-027** — the ubuntu CI leg has held green since 2026-10-29; flipping
+  it to blocking is the owner's call.
+- **U-090** — greenfield fleet project (owner decision: target project +
+  budget; mechanics per D-005 on native worktree APIs).
 - **T-003 residue** — after the next opencode service restart, a repo-scoped
   `GET /api/mcp` should show the fleet server disabled.
+- **Recovery copy** — keep or delete the pre-squash history bundle
+  (`%TEMP%\hephaestus-pre-squash-2026-10-31.bundle`); it is the only
+  complete copy of the pre-squash history.
 
 ## Coherence debt (known divergences)
 
@@ -119,12 +141,15 @@ E-006 closes. **Where a row below contradicts `AGENTS.md`, the row is right.**
   the docs say so and point at the tickets. (Resolution-first U-050 **wired
   2026-10-16**: all three production schedulers set the resolver; pass-through
   U-057/U-058 wired 2026-10-14 — AGENTS.md and the skills carry the truth.)
-- STALE fires on any upstream write, even bookkeeping — D-003 (the one open
-  decision; recommendation: only status/stage/artifact changes).
+- STALE fires on any upstream write, even bookkeeping — the DECISION is in
+  (D-003, option B); the implementation (the `inputs_changed_at` stamp) is
+  U-052, still open.
 
 ## Parked / non-goals
 
-Sandboxing beyond permission gating; further remote-access investment
+**U-098** (adopt upstream model fallback chains) — parked by the owner
+2026-10-31: "on hold, not ready, will not be implemented"; only the owner
+re-opens it. Sandboxing beyond permission gating; further remote-access investment
 (distributed fleets are done-and-dormant); M4 CodingAgent port;
 `tools.cpp` bundle extraction; multi-level board rollup; a cpp stdio tool
 pack (the cpp-tools agent runs commands via bash).
@@ -157,12 +182,15 @@ pack (the cpp-tools agent runs commands via bash).
   the 2.0.28→30 route diffs, U-098). Each cross-check round therefore also
   scans upstream release notes/commits for behavioral changes.
 - **Model selection is a split, never a rebuild:** the per-stage policy
-  (U-072) selects each stage's chain HEAD; failover WITHIN a run is
-  upstream's session-layer fallback chain (cooldown + error classification).
-  Neither side of that split gets reimplemented in Hephaestus (U-098 verifies
-  and configures ours).
+  (U-072) selects each stage's chain HEAD. The failover-chain ticket U-098
+  is PARKED (owner 2026-10-31 — see Parked/non-goals); upstream hardened
+  the transport side meanwhile (2.2.6 retries provider requests while the
+  host is unreachable, #61880). Should the owner ever re-open chains, they
+  are a LOCAL-config concern (D-004), never committed.
 - **Keep the harness thin — the durable core is the store, not the pump**
-  (adopted from the self-organization outlook): as upstream absorbs
+  (adopted from the self-organization outlook; re-affirmed as decision
+  D-005, 2026-11-09, evidence `docs/fleet-redundancy-review-2026-11.md`):
+  as upstream absorbs
   platform layers and agents increasingly self-organize, every ENGINE layer
   (dispatch, waves, watchdog) is adopt-or-retire at each cross-check — no
   parallel mechanism for what the tier above provides. The parts that do not
