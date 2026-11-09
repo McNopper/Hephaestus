@@ -6,7 +6,7 @@
 
   <groupId>com.opencode.ide</groupId>
   <artifactId>com.opencode.ide.parent</artifactId>
-  <version>0.1.11</version>
+  <version>0.1.12-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>OpenCode IDE - Parent</name>

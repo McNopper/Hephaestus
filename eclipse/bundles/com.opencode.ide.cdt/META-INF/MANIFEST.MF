@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: OpenCode IDE - CDT
 Bundle-SymbolicName: com.opencode.ide.cdt;singleton:=true
-Bundle-Version: 0.1.11
+Bundle-Version: 0.1.12.qualifier
 Bundle-Vendor: OpenCode
 Bundle-Activator: com.opencode.ide.cdt.CdtPlugin
 Bundle-ActivationPolicy: lazy

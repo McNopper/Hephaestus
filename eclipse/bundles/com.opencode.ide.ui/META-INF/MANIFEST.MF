@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: OpenCode IDE - UI
 Bundle-SymbolicName: com.opencode.ide.ui;singleton:=true
-Bundle-Version: 0.1.11
+Bundle-Version: 0.1.12.qualifier
 Bundle-Vendor: OpenCode
 Bundle-Activator: com.opencode.ide.ui.internal.UiActivator
 Bundle-ActivationPolicy: lazy
