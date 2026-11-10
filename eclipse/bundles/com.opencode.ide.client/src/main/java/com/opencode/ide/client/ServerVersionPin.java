@@ -20,7 +20,7 @@ public final class ServerVersionPin {
    * <p>Bump note: {@code ServerVersionPinTest} reads this field reflectively, so bumping needs no
    * test-side change.
    */
-  public static final String PINNED_VERSION = "2.2.6";
+  public static final String PINNED_VERSION = "2.2.7";
 
   private ServerVersionPin() {}
 

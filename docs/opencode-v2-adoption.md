@@ -11,8 +11,8 @@
   scoping tickets.
 - **Related:** `AGENTS.md` (host discipline), `eclipse/ARCHITECTURE.md`
   (bundle layout), `ROADMAP.md` (the feature backlog), the live contract:
-  `GET /openapi.json` of the running service (last cross-check: v2.2.6,
-  170 operations, 2026-11-09 - see the cross-check section below).
+  `GET /openapi.json` of the running service (last cross-check: v2.2.7,
+  170 operations, 2026-11-10 - see the cross-check section below).
 
 ## The strict policy
 
@@ -177,7 +177,7 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.2.6, 170 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.2.6.txt` next to this file - the 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (live v2.2.7, 170 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.2.7.txt` next to this file - the 2.2.6, 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
@@ -243,6 +243,10 @@ guarantees we arrive by adoption, not by competition.
 | W9 | `experimental.voice.*` (models, session) | 2.1.3 | Churning (instructions added 2.1.3, removed 2.2.0) | Any voice surface | Deliberate non-interest |
 | W10 | `experimental.todo` (config) + `todowrite` | 2.1.0 | Opt-in; TUI-side display | A session-todo read path of our own | A stable read ROUTE appears → unblocks U-013 |
 | W11 | `experimental.persistentPty.*` (operationIds renamed 2.2.1) | 2.1.0 | Live incl. Windows | Wiring our PTY surfaces to the experimental namespace | Prefix drops → revisit the platform-blocked PTY note |
+
+| New since v2.2.6 (live 2.2.7) | Operations | Decision |
+|---|---|---|
+| 2.2.7 (published Nov 10; auto-applied here the same day - caught by the standing probe, no behavioral incident). | 0 added, 0 removed, 0 renamed (170 = 170 - pure patch) | Behavioral notes (release notes): **`agent.list` no longer waits up to 5s for plugin load** - on a still-loading Location it returns the agents loaded so far (#62796/#63040); our Server/Providers views consume it, so a transiently EMPTY agent list right after service start is now possible - refresh on the matching `*.updated` event (live-pass check added). **`session.generate` returns `tokens` and `cost`** (#62835) - the cheap actuals source for U-037/U-090 (rescoped to pull cost from upstream, no parallel bookkeeping). **MCP tool calls no longer fail when the server's result violates the tool's own output schema** (#61254 - completed actions were reported as failed; hardens every MCP lane incl. the tasks/fleet stdio tools). MCP OAuth token-rotation fixes keep remote logins signed in (#62827/#63012); Code Mode sends changed-tools deltas instead of the full catalog (#62176). **Windows/Store-pwsh fix #62522: multi-line commands no longer lose everything after the first line with PowerShell 7 from the Microsoft Store** - this was verbatim the silent-multiline shell failure this harness hit on 2026-11-09 (multiline commands ran partially or not at all); post-upgrade probe confirms multi-line commands execute again. ACP clients gain `_session/steering` (#54394). SDK-breaking: `@opencode/ai` ImageResponse.image removed (#63011) - we consume the HTTP API, not the JS SDK. |
 
 | New since v2.2.5 (live 2.2.6) | Operations | Decision |
 |---|---|---|
