@@ -221,6 +221,17 @@ public final class TaskStore {
     if (spec.blocker() != null && !spec.blocker().isBlank() && !bornBlocked) {
       throw new Invalid("blocker requires blocked=true (B-026)");
     }
+    // U-107 (T-029 decision): ids are minted as prefix + "-%03d" - a prefix that is blank or
+    // ends in '-' produces a malformed id (C--001). Reject loudly; never silently sanitize.
+    if (spec.idPrefix() != null) {
+      String trimmedPrefix = spec.idPrefix().trim();
+      if (trimmedPrefix.isEmpty() || trimmedPrefix.endsWith("-")) {
+        throw new Invalid(
+            "id_prefix must not be blank or end in '-' (it is minted as <prefix>-NNN; got '"
+                + spec.idPrefix()
+                + "')");
+      }
+    }
     requireNoNullItems(spec.acceptanceCriteria(), "acceptance_criteria");
     requireNoNullItems(spec.labels(), "labels");
     return transaction(

@@ -81,8 +81,12 @@ flip, U-090) is deliberately planned last.
 | ~~U-057~~ | ✅ done (S-12): `task_pass_stage` tool shipped — U-049/1 |
 | ~~U-058~~ | ✅ done (S-12): pump passes a stage via `pass-declare:` comment without launching — U-049/2, completes U-029 |
 | ~~U-050~~ | ✅ done (2026-10-16): resolution-first ticks wired in all three production schedulers |
-| ~~B-026~~ | ✅ done (2026-11-09): `task_create` honors blocked/blocker (U-067 state at birth) |
-| U-094 | explicit sprint ids teach the planSprint counter (fix designed) |
+| ~~B-026~~ | ✅ done (2026-11-09): `task_create` honors blocked/blocker (U-067 state at birth); reviewer PASS |
+| ~~D-003~~ | ✅ done (2026-11-10): decision recorded + implementation folded into U-052 |
+| ~~T-029~~ | ✅ done (2026-11-10): wave-glitch annotated (re-key evidence); prefix guard decided → U-107 |
+| ~~U-094~~ | ✅ done (2026-11-10): explicit sprint ids teach the planSprint counter; reviewer PASS |
+| U-107 | `task_create` rejects malformed id prefixes (in flight, 2026-11-10) |
+| U-108 | planSprint reopens a closed sprint it plans into (+ the S-08/S-09 record repair; discovered via U-094's real-world firing) |
 | U-052 | `inputs changed:` markers recorded by the pump (carries the decided D-003) |
 | U-059 | archive pool into every production readiness call — U-051/1 |
 | U-060 | `auto_archive` on `task_close_sprint`, wave-scoped — U-051/2, completes U-027 |
