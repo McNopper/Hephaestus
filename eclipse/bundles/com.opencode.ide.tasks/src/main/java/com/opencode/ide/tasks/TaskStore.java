@@ -1285,9 +1285,14 @@ public final class TaskStore {
           Task.Sprint sprint = data.sprints.get(sid);
           if (sprint == null) {
             sprint = new Task.Sprint(sid, goal == null ? "" : goal, "active", now(), null);
-          } else if (goal != null && !goal.isEmpty()) {
-            sprint =
-                new Task.Sprint(sid, goal, sprint.status(), sprint.createdAt(), sprint.closedAt());
+          } else {
+            // U-108: planning into a CLOSED sprint reopens it - the reuse must not carry the
+            // stale closed status/timestamps while it holds active work (the S-08/S-09
+            // incident). createdAt stays the honest first-creation instant.
+            String status = "closed".equals(sprint.status()) ? "active" : sprint.status();
+            Instant closedAt = "closed".equals(sprint.status()) ? null : sprint.closedAt();
+            String sprintGoal = goal != null && !goal.isEmpty() ? goal : sprint.goal();
+            sprint = new Task.Sprint(sid, sprintGoal, status, sprint.createdAt(), closedAt);
           }
           if (ticketIds != null) {
             for (String tid : ticketIds) {
