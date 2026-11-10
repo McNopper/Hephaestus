@@ -28,6 +28,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The Markdown task store: one directory per project under the configured root, one {@code <id>.md}
@@ -152,6 +154,9 @@ public final class TaskStore {
   private static final Set<String> PATH_ARTIFACT_KINDS = Set.of("file", "path");
 
   private static final String INVALIDATION_BY = "h6";
+
+  /** Sprint ids the counter understands: exactly {@code S-<n>} (U-094). */
+  private static final Pattern SPRINT_ID_PATTERN = Pattern.compile("S-(\\d+)");
 
   /** The readiness report's severity order: most urgent kind first. */
   private static final List<StageReadiness.Kind> READINESS_SEVERITY =
@@ -1255,6 +1260,10 @@ public final class TaskStore {
         project,
         data -> {
           String sid = sprintId == null || sprintId.isBlank() ? nextSprintId(data) : sprintId;
+          // U-094: an explicit id must teach the counter, else a later auto-mint
+          // can collide with it (the counter never learned the explicit id). For
+          // auto-minted ids this is a no-op (n == counter).
+          advanceSprintCounter(data, sid);
           if (ticketIds != null) {
             for (String tid : ticketIds) {
               if (!data.tasks.containsKey(tid)) {
@@ -2099,6 +2108,25 @@ public final class TaskStore {
     data.counter = data.counter + 1;
     data.metaDirty = true;
     return String.format("S-%02d", data.counter);
+  }
+
+  /**
+   * U-094: advances the sprint counter past an explicit id, so mixing explicit and auto-minted
+   * sprint ids can never mint a colliding one. Only exact {@code S-<n>} ids count (legacy {@code
+   * wave-*} ids leave the counter alone); the counter never regresses.
+   */
+  private static void advanceSprintCounter(ProjectData data, String sprintId) {
+    if (sprintId == null) {
+      return;
+    }
+    Matcher m = SPRINT_ID_PATTERN.matcher(sprintId.trim());
+    if (m.matches()) {
+      int n = Integer.parseInt(m.group(1));
+      if (n > data.counter) {
+        data.counter = n;
+        data.metaDirty = true;
+      }
+    }
   }
 
   private static Comparator<Task> prioritized() {
