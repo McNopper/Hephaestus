@@ -35,7 +35,7 @@ maps directly to a ticket.
 | **Board cards** | Switch *Group by* across Progress / V-model stages / Epic: every card shows `status emoji │ type emoji │ title │ points` as real sortable columns (click a column header to cycle ascending / descending / snapshot order); headers carry their text markers (status: emoji + name, stage: number + connector, lane: a box marker); row tooltips still show readiness + journey | U-065 |
 | **Chat background** | In the composer: `Ctrl+B` (or the `⤵ Background` button) backgrounds the session and keeps it working; `Ctrl+Alt+Shift+B` works from any view; Build All still owns `Ctrl+B` outside the chat | U-064 |
 | **Long turns** | A reply that runs tools for minutes never fails with "Send failed … 300s" — progress keeps it alive up to an hour; a dead session hands off silently to the late-reply watcher | B-024 |
-| **Version pin** | No version-mismatch warning in the Error Log (pin is 2.2.7; bump with each cross-check) | U-063 |
+| **Version pin** | No version-mismatch warning in the Error Log (pin is 2.3.0; bump with each cross-check) | U-063 |
 | **Subagents & shells** | Session Details → *Subagents* and *Shell tasks* sections; output tails open in a console; the Fleet tree nests them under sessions | U-041 |
 | **Traceability** | `task_traceability` reports `via`/`self_verified` rows; a ticket that walked to a test stage pairs with itself; pm requirements appear as definitions | U-070 |
 | **Store lint** | `task_doctor` reports nothing (unparsable files, unresolvable artifact refs, bad flag combos are all checked) | U-053 |

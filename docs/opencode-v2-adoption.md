@@ -11,8 +11,8 @@
   scoping tickets.
 - **Related:** `AGENTS.md` (host discipline), `eclipse/ARCHITECTURE.md`
   (bundle layout), `ROADMAP.md` (the feature backlog), the live contract:
-  `GET /openapi.json` of the running service (last cross-check: v2.2.7,
-  170 operations, 2026-11-10 - see the cross-check section below).
+  `GET /openapi.json` of the running service (last cross-check: v2.3.0,
+  170 operations, 2026-11-13 - see the cross-check section below).
 
 ## The strict policy
 
@@ -177,7 +177,7 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.2.7, 170 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.2.7.txt` next to this file - the 2.2.6, 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (live v2.3.0, 170 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.3.0.txt` next to this file - the 2.2.7, 2.2.6, 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
@@ -243,6 +243,10 @@ guarantees we arrive by adoption, not by competition.
 | W9 | `experimental.voice.*` (models, session) | 2.1.3 | Churning (instructions added 2.1.3, removed 2.2.0) | Any voice surface | Deliberate non-interest |
 | W10 | `experimental.todo` (config) + `todowrite` | 2.1.0 | Opt-in; TUI-side display | A session-todo read path of our own | A stable read ROUTE appears → unblocks U-013 |
 | W11 | `experimental.persistentPty.*` (operationIds renamed 2.2.1) | 2.1.0 | Live incl. Windows | Wiring our PTY surfaces to the experimental namespace | Prefix drops → revisit the platform-blocked PTY note |
+
+| New since v2.2.7 (live 2.3.0) | Operations | Decision |
+|---|---|---|
+| 2.3.0 (published Nov 13; auto-applied here the same day - caught by the standing probe; 2.2.8/2.2.9 never existed, 2.2.7 -> 2.3.0 direct). | 0 added, 0 removed, 0 renamed (170 = 170 - pure route patch despite the minor bump) | Behavioral notes: **background subagents by default** (#63382): subagents return immediately, continue in the background, report on idle - in-session subagent flows change platform-wide (our fleet workers are separate sessions, so fleet mechanics are unaffected; live-pass check added for how background subagent sessions render in our session lists); #63675 stops a parent accepting a partial answer while a subagent's own background work still runs. **Experimental MCP events** behind the `mcp_events` flag, delivered as `experimental.mcp.event` in the event stream (#63254/#63261/#63269) → **W14 (watch)**: no-overlap surface, never consumed. Shell commands survive server handoffs and run through the process daemon on Windows (hardens long fleet worker runs); `shell_timeout_background` is experimental/watch. **Rate-limit exhaustion no longer treated as terminal** (#59816 - retryable; noted on parked U-098's failure-classification domain). Freeform tool input + capability schemas and Code Mode structured-result simplifications are harness-side. SDK: `experimental.mcp.event` subscriptions, throughput measured from first streamed token. Nothing we consume was touched; nothing to retire this round. |
 
 | New since v2.2.6 (live 2.2.7) | Operations | Decision |
 |---|---|---|
