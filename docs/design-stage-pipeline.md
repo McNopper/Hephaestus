@@ -281,6 +281,7 @@ adding a stage = adding its division map + skill, nothing else.
 | `task_advance` / `task_pass_stage` / `task_report_horizontal` / wandering `send_back` | division + link creation; send-back-as-movement becomes rework (a failed downstream blocks/stales its upstream link) | Chunk 5, after tickers hold parity live |
 | RecurringWaves (batch waves) | per-stage ticker kickoffs | Chunk 5 |
 | FleetRunner, `fleet_*` MCP tools, fleet bundle + board fleet views | ticker-spawned subagents + the spawn cap | **Last** — only after live parity evidence (the acceptance run, ex-U-037, validates the whole loop) |
+| **Board's Fleet on/off toggle** | kept — becomes the **enable/disable switch for the tickers' schedules**: ON = schedules armed (micro-sprint kickoffs run), OFF = dormant. Re-labeled (e.g. Auto/Tickers) in Chunk 5; the same panel gains the owner-adjustable spawn cap and interval fields | Chunk 5 |
 | `send_back` as clarification routing (`clarification:` → originator, U-023) | kept — routing, not movement | stays |
 
 ## 10. Migration of live state
