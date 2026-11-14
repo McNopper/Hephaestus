@@ -281,6 +281,18 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
+  public void closeSprintAutoArchiveThroughTools() {
+    callOk("task_create", "{\"project\":\"p\",\"title\":\"done wave work\"}");
+    callOk("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"]}");
+    callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"done\"}");
+    JsonObject out =
+        callOk(
+            "task_close_sprint",
+            "{\"project\":\"p\",\"sprint_id\":\"S-01\",\"auto_archive\":true}");
+    assertEquals(1, out.getAsJsonArray("auto_archived").size());
+  }
+
+  @Test
   public void doctorReportsDriftAndGoesQuietWhenHealed() {
     // clean store: ok with an empty report
     JsonObject clean = callOk("task_doctor", "{\"project\":\"p\"}");

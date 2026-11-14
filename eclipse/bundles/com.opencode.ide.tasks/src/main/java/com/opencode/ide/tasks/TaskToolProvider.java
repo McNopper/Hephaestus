@@ -268,12 +268,19 @@ public final class TaskToolProvider implements ToolProvider {
         }
       case "task_close_sprint":
         {
-          Map<String, Object> out = store.closeSprint(reqStr(a, "project"), reqStr(a, "sprint_id"));
+          boolean autoArchive = optBool(a, "auto_archive", false);
+          Map<String, Object> out =
+              store.closeSprint(reqStr(a, "project"), reqStr(a, "sprint_id"), autoArchive);
           JsonObject o = new JsonObject();
           o.add("sprint", ((Task.Sprint) out.get("sprint")).toJson());
           JsonArray arr = new JsonArray();
           ((List<String>) out.get("returned_to_backlog")).forEach(arr::add);
           o.add("returned_to_backlog", arr);
+          if (out.containsKey("auto_archived")) {
+            JsonArray archivedArr = new JsonArray();
+            ((List<String>) out.get("auto_archived")).forEach(archivedArr::add);
+            o.add("auto_archived", archivedArr);
+          }
           return json(o);
         }
       case "task_traceability":
@@ -637,12 +644,13 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_close_sprint",
-            "Close a sprint; unfinished tasks return to product-backlog.",
+            "Close a sprint; unfinished tasks return to product-backlog. With auto_archive=true, the wave's done tickets that no live epic-chain ticket still needs are archived to _archive/ (U-060).",
             schema(
                 new String[] {"project", "sprint_id"},
                 obj -> {
                   obj.add("project", strP());
                   obj.add("sprint_id", strP());
+                  obj.add("auto_archive", boolP());
                 })));
     out.add(
         new McpTool(

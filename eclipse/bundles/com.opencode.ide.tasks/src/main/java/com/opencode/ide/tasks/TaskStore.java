@@ -1109,9 +1109,10 @@ public final class TaskStore {
   }
 
   /**
-   * U-027 wave close with SAFE auto-archiving: the done tickets of the closed wave are archived
-   * only when no live ticket of their epic chain still needs them as upstream (archiving never
-   * orphans downstream stages). The plain {@link #closeSprint(String, String)} never archives.
+   * U-027/U-060 wave close with SAFE auto-archiving: the done tickets of the closed wave are
+   * archived only when no live ticket of their epic chain still needs them as upstream (archiving
+   * never orphans downstream stages), and candidates are scoped to the closing sprint. The plain
+   * {@link #closeSprint(String, String)} never archives.
    *
    * @param autoArchive archive the unneeded done tickets of the wave
    * @return the plain close result plus {@code auto_archived} (the ids moved to {@code _archive/})
@@ -1122,8 +1123,13 @@ public final class TaskStore {
       return result;
     }
     List<String> archivedIds = new java.util.ArrayList<>();
+    // U-060: candidates are the CLOSING SPRINT's done tickets only - another
+    // sprint's done tickets are never touched by this close. The chain-safety
+    // check below still sees the whole live project, so an upstream a live
+    // (possibly other-sprint) ticket still needs is never archived.
+    List<Task> candidates = list(project, null, "done", sprintId, null);
     List<Task> live = list(project, null, null, null, null);
-    for (Task candidate : live) {
+    for (Task candidate : candidates) {
       if (!"done".equals(candidate.status)) {
         continue;
       }
@@ -1203,10 +1209,10 @@ public final class TaskStore {
               // NOT archived here (U-025 lesson, live 2026-09-19:
               // archiving on wave close orphaned WAIT_UPSTREAM
               // children). The opt-in overload closeSprint(project,
-              // sprintId, autoArchive) archives done tickets no live
-              // epic chain still needs, but no production caller uses
-              // it yet: readiness callers do not pass the archive pool
-              // (only StageReadiness.evaluate(live, archived) can).
+              // sprintId, autoArchive) archives the wave's done tickets
+              // no live epic chain still needs; the task_close_sprint
+              // tool exposes it as opt-in auto_archive (U-060).
+              // Readiness callers do not pass the archive pool yet (U-059).
               continue;
             }
             t.sprint = null;

@@ -86,6 +86,28 @@ public class ArchiveReadinessTest extends StoreTestHarness {
   }
 
   @Test
+  public void autoArchiveIsScopedToTheClosingSprint() {
+    Task lone = ticket("unneeded done in closing wave", null, "requirements");
+    store.planSprint("p", "S-01", List.of(lone.id), "goal");
+    store.update("p", lone.id, Map.of("status", "done"));
+    Task other = ticket("done in another sprint", null, "requirements");
+    store.planSprint("p", "S-02", List.of(other.id), "goal");
+    store.update("p", other.id, Map.of("status", "done"));
+
+    Map<String, Object> closed = store.closeSprint("p", "S-01", true);
+
+    assertTrue(
+        "the closing wave's unneeded done ticket is archived",
+        ((List<?>) closed.get("auto_archived")).contains(lone.id));
+    assertFalse(
+        "another sprint's done ticket is not reported as archived",
+        ((List<?>) closed.get("auto_archived")).contains(other.id));
+    assertTrue(
+        "another sprint's done ticket stays live",
+        store.list("p", null, "done", null, null).stream().anyMatch(t -> t.id.equals(other.id)));
+  }
+
+  @Test
   public void thePlainCloseNeverArchives() {
     Task lone = ticket("done work", null, "requirements");
     store.planSprint("p", "S-02", List.of(lone.id), "goal");
