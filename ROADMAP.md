@@ -15,6 +15,11 @@
 
 ## Vision
 
+**This section is the Product Goal analogue** (the Scrum-Guide commitment for
+the backlog): the long-term objective the whole store is ordered toward. GOAL
+tickets are its governed decomposition - goal intake turns an owner objective
+into one ticket, division expands it into the derivation tree.
+
 One repository. Intelligence lives in `.opencode/` (agents, skills) and MCP
 servers; the Eclipse plugin (`eclipse/`) is the harness: it hosts, services,
 and observes agents working through the linked stage pipeline — stationary
@@ -92,10 +97,11 @@ when all of the following hold:
 
 ## Decisions
 
-All decision records are settled (D-001..D-005, U-043, U-078..U-082) and
-live in `AGENTS.md`, `docs/HISTORY.md` and the tickets. New decisions get a
-`D-xxx` ticket and a record in the same places; this file only lists the
-one currently open question: none.
+All decision records are settled (D-001..D-006, U-043, U-078..U-082) and
+live in `AGENTS.md`, `docs/HISTORY.md` and the tickets (D-006: the store
+substrate stays git-versioned Markdown; SQLite rejected as source of
+record). New decisions get a `D-xxx` ticket and a record in the same
+places; this file only lists the one currently open question: none.
 
 ## Parked / non-goals
 
