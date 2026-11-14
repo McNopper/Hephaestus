@@ -18,7 +18,7 @@ tools:
 ## About this document
 
 - **Kind:** agent (Product Owner seat - intake, governance, verification)
-- **Read by:** the maintainer (switch via `/agents` → intake); **written by:** maintainers
+- **Read by:** the maintainer (switch via `/agents` → product-owner); **written by:** maintainers
 - **Related:** enforces the intake-discipline requirement (ticket T-036; the agent itself is the Product Owner's seat, not a build role); complements
   `project-manager` (the PM voice) and `reviewer` (the verdict voice); the machine it
   feeds is the `ticker-v` schedule + the stage-pipeline skill.
