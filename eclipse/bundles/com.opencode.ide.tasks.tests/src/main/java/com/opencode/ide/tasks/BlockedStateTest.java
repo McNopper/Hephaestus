@@ -74,12 +74,17 @@ public class BlockedStateTest {
   }
 
   @Test
-  public void sendBackEntersTheStateAndClearingLandsInTheBacklog() {
+  public void blockingEntersTheStateAndClearingLandsBackWhereItWas() {
+    // U-110: tickets are stationary - escalation blocks the ticket IN its stage (no movement)
     Task t = staged("handback");
-    Task back = store.sendBack("p", t.id, "the design lies", "tester");
+    Task back =
+        store.update(
+            "p",
+            t.id,
+            Map.of("blocked", true, "blocker", "sent back from architecture: the design lies"));
     assertEquals("blocked", back.status);
     assertEquals("product-backlog", back.resumeTo);
-    assertEquals("architecture", back.stage);
+    assertEquals("design", back.stage);
     assertTrue(back.blocker.contains("the design lies"));
     Task cleared = store.clearBlocked("p", back.id, "dev");
     assertEquals("product-backlog", cleared.status);
@@ -132,6 +137,8 @@ public class BlockedStateTest {
   public void doneNeverKeepsTheStateOrItsReason() {
     Task t = staged("finish");
     store.setBlocked("p", t.id, "hold", "pm");
+    // U-110: a definition-stage ticket carries its product before it can be done
+    store.addArtifact("p", t.id, "doc", "docs/design-product.md", "stage product", null);
     Task done = store.update("p", t.id, Map.of("status", "done"));
     assertFalse(done.isBlocked());
     assertEquals(null, done.resumeTo);
@@ -139,12 +146,11 @@ public class BlockedStateTest {
   }
 
   @Test
-  public void blockedTicketsCannotBePlannedOrAdvanced() {
+  public void blockedTicketsCannotBePlanned() {
     Task t = staged("frozen");
     store.update("p", t.id, Map.of("status", "in-review"));
     store.setBlocked("p", t.id, "hold", "pm");
     assertThrows(TaskStore.Invalid.class, () -> store.planSprint("p", null, List.of(t.id), "goal"));
-    assertThrows(TaskStore.Invalid.class, () -> store.advance("p", t.id, "pm"));
   }
 
   @Test

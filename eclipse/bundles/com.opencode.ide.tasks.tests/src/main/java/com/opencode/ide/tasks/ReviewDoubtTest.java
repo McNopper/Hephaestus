@@ -98,25 +98,10 @@ public class ReviewDoubtTest {
             .anyMatch(h -> h.action().startsWith("review doubt escalated to NEEDS-HUMAN")));
   }
 
-  @Test
-  public void aStageTransitionResetsTheDoubtBudget() {
-    Task t = staged("system");
-    store.routeReviewDoubt(PROJECT, t.id, "cannot determine X", "reviewer");
-    store.update(PROJECT, t.id, java.util.Map.of("status", "in-review"));
-    store.advance(PROJECT, t.id, "reviewer");
-
-    Task after = store.routeReviewDoubt(PROJECT, t.id, "doubt at the next stage", "reviewer");
-
-    assertFalse("a new stage visit gets a fresh retry budget (C-004)", after.isBlocked());
-    assertEquals("architecture", after.stage);
-    assertTrue(
-        after.history.stream()
-            .anyMatch(
-                h ->
-                    h.action()
-                        .equals(
-                            "review doubt retry (1/1) for stage architecture: doubt at the next stage")));
-  }
+  // U-110: the C-004 per-visit budget reset rode the retired stage transitions; a stationary
+  // ticket's repeated doubts escalate to NEEDS-HUMAN after the limit (covered by the
+  // escalation test above). The premise of a fresh budget per stage visit is retired with the
+  // wandering model.
 
   @Test
   public void anUnstagedTicketCannotHostADoubtRetry() {

@@ -35,28 +35,6 @@ public class VStagesTest {
   }
 
   @Test
-  public void nextWalksDownAndUpAndStopsAtTheTip() {
-    assertEquals("system", VStages.next("requirements"));
-    assertEquals("architecture", VStages.next("system"));
-    assertEquals("implementation", VStages.next("design"));
-    assertEquals("test-implementation", VStages.next("implementation"));
-    assertEquals("test-requirements", VStages.next("test-system"));
-    assertNull(VStages.next("test-requirements"));
-    assertNull(VStages.next(null));
-    assertNull(VStages.next("bogus"));
-  }
-
-  @Test
-  public void previousWalksBackAndStopsAtRequirements() {
-    assertNull(VStages.previous("requirements"));
-    assertEquals("requirements", VStages.previous("system"));
-    assertEquals("implementation", VStages.previous("test-implementation"));
-    assertEquals("test-system", VStages.previous("test-requirements"));
-    assertNull(VStages.previous(null));
-    assertNull(VStages.previous("bogus"));
-  }
-
-  @Test
   public void everyStageHasAnOwningRole() {
     assertEquals("pm", VStages.roleOf("requirements"));
     assertEquals("architect", VStages.roleOf("system"));

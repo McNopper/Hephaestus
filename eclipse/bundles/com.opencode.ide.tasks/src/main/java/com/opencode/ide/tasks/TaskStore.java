@@ -97,11 +97,12 @@ public final class TaskStore {
       String epic,
       String idPrefix,
       Boolean blocked,
-      String blocker) {
+      String blocker,
+      String basis) {
 
     /**
-     * Legacy 10-arg shape (pre B-026): a ticket created without a blocked state. Kept so every
-     * existing call site keeps its signature; new code uses the canonical 12-arg form.
+     * Legacy 10-arg shape (pre B-026/U-110): no blocked state and no basis link at birth. Kept so
+     * existing call sites keep their signature; new code uses the canonical 13-arg form.
      */
     public CreateSpec(
         String title,
@@ -125,6 +126,7 @@ public final class TaskStore {
           labels,
           epic,
           idPrefix,
+          null,
           null,
           null);
     }
@@ -254,6 +256,11 @@ public final class TaskStore {
             t.labels = new ArrayList<>(spec.labels());
           }
           t.epic = spec.epic();
+          if (spec.basis() != null && !data.tasks.containsKey(spec.basis())) {
+            throw new Invalid(
+                "basis ticket " + spec.basis() + " not found in project " + project + " (U-110)");
+          }
+          t.basis = spec.basis();
           if (bornBlocked) {
             // B-026/U-067: blocked is a STATE entered at birth - the status moves to
             // blocked and resume_to remembers product-backlog for the one door out.
@@ -468,6 +475,19 @@ public final class TaskStore {
           } else if (requestedStatus != null) {
             t.status = requestedStatus;
           }
+          // U-110: done-time enforcement - the DEFINITION stage's product is the point of the V,
+          // so a definition-stage ticket cannot reach done bare (the old advance-time gate moved
+          // here; verification stages and legacy unstaged tickets are exempt).
+          if ("done".equals(t.status)
+              && t.stage != null
+              && !VStages.isVerification(t.stage)
+              && (t.artifacts == null || t.artifacts.isEmpty())) {
+            throw new Invalid(
+                "cannot done a definition-stage ticket ('"
+                    + t.stage
+                    + "') without a recorded artifact: record the stage's product (or its"
+                    + " rationale) with task_add_artifact first");
+          }
           if (!applied.isEmpty()) {
             t.updatedAt = now();
             t.history("updated:" + String.join(",", applied), null);
@@ -477,280 +497,13 @@ public final class TaskStore {
         });
   }
 
-  /**
-   * The V-model pipeline hand-forward: moves a ticket whose stage's work is finished on to the
-   * <em>next</em> stage. Quality gate: the ticket must be {@code in-review} or {@code done} - an
-   * unfinished stage never advances - and a DEFINITION stage
-   * (requirements/system/architecture/design) must have recorded at least one artifact: the stage's
-   * product is the whole point of the V, so a definition stage never exits bare (U-080; a rationale
-   * recorded as a doc artifact satisfies it, pass-throughs go through {@link #passStage} instead).
-   * One transaction: stage and role move to the next stage's, status resets to {@code
-   * product-backlog} (the next stage's backlog is fed by the previous stage), the assignee is
-   * cleared. A blocked ticket cannot advance at all: the status guard below admits only
-   * in-review/done (U-067 - blocked is a state; clear it first).
-   *
-   * @throws Invalid when the ticket has no (valid) stored stage - legacy tickets must be staged
-   *     explicitly, no guessing; when the status is not in-review/done; when a definition stage
-   *     carries no recorded artifact; or when the ticket already sits at the V tip ({@code
-   *     test-requirements}).
-   */
-  public Task advance(String project, String id, String by) {
-    return transaction(
-        project,
-        data -> {
-          Task t = require(data, project, id);
-          if (t.stage == null || !VStages.isValid(t.stage)) {
-            throw new Invalid("ticket has no stage; set one first");
-          }
-          if (!"in-review".equals(t.status) && !"done".equals(t.status)) {
-            throw new Invalid(
-                "cannot advance ticket in status '"
-                    + t.status
-                    + "' (the stage's work must be finished: in-review or done)");
-          }
-          if (!VStages.isVerification(t.stage) && (t.artifacts == null || t.artifacts.isEmpty())) {
-            throw new Invalid(
-                "cannot leave definition stage '"
-                    + t.stage
-                    + "' without a recorded artifact: record the stage's product (or its"
-                    + " rationale) with task_add_artifact first");
-          }
-          String next = VStages.next(t.stage);
-          if (next == null) {
-            throw new Invalid(
-                "ticket is at the V tip stage '" + t.stage + "'; there is no next stage");
-          }
-          t.stage = next;
-          t.role = VStages.roleOf(next);
-          t.status = "product-backlog";
-          t.assignee = null;
-          t.updatedAt = now();
-          t.history("advanced to " + next, by);
-          data.changed.add(id);
-          return t;
-        });
-  }
-
-  /**
-   * The V-model feedback loop: sends a ticket back to the <em>previous</em> stage with a reason.
-   * The hand-back is unmissable: the ticket lands in the BLOCKED state with {@code
-   * resume_to=product-backlog} - clearing it returns to the previous stage's backlog (U-067),
-   * carrying the blocker text {@code "sent back from <old stage>: <reason>"}. The assignee is
-   * cleared; role follows the previous stage.
-   *
-   * @throws Invalid when the ticket has no (valid) stored stage, when the reason is blank, or when
-   *     the ticket sits at {@code requirements} (no previous stage).
-   */
-  public Task sendBack(String project, String id, String reason, String by) {
-    // U-023: a question is not a defect. A 'clarification:' hand-back
-    // routes to the ORIGINATOR agent instead of blocking for a human;
-    // plain send-backs keep the blocking semantics below.
-    if (reason != null
-        && reason.strip().toLowerCase(java.util.Locale.ROOT).startsWith("clarification:")) {
-      return clarify(project, id, reason.strip().substring("clarification:".length()).strip(), by);
-    }
-    return transaction(
-        project,
-        data -> {
-          Task t = require(data, project, id);
-          if (t.stage == null || !VStages.isValid(t.stage)) {
-            throw new Invalid("ticket has no stage; set one first");
-          }
-          if (reason == null || reason.isBlank()) {
-            throw new Invalid("reason must be a non-empty string");
-          }
-          String prev = VStages.previous(t.stage);
-          if (prev == null) {
-            throw new Invalid(
-                "ticket is at the first stage 'requirements'; there is no previous stage");
-          }
-          String from = t.stage;
-          t.stage = prev;
-          t.role = VStages.roleOf(prev);
-          t.assignee = null;
-          // U-067: the hand-back IS the blocked state - clearing returns to
-          // the previous stage's product backlog (resume_to)
-          t.enterBlocked("sent back from " + from + ": " + reason);
-          t.resumeTo = "product-backlog";
-          t.updatedAt = now();
-          t.history("sent back to " + prev + ": " + reason, by);
-          data.changed.add(id);
-          return t;
-        });
-  }
-
-  /**
-   * U-029 stage pass-through: the current stage has no applicable change - the ticket VISITS it and
-   * advances with a recorded rationale instead of a full dispatch. The transition is exactly {@link
-   * #advance}'s (next stage + role, product-backlog, assignee cleared), no artifact required; the
-   * history carries {@code stage N passed: reason} (author + timestamp) so the flow trace counts
-   * the stage as visited. The V tip can never pass; a blank reason is rejected (FR-001..003 of
-   * {@code docs/requirements/U-029-stage-pass-through.md}).
-   *
-   * @throws Invalid when the ticket has no (valid) stored stage, when the reason is blank, or when
-   *     the ticket sits at the V tip
-   */
-  public Task passStage(String project, String id, String reason, String by) {
-    return transaction(
-        project,
-        data -> {
-          Task t = require(data, project, id);
-          if (t.stage == null || !VStages.isValid(t.stage)) {
-            throw new Invalid("ticket has no stage; set one first");
-          }
-          if (reason == null || reason.isBlank()) {
-            throw new Invalid("reason must be a non-empty string");
-          }
-          String next = VStages.next(t.stage);
-          if (next == null) {
-            throw new Invalid(
-                "ticket is at the V tip stage '"
-                    + t.stage
-                    + "'; a stage pass is never allowed here");
-          }
-          int number = VStages.STAGES.indexOf(t.stage) + 1;
-          t.stage = next;
-          t.role = VStages.roleOf(next);
-          t.status = "product-backlog";
-          t.assignee = null;
-          t.updatedAt = now();
-          t.history("stage " + number + " passed: " + reason, by);
-          data.changed.add(id);
-          return t;
-        });
-  }
-
-  /**
-   * U-031 HORIZONTAL resolution route: a blocked ticket reports to its V-level pair stage (e.g.
-   * {@code test-design} -&gt; {@code design}) with the reason - exactly like a vertical {@link
-   * #sendBack} but sideways: product backlog of the pair stage, assignee cleared, the blocked flag
-   * raised with {@code "reported from <stage>: <reason>"} and a {@code "reported to <stage>:
-   * <reason>"} history event.
-   *
-   * @throws Invalid when the ticket has no (valid) stored stage or the reason is blank
-   */
-  public Task reportHorizontal(String project, String id, String reason, String by) {
-    return transaction(
-        project,
-        data -> {
-          Task t = require(data, project, id);
-          if (t.stage == null || !VStages.isValid(t.stage)) {
-            throw new Invalid("ticket has no stage; set one first");
-          }
-          if (reason == null || reason.isBlank()) {
-            throw new Invalid("reason must be a non-empty string");
-          }
-          String from = t.stage;
-          String pair = VStages.pairOf(from);
-          t.stage = pair;
-          t.role = VStages.roleOf(pair);
-          t.assignee = null;
-          // U-067: sideways hand-back is the blocked state too - clearing
-          // returns to the pair stage's product backlog
-          t.enterBlocked("reported from " + from + ": " + reason);
-          t.resumeTo = "product-backlog";
-          t.updatedAt = now();
-          t.history("reported to " + pair + ": " + reason, by);
-          data.changed.add(id);
-          return t;
-        });
-  }
-
-  /** Round-trips on one clarification pair before it escalates to the human (U-023). */
-  public static final int CLARIFICATION_LIMIT = 3;
-
-  /**
-   * U-023 clarification loop: a stage agent needing clarification routes the QUESTION to the
-   * ORIGINATOR instead of blocking for a human. The originator is the upstream-stage ticket of the
-   * same epic (the epic parent {@code u.id == t.epic} or a sibling {@code u.epic == t.epic}, as the
-   * readiness chain walks it), else the epic's requirements-stage ticket; with neither, the ticket
-   * escalates to NEEDS-HUMAN. The requester stays runnable - the existing inputs-changed/STALE
-   * machinery re-runs it when the originator's artifact updates. More than {@link
-   * #CLARIFICATION_LIMIT} clarifications on the same pair escalate (the pair is stuck, not
-   * unclear). A blank question is rejected.
-   *
-   * @throws Invalid when the ticket has no (valid) stored stage or the question is blank
-   */
-  public Task clarify(String project, String id, String question, String by) {
-    if (question == null || question.isBlank()) {
-      throw new Invalid("question must be a non-empty string");
-    }
-    Task requester = get(project, id);
-    if (requester.stage == null || !VStages.isValid(requester.stage)) {
-      throw new Invalid("ticket has no stage; set one first");
-    }
-    long trips =
-        requester.history.stream()
-            .filter(event -> event.action().startsWith("clarification to"))
-            .count();
-    Task originator = originatorOf(requester, list(project, null, null, null, null));
-    if (originator == null || trips >= CLARIFICATION_LIMIT) {
-      String why =
-          originator == null
-              ? "no agent route (originator absent)"
-              : "round-trip limit " + CLARIFICATION_LIMIT + " exceeded";
-      return transaction(
-          project,
-          data -> {
-            Task t = require(data, project, id);
-            t.enterBlocked("clarification escalated to NEEDS-HUMAN (" + why + "): " + question);
-            t.updatedAt = now();
-            t.history("clarification escalated to NEEDS-HUMAN: " + question, by);
-            data.changed.add(id);
-            return t;
-          });
-    }
-    return transaction(
-        project,
-        data -> {
-          Task t = require(data, project, id);
-          Task o = require(data, project, originator.id);
-          o.history("clarification from " + t.stage + " (" + t.id + "): " + question, by);
-          o.status = "product-backlog";
-          o.assignee = null;
-          o.updatedAt = now();
-          t.history("clarification to " + o.stage + " (" + o.id + "): " + question, by);
-          t.updatedAt = now();
-          data.changed.add(id);
-          data.changed.add(o.id);
-          return t;
-        });
-  }
-
-  /**
-   * The U-023 originator of a clarification: upstream epic ticket, else the epic's requirements
-   * ticket, else null.
-   */
-  private static Task originatorOf(Task requester, List<Task> all) {
-    String upstream = StageReadiness.upstreamStage(requester.stage);
-    Task fallback = null;
-    for (Task candidate : all) {
-      if (candidate == null || candidate.id.equals(requester.id) || requester.epic == null) {
-        continue;
-      }
-      boolean inEpic =
-          candidate.id.equals(requester.epic)
-              || candidate.epic != null && candidate.epic.equals(requester.epic);
-      if (!inEpic) {
-        continue;
-      }
-      if (upstream != null && upstream.equals(candidate.stage)) {
-        return candidate;
-      }
-      if (fallback == null && "requirements".equals(candidate.stage)) {
-        fallback = candidate;
-      }
-    }
-    return fallback;
-  }
-
   /** B-007 FR-009/010: originator retries per stage visit before doubt escalates to a human. */
   public static final int REVIEW_DOUBT_RETRY_LIMIT = 1;
 
   /**
    * B-007 doubt round-trip (FR-009..FR-012): reviewer doubt - or a heuristic checkpoint refusal
    * (FR-011) - routes back to the ORIGINATOR instead of blocking for a human. The ticket returns to
-   * its own stage's backlog (same mechanics as {@link #advance}, without the stage move: product
+   * its own stage's backlog (same mechanics as a stage advance, without the stage move: product
    * backlog, assignee cleared) with the doubt recorded as an attributable comment and a {@code
    * review doubt retry (n/N)} history marker. Exactly {@link #REVIEW_DOUBT_RETRY_LIMIT} retry per
    * stage visit (C-004: a visit ends at the next stage transition - {@code advanced to}, {@code

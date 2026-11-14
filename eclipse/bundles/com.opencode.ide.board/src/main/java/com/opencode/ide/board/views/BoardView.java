@@ -966,25 +966,6 @@ public class BoardView extends ViewPart {
     copyJourney.setEnabled(row != null && row.id() != null);
     manager.add(copyJourney);
     manager.add(new Separator());
-    Action advance =
-        new Action("Advance stage \u2192") {
-          @Override
-          public void run() {
-            advanceSelected(row);
-          }
-        };
-    advance.setEnabled(canAdvance(row));
-    manager.add(advance);
-    Action sendBack =
-        new Action("Send back\u2026") {
-          @Override
-          public void run() {
-            sendBackSelected(row);
-          }
-        };
-    sendBack.setEnabled(canSendBack(row));
-    manager.add(sendBack);
-    manager.add(new Separator());
     // U-025: done tickets can leave the active board into the archive
     Action archive =
         new Action("Archive") {
@@ -1049,67 +1030,8 @@ public class BoardView extends ViewPart {
     }
   }
 
-  private static boolean canAdvance(TicketRow row) {
-    return row != null
-        && row.stage() != null
-        && ("in-review".equals(row.status()) || "done".equals(row.status()))
-        && VStages.next(row.stage()) != null;
-  }
-
-  private static boolean canSendBack(TicketRow row) {
-    return row != null && row.stage() != null && VStages.previous(row.stage()) != null;
-  }
-
-  private void advanceSelected(TicketRow row) {
-    if (row == null || model == null) {
-      return;
-    }
-    String error = model.advance(row.id());
-    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-    if (error != null) {
-      status.setErrorMessage("Advance " + row.id() + " failed: " + error);
-    } else {
-      status.setErrorMessage(null);
-      status.setMessage("Advanced " + row.id() + " \u2192 " + VStages.next(row.stage()));
-    }
-    refresh();
-  }
-
-  private void sendBackSelected(TicketRow row) {
-    if (row == null || model == null) {
-      return;
-    }
-    String previous = VStages.previous(row.stage());
-    InputDialog dialog =
-        new InputDialog(
-            getSite().getShell(),
-            "Send back " + row.id(),
-            "Reason for sending "
-                + row.id()
-                + " back from '"
-                + row.stage()
-                + "' to '"
-                + previous
-                + "':",
-            "",
-            text -> text == null || text.trim().isEmpty() ? "A reason is required" : null);
-    if (dialog.open() != Window.OK) {
-      return;
-    }
-    String reason = dialog.getValue() == null ? "" : dialog.getValue().trim();
-    if (reason.isEmpty()) {
-      return;
-    }
-    String error = model.sendBack(row.id(), reason);
-    IStatusLineManager status = getViewSite().getActionBars().getStatusLineManager();
-    if (error != null) {
-      status.setErrorMessage("Send back " + row.id() + " failed: " + error);
-    } else {
-      status.setErrorMessage(null);
-      status.setMessage("Sent " + row.id() + " back \u2192 " + previous + " (blocked)");
-    }
-    refresh();
-  }
+  // U-110: the advance/send-back card actions retired with the wandering model - tickets are
+  // stationary; fulfillment moves the LINKED downstream tickets instead.
 
   private static Font boldFont() {
     return JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT);

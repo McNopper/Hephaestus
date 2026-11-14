@@ -30,10 +30,6 @@ public class TaskToolsDispatchTest {
           "task_get",
           "task_list",
           "task_update",
-          "task_advance",
-          "task_pass_stage",
-          "task_send_back",
-          "task_report_horizontal",
           "task_set_blocked",
           "task_clear_blocked",
           "task_claim",
@@ -105,13 +101,13 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void toolsListAdvertisesAllTwentyFiveToolsWithSchemas() {
+  public void toolsListAdvertisesAllTwentyOneToolsWithSchemas() {
     JsonObject response =
         JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .getAsJsonObject();
     JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-    assertEquals(25, tools.size());
+    assertEquals(21, tools.size());
     for (int i = 0; i < tools.size(); i++) {
       JsonObject tool = tools.get(i).getAsJsonObject();
       assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -381,105 +377,8 @@ public class TaskToolsDispatchTest {
         two.get(0).getAsJsonObject().get("id").getAsString());
   }
 
-  @Test
-  public void vPipelineAdvanceAndSendBackThroughTools() {
-    JsonObject created =
-        callOk(
-            "task_create", "{\"project\":\"p\",\"title\":\"spec it\",\"stage\":\"requirements\"}");
-    assertEquals("requirements", created.get("stage").getAsString());
-    callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"in-review\"}");
-    assertTrue(
-        "U-080: a definition stage never exits bare - through the tool too",
-        call("task_advance", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}")
-            .get("isError")
-            .getAsBoolean());
-    callOk(
-        "task_add_artifact",
-        "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"kind\":\"doc\","
-            + "\"ref\":\"docs/requirements-product.md\",\"note\":\"stage product\"}");
-    JsonObject advanced =
-        callOk("task_advance", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"by\":\"pm\"}");
-    assertEquals("system", advanced.get("stage").getAsString());
-    assertEquals("architect", advanced.get("role").getAsString());
-    assertEquals("product-backlog", advanced.get("status").getAsString());
-    assertTrue("advance clears the assignee", advanced.get("assignee").isJsonNull());
-
-    JsonObject sentBack =
-        callOk(
-            "task_send_back",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"goals contradict\",\"by\":\"architect\"}");
-    assertEquals("requirements", sentBack.get("stage").getAsString());
-    assertEquals("pm", sentBack.get("role").getAsString());
-    assertEquals("blocked", sentBack.get("status").getAsString());
-    assertEquals("product-backlog", sentBack.get("resume_to").getAsString());
-    assertTrue("send back raises the blocked flag", sentBack.get("blocked").getAsBoolean());
-    assertEquals("sent back from system: goals contradict", sentBack.get("blocker").getAsString());
-    JsonObject cleared =
-        callOk("task_clear_blocked", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}");
-    assertFalse(cleared.get("blocked").getAsBoolean());
-
-    // error channels: unstaged legacy ticket, invalid stage on create, blank reason
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"legacy\"}");
-    assertTrue(
-        "legacy ticket has no stage -> isError",
-        call("task_advance", "{\"project\":\"p\",\"ticket_id\":\"T-002\"}")
-            .get("isError")
-            .getAsBoolean());
-    assertTrue(
-        "invalid stage on create -> isError",
-        call("task_create", "{\"project\":\"p\",\"title\":\"x\",\"stage\":\"waterfall\"}")
-            .get("isError")
-            .getAsBoolean());
-    assertTrue(
-        "blank reason -> isError",
-        call("task_send_back", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"\"}")
-            .get("isError")
-            .getAsBoolean());
-  }
-
-  /** U-057: the pass-through verb round-trips through the tool layer. */
-  @Test
-  public void passStageThroughToolsRecordsTheRationaleAndRejectsInvalidCases() {
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"local fix\",\"stage\":\"architecture\"}");
-
-    JsonObject passed =
-        callOk(
-            "task_pass_stage",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"no architecture impact:"
-                + " local change\",\"by\":\"dev\"}");
-    assertEquals("design", passed.get("stage").getAsString());
-    assertEquals("developer", passed.get("role").getAsString());
-    assertEquals("product-backlog", passed.get("status").getAsString());
-    assertTrue("a pass clears the assignee", passed.get("assignee").isJsonNull());
-    JsonArray history = passed.getAsJsonArray("history");
-    JsonObject last = history.get(history.size() - 1).getAsJsonObject();
-    assertEquals(
-        "stage 3 passed: no architecture impact: local change", last.get("action").getAsString());
-    assertEquals("dev", last.get("by").getAsString());
-
-    // the invalid cases passStage itself rejects, surfaced as isError results
-    assertTrue(
-        "blank reason -> isError",
-        call("task_pass_stage", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"reason\":\"\"}")
-            .get("isError")
-            .getAsBoolean());
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"legacy\"}");
-    assertTrue(
-        "legacy ticket has no stage -> isError",
-        call(
-                "task_pass_stage",
-                "{\"project\":\"p\",\"ticket_id\":\"T-002\",\"reason\":\"no impact\"}")
-            .get("isError")
-            .getAsBoolean());
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"tip\",\"stage\":\"test-requirements\"}");
-    assertTrue(
-        "the V tip never passes -> isError",
-        call(
-                "task_pass_stage",
-                "{\"project\":\"p\",\"ticket_id\":\"T-003\",\"reason\":\"no impact\"}")
-            .get("isError")
-            .getAsBoolean());
-  }
+  // U-110: the wandering-verb tests (vPipeline advance/send-back, passStage) retired with the
+  // model - the pipeline is the linked stage graph; division creates the downstream tickets.
 
   @Test
   public void updateStageThroughToolsSetsAndClears() {

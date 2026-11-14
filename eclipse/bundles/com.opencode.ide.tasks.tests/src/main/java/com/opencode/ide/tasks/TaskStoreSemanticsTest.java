@@ -11,6 +11,7 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -495,11 +496,39 @@ public class TaskStoreSemanticsTest {
     assertEquals(List.of(), store.inconsistencies("p"));
   }
 
-  /** U-080: "the architecture was not done" is visible - done definition stage, no product. */
+  /**
+   * U-080: "the architecture was not done" is visible - done definition stage, no product. U-110:
+   * the API refuses a bare done (done-time enforcement), so the bare state is written directly as a
+   * ticket file - exactly what the doctor exists to catch in hand-edited stores.
+   */
   @Test
-  public void doctorReportsADoneDefinitionStageWithoutItsProduct() {
+  public void doctorReportsADoneDefinitionStageWithoutItsProduct() throws Exception {
     Task bare = store.create("p", TaskStore.CreateSpec.of("done but bare"), "architecture");
+    store.addArtifact("p", bare.id, "doc", "docs/architecture-product.md", "stage product", "dev");
     store.update("p", bare.id, Map.of("status", "done"));
+    // the legacy bare-done state is produced by hand-stripping the artifact section from the
+    // ticket file - exactly the hand-edited-store case the doctor exists to catch
+    Path file = store.root().resolve("p").resolve(bare.id + ".md");
+    List<String> lines = Files.readAllLines(file);
+    List<String> kept = new ArrayList<>();
+    boolean inArtifacts = false;
+    for (String line : lines) {
+      if (line.equals("## Artifacts")) {
+        inArtifacts = true;
+        continue;
+      }
+      if (inArtifacts && line.startsWith("## ")) {
+        inArtifacts = false;
+      }
+      if (!inArtifacts) {
+        kept.add(line);
+      }
+    }
+    Files.write(file, kept);
+    assertEquals(
+        "the hand edit recreated the bare-done state",
+        "architecture",
+        new TaskStore(store.root()).get("p", bare.id).stage);
     Task verified =
         store.create("p", TaskStore.CreateSpec.of("right leg produces no product"), "test-design");
     store.update("p", verified.id, Map.of("status", "done"));
@@ -620,16 +649,9 @@ public class TaskStoreSemanticsTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void traceabilityCountsOwnJourneyAndTestArtifactsAndPmDefinitions() {
-    // signal 2 (D-001): a ticket that walked into a test-* stage verifies itself
-    Task walked = store.create("p", TaskStore.CreateSpec.of("walked the V"), "requirements");
-    // U-080: the walk crosses definition-stage gates, so it carries a product
-    store.addArtifact("p", walked.id, "doc", "docs/stage-product.md", "stage product", "fixture");
-    while (!"test-implementation".equals(store.get("p", walked.id).stage)) {
-      store.update("p", walked.id, Map.of("status", "in-review"));
-      walked = store.advance("p", walked.id, "walker");
-    }
-    // signal 3 (D-001): a recorded test-shaped artifact counts as verification evidence
+  public void traceabilityCountsTestArtifactsAndPmDefinitions() {
+    // U-110: the wandering journey signal retired with the model - pairing now rides the
+    // basis/epic links created at division; the artifact signal is pinned here
     Task withTests = store.create("p", TaskStore.CreateSpec.of("records its tests"));
     store.addArtifact(
         "p",
@@ -645,8 +667,6 @@ public class TaskStoreSemanticsTest {
 
     Map<String, Object> out = store.traceability("p");
     List<String> orphans = (List<String>) out.get("orphan_definitions");
-    assertTrue(
-        "journey self-verification must not orphan: " + orphans, !orphans.contains(walked.id));
     assertTrue("test artifact must not orphan: " + orphans, !orphans.contains(withTests.id));
     assertTrue(
         "a pm definition with no signal stays an orphan: " + orphans, orphans.contains(pmReq.id));
@@ -655,12 +675,6 @@ public class TaskStoreSemanticsTest {
 
     List<Map<String, Object>> matrix = (List<Map<String, Object>>) out.get("matrix");
     for (Map<String, Object> row : matrix) {
-      if (walked.id.equals(row.get("id"))) {
-        assertTrue("walked row must be self_verified", (Boolean) row.get("self_verified"));
-        assertTrue(
-            "via must carry the journey signal: " + row.get("via"),
-            ((List<String>) row.get("via")).contains("journey"));
-      }
       if (withTests.id.equals(row.get("id"))) {
         assertTrue("artifact row must be self_verified", (Boolean) row.get("self_verified"));
         assertTrue(

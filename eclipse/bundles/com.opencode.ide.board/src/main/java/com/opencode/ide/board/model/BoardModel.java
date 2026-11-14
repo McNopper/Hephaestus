@@ -311,34 +311,6 @@ public final class BoardModel {
   }
 
   /**
-   * Advances the ticket one V stage via the store (allowed from in-review/done only).
-   *
-   * @return {@code null} on success, a human-readable failure message otherwise.
-   */
-  public String advance(String id) {
-    try {
-      store.advance(project, id, "board");
-      return null;
-    } catch (RuntimeException e) {
-      return failure("advance", id, e);
-    }
-  }
-
-  /**
-   * Sends the ticket one V stage back (blocked with the given reason) via the store.
-   *
-   * @return {@code null} on success, a human-readable failure message otherwise.
-   */
-  public String sendBack(String id, String reason) {
-    try {
-      store.sendBack(project, id, reason, "board");
-      return null;
-    } catch (RuntimeException e) {
-      return failure("send back", id, e);
-    }
-  }
-
-  /**
    * Moves a ticket to another status column (drag-and-drop on the flat kanban): a plain {@code
    * status} update via the store, same path the status tools use.
    *

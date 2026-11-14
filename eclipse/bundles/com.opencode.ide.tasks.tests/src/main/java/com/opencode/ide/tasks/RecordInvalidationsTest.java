@@ -56,11 +56,11 @@ public class RecordInvalidationsTest {
     store.update("p", child.id, Map.of("epic", parent.id));
     store.update("p", child.id, Map.of("title", child.title + " v2"));
     tick();
-    store.update("p", parent.id, Map.of("status", "done"));
-    // U-081: the stale pair presupposes a proven (artifacted) upstream -
+    // U-110: the product is recorded BEFORE the done touch (done-time enforcement) -
     // recorded last so the parent stays the newest input
     store.addArtifact(
         "p", parent.id, "doc", "docs/architecture-product.md", "stage product", "fixture");
+    store.update("p", parent.id, Map.of("status", "done"));
     return new String[] {parent.id, child.id};
   }
 
@@ -169,9 +169,11 @@ public class RecordInvalidationsTest {
   @Test
   public void noStageAndDoneFreshTicketsAreUntouched() throws Exception {
     Task parent = store.create("p", TaskStore.CreateSpec.of("anchor"), "architecture");
+    store.addArtifact("p", parent.id, "doc", "docs/anchor-product.md", "stage product", null);
     store.update("p", parent.id, Map.of("status", "done"));
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
     store.update("p", child.id, Map.of("epic", parent.id));
+    store.addArtifact("p", child.id, "doc", "docs/child-product.md", "stage product", null);
     store.update("p", child.id, Map.of("status", "done"));
     Task legacy = store.create("p", TaskStore.CreateSpec.of("legacy"));
 
@@ -183,9 +185,9 @@ public class RecordInvalidationsTest {
         store.get("p", legacy.id).history.size());
     assertEquals(
         "done with fresh inputs (NOT_APPLICABLE) is not re-marked",
-        3,
+        4,
         store.get("p", child.id).history.size());
-    assertEquals(2, store.get("p", parent.id).history.size());
+    assertEquals(3, store.get("p", parent.id).history.size());
   }
 
   @Test

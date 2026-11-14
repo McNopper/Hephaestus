@@ -37,6 +37,8 @@ public class AutoDispatchPreparationTest {
   @Test
   public void rejectedStatesLeaveTicketBytesUnchanged() throws Exception {
     TaskStore store = fixture();
+    // U-110: the definition-stage product is recorded BEFORE the done (done-time enforcement)
+    store.addArtifact("p", "T-2", "doc", "docs/t2-product.md", "stage product", null);
     rejectUnchanged(store, false); // stale opt-out
     store.update("p", "T-2", Map.of("status", "done")); // now fresh
     rejectUnchanged(store, true);

@@ -114,6 +114,15 @@ public final class Task {
 
   public String assignee;
   public String epic;
+
+  /**
+   * U-110: the BASIS work product this ticket derives from (the upstream ticket whose completion
+   * spawned it) - the derivation edge of the linked stage pipeline. {@code null} for entry-stage
+   * tickets (requirements) and legacy tickets. Readiness waits on the basis; traceability reports
+   * the chain. Distinct from {@link #epic}, which is the SCOPE container (children inherit it).
+   */
+  public String basis;
+
   public List<String> labels = new ArrayList<>();
   public List<String> acceptanceCriteria = new ArrayList<>();
   public List<Todo> todos = new ArrayList<>();
@@ -209,6 +218,7 @@ public final class Task {
     labels.forEach(lb::add);
     o.add("labels", lb);
     o.addProperty("epic", epic);
+    o.addProperty("basis", basis);
     o.add("artifacts", artifactsJson());
     o.add("todos", todosJson());
     o.addProperty("created_at", formatTs(createdAt));

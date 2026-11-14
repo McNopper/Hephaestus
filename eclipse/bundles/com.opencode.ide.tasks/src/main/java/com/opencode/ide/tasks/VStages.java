@@ -58,6 +58,46 @@ public final class VStages {
           "test-system", "test-software-system",
           "test-requirements", "test-software-requirements");
 
+  /**
+   * The stage's V-LEVEL PAIR: the verification leg of a definition stage and vice versa ({@code
+   * design} &harr; {@code test-design}). U-110: retained as LADDER MATH for the Board projection
+   * and legacy journey display - the horizontal ROUTE that used it is retired with the wandering
+   * model.
+   *
+   * @return the pair stage, or {@code null} when the stage is unknown
+   */
+  public static String pairOf(String stage) {
+    if (!isValid(stage)) {
+      return null;
+    }
+    return isVerification(stage) ? stage.substring("test-".length()) : "test-" + stage;
+  }
+
+  /**
+   * @return the next stage down/up the V ladder, or {@code null} at either end (ladder math for the
+   *     Board projection and legacy journey display - NOT a movement verb; U-110 tickets are
+   *     stationary).
+   */
+  public static String next(String stage) {
+    if (!isValid(stage)) {
+      return null;
+    }
+    int i = STAGES.indexOf(stage);
+    return i + 1 < STAGES.size() ? STAGES.get(i + 1) : null;
+  }
+
+  /**
+   * @return the previous ladder stage, or {@code null} at the start (requirements) - ladder math
+   *     for display, not a movement verb (U-110).
+   */
+  public static String previous(String stage) {
+    if (!isValid(stage)) {
+      return null;
+    }
+    int i = STAGES.indexOf(stage);
+    return i > 0 ? STAGES.get(i - 1) : null;
+  }
+
   private VStages() {}
 
   /**
@@ -86,42 +126,6 @@ public final class VStages {
    */
   public static boolean isVerification(String stage) {
     return stage != null && STAGES.indexOf(stage) >= STAGES.indexOf("test-implementation");
-  }
-
-  /**
-   * The stage's V-LEVEL PAIR: the verification leg of a definition stage and vice versa ({@code
-   * design} &harr; {@code test-design}, ...). U-029/U-031: the horizontal resolution route reports
-   * a blocked ticket to this stage.
-   *
-   * @return the pair stage, or {@code null} when the stage is unknown
-   */
-  public static String pairOf(String stage) {
-    if (!isValid(stage)) {
-      return null;
-    }
-    return isVerification(stage) ? stage.substring("test-".length()) : "test-" + stage;
-  }
-
-  /**
-   * @return the next stage down/up the V, or {@code null} at either end.
-   */
-  public static String next(String stage) {
-    if (!isValid(stage)) {
-      return null;
-    }
-    int i = STAGES.indexOf(stage);
-    return i + 1 < STAGES.size() ? STAGES.get(i + 1) : null;
-  }
-
-  /**
-   * @return the previous stage, or {@code null} at the start (requirements).
-   */
-  public static String previous(String stage) {
-    if (!isValid(stage)) {
-      return null;
-    }
-    int i = STAGES.indexOf(stage);
-    return i > 0 ? STAGES.get(i - 1) : null;
   }
 
   /**

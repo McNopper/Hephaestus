@@ -22,12 +22,11 @@ import java.util.Map;
  * these replace the retired Python {@code pm} MCP server ({@code pm_*} tools) with identical
  * semantics - claim ordering and null-when-empty, lax update rules, sprint force-set on plan,
  * close-sprint returns, traceability pairing - so worker agents and the {@code pm-*} skills keep
- * working after a pure rename. On top of that pack, {@code task_advance}/{@code task_send_back}
- * drive the V-model pipeline (stage hand-forward with the in-review/done quality gate, and the
- * blocked hand-back loop; see {@link VStages}), {@code task_pass_stage} records the U-029 stage
- * pass-through (same transition, a rationale instead of a dispatch), and {@code task_readiness}
- * exposes the {@link StageReadiness} dispatch verdicts so the PM agent can ask what's runnable
- * right now.
+ * working after a pure rename. The pipeline is the LINKED stage graph (U-110): tickets are born in
+ * their stage, {@code task_create} links them to their basis ({@code basis} = the upstream work
+ * product), and completing a ticket divides it into linked downstream tickets. {@code
+ * task_readiness} exposes the {@link StageReadiness} dispatch verdicts so the stage tickers can ask
+ * what's runnable right now.
  *
  * <p>Parameter names keep the historical {@code ticket_id}/{@code project} spellings for
  * compatibility with existing agent prose ("task" and "ticket" name the same thing; the store calls
@@ -95,7 +94,8 @@ public final class TaskToolProvider implements ToolProvider {
                   optStr(a, "epic", null),
                   orDefault(optStr(a, "id_prefix", null), "T"),
                   a.has("blocked") && !a.get("blocked").isJsonNull() ? reqBool(a, "blocked") : null,
-                  optStr(a, "blocker", null));
+                  optStr(a, "blocker", null),
+                  optStr(a, "basis", null));
           String project = reqStr(a, "project");
           Task created = store.create(project, spec, optStr(a, "stage", null));
           String model = optStr(a, "model", null);
@@ -149,38 +149,6 @@ public final class TaskToolProvider implements ToolProvider {
           }
           return json(store.update(reqStr(a, "project"), reqStr(a, "ticket_id"), changes).toJson());
         }
-      case "task_advance":
-        return json(
-            store
-                .advance(reqStr(a, "project"), reqStr(a, "ticket_id"), optStr(a, "by", null))
-                .toJson());
-      case "task_pass_stage":
-        return json(
-            store
-                .passStage(
-                    reqStr(a, "project"),
-                    reqStr(a, "ticket_id"),
-                    reqStr(a, "reason"),
-                    optStr(a, "by", null))
-                .toJson());
-      case "task_send_back":
-        return json(
-            store
-                .sendBack(
-                    reqStr(a, "project"),
-                    reqStr(a, "ticket_id"),
-                    reqStr(a, "reason"),
-                    optStr(a, "by", null))
-                .toJson());
-      case "task_report_horizontal":
-        return json(
-            store
-                .reportHorizontal(
-                    reqStr(a, "project"),
-                    reqStr(a, "ticket_id"),
-                    reqStr(a, "reason"),
-                    optStr(a, "by", null))
-                .toJson());
       case "task_set_blocked":
         return json(
             store
@@ -457,6 +425,12 @@ public final class TaskToolProvider implements ToolProvider {
                       strP(
                           "Required with blocked=true: why the ticket is born blocked (U-067: "
                               + "status moves to blocked, resume_to remembers product-backlog)."));
+                  obj.add(
+                      "basis",
+                      strP(
+                          "U-110: the BASIS work product this ticket derives from - the id of the"
+                              + " upstream ticket whose completion spawned it (the derivation edge"
+                              + " of the linked stage pipeline); omit for entry-stage tickets."));
                 })));
     out.add(
         new McpTool(
@@ -507,77 +481,6 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("labels", arrP());
                   obj.add("epic", strP());
                   obj.add("sprint", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_advance",
-            "Advance a ticket to the next V-model pipeline stage. Quality gate: the stage's work must be "
-                + "finished (status in-review or done). Effect: stage and role move to the next stage's, "
-                + "status resets to product-backlog (the next stage's backlog is fed by the previous "
-                + "stage), the assignee is cleared, the blocked flag stays as-is.",
-            schema(
-                new String[] {"project", "ticket_id"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("ticket_id", strP());
-                  obj.add("by", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_pass_stage",
-            "PASS a ticket's current V-model pipeline stage through without work (the U-029 "
-                + "pass-through verb): the stage's work does not apply to this change. Effect: "
-                + "exactly task_advance's - stage and role move to the next stage's, status resets "
-                + "to product-backlog, the assignee is cleared - but no stage artifact is required "
-                + "and history records 'stage <N> passed: <reason>'. Rejected with a blank reason, "
-                + "a ticket with no stage, or at the V tip (test-requirements): the journey always "
-                + "ends with a real acceptance run.",
-            schema(
-                new String[] {"project", "ticket_id", "reason"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("ticket_id", strP());
-                  obj.add(
-                      "reason",
-                      strP(
-                          "Why the stage has no applicable work; becomes the 'stage <N> passed: "
-                              + "<reason>' history entry."));
-                  obj.add("by", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_send_back",
-            "Send a ticket back to the previous V-model pipeline stage with a reason (the feedback loop). "
-                + "Effect: stage and role move to the previous stage's, status resets to product-backlog, "
-                + "the assignee is cleared and the blocked flag is raised with blocker "
-                + "'sent back from <old stage>: <reason>' (clear via task_clear_blocked once resolved).",
-            schema(
-                new String[] {"project", "ticket_id", "reason"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("ticket_id", strP());
-                  obj.add(
-                      "reason",
-                      strP("Why the ticket goes back; becomes part of the blocker text."));
-                  obj.add("by", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_report_horizontal",
-            "HORIZONTAL V-model loop (U-082): report a ticket sideways to its V-LEVEL PAIR stage "
-                + "(e.g. test-design -> design, test-requirements -> requirements) - the route for a "
-                + "FAILED VALIDATION. Effect: stage and role move to the pair stage's, status resets to "
-                + "product-backlog, the assignee is cleared and the blocked flag is raised with blocker "
-                + "'reported from <old stage>: <reason>' (clear via task_clear_blocked once resolved).",
-            schema(
-                new String[] {"project", "ticket_id", "reason"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("ticket_id", strP());
-                  obj.add(
-                      "reason",
-                      strP("Why the validation failed; becomes part of the blocker text."));
-                  obj.add("by", strP());
                 })));
     out.add(
         new McpTool(

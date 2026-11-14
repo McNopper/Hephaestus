@@ -212,6 +212,7 @@ public final class TaskFileCodec {
     fm(b, "story_points", t.storyPoints);
     fm(b, "sprint", t.sprint);
     fm(b, "epic", t.epic);
+    fm(b, "basis", t.basis);
     fm(b, "assignee", t.assignee);
     fm(b, "resume_to", t.resumeTo);
     fm(b, "blocker", t.blocker);
@@ -314,6 +315,7 @@ public final class TaskFileCodec {
     t.storyPoints = points == null ? 0 : points;
     t.sprint = scalarString(raw.remove("sprint"));
     t.epic = scalarString(raw.remove("epic"));
+    t.basis = scalarString(raw.remove("basis"));
     t.assignee = scalarString(raw.remove("assignee"));
     // U-067: blocked is a STATE. The legacy boolean flag migrates once,
     // at read: status -> "blocked", resume_to remembers the old status,
