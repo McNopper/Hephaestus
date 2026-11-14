@@ -289,6 +289,10 @@ adding a stage = adding its division map + skill, nothing else.
 - Staged tickets keep their `stage:` as **ownership**; no data migration of
   the field itself. Tickets mid-walk (a stage cursor between stages) resolve
   to their current stage as their permanent home.
+- One CANONICAL-FORM migration: the codec now emits `basis:` (null for
+  unbasis'd tickets), so legacy ticket files re-encode once through fix mode
+  (`-Dopencode.tasks.fix=true` or the next fix-mode sync) to gain the empty
+  `basis: null` line — mechanical, no data change.
 - Open sprint records (`S-08`.., `ticker-*` for new stages) continue under the
   existing reopen semantics (U-108).
 - The Board's V-pipeline projection becomes a **stage-column × link-graph**
