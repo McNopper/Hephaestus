@@ -61,8 +61,18 @@ function Find-BuiltJar([string]$bundle) {
 $tasksJar = Find-BuiltJar "com.opencode.ide.tasks"
 $toolsJar = Find-BuiltJar "com.opencode.ide.tools"
 if (-not $tasksJar -or -not $toolsJar) {
-    # A reactor rebuild wipes target/ wholesale, so a respawn DURING a gate would
-    # hard-fail here and strand the MCP status on Error until the next retry.
+    # B-027: prefer the DEPLOYED DROPINS (stable across gates - only deploys touch
+    # them), then the staged copies. A reactor rebuild wipes target/ wholesale, so
+    # a respawn during or after a gate must not depend on target/ existing.
+    $dropins = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins") -ErrorAction SilentlyContinue
+    if ($dropins) {
+        $tasksJar = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins/com.opencode.ide.tasks-*.jar") -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'sources' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $toolsJar = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins/com.opencode.ide.tools-*.jar") -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'sources' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    }
+}
+if (-not $tasksJar -or -not $toolsJar) {
     # Fall back to the newest B-005-staged copies (7-day retention below) - a
     # slightly older but WORKING server beats no server (U-101 follow-up, live
     # 2026-10-27: exactly this throw fired mid-gate).
