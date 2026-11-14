@@ -15,10 +15,17 @@
 
 ## Vision
 
-**This section is the Product Goal analogue** (the Scrum-Guide commitment for
-the backlog): the long-term objective the whole store is ordered toward. GOAL
-tickets are its governed decomposition - goal intake turns an owner objective
-into one ticket, division expands it into the derivation tree.
+**Product Goal.** Any objective, stated in plain language, becomes verified
+software: agents expand it along a V-model — every definition stage creates
+its own verification pair, nothing is *done* until a gate proves it — and
+walk it end-to-end, unattended, on opencode's substrate. The store keeps
+every step an auditable event; the maintainer stays the exception handler,
+never the dispatcher.
+
+**This section is the Product Goal** (the Scrum-Guide commitment for the
+backlog): the long-term objective the whole store is ordered toward. GOAL
+tickets are its governed decomposition - goal intake turns an owner
+objective into one ticket, division expands it into the derivation tree.
 
 One repository. Intelligence lives in `.opencode/` (agents, skills) and MCP
 servers; the Eclipse plugin (`eclipse/`) is the harness: it hosts, services,
