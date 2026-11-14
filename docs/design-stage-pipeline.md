@@ -150,6 +150,7 @@ Therefore:
   reopen semantics) and closed at the tick boundary. This keeps the sprint
   namespace compact (no per-tick id explosion) while history, goal and digest
   stay per-tick. The auto-minted `S-xx` records remain for human-run waves.
+
 ### The tick algorithm (always the same, every launch)
 
 The ticker has no decisions to make — the procedure is fixed, parameterized
@@ -205,6 +206,18 @@ adding a stage = adding its division map + skill, nothing else.
   acceptance). The subagent's goal is exactly: *finish ticket X — produce the
   stage product, record the artifact, set the ticket `in-review`*. U-105's
   governed-goal semantics: the session never self-accepts.
+- **Workers are narrow: the brief, not the big picture** (owner, 2026-11-14).
+  A subagent's world is exactly its ticket: the ticket content, the **direct
+  basis artifacts** (the upstream stage product it derives from — e.g. the
+  design document for an implementation worker), its stage skill + the common
+  process skill, and its lane constraints. No epic tree, no initiative
+  context, no other tickets, no store-wide visibility. Transitively needed
+  content lives IN the basis artifact (ASPICE consistency: the design doc
+  incorporates the requirements it implements). The ticker composes this brief
+  into the spawn prompt — the worker needs write access only for its own
+  ticket (status flips, artifact recording). Consequences: small prompts and
+  cheap workers; a worker cannot wander (it never learns other tickets exist);
+  the ticker holds the big picture, the worker holds the ticket.
 - **Admission = the spawn cap.** Global cap (⧗ OPEN — default proposal **4**)
   plus per-stage serialization: the ticker never spawns two subagents whose
   file lanes overlap; when lanes overlap it serializes within the stage.
