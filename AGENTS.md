@@ -104,16 +104,17 @@ results and artifacts live ON the tickets: the maintainer tracks effort and
 evidence without reading code, and escalates (NEEDS-HUMAN) only when the
 round-trips are exhausted.
 
-**V-model execution:** a staged ticket wanders
-through ALL ten stages, 1 to 10 — but a stage where nothing applies to the
-feature (e.g. no architecture-level change needed) is a **pass-through**:
-the ticket advances with a recorded rationale ("no architecture impact:
-local change") instead of a full dispatch. Every stage is visited; not
-every stage does work. The pass-through verb is
-`task_pass_stage(project, ticket_id, reason)` (history `stage N passed:
-<reason>`), and a `pass-declare: <stage> - <reason>` ticket comment makes
-the launch path record that pass instead of starting a session - zero
-sessions, zero charge (U-057/U-058).
+**V-model execution (U-110, linked stage pipeline):** tickets are
+**stationary** — born in one stage, never moved. The pipeline is the LINK
+GRAPH: completing an upstream ticket divides it into linked downstream
+tickets (`epic` = scope container inherited by the whole derivation tree;
+`basis` = the derivation edge). `stage:` is immutable ownership set at
+creation. Division is performed by the stage's ticker/agent on completion;
+the downstream stage's ticker discovers the new tickets via readiness at its
+next tick (the tick boundary is the only synchronization point). Design:
+`docs/design-stage-pipeline.md`; live acceptance evidence: ticket `U-111`
+(AE-6 comment — requirements T-031 → linked system child A-001, engine
+verdicts throughout).
 
 **Pump strategy (resolution-first, wired):** every tick of the production
 schedulers resolves BLOCKED ITEMS FIRST — route a blocked ticket to the
@@ -175,7 +176,7 @@ product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-r
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
 blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
   returns to resume_to (default sprint-backlog); done and paused can never be blocked
-stage = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back -> previous stage (blocked + reason); task_report_horizontal -> the V-level pair stage (blocked + reason; the route for a failed validation)
+stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (epic inherited, basis = the completing ticket); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
 ```
 
 **Write discipline.** Store writes go through the `task_*` tools (or the engine API),
@@ -209,10 +210,11 @@ runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
 - When a worker produces an artifact (file, git commit/branch, doc), it records it with
   `task_add_artifact(kind=file|git|path|url|doc, ref=…)` **before** moving to `in-review` —
   the ticket is the hand-off contract.
-- A review FAIL routes by stage: `task_send_back` to the **previous stage's
-  backlog**, blocked with the reviewer's reasons (the maintainer-escalation signal) — the
-  first stage and unstaged tickets have nowhere to go back to and are blocked in
-  place. An UNCLEAR verdict round-trips the doubt to the originator (one retry per
+- A review FAIL blocks the ticket **in its own stage** (`task_set_blocked`
+  with the reviewer's reasons — the maintainer-escalation signal) and, under
+  U-110, the blockage escalates to the ticket's **basis** (the upstream link):
+  the upstream stage's ticker re-opens or reworks the basis. An UNCLEAR
+  verdict round-trips the doubt to the originator (one retry per
   stage visit); an unstaged ticket stays in `in-review` with the doubt as a comment.
 - See `project-manager-operating-model` for Scrum events, the Definition of Done, and the
   bubble-up → escalation rule; `project-manager-create-ticket` for how to fill a ticket; `project-manager-route-request`
