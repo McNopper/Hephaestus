@@ -108,15 +108,23 @@ public final class TaskToolProvider implements ToolProvider {
         return json(store.get(reqStr(a, "project"), reqStr(a, "ticket_id")).toJson());
       case "task_list":
         {
-          JsonArray arr = new JsonArray();
-          store
-              .list(
+          String status = optStr(a, "status", null);
+          List<Task> out =
+              store.list(
                   reqStr(a, "project"),
                   optStr(a, "role", null),
-                  optStr(a, "status", null),
+                  status,
                   optStr(a, "sprint", null),
-                  a.has("blocked") && !a.get("blocked").isJsonNull() ? reqBool(a, "blocked") : null)
-              .forEach(t -> arr.add(t.toJson()));
+                  a.has("blocked") && !a.get("blocked").isJsonNull()
+                      ? reqBool(a, "blocked")
+                      : null);
+          if ("product-backlog".equals(status)) {
+            // T-032: the standalone backlog tool folded into the list - the
+            // prioritized order is the backlog contract
+            out.sort(TaskStore.prioritized());
+          }
+          JsonArray arr = new JsonArray();
+          out.forEach(t -> arr.add(t.toJson()));
           return json(arr);
         }
       case "task_update":
@@ -207,40 +215,39 @@ public final class TaskToolProvider implements ToolProvider {
                     reqInt(a, "index"),
                     optStr(a, "by", null))
                 .toJson());
-      case "task_add_todo":
-        return json(
-            store
-                .addTodo(
+      case "task_todo":
+        {
+          String action = reqStr(a, "action");
+          Task t;
+          if ("add".equals(action)) {
+            t =
+                store.addTodo(
                     reqStr(a, "project"),
                     reqStr(a, "ticket_id"),
                     reqStr(a, "text"),
                     optBool(a, "done", false),
-                    optStr(a, "by", null))
-                .toJson());
-      case "task_toggle_todo":
-        return json(
-            store
-                .toggleTodo(
+                    optStr(a, "by", null));
+          } else if ("toggle".equals(action)) {
+            t =
+                store.toggleTodo(
                     reqStr(a, "project"),
                     reqStr(a, "ticket_id"),
                     reqInt(a, "index"),
-                    optStr(a, "by", null))
-                .toJson());
-      case "task_remove_todo":
-        return json(
-            store
-                .removeTodo(
+                    optStr(a, "by", null));
+          } else if ("remove".equals(action)) {
+            t =
+                store.removeTodo(
                     reqStr(a, "project"),
                     reqStr(a, "ticket_id"),
                     reqInt(a, "index"),
-                    optStr(a, "by", null))
-                .toJson());
-      case "task_backlog":
-        {
-          JsonArray arr = new JsonArray();
-          store.backlog(reqStr(a, "project")).forEach(t -> arr.add(t.toJson()));
-          return json(arr);
+                    optStr(a, "by", null));
+          } else {
+            throw new ParamError("parameter 'action' must be add, toggle or remove");
+          }
+          return json(t.toJson());
         }
+      case "task_links":
+        return json(PRETTY.toJsonTree(store.links(reqStr(a, "project"), reqStr(a, "ticket_id"))));
       case "task_board":
         {
           JsonObject o = new JsonObject();
@@ -578,46 +585,29 @@ public final class TaskToolProvider implements ToolProvider {
                 })));
     out.add(
         new McpTool(
-            "task_add_todo",
-            "Append a todo (checklist item) to a task.",
+            "task_todo",
+            "Manage a task's todos: action=add (text, done?) or action=toggle/remove (0-based index).",
             schema(
-                new String[] {"project", "ticket_id", "text"},
+                new String[] {"project", "ticket_id", "action"},
                 obj -> {
                   obj.add("project", strP());
                   obj.add("ticket_id", strP());
+                  obj.add("action", strP());
                   obj.add("text", strP());
+                  obj.add("index", intP());
                   obj.add("done", boolP());
                   obj.add("by", strP());
                 })));
     out.add(
         new McpTool(
-            "task_toggle_todo",
-            "Flip the done state of a task's todo by 0-based index.",
+            "task_links",
+            "The link graph around a ticket: up = the basis chain to the entry ticket; down = direct derivation children; back = siblings (same basis) plus the epic.",
             schema(
-                new String[] {"project", "ticket_id", "index"},
+                new String[] {"project", "ticket_id"},
                 obj -> {
                   obj.add("project", strP());
                   obj.add("ticket_id", strP());
-                  obj.add("index", intP());
-                  obj.add("by", strP());
                 })));
-    out.add(
-        new McpTool(
-            "task_remove_todo",
-            "Remove a task's todo by 0-based index.",
-            schema(
-                new String[] {"project", "ticket_id", "index"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("ticket_id", strP());
-                  obj.add("index", intP());
-                  obj.add("by", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_backlog",
-            "Prioritized product backlog for a project.",
-            schema(new String[] {"project"}, obj -> obj.add("project", strP()))));
     out.add(
         new McpTool(
             "task_board",

@@ -1192,6 +1192,71 @@ public final class TaskStore {
     return out;
   }
 
+  /**
+   * T-032: the link graph around one ticket, computed deterministically over the current file set
+   * (no cached state). up = the basis chain walked to the entry ticket (a basis pointing nowhere
+   * reports {@code missing}); down = the direct derivation children (basis == this id); back = the
+   * siblings (same basis, not this id); epic = the scope container when present.
+   */
+  public Map<String, Object> links(String project, String id) {
+    List<Task> all = list(project, null, null, null, null);
+    Task self = all.stream().filter(t -> t.id.equals(id)).findFirst().orElse(null);
+    if (self == null) {
+      throw new NotFound("ticket " + id + " not found");
+    }
+    Map<String, Object> out = new java.util.LinkedHashMap<>();
+    List<Map<String, Object>> up = new ArrayList<>();
+    java.util.Set<String> seen = new java.util.HashSet<>();
+    seen.add(self.id);
+    Task cur = self;
+    while (cur.basis != null && seen.add(cur.basis)) {
+      final String basisId = cur.basis;
+      Task b = all.stream().filter(t -> t.id.equals(basisId)).findFirst().orElse(null);
+      if (b == null) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("id", cur.basis);
+        m.put("missing", true);
+        up.add(m);
+        break;
+      }
+      up.add(linkRef(b));
+      cur = b;
+    }
+    List<Map<String, Object>> down = new ArrayList<>();
+    for (Task t : all) {
+      if (id.equals(t.basis)) {
+        down.add(linkRef(t));
+      }
+    }
+    List<Map<String, Object>> back = new ArrayList<>();
+    if (self.basis != null) {
+      for (Task t : all) {
+        if (!t.id.equals(id) && self.basis.equals(t.basis)) {
+          back.add(linkRef(t));
+        }
+      }
+    }
+    out.put("id", self.id);
+    out.put("up", up);
+    out.put("down", down);
+    out.put("back", back);
+    if (self.epic != null) {
+      out.put("epic", self.epic);
+    }
+    return out;
+  }
+
+  private static Map<String, Object> linkRef(Task t) {
+    Map<String, Object> m = new java.util.LinkedHashMap<>();
+    m.put("id", t.id);
+    m.put("title", t.title);
+    m.put("status", t.status);
+    if (t.stage != null) {
+      m.put("stage", t.stage);
+    }
+    return m;
+  }
+
   public Map<String, Object> closeSprint(String project, String sprintId) {
     return transaction(
         project,
@@ -1904,7 +1969,8 @@ public final class TaskStore {
     }
   }
 
-  private static Comparator<Task> prioritized() {
+  /** T-032: the tool layer sorts {@code task_list(status=product-backlog)} with this order. */
+  public static Comparator<Task> prioritized() {
     return Comparator.comparing((Task t) -> -Task.PRIORITY_ORDER.getOrDefault(t.priority, 0))
         .thenComparing(t -> t.createdAt == null ? Instant.EPOCH : t.createdAt)
         .thenComparing(t -> t.id);

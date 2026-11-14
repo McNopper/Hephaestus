@@ -37,10 +37,8 @@ public class TaskToolsDispatchTest {
           "task_add_comment",
           "task_add_artifact",
           "task_remove_artifact",
-          "task_add_todo",
-          "task_toggle_todo",
-          "task_remove_todo",
-          "task_backlog",
+          "task_todo",
+          "task_links",
           "task_board",
           "task_plan_sprint",
           "task_close_sprint",
@@ -101,13 +99,13 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void toolsListAdvertisesAllTwentyOneToolsWithSchemas() {
+  public void toolsListAdvertisesAllNineteenToolsWithSchemas() {
     JsonObject response =
         JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .getAsJsonObject();
     JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-    assertEquals(21, tools.size());
+    assertEquals(19, tools.size());
     for (int i = 0; i < tools.size(); i++) {
       JsonObject tool = tools.get(i).getAsJsonObject();
       assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -209,12 +207,62 @@ public class TaskToolsDispatchTest {
   public void todoOpsThroughTools() {
     callOk("task_create", "{\"project\":\"p\",\"title\":\"a\"}");
     JsonObject t =
-        callOk("task_add_todo", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"text\":\"step 1\"}");
+        callOk(
+            "task_todo",
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"action\":\"add\",\"text\":\"step 1\"}");
     assertEquals(1, t.getAsJsonArray("todos").size());
-    t = callOk("task_toggle_todo", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"index\":0}");
+    t =
+        callOk(
+            "task_todo",
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"action\":\"toggle\",\"index\":0}");
     assertTrue(t.getAsJsonArray("todos").get(0).getAsJsonObject().get("done").getAsBoolean());
-    t = callOk("task_remove_todo", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"index\":0}");
+    t =
+        callOk(
+            "task_todo",
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"action\":\"remove\",\"index\":0}");
     assertEquals(0, t.getAsJsonArray("todos").size());
+  }
+
+  @Test
+  public void backlogOrderThroughListTool() {
+    callOk("task_create", "{\"project\":\"p\",\"title\":\"low first\",\"priority\":\"low\"}");
+    callOk(
+        "task_create", "{\"project\":\"p\",\"title\":\"high second\",\"priority\":\"critical\"}");
+    JsonArray arr =
+        JsonParser.parseString(
+                callText("task_list", "{\"project\":\"p\",\"status\":\"product-backlog\"}"))
+            .getAsJsonArray();
+    assertEquals(2, arr.size());
+    assertEquals(
+        "critical sorts ahead of low",
+        "high second",
+        arr.get(0).getAsJsonObject().get("title").getAsString());
+  }
+
+  @Test
+  public void linksUpDownBackThroughTools() {
+    callOk("task_create", "{\"project\":\"p\",\"title\":\"upstream\",\"stage\":\"requirements\"}");
+    callOk(
+        "task_create",
+        "{\"project\":\"p\",\"title\":\"child one\",\"stage\":\"system\",\"basis\":\"T-001\"}");
+    callOk(
+        "task_create",
+        "{\"project\":\"p\",\"title\":\"child two\",\"stage\":\"test-system\",\"basis\":\"T-001\"}");
+    JsonObject child = callOk("task_get", "{\"project\":\"p\",\"ticket_id\":\"T-002\"}");
+    assertEquals("T-001", child.get("basis").getAsString());
+    JsonObject links = callOk("task_links", "{\"project\":\"p\",\"ticket_id\":\"T-002\"}");
+    assertEquals(
+        "up walks to the entry ticket",
+        "T-001",
+        links.getAsJsonArray("up").get(0).getAsJsonObject().get("id").getAsString());
+    assertEquals(0, links.getAsJsonArray("down").size());
+    assertEquals(
+        "back names the sibling under the same basis",
+        "T-003",
+        links.getAsJsonArray("back").get(0).getAsJsonObject().get("id").getAsString());
+    JsonObject top = callOk("task_links", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}");
+    assertEquals(2, top.getAsJsonArray("down").size());
+    assertEquals(0, top.getAsJsonArray("up").size());
   }
 
   @Test

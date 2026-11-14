@@ -114,7 +114,7 @@ auto-started fleets; it eats tokens). Start fleet work deliberately:
 Not hardcoded here — the plan lives in the store and the roadmap, and this
 file never duplicates their state:
 
-- `ROADMAP.md`, top section *How to take over (for agents)* — the current
-  wave and the pointer to open work and its priorities.
-- `task_board` / `task_backlog` (project `hephaestus`) — the live ticket
+- `ROADMAP.md`, the *Release path* table — the ordered pointer to open work
+  and its priorities.
+- `task_board` / `task_list` (project `hephaestus`) — the live ticket
   state; the task store is the source of record.

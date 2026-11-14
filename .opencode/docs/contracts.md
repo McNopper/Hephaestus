@@ -9,6 +9,30 @@
 The shared, durable agreements every skill and agent honors. Change these centrally and
 update all references.
 
+## Mental model (read this first)
+
+A ticket is one Markdown file carrying **five independent axes**. Grouping and
+ancestry are plain link fields, not types - the engine treats them as data, and
+every query (readiness, traceability, `task_links`) recomputes from the files
+deterministically.
+
+| Axis | Question it answers | Contract |
+|---|---|---|
+| `epic` | *whose scope am I?* | link to the scope-container ticket; inherited by the whole derivation tree; the epic itself is an ordinary ticket (often the GOAL ticket) |
+| `basis` | *where did I come from?* | the one upstream ticket whose completion spawned me (the derivation edge); entry tickets carry none |
+| `stage` | *which V-level owns me?* | immutable at creation; drives dispatch and readiness |
+| `status` | *where am I in the lifecycle?* | six states; blocked/paused are states with resume rules, done/paused can never be blocked |
+| `sprint` | *which wave am I planned into?* | optional execution batch, orthogonal to everything above |
+
+**The derivation tree.** Division creates children: `basis` = the completed
+ticket, `epic` inherited. The V walks down the definition leg and up the
+verification leg by pair (`X` <-> `test-X`). Progress over an epic = done
+children / all children (`task_list`, `task_traceability`, `task_links`).
+**There are no milestones** - the cross-tree anchors are the epic and the
+release definition in `ROADMAP.md`. Classic mapping: Product Goal = GOAL
+ticket, epic = the `epic` field, story = a ticket (stage-sized), sub-task =
+todos, sprint = a wave.
+
 ## Ticket contract (`task_*` tools, `.opencode/tasks/` store)
 
 A ticket is the **hand-off unit**. Its authoritative shape (per project):
@@ -31,7 +55,7 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `labels` | string[] | free tags |
 | `epic` | string | parent ticket id for traceability |
 | `artifacts` | `{kind, ref, note, by, ts}[]` | **where the produced output lives** |
-| `todos` | `{text, done}[]` | checklist items (`task_add_todo`/`task_toggle_todo`/`task_remove_todo`) |
+| `todos` | `{text, done}[]` | checklist items (`task_todo` with `action=add/toggle/remove`) |
 | `history` | append-only | state transitions |
 | `comments` | append-only | human/agent notes |
 | `created_at` / `updated_at` | ISO-8601 instant (UTC, e.g. `2026-08-28T03:25:20.519Z`) | drives claim/backlog ordering |
@@ -57,11 +81,13 @@ New/Reset project actions and the fleet's doubt routing), not `task_*` MCP tools
 
 ### Tool surface (`pm_*` → `task_*`)
 
-`task_create`, `task_get`, `task_list`, `task_update`, `task_set_blocked`,
-`task_clear_blocked`, `task_claim`, `task_release`, `task_add_comment`,
-`task_add_artifact`, `task_add_todo`, `task_toggle_todo`, `task_remove_todo`,
-`task_backlog`, `task_board`, `task_plan_sprint`, `task_close_sprint`,
-`task_traceability`, `task_doctor`. Served by the **`eclipse-build` MCP endpoint** when the Eclipse
+19 tools (T-032 consolidation): `task_create`, `task_get`, `task_list` (returns the
+prioritized order for `status=product-backlog` — the standalone backlog tool folded in),
+`task_update`, `task_set_blocked`, `task_clear_blocked`, `task_claim`, `task_release`,
+`task_add_comment`, `task_add_artifact`, `task_remove_artifact`, `task_todo`
+(`action=add/toggle/remove`), `task_board`, `task_plan_sprint`, `task_close_sprint`
+(opt-in `auto_archive`, U-060), `task_traceability`, `task_doctor`, `task_readiness`,
+`task_links` (the up/down/back link graph around a ticket). Served by the **`eclipse-build` MCP endpoint** when the Eclipse
 harness runs (plus the C++ tool pack) and by the stdio launchers for TUI-only sessions —
 The ``tasks`` stdio pack is served by ``eclipse/tasks-tools.ps1`` (the ``tasks`` MCP server; the retired ``fleet-tools.ps1`` launcher was removed with the fleet in U-110).
 `fleet` pack), both configured in `opencode.json` — one tool surface, two transports. Each

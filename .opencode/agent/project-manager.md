@@ -85,7 +85,7 @@ NEEDS-HUMAN (`blocked`) items agents could not resolve.
    (`task_create`, story points, `role`, acceptance criteria).
 3. **Plan** — `task_plan_sprint` to commit tickets into the wave (`sprint-backlog`).
 4. **Run** — workers `task_claim(role=...)`; you watch `task_board()` and
-   `task_backlog()`; keep status current.
+   `task_list(status=product-backlog)`; keep status current.
 5. **Triage** — on `blocked` tickets (`task_set_blocked`), resolve first (reassign,
    resequence, blocked escalation to the basis, report to the V-pair
    stage) or escalate NEEDS-HUMAN items to the maintainer.

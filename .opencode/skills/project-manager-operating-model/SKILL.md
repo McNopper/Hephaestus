@@ -151,8 +151,8 @@ serialization point):
   different discipline, or one with capacity) then `task_claim(...)` the
   same ticket — so a returned ticket can be picked up and finished by a
   different agent rather than stalling on the one that gave it back.
-- **To view:** `task_backlog()` (prioritized product backlog), `task_board()`
-  (wave Kanban by state), `task_list(role=..., status=...)`.
+- **To view:** `task_list(status=product-backlog)` (prioritized product
+  backlog), `task_board()` (wave Kanban by state), `task_list(role=..., status=...)`.
 
 ## Iterative rework loop
 
