@@ -21,8 +21,8 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * Real-process tests for the {@link GitCli} seam (git is on PATH; skipped otherwise — mirrors the
- * git bundle's GitWorktreeManagerTest style): happy diff against a task branch, non-zero exit,
- * missing binary and the destroyForcibly timeout.
+ * git bundle's GitWorktreeManagerTest style): non-zero exit, missing binary and the destroyForcibly
+ * timeout.
  */
 public class GitCliTest {
 
@@ -56,23 +56,9 @@ public class GitCliTest {
   }
 
   @Test
-  public void diffShowsChangedLineAgainstTaskBranch() throws Exception {
-    git("checkout", "-b", "opencode/T-001");
-    Files.writeString(
-        repo.resolve("file.txt"), "line1\nline2\nline3-added\n", StandardCharsets.UTF_8);
-    git("add", ".");
-    git("commit", "-m", "task change");
-    git("checkout", "main");
-
-    String diff = GitCli.diff(repo, "T-001");
-
-    assertTrue(diff, diff.contains("line3-added"));
-  }
-
-  @Test
   public void nonZeroExitBecomesIllegalStateMentioningExit() {
     try {
-      GitCli.diff(repo, "T-NOPE");
+      GitCli.run(List.of("git", "--bogus-flag-xyz"), Duration.ofSeconds(2));
       fail("expected IllegalStateException");
     } catch (IllegalStateException e) {
       assertTrue(e.getMessage(), e.getMessage().contains("exit"));

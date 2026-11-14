@@ -15,7 +15,6 @@
   <plugin id="com.opencode.ide.chat" version="0.0.0" unpack="false"/>
   <plugin id="com.opencode.ide.cdt" version="0.0.0" unpack="false"/>
   <plugin id="com.opencode.ide.git" version="0.0.0" unpack="false"/>
-  <plugin id="com.opencode.ide.fleet" version="0.0.0" unpack="false"/>
   <plugin id="com.opencode.ide.tools" version="0.0.0" unpack="false"/>
   <plugin id="com.opencode.ide.tasks" version="0.0.0" unpack="false"/>
   <plugin id="com.opencode.ide.board" version="0.0.0" unpack="false"/>

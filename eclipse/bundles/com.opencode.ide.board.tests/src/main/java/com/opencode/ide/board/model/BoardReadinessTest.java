@@ -16,9 +16,9 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * U-018: the board snapshot carries the per-ticket dispatch-readiness verdicts - the sprint's
- * tickets evaluated through {@link StageReadiness} (computed over the UNFILTERED task set, so epic
- * chains and upstream stages resolve), with ready/stale counts for the fleet-row badge.
+ * U-018: the board snapshot carries the per-ticket readiness verdicts - the sprint's tickets
+ * evaluated through {@link StageReadiness} (computed over the UNFILTERED task set, so epic chains
+ * and upstream stages resolve), with ready/stale counts surfaced on the cards.
  */
 public class BoardReadinessTest {
 

@@ -460,7 +460,7 @@ public class BackgroundView extends ViewPart {
         this::note);
   }
 
-  /** Answers the selected ask off the UI thread (FleetPermissionsDialog's rule). */
+  /** Answers the selected ask off the UI thread (the standard once/always/reject rule). */
   private void answerSelected(String decision, boolean remember) {
     TableItem[] selection = asksTable.getSelection();
     if (selection.length != 1

@@ -13,12 +13,12 @@ import org.eclipse.ui.IPerspectiveFactory;
  * | Server            |                          |
  * | Repo              |       (large, right)     |
  * | Providers          |                          |
- * | Board / Fleet     |                          |
+ * | Board             |                          |
  * </pre>
  *
  * The chat is the primary surface and takes most of the width; every other view (server/sessions,
- * workspace files, providers, PM board, fleet jobs) is one tab in the single left stack, so nothing
- * crowds the screen.
+ * workspace files, providers, PM board) is one tab in the single left stack, so nothing crowds the
+ * screen.
  *
  * <p>The editor area anchors the columns but starts hidden; opening an editor (e.g. a file from the
  * Repo view) makes Eclipse show it again inside the chat column.
@@ -29,10 +29,9 @@ public class OpencodePerspective implements IPerspectiveFactory {
 
   // Views contributed by other bundles - referenced by ID so this bundle has
   // no compile dependency on them; they are silently skipped if not installed.
-  // The chat view id lives in the ONE core seam (T-009); the board/fleet ids
-  // stay local literals (ui must NOT depend on the board bundle).
+  // The chat view id lives in the ONE core seam (T-009); the board id
+  // stays a local literal (ui must NOT depend on the board bundle).
   private static final String BOARD_VIEW_ID = "com.opencode.ide.board.views.BoardView";
-  private static final String FLEET_VIEW_ID = "com.opencode.ide.board.views.FleetView";
 
   @Override
   public void createInitialLayout(IPageLayout layout) {
@@ -47,7 +46,7 @@ public class OpencodePerspective implements IPerspectiveFactory {
     // Window -> Show View.
 
     // Left column - all tooling as tabs: context first (servers/sessions,
-    // workspace files, providers), then execution (PM board, fleet jobs).
+    // workspace files, providers), then execution (PM board).
     IFolderLayout tools =
         layout.createFolder(
             "com.opencode.ide.ui.folder.tools", IPageLayout.LEFT, 0.28f, editorArea);
@@ -55,9 +54,8 @@ public class OpencodePerspective implements IPerspectiveFactory {
     tools.addView(com.opencode.ide.ui.views.RepoView.ID);
     tools.addView(com.opencode.ide.ui.views.ProvidersView.ID);
     tools.addView(BOARD_VIEW_ID);
-    tools.addView(FLEET_VIEW_ID);
     // the newer panels join the SAME left stack (user 2026-09-23:
-    // "all new ones, all in the left one, where fleet and so on is")
+    // "all new ones, all in the left one")
     tools.addView(com.opencode.ide.ui.views.BackgroundView.ID);
     tools.addView(com.opencode.ide.ui.views.SessionDetailsView.ID);
 
@@ -72,7 +70,6 @@ public class OpencodePerspective implements IPerspectiveFactory {
     layout.addShowViewShortcut(SessionViewIds.CHAT_VIEW_ID);
     layout.addShowViewShortcut(com.opencode.ide.ui.views.ProvidersView.ID);
     layout.addShowViewShortcut(BOARD_VIEW_ID);
-    layout.addShowViewShortcut(FLEET_VIEW_ID);
     layout.addShowViewShortcut(com.opencode.ide.ui.views.BackgroundView.ID);
     layout.addShowViewShortcut(com.opencode.ide.ui.views.SessionDetailsView.ID);
     layout.addPerspectiveShortcut(ID);

@@ -32,8 +32,6 @@
     <module>bundles/com.opencode.ide.cdt.tests</module>
     <module>bundles/com.opencode.ide.git</module>
     <module>bundles/com.opencode.ide.git.tests</module>
-    <module>bundles/com.opencode.ide.fleet</module>
-    <module>bundles/com.opencode.ide.fleet.tests</module>
     <module>bundles/com.opencode.ide.tools</module>
     <module>bundles/com.opencode.ide.tools.tests</module>
     <module>bundles/com.opencode.ide.tasks</module>

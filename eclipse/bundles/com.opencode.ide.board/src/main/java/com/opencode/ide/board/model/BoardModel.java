@@ -3,7 +3,6 @@ package com.opencode.ide.board.model;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.opencode.ide.fleet.dispatch.CostOverview;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.VStages;
@@ -31,7 +30,7 @@ import java.util.TreeSet;
 public final class BoardModel {
 
   /** Pseudo-sprint id for tickets whose {@code sprint} field is null. */
-  public static final String BACKLOG = CostOverview.BACKLOG;
+  public static final String BACKLOG = "(backlog)";
 
   /** The single definition of the fallback project name (view + model share it). */
   public static final String DEFAULT_PROJECT = "hephaestus";
@@ -449,32 +448,6 @@ public final class BoardModel {
   }
 
   /**
-   * U-022 fine-grained fleet control: puts ONE ticket on hold — blocked with the dedicated marker,
-   * which the readiness verdicts treat as BLOCKED (auto-dispatch skips it) but the board renders
-   * like any blocked ticket with a self-explaining reason.
-   *
-   * @return {@code null} on success, a human-readable failure message otherwise.
-   */
-  public String hold(String id) {
-    try {
-      store.setBlocked(project, id, "on hold by user (paused for auto-dispatch)", "board");
-      return null;
-    } catch (RuntimeException e) {
-      return failure("hold", id, e);
-    }
-  }
-
-  /** Releases a held/blocked ticket back into the dispatch loop. */
-  public String resume(String id) {
-    try {
-      store.clearBlocked(project, id, "board");
-      return null;
-    } catch (RuntimeException e) {
-      return failure("resume", id, e);
-    }
-  }
-
-  /**
    * U-025: archives a done ticket (moves it to {@code _archive/}, out of the active
    * board/readiness/dispatch; the record keeps history and artifacts). The Archive row lists what
    * lives there.
@@ -585,22 +558,6 @@ public final class BoardModel {
       }
     }
     return out;
-  }
-
-  /**
-   * Aggregates the fleet cost actuals comments over ALL tickets of the project (per ticket, per
-   * sprint, project-wide — see {@link CostOverview}). Tolerant of a missing/unreadable store: an
-   * empty overview comes back instead of an exception.
-   */
-  public CostOverview costOverview() {
-    if (!Files.isDirectory(projectDir())) {
-      return CostOverview.empty();
-    }
-    try {
-      return CostOverview.of(store.list(project, null, null, null, null));
-    } catch (RuntimeException e) {
-      return CostOverview.empty();
-    }
   }
 
   private Map<String, List<Task>> unassignedBoard() {

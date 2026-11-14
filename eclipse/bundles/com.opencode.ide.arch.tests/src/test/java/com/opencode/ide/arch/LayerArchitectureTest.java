@@ -61,12 +61,11 @@ public class LayerArchitectureTest {
   private static final Map<String, List<String>> GRAPH = new LinkedHashMap<>();
 
   static {
-    GRAPH.put("board", List.of("chat", "fleet", "core", "tasks", "git", "client"));
+    GRAPH.put("board", List.of("chat", "core", "tasks", "git", "client"));
     GRAPH.put("chat", List.of("core", "client"));
     GRAPH.put("ui", List.of("core", "client", "tools"));
     GRAPH.put("cdt", List.of("core"));
     GRAPH.put("core", List.of("client", "mcp"));
-    GRAPH.put("fleet", List.of("client", "git", "tasks", "tools"));
     GRAPH.put("mcp", List.of("client", "tasks", "tools"));
     GRAPH.put("tasks", List.of("tools"));
     GRAPH.put("git", List.of("client"));

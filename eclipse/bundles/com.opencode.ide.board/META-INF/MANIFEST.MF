@@ -9,7 +9,6 @@ Bundle-ActivationPolicy: lazy
 Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
  com.opencode.ide.core;bundle-version="0.1.0",
  com.opencode.ide.tasks;bundle-version="0.1.0",
- com.opencode.ide.fleet;bundle-version="0.1.0",
  com.opencode.ide.git;bundle-version="0.1.0",
  com.opencode.ide.chat;bundle-version="0.1.0",
  com.google.gson;bundle-version="2.10.0",
@@ -20,6 +19,5 @@ Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
  org.eclipse.jface,
  org.eclipse.swt
 Export-Package: com.opencode.ide.board.model;version="0.1.12",
- com.opencode.ide.board.fleet;version="0.1.12",
  com.opencode.ide.board.internal;version="0.1.12";x-friends:="com.opencode.ide.board.tests"
 Bundle-RequiredExecutionEnvironment: JavaSE-21

@@ -9,12 +9,6 @@
           icon="icons/board.png"
           category="com.opencode.ide.ui"
           class="com.opencode.ide.board.views.BoardView"/>
-    <view
-          id="com.opencode.ide.board.views.FleetView"
-          name="Fleet"
-          icon="icons/fleet.png"
-          category="com.opencode.ide.ui"
-          class="com.opencode.ide.board.views.FleetView"/>
   </extension>
 
 </plugin>

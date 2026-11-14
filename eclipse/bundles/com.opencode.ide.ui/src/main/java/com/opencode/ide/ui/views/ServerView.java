@@ -437,8 +437,8 @@ public class ServerView extends ViewPart implements Refreshable {
     openInChat.setToolTipText("Resume this session in a chat window");
     menu.add(openInChat);
     // U-096: answer a selected Questions row inline - the standard reply
-    // route (once/always/reject), same as the Background view and the fleet
-    // dialog, so the question clears on every surface
+    // route (once/always/reject), same as the Background view, so the
+    // question clears on every surface
     Action answerOnce =
         new Action("Allow once") {
           @Override
@@ -961,8 +961,8 @@ public class ServerView extends ViewPart implements Refreshable {
       org.eclipse.ui.IWorkbenchPage page = getSite().getPage();
       // T-009 follow-up: focus-first across BOTH variants (plain and
       // the ~live auto-refresh one) - opening a live-watched session
-      // here must focus the existing view, never duplicate it (the
-      // same guard FleetView applies on its side). showView on an
+      // here must focus the existing view, never duplicate it.
+      // showView on an
       // existing primary+secondary pair activates it.
       String plain = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId);
       String live = com.opencode.ide.core.context.SessionViewIds.secondaryId(sessionId, true);
@@ -1192,8 +1192,8 @@ public class ServerView extends ViewPart implements Refreshable {
     // A scope that is not an opencode repo is a WRONG scope: an attached
     // shared service resolves to the user home (its own cwd) and then
     // every directory-scoped list answers EMPTY (2026-09-23 live probe:
-    // GET /api/mcp answers [] for the home directory but tasks/graphics/
-    // fleet for the repo - the servers were alive all along). Preference
+    // GET /api/mcp answers [] for the home directory but tasks/graphics
+    // for the repo - the servers were alive all along). Preference
     // order: the explicit working-directory setting, then the active
     // project's repo root, then the connection's own resolution - and
     // every candidate must BE a repo (carry an opencode marker).
@@ -2072,8 +2072,8 @@ public class ServerView extends ViewPart implements Refreshable {
 
   /**
    * A session reads as working while it is busy itself or any subagent under it works (a parent
-   * waiting on a busy fleet worker included) — drives the row's {@code " • working"} suffix in both
-   * tree positions.
+   * waiting on a busy child session included) — drives the row's {@code " • working"} suffix in
+   * both tree positions.
    */
   private static boolean isWorking(ServerNode owner, Session session) {
     if (owner == null || session == null) {

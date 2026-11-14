@@ -1,23 +1,21 @@
 package com.opencode.ide.board.internal;
 
-import com.opencode.ide.git.GitLocator;
 import com.opencode.ide.git.GitTuning;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Minimal git CLI access for the Fleet view ("Open diff"), using the same process pattern as the
- * git bundle's worktree manager: {@code git -C <dir>} with UTF-8 output capture, asynchronous
+ * Minimal git CLI access for the board's session-diff feature, using the same process pattern as
+ * the git bundle's worktree manager: {@code git -C <dir>} with UTF-8 output capture, asynchronous
  * stream reads and a timeout with {@code destroyForcibly()}. The timeout is the git bundle's
  * canonical knob ({@link GitTuning#COMMAND_TIMEOUT} — env-overridable via {@code
  * GIT_COMMAND_TIMEOUT_MS}); G-004: no parallel magic numbers. The binary is resolved through the
- * git bundle's {@link GitLocator} (PATH first, then Windows fallback probes — same discovery as
+ * git bundle's {@code GitLocator} (PATH first, then Windows fallback probes — same discovery as
  * every other git call in the product; the internal package is x-friends-exported to this bundle).
  * The {@link #run} seam is generic (any command) so the failure modes — missing binary, timeout,
  * non-zero exit — are unit-testable without going through git diff every time.
@@ -31,23 +29,6 @@ public final class GitCli {
   private static final Duration TIMEOUT = GitTuning.COMMAND_TIMEOUT;
 
   private GitCli() {}
-
-  /**
-   * Returns {@code git -C <repoRoot> diff HEAD..opencode/<taskId>} ({@code HEAD} is the main
-   * worktree's branch — the "main" side of the diff).
-   *
-   * @throws IllegalStateException on a missing git, timeout or non-zero exit
-   */
-  public static String diff(Path repoRoot, String taskId) {
-    List<String> command =
-        List.of(
-            GitLocator.resolve().command().toString(),
-            "-C",
-            repoRoot.toString(),
-            "diff",
-            "HEAD.." + com.opencode.ide.git.FleetGit.branchFor(taskId));
-    return run(command, TIMEOUT);
-  }
 
   /**
    * Runs a command to completion with UTF-8 stdout/stderr capture (asynchronous stream reads — no
