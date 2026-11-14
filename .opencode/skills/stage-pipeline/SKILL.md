@@ -65,3 +65,26 @@ product define done.
 - The user is the Product Owner; the main chat agent is the kickoff
   assistant; you are the worker. Escalate instead of guessing beyond the
   ticket.
+
+## Field observations (live acceptance run, 2026-11-14)
+
+- **Claims are targeted, not role-based.** A blind role-claim grabs the next
+  sprint-backlog ticket of the role — which can cross into ANOTHER sprint's
+  backlog. Pre-check the candidate's assignee/status, then claim with a
+  targeted `task_update` (status + assignee in one move).
+- **Division-with-rationale for legacy done tickets:** a done ticket whose
+  derivation already exists in substance (delivered under the old model,
+  `basis: null`) gets division recorded SATISFIED with a comment on the
+  ticket - do not mint duplicate children for shipped work. The PO can
+  override with one comment and the next tick divides literally.
+- **Rolling records stay open while work is in flight:** `task_close_sprint`
+  ejects unfinished tickets to product-backlog, corrupting in-flight
+  fulfillment. Leave the record active until the work lands; a later tick
+  closes it.
+- **Nested steward sessions need `experimental.subagent_depth >= 2`** in the
+  user-global config (setup-local per D-004) - the ticker itself is one
+  subagent level, its workers the second.
+- **Store access lost mid-flight** (gate rebuilds kill the stdio server,
+  B-027): report BLOCKED honestly; do not improvise hand edits. Fresh
+  sessions re-arm against the stable dropins jars (the launcher resolves
+  gate-stable-first since the B-027 fix).
