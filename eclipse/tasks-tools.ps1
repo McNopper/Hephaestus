@@ -51,45 +51,42 @@ if (-not $java -and $env:JAVA_HOME) {
 }
 if (-not $java) { throw "java not found on PATH and JAVA_HOME does not point at a JDK. A JDK 21+ is required." }
 
-# 2) the built bundles (newest jar wins; build with: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package)
-function Find-BuiltJar([string]$bundle) {
+# 2) the server jars. B-027 resolution order (gate-stable first):
+#    1. DEPLOYED DROPINS ($env:ECLIPSE_HOME/dropins/...) - refreshed at every
+#       deploy, never touched by gate rebuilds; a live server SURVIVES gates.
+#    2. Reactor targets (newest dev build) - volatile: gates wipe them, which
+#       is what kills respawns mid-arc (B-027).
+#    3. Staged copies (.git/opencode-fleet/lib) - last resort.
+#    Dev builds reach the server by REDEPLOYING (deploy-dev.ps1) - the store
+#    protocol changes rarely, and the ticket FILES are the interface.
+$eclipseHome = if ($env:ECLIPSE_HOME) { $env:ECLIPSE_HOME } else { $null }
+function Find-ServerJar([string]$bundle) {
+    if ($eclipseHome) {
+        $jar = Get-ChildItem (Join-Path $eclipseHome "dropins/opencode-ide/plugins/$bundle-*.jar") -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'sources' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($jar) { return $jar }
+    }
     $jar = Get-ChildItem (Join-Path $here "bundles/$bundle/target/$bundle-*.jar") -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notmatch 'sources' } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    return $jar
-}
-$tasksJar = Find-BuiltJar "com.opencode.ide.tasks"
-$toolsJar = Find-BuiltJar "com.opencode.ide.tools"
-if (-not $tasksJar -or -not $toolsJar) {
-    # B-027: prefer the DEPLOYED DROPINS (stable across gates - only deploys touch
-    # them), then the staged copies. A reactor rebuild wipes target/ wholesale, so
-    # a respawn during or after a gate must not depend on target/ existing.
-    $dropins = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins") -ErrorAction SilentlyContinue
-    if ($dropins) {
-        $tasksJar = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins/com.opencode.ide.tasks-*.jar") -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch 'sources' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        $toolsJar = Get-ChildItem (Join-Path $env:ECLIPSE_HOME "dropins/opencode-ide/plugins/com.opencode.ide.tools-*.jar") -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch 'sources' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    }
-}
-if (-not $tasksJar -or -not $toolsJar) {
-    # Fall back to the newest B-005-staged copies (7-day retention below) - a
-    # slightly older but WORKING server beats no server (U-101 follow-up, live
-    # 2026-10-27: exactly this throw fired mid-gate).
+    if ($jar) { return $jar }
     $stagedRoot = Join-Path (Split-Path -Parent $here) ".git/opencode-fleet/lib/tasks-tools"
     $staged = Get-ChildItem $stagedRoot -Directory -ErrorAction SilentlyContinue |
         Sort-Object Name -Descending | Select-Object -First 1
     if ($staged) {
-        $tasksJar = Get-ChildItem (Join-Path $staged.FullName "com.opencode.ide.tasks-*.jar") -ErrorAction SilentlyContinue |
+        $jar = Get-ChildItem (Join-Path $staged.FullName "$bundle-*.jar") -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notmatch 'sources' } | Select-Object -First 1
-        $toolsJar = Get-ChildItem (Join-Path $staged.FullName "com.opencode.ide.tools-*.jar") -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch 'sources' } | Select-Object -First 1
+        if ($jar) { return $jar }
     }
-    if (-not $tasksJar -or -not $toolsJar) {
-        throw "Built bundles not found. Run: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package"
-    }
-    Write-Verbose "target jars absent (rebuild in flight?) - using staged copies from $($staged.Name)"
+    return $null
 }
+$tasksJar = Find-ServerJar "com.opencode.ide.tasks"
+$toolsJar = Find-ServerJar "com.opencode.ide.tools"
+if (-not $tasksJar -or -not $toolsJar) {
+    throw "Server jars not found (looked in: dropins under ECLIPSE_HOME, reactor targets, staged copies). Run: cd eclipse; .\build.ps1 -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools clean package; then deploy-dev.ps1"
+}
+Write-Verbose "tasks jar: $($tasksJar.FullName); tools jar: $($toolsJar.FullName)"
 
 # 3) gson: local Tycho p2 cache first, then the Eclipse install ECLIPSE_HOME
 #    points at when set (no hardcoded install paths - each machine sets its own).
