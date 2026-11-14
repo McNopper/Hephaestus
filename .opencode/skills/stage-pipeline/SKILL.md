@@ -11,11 +11,17 @@ map, its discipline skill, its artifacts). Tickets are STATIONARY: they are
 born in a stage and never move - completion creates and links the downstream
 tickets instead.
 
-## The tick (stage ticker sessions - always the same)
+## The tick (ONE pass over the whole V - always the same)
 
-Run this loop exactly. Do not improvise steps or order.
+Run this loop exactly. Do not improvise steps or order. ONE schedule
+(`ticker-v`) walks the whole V: for each stage in canonical order —
+requirements, system, architecture, design, implementation,
+test-implementation, test-design, test-architecture, test-system,
+test-requirements — run steps 1-4, then step 5 once.
 
-1. SCAN — `task_readiness` for the project; take only YOUR stage's tickets.
+Per stage:
+
+1. SCAN — `task_readiness` for the project; take only this stage's tickets.
 2. BLOCKED → ESCALATE BACK: a blocked ticket goes to its basis (the upstream
    link) as a rework request via `task_set_blocked` on the basis with the
    reason; if the basis is itself blocked, or the round-trip repeats, escalate
@@ -29,12 +35,17 @@ Run this loop exactly. Do not improvise steps or order.
    carry the artifact references into the description. Pairing: also create
    the paired `test-*` ticket linked to the same basis when the child is a
    definition stage.
-4. READY → KICKOFF: claim under the spawn cap (`task_claim`), then spawn ONE
-   background subagent per claimed ticket with the fulfillment brief (below).
-   Never spawn two subagents whose file lanes overlap; when lanes overlap,
-   serialize within the stage.
-5. CLOSE the micro-sprint record (U-108 reopen semantics keep the record
-   rolling) and record the digest. The next tick repeats.
+4. READY → KICKOFF: **plan first, then claim** — READY tickets born from
+   division sit in `product-backlog` without a sprint, and `task_claim`
+   only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
+   rolling `ticker-v` sprint record in the same tick, then claim under the
+   spawn cap (`task_claim`), then spawn ONE
+   background subagent per claimed ticket with the fulfillment brief
+   (below). Never spawn two subagents whose file lanes overlap; when lanes
+   overlap, serialize within the stage.
+5. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
+   (U-108 reopen semantics keep the record rolling) and close it. The next
+   tick repeats.
 
 An empty backlog costs one readiness query. That is a successful tick.
 

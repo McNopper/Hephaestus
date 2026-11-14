@@ -1,7 +1,8 @@
-# ticker-setup.ps1 - arm the per-stage schedule tickers (U-110 chunk 3).
+# ticker-setup.ps1 - arm the V-pipeline ticker (U-110 chunk 3, unified per
+# owner directive 2026-11-14: ONE schedule walks the whole V step by step).
 #
-# Creates one steward session per stage and one experimental schedule per
-# session; the schedule trigger is the stage's sprint kickoff (the tick).
+# Creates ONE steward session and ONE experimental schedule; each tick is
+# ONE pass over all stages in canonical V order under the global spawn cap.
 #
 # Requirements:
 #   - the running opencode service (url + password from service.json, same
@@ -10,11 +11,9 @@
 #   - the stage-pipeline skill (this directory)
 #
 # Usage: pwsh -NoProfile -File ticker-setup.ps1 [-IntervalMinutes 15] [-Cap 4]
-#        [-Stages requirements,system,architecture,design,implementation]
 param(
     [int]$IntervalMinutes = 15,
     [int]$Cap = 4,
-    [string[]]$Stages = @("requirements", "system", "architecture", "design", "implementation"),
     [string]$BaseUrl,
     [string]$Token,
     [string]$Directory,
@@ -22,9 +21,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-# accept comma-separated -Stages values (pwsh -File binds one string per repeat)
-$Stages = $Stages | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }
 
 if (-not $BaseUrl -or -not $Password) {
     $serviceJson = Join-Path $env:USERPROFILE ".local\state\opencode\service.json"
@@ -50,7 +46,6 @@ if (-not $ParentSessionId) {
     $rootSession = $s.data | Where-Object { -not $_.parentID } | Sort-Object { $_.time.updated } -Descending | Select-Object -First 1
     if (-not $rootSession) { throw "no repo-rooted parent session found - open the harness chat first or pass -ParentSessionId" }
     $ParentSessionId = $rootSession.id
-    $Directory = $Directory
 }
 if (-not $Directory) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -78,38 +73,37 @@ function Invoke-Api {
     }
 }
 
-$armed = 0
-foreach ($stage in $Stages) {
-    $session = Invoke-Api -Method "POST" -Path "/api/session$suffix" -Body @{ title = "ticker-${stage}"; parentID = $ParentSessionId }
-    $sessionId = if ($session.data) { $session.data.id } else { $session.id }
-    if (-not $sessionId) {
-        Write-Warning "session creation returned no id for stage ${stage} - skipped"
-        continue
-    }
-    $prompt =
-        "You are the ${stage} stage ticker. Load the stage-pipeline skill and run ONE tick " +
-        "for the '$stage' stage: (1) readiness scan via task_readiness, take only '$stage' " +
-        "tickets; (2) BLOCKED tickets escalate back to their basis (task_set_blocked on the " +
-        "basis, NEEDS-HUMAN when stuck); (3) DONE tickets divide: create the linked " +
-        "downstream ticket(s) per the division map (task_create with stage/epic/basis) plus " +
-        "the paired test ticket; (4) READY tickets: claim under the spawn cap of $Cap " +
-        "concurrent subagents (check your running subagents first - never exceed it) and " +
-        "spawn one background subagent per ticket with the fulfillment brief: ticket + " +
-        "basis artifacts + skills, finish this exact ticket, record the artifact, set " +
-        "in-review - never done; (5) close the tick. An empty backlog is a successful tick."
-    $body = @{
-        sessionID = $sessionId
-        name = "ticker-$stage"
-        when = @{ type = "every"; every = "$IntervalMinutes minutes" }
-        prompt = $prompt
-    }
-    $schedule = Invoke-Api -Method "POST" -Path "/api/experimental/schedule" -Body $body
-    $scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
-    if ($scheduleId) {
-        Write-Host "[ticker] $stage armed: session $sessionId, schedule $scheduleId, every $IntervalMinutes min, cap $Cap"
-        $armed++
-    } else {
-        Write-Warning "${stage}: schedule creation returned no id"
-    }
+# ONE schedule walks the whole V (owner directive 2026-11-14): a single
+# steward session + a single experimental schedule; each tick is ONE pass
+# over all stages in canonical V order under the global spawn cap.
+$session = Invoke-Api -Method "POST" -Path "/api/session$suffix" -Body @{ title = "ticker-v"; parentID = $ParentSessionId }
+$sessionId = if ($session.data) { $session.data.id } else { $session.id }
+if (-not $sessionId) { throw "session creation returned no id" }
+$stages = "requirements, system, architecture, design, implementation, test-implementation, test-design, test-architecture, test-system, test-requirements"
+$prompt =
+    "You are the V-pipeline ticker. Load the stage-pipeline skill and run ONE pass " +
+    "through the whole V, stage by stage in this order: $stages. For EACH stage: " +
+    "(1) readiness scan via task_readiness, take only this stage's tickets; " +
+    "(2) BLOCKED tickets escalate to their basis (task_set_blocked on the basis, " +
+    "NEEDS-HUMAN when stuck); (3) DONE tickets without downstream children divide: " +
+    "create the linked downstream ticket(s) per the division map (task_create with " +
+    "stage/epic/basis) plus the paired test ticket; (4) READY tickets: plan them " +
+    "into the ticker-v sprint (task_plan_sprint) then claim under the spawn cap of " +
+    "$Cap concurrent subagents (check your running subagents first - never exceed " +
+    "it) and spawn one background subagent per claimed ticket with the fulfillment " +
+    "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +
+    "artifact, set in-review - never done. After the last stage, close the pass " +
+    "with a digest. An empty V is a successful pass."
+$body = @{
+    sessionID = $sessionId
+    name = "ticker-v"
+    when = @{ type = "every"; every = "$IntervalMinutes minutes" }
+    prompt = $prompt
 }
-Write-Host "[ticker] $armed stage ticker(s) armed. Disarm: delete the schedules (experimental.schedule.delete) or toggle the Board switch."
+$schedule = Invoke-Api -Method "POST" -Path "/api/experimental/schedule" -Body $body
+$scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
+if ($scheduleId) {
+    Write-Host "[ticker] ticker-v armed: session $sessionId, schedule $scheduleId, every $IntervalMinutes min, cap $Cap"
+} else {
+    throw "schedule creation returned no id"
+}
