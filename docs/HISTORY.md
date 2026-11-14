@@ -531,3 +531,31 @@ software agents; the maintainer only adds the requirements.*
   deterministic but un-V-paired, the IBM iX V-model agent blueprint exists on
   paper only (`docs/competitive-landscape.md` for the prior round; sources in
   the research synthesis).
+
+## H16 — v0.2.0 released — 2026-11-14
+
+The first post-pipeline release, cut by the harness's own release mechanics
+(`eclipse/releng/release.ps1`, D-002) after the U-110 arc removed the fleet
+engine. The round since H15:
+
+- **The linked stage pipeline (U-110):** the FleetRunner, the dispatch waves,
+  the fleet tool surface and the wandering-V verbs
+  (`task_advance`/`task_send_back`/`task_pass_stage`/`task_report_horizontal`)
+  were removed; tickets are stationary, stages link by `basis`/`epic`,
+  completion divides into the downstream children, and ONE unified
+  `ticker-v` schedule walks the whole V in canonical order.
+- **Store contract:** done-time artifact guard (a definition-stage done
+  without artifacts is refused), basis-chain readiness, plan-then-claim,
+  `auto_archive` on `task_close_sprint` (U-060), `task_todo` and
+  `task_links` (up/down/back) — the tool surface consolidated 24 → 19.
+- **Intake discipline:** the owner posts requirements and bugs; the
+  Product-Owner seat agent (`product-owner`) registers and verifies and
+  never implements; Build belongs to the machine; the owner can override.
+- **Reliability:** the tasks stdio launcher resolves gate-stable jars
+  (dropins -> targets -> staged, B-027) and the MCP reconnect recipe
+  (`POST /api/experimental/mcp/tasks/connect`) revives a dead server
+  without restarts; deploy-dev remains a reconnect event.
+- **Docs as documentation:** AGENTS.md doctrine re-based on the linked
+  model, ROADMAP rewritten around the release definition, contracts.md
+  carries the mental model, the fleet docs marked RETIRED, the coherence
+  sweep aligned every live doc; lint clean throughout.
