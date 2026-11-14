@@ -59,7 +59,10 @@ if (-not $java) { throw "java not found on PATH and JAVA_HOME does not point at 
 #    3. Staged copies (.git/opencode-fleet/lib) - last resort.
 #    Dev builds reach the server by REDEPLOYING (deploy-dev.ps1) - the store
 #    protocol changes rarely, and the ticket FILES are the interface.
-$eclipseHome = if ($env:ECLIPSE_HOME) { $env:ECLIPSE_HOME } else { $null }
+# B-027 follow-up: when ECLIPSE_HOME is unset (sessions started before it was
+# configured), default to the same machine convention deploy-dev.ps1 uses
+# (C:\eclipse-cpp) so gate-wipe respawns still resolve the stable dropins.
+$eclipseHome = if ($env:ECLIPSE_HOME) { $env:ECLIPSE_HOME } else { 'C:\eclipse-cpp' }
 function Find-ServerJar([string]$bundle) {
     if ($eclipseHome) {
         $jar = Get-ChildItem (Join-Path $eclipseHome "dropins/opencode-ide/plugins/$bundle-*.jar") -ErrorAction SilentlyContinue |
