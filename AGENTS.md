@@ -304,9 +304,11 @@ Concretely, the chat agent — the PO's **kickoff assistant** — can:
   (one steward session + one `experimental.schedules` schedule per stage — W1,
   adopted; the tick prompt is thin glue over the `stage-pipeline` skill), or flip
   the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);
-- **file intake tickets** (goal intake, U-105 flow): the PO's objective becomes a
-  requirements ticket; on completion the stage tickers divide it into the linked
-  derivation chain;
+- **file intake tickets** (goal intake, U-105 flow): the PO posts
+  **requirements and bugs** in chat - requirements become GOAL/requirements
+  tickets (process rules land in the governing docs), bugs become
+  `type: bug` tickets; on completion the stage tickers divide it into the
+  linked derivation chain;
 - **model selection is a cost lever on the ticket**: the optional `model` field
   (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run
   costs — small well-specified tickets deserve cheap models;

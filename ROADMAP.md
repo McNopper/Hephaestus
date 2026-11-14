@@ -65,7 +65,10 @@ when all of the following hold:
    keep it true through the cut).
 4. **Quality gate green** — `cd eclipse; .\build.ps1 clean verify
    -Pquality` on the release commit.
-5. **CI decided** — the ubuntu leg flip is the owner's call (T-027).
+5. **CI decided** — the CI system is disabled by owner directive
+   (2026-11-14: `verify.yml` → `verify.yml.disabled`, T-027 resolved); the
+   local `clean verify -Pquality` gate is the green-light authority.
+   Re-enabling is the owner's rename-back decision.
 6. **Live pass** — T-002, the standing end-of-arc Eclipse verification
    (owner at the keyboard).
 7. **Arc closed** — U-111's engine verdict lands; the pipeline's acceptance
@@ -81,7 +84,7 @@ when all of the following hold:
 | U-059 | archive-aware production readiness — safe with U-060 alone (the archiver never archives an upstream a live ticket needs), required once archives are in real use |
 | T-007 | build perf phase 1: target-platform diet, dev profile, stable qualifier (also unblocks the PTY-host adoption) |
 | T-008 | build perf phase 2: hybrid test lane + coverage manifest |
-| T-027 | ubuntu CI leg: blocking flip is the owner's call |
+| T-027 | ✅ resolved by owner directive: CI disabled (`verify.yml.disabled`) |
 | U-110 / U-111 | the stage-pipeline arc closes: the goal ticket's engine verdict |
 | T-002 | the owner's live Eclipse verification pass |
 | — | release cut via `eclipse/releng/release.ps1` |
@@ -167,5 +170,11 @@ right.**
 - **Chunk small** (AGENTS.md): one ticket = one independently verifiable
   change; the store, not this file, is the status source once work runs on
   the board.
+- **A successful wave cuts a version** (owner requirement, 2026-11-14):
+  when a wave completes — all its tickets done with engine verdicts — cut a
+  version via `eclipse/releng/release.ps1` (tag per D-002, bump to the next
+  `-SNAPSHOT`). The wave, not the calendar, is the release cadence. Ticker
+  micro-records (the per-stage rolling records) are not waves in this
+  sense; substantive planned waves are.
 - **History discipline:** past events are recorded only in
   `docs/HISTORY.md` — this file carries open work only.
