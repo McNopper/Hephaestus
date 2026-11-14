@@ -309,6 +309,15 @@ adding a stage = adding its division map + skill, nothing else.
 
 ## 11. Native-first inventory (design rule #1)
 
+Cheat-sheet cross-check (owner directive 2026-11-14, `C:\Temp\opencode-cheatsheet.md`):
+the tickers compose NATIVE primitives throughout — `/schedule` (interval/cron,
+list/pause/delete = the disarm path), the `/goal` keep-working primitive for
+worker persistence (chunk-4 refinement: spawn workers WITH it so persistence is
+upstream-enforced, not prompt-requested), directory-scoped sessions (`/cd`
+model), `/reload` config pickup, and the artifacts store. No recreation found.
+The genuinely ours remainder: the store (basis links, readiness, claims), the
+spawn-cap admission, and the engine verdict.
+
 Adopted native: `experimental.schedules` (W1) · `experimental.artifacts.*`
 (W12) · background subagents (#63382) · `experimental.job.list` (W13) ·
 worktree APIs (unchanged adoption target, now optional — only if a future
