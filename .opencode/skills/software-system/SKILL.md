@@ -75,13 +75,13 @@ recorded, not just decided:
 
 1. **Your artifact:** this skill's Default Output as a document in the repo (overview,
    major parts, technology choices, `SW-` ids), **recorded with `task_add_artifact`**
-   before the stage can exit — `task_advance` rejects a definition stage with zero
+   before the stage can exit — the store's done-time guard refuses a definition-stage `done` with zero
    recorded artifacts.
 2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS
    (here: the requirements record with its `FR-`/`AC-` ids) — read them first; your
    system must satisfy them and your document cites the ids it addresses.
 3. **Flow back only on two triggers:** requirements are *missing* something this system
-   needs, or *need refactoring/clarification* — `task_send_back` (or `clarification:`
+   needs, or *need refactoring/clarification* — blocked escalation to the basis (or `clarification:`
    first). Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off

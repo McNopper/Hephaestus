@@ -1,4 +1,24 @@
-# Fleet quickstart — your first headless dispatch
+# Fleet quickstart - RETIRED 2026-11-14
+
+- **About this document:** RETIRED. The fleet (FleetRunner, dispatch waves,
+  fleet_* MCP tools) was removed in the U-110 arc - live acceptance evidence
+  in ticket U-111 (AE-6), design in docs/design-stage-pipeline.md section 9.
+- **The replacement:** the linked stage pipeline - per-stage schedule tickers
+  armed with .opencode/skills/stage-pipeline/ticker-setup.ps1, procedure in
+  the stage-pipeline skill, store evidence in ticket U-111 (AE-6).
+- Historical content below the line is kept for the record only.
+
+---
+
+The fleet quickstart described the retired FleetRunner (dispatch, waves,
+watchdog, worktree merge-back). That machinery was removed after the
+fleet-redundancy review showed opencode's native primitives covering it.
+Do not follow any operational instruction below this point - see
+docs/design-stage-pipeline.md and the stage-pipeline skill instead.
+
+---
+
+## Fleet quickstart — your first headless dispatch
 
 ## About this document
 

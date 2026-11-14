@@ -104,9 +104,7 @@ you, and the proof comes *after* you:
    "It works" is **proven on the right leg — `test-software-implementation`** — never by
    this stage's own claim. You claim `in-review`; the gate/reviewer declares done.
 4. **Flow back only on two triggers:** the design/architecture is *missing* something the
-   code needs, or *needs refactoring/clarification* — `task_send_back` (or
-   `clarification:` first). A failed test later loops back *horizontally* to this stage's
-   pair (see `test-software-implementation`); that is the right leg's verdict, not yours.
+   code needs, or *needs refactoring/clarification* - blocked escalation to the basis (or `clarification:` first).
 
 ## When to Hand Off
 

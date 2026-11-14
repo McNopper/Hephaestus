@@ -73,10 +73,10 @@ they are *there* and *fulfilled*, and creates no new definition:
 2. **Validate the pair:** the prompt delivers the paired definition (`design` with its
    `DS-` contract ids) — every acceptance criterion maps to a test that proves the
    component contract holds.
-3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+3. **A failed validation escalates to its basis:** the blocked ticket returns to
    to the paired definition stage (this stage's pair: `design`) with the failing evidence —
    the component test passing at unit level but failing here is exactly this loop. Only a
-   *missing or wrong upstream definition* goes back vertically (`task_send_back`);
+   *missing or wrong upstream definition* escalates to its basis (blocked escalation);
    questions go `clarification:` first.
 
 ## When to Hand Off

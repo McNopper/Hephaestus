@@ -15,7 +15,7 @@
 # .git/opencode-fleet/last-deploy.log (the audit trail).
 #
 # B-005 dependency: the stdio tool servers run off staged jar copies
-# (tasks-tools.ps1 / fleet-tools.ps1), so a reactor rebuild here can never
+# stdio MCP launchers live in eclipse/ (tasks-tools.ps1; the retired fleet-tools.ps1 was removed with the fleet in U-110)
 # rot a running server's classpath.
 #
 # Usage:

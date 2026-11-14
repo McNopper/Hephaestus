@@ -135,13 +135,13 @@ A ticket with a `stage` visits **ALL ten V stages** (requirements → system →
 architecture → design → implementation → test-implementation → test-design →
 test-architecture → test-system → test-requirements). The pass-through — a
 stage where nothing applies advances with a recorded rationale instead of a
-full dispatch - is wired: `task_pass_stage(project, ticket_id, reason)` is the
+the pass-through concept retires with the wandering model (U-110): a stage with no applicable work has nothing to do -
 pass-through verb (history `stage <N> passed: <reason>`), and a
-`pass-declare: <stage> - <reason>` comment on the ticket makes the launch path
+the readiness verdict does that gating -
 record that pass instead of starting a session (U-057/U-058; newest
 declaration governs, the V tip never passes). Stages
-run **concurrently** (no phase gates, no ordering enforcement): `task_advance`
-moves the ticket to the next stage's backlog, `task_send_back` to the previous
+run by LINKS (U-110): division creates the downstream tickets and
+readiness gates the children on their basis, blocked escalation runs to
 one (blocked with reason). (The horizontal "report to the V-pair stage" route
 runs inside the resolution-first pump — `ResolutionPolicy` picks it,
 `ResolutionMoves` executes it, and every production scheduler sets
@@ -157,7 +157,7 @@ When an agent cannot proceed:
    (`task_set_blocked`) — a blocked ticket is NEEDS-HUMAN once no agent
    retry is in flight.
 3. Resolution-first pumping (wired — U-050): every scheduler tick resolves
-   blocked items first (vertical `task_send_back` to the previous stage /
+   blocked items first (vertical blocked escalation to the basis /
    horizontal report to the V-pair stage, then the attempt is dispatched)
    before planning new launches — one attempt per ticket per tick, round-trip
    limit 3, attempts count against concurrency and the cost budget. A blocked

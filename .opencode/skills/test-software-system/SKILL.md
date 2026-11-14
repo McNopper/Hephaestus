@@ -72,9 +72,9 @@ they are *there* and *fulfilled*, and creates no new definition:
 2. **Validate the pair:** the prompt delivers the paired definition (`system` with its
    `SW-` interface ids) — every acceptance criterion maps to a test that proves the
    parts integrate as the system record says.
-3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+3. **A failed validation escalates to its basis:** the blocked ticket returns to
    to the paired definition stage (this stage's pair: `system`) with the failing evidence.
-   Only a *missing or wrong upstream definition* goes back vertically (`task_send_back`);
+   Only a *missing or wrong upstream definition* escalates to its basis (blocked escalation);
    questions go `clarification:` first.
 
 ## When to Hand Off

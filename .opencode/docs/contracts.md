@@ -63,7 +63,7 @@ New/Reset project actions and the fleet's doubt routing), not `task_*` MCP tools
 `task_backlog`, `task_board`, `task_plan_sprint`, `task_close_sprint`,
 `task_traceability`, `task_doctor`. Served by the **`eclipse-build` MCP endpoint** when the Eclipse
 harness runs (plus the C++ tool pack) and by the stdio launchers for TUI-only sessions —
-`eclipse/tasks-tools.ps1` (the `tasks` pack) and its sibling `eclipse/fleet-tools.ps1` (the
+The ``tasks`` stdio pack is served by ``eclipse/tasks-tools.ps1`` (the ``tasks`` MCP server; the retired ``fleet-tools.ps1`` launcher was removed with the fleet in U-110).
 `fleet` pack), both configured in `opencode.json` — one tool surface, two transports. Each
 launcher stages a private copy of its resolved jars at start (B-005 staging), so a reactor
 rebuild can never rot a running server. Note: opencode prefixes tools with the server name, so

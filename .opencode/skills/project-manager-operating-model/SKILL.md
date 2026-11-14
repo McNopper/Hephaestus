@@ -49,9 +49,9 @@ blocked = a state (status:blocked + resume_to:str + blocker:str); a blocked tick
           NEEDS-HUMAN once no agent retry is in flight (blocked is reached only after agents
           had their attempt)
 paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update
-stage   = optional V-pipeline field: task_advance -> next stage's backlog; task_send_back ->
-          previous stage (blocked + reason); task_pass_stage -> next stage's backlog with a
-          recorded "stage <N> passed: <reason>" instead of a dispatch (a pass-declare: <stage> -
+stage   = optional V-pipeline field: immutable V-pipeline ownership (U-110): the pipeline flows by links -
+          downstream tickets are created by division (linked, not moved); a stage with no applicable work has nothing to do -
+          the readiness verdict does that gating -
           <reason> comment on the ticket makes the launch path record that pass: zero sessions)
 ```
 
@@ -156,7 +156,7 @@ serialization point):
 
 ## Iterative rework loop
 
-`in-review` -> review FAIL -> `task_send_back` to the previous stage's backlog
+`in-review` -> review FAIL -> blocked escalation to the basis
 (blocked with the reviewer's reasons; the first stage and unstaged tickets are
 blocked in place) -> rework -> re-verify.
 This is the agile loop: a defect reopens the work that produced it, downstream

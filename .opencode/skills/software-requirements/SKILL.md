@@ -117,13 +117,13 @@ recorded, not just decided:
 
 1. **Your artifact:** this skill's Default Output as a document in the repo (goal,
    stories, `FR-`/`AC-` ids), **recorded with `task_add_artifact`** before the stage can
-   exit — `task_advance` rejects a definition stage with zero recorded artifacts.
+   exit — the store's done-time guard refuses a definition-stage `done` with zero recorded artifacts.
 2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS
    (governing tickets + their artifact refs) — read them first and cite the ids your
    artifact addresses. (V start: your input is the brief/epic; an insufficient brief goes
-   back with `task_send_back` reason starting `clarification:`.)
+   back with blocked escalation, reason starting `clarification:`.)
 3. **Flow back only on two triggers:** something is *missing* from the previous stage, or
-   it *needs refactoring/clarification* — `task_send_back` (or `clarification:` first).
+   it *needs refactoring/clarification* — blocked escalation to the basis (the upstream link reworks; `clarification:` first for questions).
    Otherwise cover in place; never flow back by reflex.
 
 ## When to Hand Off

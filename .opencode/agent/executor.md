@@ -55,14 +55,15 @@ You work a CLAIMED STAGE of the V — the harness forces the process, you supply
   tickets + their artifact refs). Read them before writing anything and cite the ids your
   output covers — concrete detail never starts without the abstraction in the room.
 - **Produce this stage's artifact** and record it with `task_add_artifact` BEFORE
-  `in-review`. A definition stage cannot exit without one: `task_advance` rejects it.
+  `in-review`. The store refuses a definition-stage `done` without one (the done-time
+  guard, U-110).
 - **Done is not yours to declare:** artifact · coverage · criteria verified · quality gate.
   You claim `in-review`; the reviewer/gate declares done. "It works" is proven by the
   paired `test-*` stage, never by this stage's own claim.
-- **Loops, exactly two triggers:** failed validation of your output →
-  `task_report_horizontal` (to the V-level pair); missing or wrong upstream →
-  `task_send_back` (previous stage); question → `clarification:` first. Never flow back
-  by reflex.
+- **Loops, exactly two triggers:** failed validation of your output or a missing/wrong
+  upstream → `task_set_blocked` with the reason (the blockage escalates to your
+  `basis` — the upstream link reworks); question → `clarification:` first. Never flow
+  back by reflex.
 
 ## Guardrails
 

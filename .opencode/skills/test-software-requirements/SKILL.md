@@ -72,10 +72,10 @@ they are *there* and *fulfilled*, and creates no new definition. This is the V t
 2. **Validate the pair:** the prompt delivers the paired definition (the requirements
    record with its `FR-`/`AC-` ids) — every `FR-`/`AC-` id maps to a scenario that proves
    it; an unmet requirement is a failed validation, full stop.
-3. **A failed validation loops HORIZONTALLY:** `task_report_horizontal` returns the ticket
+3. **A failed validation escalates to its basis:** the blocked ticket returns to
    to the paired definition stage (this stage's pair: `requirements`) with the failing
    evidence — "the requirements are not met" lands exactly there. Only a *missing or wrong
-   upstream definition* goes back vertically (`task_send_back`); questions go
+   upstream definition* escalates to its basis (blocked escalation); questions go
    `clarification:` first.
 
 ## When to Hand Off

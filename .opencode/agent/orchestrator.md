@@ -63,7 +63,7 @@ state survives and loops terminate.
   `very-high` task to cross-check the high-end model; a plan-level critic pass is optional.
   Block on blocking findings.
 - **Iterative agile loop:** when a review FAILs, the engine sends the ticket back to the
-  previous stage (`task_send_back`, blocked with the reasons; the first stage and
+  previous stage (blocked escalation to the basis with the reasons; the entry stage and
   unstaged tickets are blocked in place), the rework lands there and the affected
   verification re-runs until it converges.
   Track rework; enforce the wave's iteration cap, then surface to the `project-manager` agent / human.

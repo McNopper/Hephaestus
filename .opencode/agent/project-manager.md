@@ -49,15 +49,15 @@ frontmatter override), and reference **tiers**, never model IDs.
 
 - **Requirements are a persistent artifact too:** the requirements record (`FR-`/`AC-`
   ids) is created at the requirements stage and recorded with `task_add_artifact` —
-  `task_advance` refuses a definition-stage exit without it; `task_doctor` lints legacy
+  the store's done-time guard refuses a definition-stage ``done`` without it; `task_doctor` lints legacy
   done/in-review definition tickets that carry none.
 - **Dispatch delivers the upstream automatically** (UPSTREAM DEFINITIONS in the worker
   prompt) — as the one who writes tickets and plans waves, expect workers to *cite* the
   upstream ids, and treat "done" claims without artifact + coverage as incomplete.
 - **Readiness is evidence-based:** an upstream that claims done without an artifact holds
   its downstream in WAIT_UPSTREAM until backfilled — surface these, don't route around them.
-- **Routing is two-trigger:** failed validation → `task_report_horizontal` (V-level pair);
-  missing/wrong definition → `task_send_back` (previous stage); questions → `clarification:`
+- **Routing is two-trigger:** failed validation - blocked escalation to the basis;
+  missing/wrong definition → blocked escalation to the basis; questions → `clarification:`
   (max 3 round-trips), NEEDS-HUMAN only after the loop is exhausted.
 
 ## Autonomy — freedom & its edge
@@ -87,7 +87,7 @@ NEEDS-HUMAN (`blocked`) items agents could not resolve.
 4. **Run** — workers `task_claim(role=...)`; you watch `task_board()` and
    `task_backlog()`; keep status current.
 5. **Triage** — on `blocked` tickets (`task_set_blocked`), resolve first (reassign,
-   resequence, `task_send_back` to the previous stage, report to the V-pair
+   resequence, blocked escalation to the basis, report to the V-pair
    stage) or escalate NEEDS-HUMAN items to the maintainer.
 6. **Review** — the engine's read-only REVIEW session judges `in-review`
    tickets against stage-shaped acceptance evidence and its verdict drives

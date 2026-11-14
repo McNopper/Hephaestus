@@ -1,4 +1,16 @@
-# `fleet_job_activity` — deep live observation of a fleet worker
+# Fleet job activity - RETIRED 2026-11-14
+
+- **About this document:** RETIRED. Documents the removed FleetRunner job
+  activity probe (fleet_fleet_job_activity); the fleet was removed in the
+  U-110 arc (design section 9, evidence in ticket U-111 AE-6).
+
+- **The replacement:** readiness + store history is the observable state
+  (task_readiness, ticket history events); experimental.job.list (W13)
+  is the upstream-native option if session-job probing is ever needed again.
+
+---
+
+## `fleet_job_activity` — deep live observation of a fleet worker
 
 ## About this document
 

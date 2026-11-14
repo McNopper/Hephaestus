@@ -101,14 +101,14 @@ recorded, not just decided:
 
 1. **Your artifact:** this skill's Default Output as a document in the repo (chosen
    patterns, libraries, dependency rules, `ARCH-` decisions), **recorded with
-   `task_add_artifact`** before the stage can exit — `task_advance` rejects a definition
-   stage with zero recorded artifacts.
+   `task_add_artifact`** before the stage can be done - the store's done-time guard refuses a definition-stage `done` with zero recorded artifacts (U-110).
 2. **Top-down coverage:** the dispatch prompt delivers the UPSTREAM DEFINITIONS (here:
    the system record with its `SW-` ids, and requirements above it) — read them first;
    your architecture upholds them and your document cites the ids it addresses.
 3. **Flow back only on two triggers:** the system-level definition is *missing* something
-   this architecture needs, or *needs refactoring/clarification* — `task_send_back` (or
-   `clarification:` first). Otherwise cover in place; never flow back by reflex.
+   this architecture needs, or *needs refactoring/clarification* - blocked escalation to
+   the basis (the upstream link reworks; `clarification:` first). Otherwise cover in
+   place; never flow back by reflex.
 
 ## When to Hand Off
 

@@ -55,7 +55,7 @@ process around you:
 
 - **Your artifact is the deliverable:** the system/architecture document (`SW-`/`ARCH-`
   ids, dependency rules), recorded with `task_add_artifact` BEFORE `in-review` — a
-  definition stage exits only with a recorded product (`task_advance` enforces it).
+  definition stage exits only with a recorded product (the store's done-time guard enforces it, U-110).
 - **Cover the requirements above you:** the prompt delivers UPSTREAM DEFINITIONS — read
   the `FR-`/`AC-` ids first and cite in your document which requirement each structural
   decision serves. Coverage is declared, not implied.
@@ -63,8 +63,8 @@ process around you:
   gate — you claim `in-review`, the reviewer/gate declares done; `test-system`/
   `test-architecture` prove it on the right leg.
 - **Loops, exactly two triggers:** requirements missing something / needing
-  refactoring-clarification → `task_send_back` (or `clarification:` first); a failed
-  integration/library validation arrives via the HORIZONTAL route (`task_report_horizontal`
+  refactoring-clarification → blocked escalation to the basis (the upstream link reworks; `clarification:` first for questions); a failed
+  integration/library validation arrives via the horizontal escalation (blocked escalation to the basis;
   lands at your stage) — answer it with the document, not code. Never flow back by reflex.
 
 ## Guardrails

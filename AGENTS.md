@@ -116,19 +116,16 @@ next tick (the tick boundary is the only synchronization point). Design:
 (AE-6 comment — requirements T-031 → linked system child A-001, engine
 verdicts throughout).
 
-**Pump strategy (resolution-first, wired):** every tick of the production
-schedulers resolves BLOCKED ITEMS FIRST — route a blocked ticket to the
-previous stage (vertical send-back on the definition chain) or report it
-horizontally (the verification-definition pair at the same V level), then
-dispatch the resolution attempt with the blocked reason as context — and
-only then plans new launches, NEEDS-HUMAN as the last resort after agents
-had their attempt (round-trip limit 3). All three schedulers (the fleet's
-`FleetControl` auto loop, the `RecurringWaves` drain, the Board's
-`BoardDispatch`) set the resolver: `DispatchScheduler.withResolution`,
-routes picked by `ResolutionPolicy`, store moves executed by
-`ResolutionMoves` (U-050). One attempt per ticket per tick (no hot loops),
-and attempts count against concurrency and the cost budget like any
-launch. A blocked ticket only stays put once no agent route remains.
+**Ticker strategy (resolution-first, U-110):** every stage ticker's tick
+resolves BLOCKED ITEMS FIRST — a blocked ticket escalates to its **basis**
+(the upstream link: `task_set_blocked` on the basis with the reason; NEEDS-HUMAN
+if the basis is blocked or the round-trip repeats) — then processes done
+tickets (division: create + link the downstream tickets), and only then kicks
+off READY tickets, NEEDS-HUMAN as the last resort after agents had their
+attempt. One attempt per ticket per tick (no hot loops), and attempts count
+against the spawn cap and the cost budget like any launch. A blocked ticket
+stays put once no agent route remains. Design: `docs/design-stage-pipeline.md`
+§4; the live procedure: the `stage-pipeline` skill.
 
 **The repo works as one:** skills, agents, docs,
 store and engine form a single system - after behavior changes, the
@@ -255,26 +252,28 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
 | `test-system` | tester | `test-software-system` |
 | `test-requirements` | tester | `test-software-requirements` |
 
-**V-enforcement — the process the harness forces (U-078..U-082):**
+**V-enforcement — the process the harness forces (U-078..U-082, done-time under U-110):**
 
 - **Every definition stage CREATES a persistent artifact** (the stage's document, recorded
-  with `task_add_artifact`); `task_advance` refuses a definition-stage exit without one
-  (a rationale recorded as a doc artifact counts) and `task_doctor` lints legacy
-  done/in-review definition tickets that carry none ("the architecture was not done").
-- **Top-down coverage is automatic:** the dispatch prompt injects the governing UPSTREAM
-  DEFINITIONS (epic-chain tickets + artifact refs) — a `done` upstream with no artifact
-  yields a GOVERNING DEFINITION MISSING block, and non-bug work with nothing above it at
-  all is forced to write the missing abstraction first. The right leg's artifacts are
-  persistent truth; it only validates they are *there* and *fulfilled*.
+  with `task_add_artifact`); the store's **done-time guard** refuses a definition-stage
+  `done` without one (a rationale recorded as a doc artifact counts) and `task_doctor`
+  lints legacy done/in-review definition tickets that carry none ("the architecture was
+  not done") — the API cannot reach bare `done` for a staged definition ticket.
+- **Top-down coverage is automatic:** the ticker's dispatch prompt injects the governing
+  UPSTREAM DEFINITIONS — the ticket's basis chain + artifact refs (U-110: the chain
+  carries content, not just IDs) — a `done` upstream with no artifact yields a GOVERNING
+  DEFINITION MISSING block, and non-bug work with nothing above it at all is forced to
+  write the missing abstraction first. The right leg's artifacts are persistent truth;
+  they only validate they are *there* and *fulfilled*.
 - **DONE is a gate verdict, not an agent's claim:** artifact · coverage (upstream ids
   cited) · every acceptance criterion verified · quality gate ran — "it works" is proven
-  on the paired `test-*` stage, and readiness refuses an upstream that claims done with
+  on the paired `test-*` stage, and readiness refuses a basis that claims done with
   no artifact (backfill unblocks).
-- **Routing — two triggers only:** a FAILED VALIDATION loops **horizontally**
-  (`task_report_horizontal` → the V-level pair, e.g. test-design → design; the reviewer's
-  FAIL verdict routes by stage kind); a MISSING or WRONG definition loops **vertically**
-  (`task_send_back` → previous stage, `clarification:` first, max 3 round-trips). Cover in
-  place otherwise — never flow back by reflex.
+- **Routing — two triggers only:** a FAILED VALIDATION blocks the ticket **in its own
+  stage** (`task_set_blocked` with the reason) and escalates to its **basis** — the
+  upstream link reworks; a MISSING or WRONG upstream definition escalates the same way
+  (`clarification:` first for questions, max 3 round-trips). Cover in place otherwise —
+  never flow back by reflex.
 
 ## C++ and graphics tooling lives outside the repo
 
@@ -289,103 +288,46 @@ Hephaestus.
 ## Chat-first control plane (H7)
 
 **Chat is the primary interface — everything is triggerable from an opencode chat session;
-the Eclipse views (Board buttons, dialogs, launchers) are optional conveniences on top.**
+the Eclipse views (Board buttons, dialogs) are optional conveniences on top.**
 
-**Chat-first ≠ chat-rooted:** once work is dispatched, the chat session is a *launcher
-and peer*, not the root of a command tree. A running worker reports to its **ticket**
-(status, artifacts, actuals) — never back into the dispatching session, which sees only
-`fleet_fleet_jobs` state until the work lands in the store. To follow dispatched work:
-poll the store (`tasks_task_get`, `fleet_fleet_jobs`), do not wait on or address the
-worker session. This store-mediated coordination is exactly what lets one user run
+**Chat-first ≠ chat-rooted:** once work is dispatched, the chat session is a *kickoff
+assistant and peer*, not the root of a command tree. Workers report to their **tickets**
+(status, artifacts, history events) — never back into the kickoff session. To follow
+work: read the store (`tasks_task_get`, `task_readiness`); do not address worker
+sessions directly. This store-mediated coordination is exactly what lets one user run
 several agents in parallel on a project without anyone blocking anyone.
 
-Concretely, a chat agent can already:
+Concretely, the chat agent — the PO's **kickoff assistant** — can:
 
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
-- **dispatch the fleet** via the `fleet` server — which ships **disabled** in
-  `opencode.json` (`"disabled": true`); enable it for TUI sessions by flipping that
-  to `false`, or reconnect at runtime with `POST /api/experimental/mcp/fleet/connect`:
-  `fleet_fleet_dispatch` (async launch for
-  one ticket — worktree isolation, role-mapped agent, merge-back, artifacts/actuals on the
-  ticket; settle reaps the merged worktree+branch and a dispatch reclaims stale merged
-  residue itself (B-006) — "branch already exists" now means real unmerged work, never
-  engine bookkeeping; the watchdog aborts hung sessions — the ticket budget is
-  progress-aware (B-008): it is a NO-PROGRESS window that progressing sessions
-  never hit (busy alone is not progress), an absolute run cap is the backstop, and
-  every abort records a
-  diagnostic snapshot (last assistant text, last tool call, pending request) on the
-  ticket). Model
-  selection is a **cost lever on the ticket**: the optional `model` field
-  (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run costs —
-  small well-specified tickets deserve cheap models; `fleet_dispatch(model=…)` overrides
-  per run. The reviewer pass stays on the server default. The launch
-  precedence is: `fleet_dispatch(model=...)` > ticket `model` > the **per-stage
-  policy** (Dispatch settings -> stage models, U-072: one `provider/model[#variant]`
-  per V-stage) > server default.
-  `fleet_fleet_jobs` (poll the live job snapshot), `fleet_fleet_job_details` (live
-  progress probe: busy/messages/complete — "are we moving?"),
-  `fleet_fleet_job_activity` (deep live observation of one job's session: current
-  activity, tools used, shell commands, subagents, tokens/cost),
-  `fleet_fleet_reset` (consume a settled run's worktree/branch residue and release
-  the ticket to sprint-backlog), `fleet_fleet_shutdown` (the one graceful maintenance
-  stop: parks admissions and the loops, checkpoints in-flight workers, pauses their
-  tickets, kills the spawned serve),
-  `fleet_fleet_permissions` / `fleet_fleet_permissions_answer` (list and answer
-  permission asks of unattended runs — once/always/reject),
-  `fleet_fleet_sync_store` / `fleet_fleet_status_store` / `fleet_fleet_recover_store`
-  (distributed-fleet store discipline, **scoped to `.opencode/tasks`** — never touches
-  the rest of the repo). The fleet spawns its own authenticated `opencode serve` on
-  first dispatch (a fresh password is generated when `OPENCODE_SERVER_PASSWORD` is
-  unset) and kills it on shutdown.
-- **Host discipline** : background work runs in
-  **opencode** (its service already executes requests and shells in the
-  background) or in **Eclipse** (the JobManager runs every task as a Job in
-  one fixed `JobGroup`) — anything else is reinventing the wheel. The
-  automatic fleet pump (auto-dispatch / recurring waves) runs in **whichever
-  host starts it**: the Eclipse Board, or the fleet stdio JVM when a chat
-  session calls `fleet_fleet_auto_start` / `fleet_fleet_waves_start` — the
-  loop pumps in that host's `FleetControl` for as long as that host runs.
-  There is no detached fleet daemon and no third host.
-- **Strict reuse policy** (full matrix in
-  `docs/opencode-v2-adoption.md`) - decide EVERY capability in this order:
-  1. **the opencode harness** - if opencode v2 already provides it (sessions,
-     shells, PTYs, worktrees, VCS, permissions, forms, MCP management:
-     check `GET /openapi.json` first), do it WITH opencode - adopt the verb,
-     never reimplement it.
-  2. **the Eclipse harness** - otherwise use what the platform gives (Jobs,
-     Progress, preferences, scheduling rules, views, editors).
-  3. **ours only** where neither host has the thing (task store, V-pipeline
-     steering) - and never a parallel mechanism for something a tier above
-     already does: that is a defect, not an extension.
+- **arm and disarm the stage tickers** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
+  (one steward session + one `experimental.schedules` schedule per stage — W1,
+  adopted; the tick prompt is thin glue over the `stage-pipeline` skill), or flip
+  the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);
+- **file intake tickets** (goal intake, U-105 flow): the PO's objective becomes a
+  requirements ticket; on completion the stage tickers divide it into the linked
+  derivation chain;
+- **model selection is a cost lever on the ticket**: the optional `model` field
+  (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run
+  costs — small well-specified tickets deserve cheap models;
+- **escalation surface**: tickers and workers surface NEEDS-HUMAN via
+  `task_set_blocked`; clearing it resumes the flow. For unattended runs, prefer
+  making risky actions `deny` in the opencode permission config instead of `ask` —
+  an unanswered ask holds the run until answered.
 
-The opt-in auto-dispatch loop is chat-triggerable via `fleet_fleet_auto_start`
-(explicit project/sprint, concurrency and cost-admission budget),
-`fleet_fleet_auto_status`, and `fleet_fleet_auto_stop`. Board and chat share the
-headless scheduling policy and repository reservations.
-
-The U-022 **recurring-waves mode** is chat-triggerable via `fleet_fleet_waves_start`
-(per project, optional first wave, concurrency + hard-stop cost budget),
-`fleet_fleet_waves_status` (active wave, waves planned, stop reason, and the
-**NEEDS-HUMAN rows** — every ticket blocked with no in-flight retry), and
-`fleet_fleet_waves_stop`. When the active wave drains, the next wave is planned
-automatically from the prioritized backlog (top-priority READY tickets) — no human
-click between waves. The loop parks while NEEDS-HUMAN tickets wait (clearing a
-blocker resumes it automatically; the Board's readiness badge carries the
-needs-me count) and stops cleanly on budget exhaustion or when nothing is
-plannable. OFF by default.
-
-Not yet chat-triggerable: *proactive* ask-surfacing inside
-the dispatching chat (answering works via `fleet_fleet_permissions*`) and
-board rendering. For unattended runs, prefer making risky
-actions `deny` in the opencode permission config instead of `ask` — an unanswered ask
-holds the run until answered (the watchdog pauses, it does not decide).
+The tickers themselves run **unattended**: schedules fire the tick prompt, the
+`stage-pipeline` skill drives the fixed procedure, and the machinery keeps running
+when the chat closes — the maintainer's only regular duty is resolving
+NEEDS-HUMAN escalations. Live acceptance evidence: ticket `U-111` (AE-6 —
+requirements T-031 → division → linked system child A-001, engine verdicts
+throughout).
 
 ## eclipse/ — the IDE harness
 
 The Eclipse plugin (`eclipse/`) is the **agentic harness**: chat plus Server (agents/sessions/MCP
 servers/skills)/Providers/Board
-views, the MCP build-tools endpoint `eclipse-build`, a git-worktree agent fleet, and the
-headless FleetRunner. It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
+views, the MCP build-tools endpoint `eclipse-build`, and the tasks Board (stage
+columns over the linked ticket graph). It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
 
 - **v2 in this client (last live cross-check: v2.3.0, 2026-11-13; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
   Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
