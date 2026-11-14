@@ -81,20 +81,17 @@ Use the `project-manager-create-ticket` skill (or the Board's New Ticket):
   `test-requirements`); stageless tickets work fine too - the pipeline is
   opt-in structure.
 
-### 6. Work them - three ways
+### 6. Work them - two ways
 
 1. **Direct:** `task_claim(role=...)` in a chat session, do the work,
    `task_add_artifact` + move to `in-review`.
-2. **Waves:** plan a sprint (wave) from the Board or `task_plan_sprint`, then
-   let workers claim; the auto-dispatch loop (`fleet_fleet_auto_start`) or
-   the recurring-waves mode (`fleet_fleet_waves_start`) drive it unattended.
-3. **Fleet:** `fleet_fleet_dispatch` per ticket (git-worktree isolation,
-   role-mapped agent, merge-back). The fleet is **disabled by default** (it
-   eats tokens) - arm it with the **Enable Fleet** button in the Fleet view
-   (that button lives there only, not on the Board) or by flipping the
-   fleet entry in `opencode.json` to `"disabled": false` and using the
-   `fleet_fleet_*` tools. Use the ticket's `model` field as the cost
-   lever: small well-specified tickets deserve cheap models.
+2. **Stage tickers (unattended):** arm one schedule per V-stage with
+   `.opencode/skills/stage-pipeline/ticker-setup.ps1`; each tick resolves
+   blocked items first, divides done tickets into linked downstream tickets
+   and kicks off READY tickets via goal-driven subagents under the spawn
+   cap. The procedure lives in the `stage-pipeline` skill; live evidence in
+   ticket U-111. Use the ticket's `model` field as the cost lever: small
+   well-specified tickets deserve cheap models.
 
 ### 7. If you use the Eclipse harness
 

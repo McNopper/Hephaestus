@@ -25,7 +25,8 @@ that layer — worktree lifecycle, session retry/resume, model selection,
 scheduling, background-job accounting, the permission-reply protocol — is
 adopted from upstream as it lands, never rebuilt (evidence and per-vendor
 verdicts: `docs/fleet-redundancy-review-2026-11.md`). First adoption chunk:
-U-106 (FleetRunner onto the server worktree APIs).
+U-106 — superseded by U-110 (2026-11-14): the fleet was removed outright;
+the live `WorktreeManager` keeps the server-worktree-API usage.
 
 **Where we are.** `v0.1.10` is released (first cut through
 `eclipse/releng/release.ps1`, gate green 28/28) and the history was squashed
@@ -47,9 +48,8 @@ History: docs/HISTORY.md.
    tools; record artifacts before moving to `in-review`; the ticket is the
    hand-off contract.
 3. **Staged vs unstaged.** The E-006 tickets are deliberately unstaged:
-   take them by explicit assignment or per-ticket `fleet_dispatch`. The
-   auto/waves loops only launch READY tickets of staged V-chains — and the
-   stage pass-through that would let a chain flow cheaply is U-049.
+   take them by explicit assignment in a chat session (staged tickets are
+   launched by their stage tickers via readiness — U-110).
 4. **Verification is central.** Workers edit; the orchestrator runs the one
    quality gate (`cd eclipse; .\build.ps1 verify -Pquality`) and commits —
    one commit per round, amended within the round, pushed only on explicit
@@ -95,7 +95,7 @@ flip, U-090) is deliberately planned last.
 | T-027 | diagnose the ubuntu CI leg — leg green since 2026-10-29; the blocking flip is the owner's call |
 | T-028 | store audit: artifacts for done tickets |
 | T-029 | store audit: wave timestamps + the malformed id |
-| U-106 | NEW (fleet review 2026-11-09): FleetRunner onto the server worktree APIs — adopt-and-remove; merge-back stays ours |
+| ~~U-106~~ | superseded by U-110 (2026-11-14): the fleet was removed outright; `WorktreeManager` keeps the server worktree API usage |
 | U-100 | wave lessons via upstream instruction entries (substrate confirmed by the fleet review) |
 | U-102 | adopt upstream `fs.watch` for store watching; remove TaskStoreWatcher |
 | U-104 | stage→agent mapping + governing-definitions injection (mechanism = native agent definitions, D-004-local models) |

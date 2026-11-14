@@ -25,7 +25,7 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `story_points` | int | relative size; `project-manager-estimate-costs` can later feed a `cost` field |
 | `priority` | `low`/`medium`/`high`/`critical` | drives self-claim order |
 | `role` | enum (extensible) | `architect`/`developer`/`tester`/`pm`/`cpp-engineer`/`graphics-engineer` → who claims it |
-| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. The V is an **async pipeline**, not a phase gate: `task_advance` moves a finished ticket to the next stage's backlog (role follows the new stage); `task_send_back` returns it to the previous stage, blocked with the reason; a stage where nothing applies is a **pass-through** (U-029) — the ticket visits it and advances with a `stage N passed: reason` history marker instead of a full dispatch (the V tip can never pass). |
+| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. The V is an **async pipeline**, not a phase gate (U-110): the ticket stays in its stage — completing it divides into linked downstream tickets (`epic` inherited, `basis` = the completing ticket), which their own stages' tickers gate via readiness. The wandering verbs (`task_advance`/`task_send_back`/pass-through, U-029) are retired; legacy `stage N passed: reason` markers in old history remain readable. |
 | `assignee` | string | set by `task_claim` |
 | `acceptance_criteria` | string[] | GIVEN/WHEN/THEN; verification must satisfy all |
 | `labels` | string[] | free tags |
@@ -72,8 +72,10 @@ no detached fleet daemon: the former V-006 runtime (TCP core + proxy + pidfile +
 retired — the automatic fleet pump lives in Eclipse (JobManager).
 
 Plus the H6 readiness/stage pack: `task_readiness` (per-ticket READY / WAIT_UPSTREAM /
-STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board), `task_advance`,
-`task_send_back` — the stage-flow tools the V-pipeline dispatcher builds on.
+STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board, basis-chain gating
+per U-110), `task_set_blocked` (blocked escalation to the basis), `task_create` with
+`stage`/`epic`/`basis` (division + linking), `task_doctor` - the stage-flow surface the
+stage tickers build on.
 
 ### Artifact kinds (the hand-off locator)
 

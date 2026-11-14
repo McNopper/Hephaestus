@@ -223,12 +223,11 @@ one-time setup:
 
 ## Troubleshooting
 
-- **`tasks`/`fleet` MCP servers fail with `Connection closed` (opencode TUI)** → the stdio
-  launchers (`eclipse/tasks-tools.ps1` / `fleet-tools.ps1`) died at spawn. They are **pwsh**
-  scripts (install PowerShell 7) needing a JDK 21+ and the **built bundle jars** — run one
-  `.\build.ps1 clean verify` first (the `tasks` launcher resolves tasks+tools, the `fleet`
-  launcher fleet+client+git+tasks+tools; gson comes from the Tycho p2 cache `~/.m2` or
-  `$env:ECLIPSE_HOME`; a launcher spawned from a fleet *worktree* falls back to the main
+- **`tasks` MCP server fails with `Connection closed` (opencode TUI)** → the stdio
+  launcher (`eclipse/tasks-tools.ps1`) died at spawn. It is a **pwsh**
+  script (install PowerShell 7) needing a JDK 21+ and the **built bundle jars** — since the
+  B-027 fix the launcher resolves gate-stable-first (dropins → targets → staged,
+  `ECLIPSE_HOME` defaulting to `C:\eclipse-cpp`; a launcher spawned from a *worktree* falls back to the main
   checkout's jars — worktrees carry no `target/` output). Then reconnect —
   the MCP servers belong to the shared background service, so a TUI restart keeps the
   stale state: `POST /api/experimental/mcp/<name>/connect?location[directory]=<repo>`

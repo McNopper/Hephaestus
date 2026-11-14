@@ -12,10 +12,10 @@
 | Feature | Status | Evidence / ticket |
 |---|---|---|
 | Task store (file-based blackboard, one md per ticket) | ✅ | E-001; `tasks` MCP serves all agents |
-| V-stage field + advance/send-back + readiness (READY/STALE/BLOCKED/RUNNING) | ✅ | V-001; H6 readiness |
-| V-enforcement: stage artifacts, top-down coverage injection, DONE as gate verdict | ✅ | U-078..U-082 (v0.1.4) |
-| Stage pass-through: `task_pass_stage` + `pass-declare:` pump path (zero sessions) | ✅ | U-057/U-058 (v0.1.9) |
-| Horizontal loop `task_report_horizontal` | ✅ | U-082 |
+| V-stage field (immutable ownership) + basis/epic links + readiness (READY/WAIT_UPSTREAM/STALE/BLOCKED/RUNNING) | ✅ | V-001; H6 readiness; U-110 store contract |
+| V-enforcement: stage artifacts, top-down coverage injection, DONE as gate verdict | ✅ | U-078..U-082 (v0.1.4); done-time guard (U-110) |
+| ~~Stage pass-through: `task_pass_stage` + `pass-declare:` pump path~~ | ✗ retired (U-110) | superseded by the linked stage pipeline (stationary tickets, division on completion) |
+| ~~Horizontal loop `task_report_horizontal`~~ | ✗ retired (U-110) | superseded by blocked escalation to the basis |
 | Blocked as a status (schema + resumeTo + surfaces) | 🔶 | U-067/U-068/U-069 (in-review) |
 | Five V-chains walked to test-requirements | ✅ | T-026 (v0.1.9) |
 | `task_traceability` | 🔶 | U-070 in-review; **D-001 decided** (three signals) |

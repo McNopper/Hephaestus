@@ -42,14 +42,14 @@ maps directly to a ticket.
 | **Card sort** | Click a card column header: cycles ascending (up) -> descending (down) -> snapshot order (both arrows); unset values sort last in both directions | U-065 |
 | **Tooltips** | Hover: status group headers explain the status, epic lanes and blocked counts explain themselves, card column headers explain the sort | U-065 |
 | **Chat queue** | While a reply streams, ENTER queues a message: numbered table with header count + full-text row tooltips; pencil Edit / bin Remove / shuffle Fork, double-click or ENTER edits | U-071 |
-| **Stage models** | Dispatch settings dialog: one model field per V-stage (blank = server default), malformed value rejected with a red reason; launch precedence fleet_dispatch > ticket > stage > default | U-072, U-073 |
+| **Ticket model lever** | the ticket's optional `model` field (`provider/model`, via `task_create`/`task_update`) decides what a run costs; small well-specified tickets deserve cheap models (the fleet-era per-stage dispatch dialog was removed with the fleet in U-110) | U-072, U-073 |
 | **Emoji vocabulary** | `docs/emoji-vocabulary.md` lists every concept with one canonical emoji; no concept shows two different emoji across surfaces | U-074 |
 | **Blocked filter** | Blocked is a STATUS (U-067): the status filter menu lists it as the seventh entry; its 🚫 renders **red** in the status cell, the title stays clean (no duplicate marker), and the toolbar Needs me toggle filters the same state | U-065, U-067 |
 | **Readiness badges** | done tickets that entered mid-pipeline never badge as "waiting" | B-007-era fix |
 | **Chat streaming** | live text while a reply generates; a tool-using turn stays open until the final answer | T-010 |
-| **Stage artifact gate** | `task_advance` out of a definition stage with zero recorded artifacts is rejected naming `task_add_artifact` (a rationale doc counts); after recording one the same advance succeeds; `task_doctor` reports done/in-review definition tickets that carry no artifact | U-080 |
+| **Stage artifact gate** | a definition-stage `done` with zero recorded artifacts is refused by the store's done-time guard, naming `task_add_artifact` (a rationale doc counts); after recording one the transition succeeds; `task_doctor` reports done/in-review definition tickets that carry no artifact | U-080, U-110 |
 | **Upstream injection** | a staged dispatch prompt carries `UPSTREAM DEFINITIONS` (governing tickets + artifact refs); a governing `done` ticket without artifacts shows `GOVERNING DEFINITION MISSING`; non-bug work with nothing above it starts top-down with the backfill instruction | U-079 |
-| **Horizontal loop** | `task_report_horizontal` is callable via `task_*` and lands the ticket at its V-level pair (test-design → design), blocked with "reported from …"; a reviewer FAIL routes a verification stage sideways and a definition stage vertically | U-082 |
+| ~~**Horizontal loop**~~ | `task_report_horizontal` retired in U-110; a reviewer FAIL now blocks the ticket in its own stage and escalates to its basis | U-082 → U-110 |
 | **Evidence-based readiness** | an upstream claiming done with no artifact reports `WAIT_UPSTREAM` ("claims done but has no artifact"); recording the artifact unblocks the downstream to READY | U-081 |
 | **V-enforcement docs** | every software-*/test-software-* skill carries its *Stage Contract* section; executor/manifest-author/project-manager/reviewer carry the done-as-four-box contract; AGENTS.md has the V-enforcement block | U-078 |
 

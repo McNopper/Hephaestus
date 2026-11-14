@@ -54,9 +54,7 @@ Project management is a concrete, Scrum-like **ticket/sprint** workflow over the
 MCP tools by the Eclipse harness's `eclipse-build` endpoint and the stdio
 `tasks-tools` launcher (opencode prefixes them with the server name — `tasks_task_*`
 in TUI sessions, `eclipse-build_task_*` in Eclipse; the tool/wire names stay `task_*`);
-the **fleet** is dispatchable from chat itself via the `fleet` stdio server
-(wire names `fleet_dispatch`/`fleet_jobs`/…, surfaced as `fleet_fleet_*` — chat is the
-primary interface, Board buttons are conveniences); C++ and graphics are first-class **tools** (an agent and an
+C++ and graphics are first-class **tools** (an agent and an
 MCP server), not a separate lifecycle.
 
 Three ideas hold it together:
@@ -93,7 +91,7 @@ repository, two ways to use it:
 |---|---|---|
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
-| **Fleet** — dispatch, jobs, live progress, permissions, store sync, auto-dispatch (`fleet_*`) | ✅ `fleet` stdio server (`eclipse/fleet-tools.ps1`; **disabled by default** — enable in `opencode.json`) | ✅ **Fleet view** (own *and peer-engine* jobs, diffs, permissions) |
+| ~~**Fleet**~~ — removed in U-110; per-stage tickers + goal-driven subagents replaced it | ✗ | ✗ (Board mirrors the store; no fleet view) |
 | **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
 | `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
@@ -135,7 +133,7 @@ The harness works **with and without the fleet**.
 | `.opencode/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
 | `mcp/graphics/` | the graphics MCP server (captures, comparisons). |
 | `cpp/` | standalone AI-first C++23 build skeleton (its own `AGENTS.md`). |
-| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board + Fleet views**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, git-worktree fleet incl. the task-driven `TaskFleet`, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1`/`fleet-tools.ps1` stdio launchers; Maven/Tycho reactor). |
+| `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1` stdio launcher; Maven/Tycho reactor). |
 
 ## Skills (flat, by domain)
 
@@ -190,18 +188,20 @@ Key rules:
 - **Record artifacts.** When a worker produces a file, git commit/branch, or doc, it
   records it with `task_add_artifact(kind=file|git|path|url|doc, ref=…)` *before* moving to
   `in-review` — the ticket is the hand-off contract.
-- **Rework loop.** A review FAIL routes by stage: `task_send_back` to the previous
-  stage's backlog, blocked with the reviewer's reasons (the maintainer-escalation signal);
-  first-stage and unstaged tickets have nowhere to send back to and are blocked in place.
+- **Rework loop.** A review FAIL blocks the ticket **in its own stage** with the
+  reviewer's reasons (the maintainer-escalation signal) and escalates to its **basis** —
+  the upstream link, which the upstream stage's ticker re-opens or reworks; unstaged
+  tickets stay blocked in place.
   An UNCLEAR verdict round-trips the doubt to the originator (one retry per stage visit).
 - **Bubble-up → escalation.** A blocked worker sets `blocked` + a `blocker`; the PM resolves
   internally or escalates only human-worthy decisions.
 
 **V pipeline (optional, per ticket).** A ticket may carry a `stage` — the 10 canonical stages
 `requirements` … `test-requirements` (definition down the left leg, verification up the right).
-Stages run **concurrently** (no phase gates): each finished stage feeds the next stage's backlog
-via `task_advance` (which re-derives role/skill from the new stage); a stage that cannot proceed
-calls `task_send_back` with a reason. The Board view has a Pipeline mode for stage-ordered columns.
+Stages run **concurrently** (no phase gates): each finished stage feeds the next stage
+by division — the stage's ticker creates the linked downstream tickets (`epic` inherited,
+`basis` = the completing ticket); a stage that cannot proceed blocks in place and escalates
+to its basis. The Board view has a Pipeline mode for stage-ordered columns.
 
 See `project-manager-operating-model` (Scrum events, DoD, escalation), `project-manager-create-ticket` (how to fill
 a ticket), `project-manager-route-request` (ambiguous next step), `project-manager-audit-traceability` (matrix).
@@ -281,17 +281,12 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
    from.
 6. Run `opencode` from this repo. Skills, agents, and `AGENTS.md` auto-load; the
    `tasks` stdio launcher and the `graphics` MCP server start from `opencode.json`.
-   The `fleet` stdio server is registered but **disabled by default**
-   (`"disabled": true` in `opencode.json`) — enable it by setting that to
-   `"false"`, or reconnect at runtime with
-   `POST /api/experimental/mcp/fleet/connect?location[directory]=<repo>`.
-7. Your first headless fleet dispatch: see **`docs/fleet-quickstart.md`** (seed
-   ticket → `fleet_dispatch` → poll → merge → actuals — the whole engine works
-   without Eclipse). Host discipline for the automatic pump (auto-dispatch /
-   recurring waves): it runs in **whichever host starts it** — the Eclipse Board,
-   or the fleet stdio JVM when a chat session calls `fleet_auto_start` /
-   `fleet_waves_start` — and pumps for as long as that host runs. There is no
-   detached fleet daemon and no third host.
+7. Unattended execution: arm the stage tickers with
+   **`.opencode/skills/stage-pipeline/ticker-setup.ps1`** (one schedule per
+   V-stage; the `stage-pipeline` skill is the procedure) — each tick resolves
+   blocked tickets, divides done ones into linked downstream tickets and kicks
+   off READY ones via goal-driven subagents. The whole engine works without
+   Eclipse.
 
 > **MCP scope:** the bundled servers implement a deliberately minimal JSON-RPC surface
 > (`initialize`, `tools/list`, `tools/call`, plus `ping` on all three Java servers —
