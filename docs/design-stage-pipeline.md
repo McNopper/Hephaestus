@@ -150,6 +150,11 @@ Therefore:
   reopen semantics) and closed at the tick boundary. This keeps the sprint
   namespace compact (no per-tick id explosion) while history, goal and digest
   stay per-tick. The auto-minted `S-xx` records remain for human-run waves.
+- **Interval and cap (decided with chunk 3's bootstrap):** default **15
+  minutes per stage** (`ticker-setup.ps1 -IntervalMinutes`), per stage via
+  the schedule's `when`; stages with an empty READY backlog cost one thin
+  readiness query per tick. **Spawn cap:** default **4** concurrent
+  subagents (`-Cap`), owner-adjustable on the Board panel (chunk 5).
 
 ### The tick algorithm (always the same, every launch)
 
@@ -218,7 +223,8 @@ adding a stage = adding its division map + skill, nothing else.
   ticket (status flips, artifact recording). Consequences: small prompts and
   cheap workers; a worker cannot wander (it never learns other tickets exist);
   the ticker holds the big picture, the worker holds the ticket.
-- **Admission = the spawn cap.** Global cap (⧗ OPEN — default proposal **4**)
+- **Admission = the spawn cap.** Global cap — default **4** concurrent
+  subagents, set by `ticker-setup.ps1 -Cap` —
   plus per-stage serialization: the ticker never spawns two subagents whose
   file lanes overlap; when lanes overlap it serializes within the stage.
   File-lane discipline is a store convention (labels/notes on the ticket),
