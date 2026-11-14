@@ -183,18 +183,30 @@ The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
 diff mechanical). New surface classes need a tier decision before they land:
 
-**Experimental surface policy (owner, 2026-10-27, revised 2026-10-29):**
+**Experimental surface policy (owner, 2026-10-27, revised 2026-10-29, revised 2026-11-14):**
 routes marked `experimental` fall into two classes. **(1) No-overlap
-surfaces** are never consumed and never become a design dependency - they are
-watch-only (the list below), and an experimental route disappearing
-(`voice.instructions`: added 2.1.3, removed 2.2.0) must never break or
-re-shape our features. **(2) Overlap surfaces - an experimental feature that
+surfaces** are unconsumed until a design needs them - the watch list below is
+the inventory, and an experimental route disappearing
+(`voice.instructions`: added 2.1.3, removed 2.2.0) must never silently break
+or re-shape our features. **(2) Overlap surfaces - an experimental feature that
 replaces something we built or queued - are ADOPTED proactively: we use the
 upstream surface (flag/gate included), remove our parallel implementation, and
 track the migration as a ticket.** Rationale: a parallel implementation of
 something upstream ships is exactly the drift the strict-reuse policy exists
 to prevent; "experimental" shifts the risk onto configuration, where it
 belongs. Watch-list rows (W#) name the guard that applies until adoption.
+
+**Owner directive 2026-11-14 (Hephaestus is an experimental harness too):**
+experimental status upstream is NOT a barrier to adoption. We pin the client
+to the running service and bump the pin with every cross-check, so any
+experimental surface present in the pinned version is guaranteed available -
+no stabilization wait, and no fallback implementations for older servers.
+Adoption now requires exactly two things: the surface exists in the pinned
+version, and a consuming design ticket needs it (first instance: W1
+`schedules` → adopted by U-110). The disappearance guard stands: the standing
+cross-check route-diff catches a vanishing surface at the next bump, where it
+breaks loudly at the pin boundary instead of silently - that is the accepted
+risk profile of an experimental harness.
 
 **Grandfathered consumption (same policy, backward-looking half):** the client
 predates this policy and calls seven experimental path families as its normal
