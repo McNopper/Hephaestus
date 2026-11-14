@@ -88,3 +88,10 @@ product define done.
   B-027): report BLOCKED honestly; do not improvise hand edits. Fresh
   sessions re-arm against the stable dropins jars (the launcher resolves
   gate-stable-first since the B-027 fix).
+- **Pause/resume semantics (owner directive, days-run):** shutting the PC
+  down pauses the pipeline - schedules are bound to sessions on the running
+  service and die with it. Resume after boot = re-run
+  `ticker-setup.ps1` with the same `-Stages`; the store is the memory,
+  nothing else needs re-arming. A fresh `deploy-dev.ps1` also kills the
+  live `tasks` server (jar replaced under it) - reconnect via
+  `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`.

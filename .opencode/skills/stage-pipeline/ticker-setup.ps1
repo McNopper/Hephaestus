@@ -44,7 +44,8 @@ $auth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("ope
 # Fix: create the tickers as CHILD sessions of a repo-rooted session (children
 # inherit the parent's tools/skills/config context).
 if (-not $ParentSessionId) {
-    $enc0 = [Uri]::EscapeDataString((if ($Directory) { $Directory } else { (Get-Location).Path }))
+    $dir0 = if ($Directory) { $Directory } else { (Get-Location).Path }
+    $enc0 = [Uri]::EscapeDataString($dir0)
     $s = Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/session?directory=$enc0" -Headers @{ Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("opencode:$Token")) } -TimeoutSec 30
     $rootSession = $s.data | Where-Object { -not $_.parentID } | Sort-Object { $_.time.updated } -Descending | Select-Object -First 1
     if (-not $rootSession) { throw "no repo-rooted parent session found - open the harness chat first or pass -ParentSessionId" }
