@@ -22,10 +22,11 @@ durable per-command evidence.
 
 ## AC1 — compiles under JDK 21: PASS
 
-```
+```text
 javac -version              -> javac 21.0.12.1
 javac EditorCore.java       -> (no output) exit 0
 ```
+
 `.class` files created only in the temp dir (`EditorCore.class`,
 `EditorCore$CoreState.class`, `EditorCore$Parser.class`); nothing dropped into the
 repo. Working tree confirmed clean for the subject file (`git status --porcelain`
@@ -89,7 +90,7 @@ Harness checks (exact expected JSON from the state grammar, or field assertions)
 gates and documented in the file header); every state printed as JSON. The visible
 trace matches an independent hand computation line by line:
 
-```
+```text
 initial [lines=[] cursor=0:0 mode=NORMAL undoDepth=0]
 i       -> INSERT, no snapshot (depth 0)
 h,e,l,l,o -> ["hello"] 0:5, depth 1..5 (one snapshot per key)
@@ -103,6 +104,7 @@ FINAL [lines=[hello, worl] cursor=1:4 mode=NORMAL undoDepth=12]
 codec round-trip stable: true
 gate 'Home' in INSERT no-op: true ; gate 'Backspace' in NORMAL no-op: true ; exit 0
 ```
+
 `FINAL` is byte-identical to the smoke recorded on T-054 by the implementing worker.
 
 ## Underspecification cross-check (8 header choices vs W-008 table + W-006)
