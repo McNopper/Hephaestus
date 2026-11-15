@@ -57,7 +57,9 @@ Per stage:
    spawn cap (`task_claim`), then spawn ONE
    background subagent per claimed ticket with the fulfillment brief
    (below). Never spawn two subagents whose file lanes overlap; when lanes
-   overlap, serialize within the stage.
+   overlap, serialize within the stage. **A landed markdown doc must be
+   lint-clean** (`releng/lint.ps1` over the touched files — CI's markdown
+   gate runs on every push and a lint-broken doc turns CI red).
 6. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
    (U-108 reopen semantics keep the record rolling) and close it. The next
    tick repeats.

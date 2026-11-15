@@ -95,7 +95,8 @@ $prompt =
     "$Cap concurrent subagents (check your running subagents first - never exceed " +
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +
     "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +
-    "artifact, set in-review - never done. After the last stage, close the pass " +
+    "artifact, set in-review - never done; a landed markdown doc must be lint-clean " +
+    "(releng/lint.ps1 over the touched files). After the last stage, close the pass " +
     "with a digest. An empty V is a successful pass."
 $body = @{
     sessionID = $sessionId
