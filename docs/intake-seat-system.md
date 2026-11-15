@@ -119,7 +119,7 @@ The evaluation's spot-check rule (no direct chat-agent implementations, from
 store and git evidence alone), mechanized as three concrete, **read-only**
 queries over a review window `[t0, t1]`. All three produce *candidate lists*
 for the reviewer — the verdict is the reviewer's, never automated. Reads may
-use the `task_*` API (preferred) or grep the store files (`.opencode/tasks/
+use the `task_*` API (preferred) or grep the store files (`.harness/tasks/
 hephaestus/*.md`) — the write discipline bans hand *writes*, not reads.
 
 **Identity whitelist** (used by all three signals): fleet identities

@@ -186,3 +186,10 @@ above. The reviewer may weigh these non-blocking notes:
 None of the notes fails a T-083 acceptance criterion; they are improvement
 surface for the doc's own honesty, to route through the store as the reviewer
 sees fit. This ticket claims no done on T-083 — the verdict is the engine's.
+
+**Note five (the store-path defect, post-review addition):** the subject doc's
+section 4 read-grep originally cited `.opencode/tasks/hephaestus/*.md` - the
+pre-relocation store path, empty since the T-052 relocation to
+`.harness/tasks/`. The S-2 recorded path was corrected in the rework; the
+subject doc's path references were fixed in the same pass (the T-083 lane).
+Recorded as a known one-line follow-up rather than a T-083 criterion failure.
