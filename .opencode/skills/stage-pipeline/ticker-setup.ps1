@@ -85,9 +85,12 @@ $prompt =
     "through the whole V, stage by stage in this order: $stages. For EACH stage: " +
     "(1) readiness scan via task_readiness, take only this stage's tickets; " +
     "(2) BLOCKED tickets escalate to their basis (task_set_blocked on the basis, " +
-    "NEEDS-HUMAN when stuck); (3) DONE tickets without downstream children divide: " +
-    "create the linked downstream ticket(s) per the division map (task_create with " +
-    "stage/epic/basis) plus the paired test ticket; (4) READY tickets: plan them " +
+    "NEEDS-HUMAN when stuck); (3) IN-REVIEW tickets of this stage get their engine " +
+    "verdict: spawn ONE reviewer subagent per ticket (the reviewer agent, read-only) - " +
+    "PASS: task_update done; FAIL: task_set_blocked with the reasons; UNCLEAR: one " +
+    "retry round-trip to the fulfiller; (4) DONE tickets without downstream children " +
+    "divide: create the linked downstream ticket(s) per the division map (task_create " +
+    "with stage/epic/basis) plus the paired test ticket; (5) READY tickets: plan them " +
     "into the ticker-v sprint (task_plan_sprint) then claim under the spawn cap of " +
     "$Cap concurrent subagents (check your running subagents first - never exceed " +
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +

@@ -28,14 +28,20 @@ Per stage:
    to NEEDS-HUMAN (`blocked` + reason naming the human decision needed).
    Agents resolve what agents can resolve; the rest surfaces to the Product
    Owner.
-3. DONE → PROCESS FORWARD (division): for each done ticket without downstream
+3. IN-REVIEW → VERDICT: for each of this stage's tickets sitting in
+   `in-review` (and not owned by one of your running subagents), spawn ONE
+   reviewer subagent (the `reviewer` agent, read-only) to give the engine
+   verdict: PASS → `done`; FAIL → `blocked` with the reviewer's reasons
+   (which escalates to the basis); UNCLEAR → one retry round-trip to the
+   fulfiller. Verdicts are the engine's, never the fulfiller's own.
+4. DONE → PROCESS FORWARD (division): for each done ticket without downstream
    children, create the next-stage ticket(s) per your stage's division map —
    `task_create` with `stage` = the child stage, `epic` = the parent's epic
    (scope inherits), `basis` = the done ticket's id (the derivation edge), and
    carry the artifact references into the description. Pairing: also create
    the paired `test-*` ticket linked to the same basis when the child is a
    definition stage.
-4. READY → KICKOFF: **plan first, then claim** — READY tickets born from
+5. READY → KICKOFF: **plan first, then claim** — READY tickets born from
    division sit in `product-backlog` without a sprint, and `task_claim`
    only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
    rolling `ticker-v` sprint record in the same tick, then claim under the
@@ -43,7 +49,7 @@ Per stage:
    background subagent per claimed ticket with the fulfillment brief
    (below). Never spawn two subagents whose file lanes overlap; when lanes
    overlap, serialize within the stage.
-5. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
+6. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
    (U-108 reopen semantics keep the record rolling) and close it. The next
    tick repeats.
 
@@ -95,10 +101,16 @@ product define done.
 - **Nested steward sessions need `experimental.subagent_depth >= 2`** in the
   user-global config (setup-local per D-004) - the ticker itself is one
   subagent level, its workers the second.
-- **Store access lost mid-flight** (gate rebuilds kill the stdio server,
-  B-027): report BLOCKED honestly; do not improvise hand edits. Fresh
-  sessions re-arm against the stable dropins jars (the launcher resolves
-  gate-stable-first since the B-027 fix).
+- **Store access lost mid-flight** (the namespace vanishes mid-pass - opencode
+  cycles the tasks MCP server on store-write bursts / session spawns,
+  Windows exit code 1 = host-side termination; see T-045): **reconnect and
+  CONTINUE the pass** - `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`
+  (service URL + password from `~/.local/state/opencode/service.json`),
+  wait for the namespace to re-register, then resume the scan where it
+  stopped. Only abort the pass if the reconnect itself fails. The store
+  never loses a confirmed write; an aborted pass is the last resort, not
+  the protocol. Fresh sessions still re-arm against the stable dropins
+  jars (B-027 fix).
 - **Pause/resume semantics (owner directive, days-run):** shutting the PC
   down pauses the pipeline - schedules are bound to sessions on the running
   service and die with it. Resume after boot = re-run
