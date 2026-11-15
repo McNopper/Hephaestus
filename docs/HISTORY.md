@@ -559,3 +559,38 @@ engine. The round since H15:
   model, ROADMAP rewritten around the release definition, contracts.md
   carries the mental model, the fleet docs marked RETIRED, the coherence
   sweep aligned every live doc; lint clean throughout.
+
+## H17 — the tasks-MCP reliability round — 2026-11-15
+
+The tasks MCP was dying under the wave load; the round fixed it at the root
+and made the ticker enable/disable reliable:
+
+- **T-044 (the crash class):** the stdio serve loop catches **Throwable per
+  request** — a handler Error (stale jars mid-flight, store contention)
+  answers -32603 and the loop keeps serving; the regression test poisons a
+  handler and proves the loop survives (`StdioServerTest`, 7 green).
+- **T-052 (the cycling, root cause):** the task store relocated **out of the
+  watched `.opencode` config tree** to `.harness/tasks` (78+ references) —
+  the store writes no longer trip opencode's config reload, which cycled the
+  MCP server. PROVEN by observation window: **5 transport deaths per 28 min
+  before vs 0 deaths in 55+ min after, under heavier load**. The doctor's
+  silent repo-root skip under the new layout found by its own regression
+  tests and fixed (`repoRootOrNull`, tasks.tests 192 green).
+- **The ticker enable/disable made reliable:** the self-healing watchdog
+  (`.harness/ticker-watchdog.ps1`, a scheduled task every 5 min, survives
+  reboots) reconciles the ticker-v schedule with the desired-state flag
+  (`.harness/ticker-state.json`); enable re-arms through the cycling,
+  disable is durable. The enable/disable procedure documented in the
+  stage-pipeline skill.
+- **The wave:** ticker-v's passes ran the first full verdict cycle on the
+  hardened server — 22+ tickets done with review verdicts, the division
+  cascade minted (T-101..T-114, the CP children T-057..T-094), the system
+  and test children fulfilled, one honest verification FAIL (T-051 → the
+  W-008 scratch-tree loss) caught, escalated, re-delivered as T-054
+  (committed this time), re-verified PASS, and the chain closed. A-002's
+  FAIL escalated the actor-stamping gap to the system basis (the re-spec
+  landed and verified).
+- **Process:** the intake discipline landed (the product-owner seat agent,
+  the workers implement); the lint-clean requirement moved into the
+  fulfillment brief; the autonomy spectrum and the release-cadence ruleset
+  documented (T-042/T-041).
