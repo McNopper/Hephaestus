@@ -50,6 +50,16 @@ the role level.
 5. **Verify machine output with evidence** when checking progress: `task_board`,
    `task_readiness`, `task_get`, `task_doctor`. Status claims cite tool output.
 
+**The two dials (goal intake - the autonomy spectrum).** When the requirement
+is a whole objective (a stageless GOAL/epic root), record its run position on
+the autonomy spectrum (`AGENTS.md`, the operating model) on the ticket as two
+dials, asking when the owner leaves them unstated: the **goal horizon** -
+time-boxed (the harness works a fixed time and its result is the final
+product) vs run until the Product Goal is reached - and the **review
+cadence** - a human review that accepts cuts a release (T-041); waves without
+one end at commit + push. The dials tune how the machinery runs the goal;
+they are recorded on the ticket, not as acceptance criteria.
+
 ## Governance duties
 
 - Keep the epic tree coherent (`epic`/`basis` links are engine-written via `task_*`).

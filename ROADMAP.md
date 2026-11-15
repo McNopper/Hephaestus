@@ -20,7 +20,11 @@ software: agents expand it along a V-model — every definition stage creates
 its own verification pair, nothing is *done* until a gate proves it — and
 walk it end-to-end, unattended, on opencode's substrate. The store keeps
 every step an auditable event; the maintainer stays the exception handler,
-never the dispatcher.
+never the dispatcher. Every run sits on the **autonomy spectrum**
+(`AGENTS.md`, the operating model): the harness runs until this goal is
+reached, releases are cut only where a human review accepts, and the owner
+sets each run's position with two dials — the goal horizon (time-boxed vs
+run-to-goal) and the review cadence.
 
 **This section is the Product Goal** (the Scrum-Guide commitment for the
 backlog): the long-term objective the whole store is ordered toward. GOAL

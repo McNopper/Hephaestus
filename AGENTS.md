@@ -153,6 +153,20 @@ originator agent; round-trip limits escalate to the maintainer) implement this �
 the Hephaestus principle: fully autonomous fleets and waves, the maintainer as
 last resort.
 
+**The autonomy spectrum (the operating model, owner requirement 2026-11-15):**
+in general the harness runs until the **Product Goal** (`ROADMAP.md` Vision)
+is reached; a **human review that accepts** cuts a release (the T-041 standing
+rule). Every run sits on a spectrum between two extremes: (A) the harness
+works for a set time and its result is the final product — maximum autonomy,
+the human absent, time-boxed; (B) the human checks very often and gives
+constant feedback — maximum human involvement, a tight loop. The owner sets
+each run's position at goal intake (U-105) with two dials: the **goal
+horizon** (time-boxed vs run-to-Product-Goal) and the **review cadence**
+(releases only on human review — T-041; recurring acceptance hardens without
+gating — T-039; NEEDS-HUMAN as the escalation threshold). Worked example
+(2026-11-14): an unattended ticker-v run drove the wave end-to-end, and the
+owner's review and acceptance cut release `v0.2.0`.
+
 **Terminology:** the UI says **wave**, not sprint —
 a wave is a named batch of agent work, planned on demand and drained in minutes
 by the fleet (no weekly cadence, no time-box). The store field, tool names
