@@ -129,3 +129,14 @@ product define done.
   nothing else needs re-arming. A fresh `deploy-dev.ps1` also kills the
   live `tasks` server (jar replaced under it) - reconnect via
   `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`.
+- **Reliable enable/disable (T-052 mitigation, the watchdog):** the
+  T-052 cycling eats session-bound schedules stochastically, so a bare
+  `ticker-setup.ps1` arming is NOT durable. The self-healing layer:
+  `.harness/ticker-watchdog.ps1` (a scheduled task, `HephaestusTickerWatchdog`,
+  every 5 min, survives reboots) reconciles the ticker-v schedule with the
+  desired-state flag `.harness/ticker-state.json` (`{"enabled": true|false}`).
+  ENABLE: set the flag true + run `ticker-setup.ps1` (the watchdog re-arms
+  within 5 min if the cycling eats the schedule). DISABLE: set the flag
+  false + delete every ticker-v schedule + terminate the ticker-v sessions
+  (the durable disable - the watchdog will not re-arm against a false flag).
+  The watchdog logs to `.harness/ticker-watchdog.log`.
