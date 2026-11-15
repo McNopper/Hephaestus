@@ -1219,7 +1219,7 @@ public class BoardView extends ViewPart {
             box.setLayout(layout);
             new Label(box, SWT.NONE).setText("Store:");
             rootText = new Text(box, SWT.BORDER);
-            rootText.setToolTipText("Task store root (empty = auto-detect ../.opencode/tasks)");
+            rootText.setToolTipText("Task store root (empty = auto-detect ../.harness/tasks)");
             rootText.setTextLimit(400);
             rootText.setLayoutData(fixedSize(170));
             new Label(box, SWT.NONE).setText("Project:");
@@ -1402,7 +1402,7 @@ public class BoardView extends ViewPart {
           }
         };
     newProjectAction.setToolTipText(
-        "Create a fresh task-store project (.opencode/tasks/<name>) and switch the board to it");
+        "Create a fresh task-store project (.harness/tasks/<name>) and switch the board to it");
     resetProjectAction =
         new Action("Reset project\u2026") {
           @Override
@@ -1877,7 +1877,7 @@ public class BoardView extends ViewPart {
         new InputDialog(
             getSite().getShell(),
             "New project",
-            "Task-store project name (created under .opencode/tasks/):",
+            "Task-store project name (created under .harness/tasks/):",
             "",
             text -> text == null || text.trim().isEmpty() ? "A name is required" : null);
     if (dialog.open() != Window.OK || dialog.getValue() == null) {

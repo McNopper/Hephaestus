@@ -6,7 +6,7 @@ __pycache__/
 mcp/graphics/data/
 
 # Task store runtime locks (the .md task files themselves are version-controlled)
-.opencode/tasks/**/.lock
+.harness/tasks/**/.lock
 
 # Node (if any tooling installed locally)
 node_modules/
@@ -18,7 +18,7 @@ target/
 # Logs
 *.log
 
-.opencode/tasks/*/.lock
+.harness/tasks/*/.lock
 
 *.class
 

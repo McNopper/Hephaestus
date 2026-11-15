@@ -6,7 +6,7 @@
   demonstrate, the evidence to capture, and pass/fail criteria — all
   decidable by reading the task store. **Read by:** the PO's proxy, the
   stage tickers, the engine review. **Related:** `docs/design-stage-pipeline.md`
-  (§1 model, §4 tick, §5 fulfillment, §8 verdict), `.opencode/tasks/hephaestus/U-110.md`.
+  (§1 model, §4 tick, §5 fulfillment, §8 verdict), `.harness/tasks/hephaestus/U-110.md`.
 
 ## Goal
 

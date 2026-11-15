@@ -8,10 +8,10 @@
 
 ## The model
 
-The task store (`.opencode/tasks/`, one Markdown file per ticket) is **plain
+The task store (`.harness/tasks/`, one Markdown file per ticket) is **plain
 git-versioned text** — that is the entire distribution mechanism. Two layouts are
 supported: the store as a **subtree of the host repo** (the Hephaestus default — all
-store git discipline is path-scoped to `.opencode/tasks` and can never sweep the
+store git discipline is path-scoped to `.harness/tasks` and can never sweep the
 host repo's own WIP into a store commit) or a **dedicated store repo** whose root
 *is* the store. N machines run one Eclipse + opencode server each; they share the
 board by sharing the store's git history. The store is the **only** shared state:
@@ -27,7 +27,7 @@ board by sharing the store's git history. The store is the **only** shared state
 | Piece | Where | Behavior |
 |---|---|---|
 | Store status in the Board header | Board view | `store main · ahead 2 · 3 changed` (from `StoreGitStatus.load`, one `git status -b --porcelain`) — refreshes with the board |
-| *Sync store* action | Board view toolbar | commit local ticket changes (**scoped to `.opencode/tasks`**) → `pull --rebase` → `push` (`StoreSync.sync`); a pull conflict never auto-resolves — it offers `recover()` (abort the rebase, local commits intact) or manual git |
+| *Sync store* action | Board view toolbar | commit local ticket changes (**scoped to `.harness/tasks`**) → `pull --rebase` → `push` (`StoreSync.sync`); a pull conflict never auto-resolves — it offers `recover()` (abort the rebase, local commits intact) or manual git |
 | `StoreGitStatus` / `StoreSync` | `com.opencode.ide.git` (Eclipse-free) | The primitives, unit-tested against real git in temp repos |
 
 ## Sharding vs single repo — the decision
@@ -47,7 +47,7 @@ text — fine for years).
 
 **When to shard instead:** if machine count grows past "fits in one standup" or
 projects want independent write policies, split *per project* (the store is
-already subdirectory-scoped: `.opencode/tasks/<project>/`) — each project dir
+already subdirectory-scoped: `.harness/tasks/<project>/`) — each project dir
 becomes its own repo, the Board's project selector picks the repo, and nothing
 else changes. Shard by **project, never by V-stage**: stages of one epic must
 share a queue or the dataflow pipeline (H6) stalls on cross-repo staleness it
@@ -55,7 +55,7 @@ cannot see.
 
 ## Operating checklist
 
-1. One bare repo (any git host or a shared drive) holding `.opencode/tasks/`.
+1. One bare repo (any git host or a shared drive) holding `.harness/tasks/`.
 2. Each machine: clone it, point the Board's *Store* input at the clone (the
    recommended per-machine setting — an explicit override, honored as-is and
    winning over every derived root; the tasks-root preference is the

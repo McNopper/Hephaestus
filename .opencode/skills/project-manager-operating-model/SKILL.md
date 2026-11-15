@@ -137,7 +137,7 @@ checklist so it can tighten over time.
 ## Synchronized access
 
 Multiple worker agents run in parallel and will race on claim. The task store
-(`.opencode/tasks/<project>/`) is the ground truth — the single coordination
+(`.harness/tasks/<project>/`) is the ground truth — the single coordination
 blackboard; every agent is a peer reading and writing it. Use the
 **atomic** primitives, never read-then-write (`task_claim` is the only
 serialization point):

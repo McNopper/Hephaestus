@@ -9,14 +9,14 @@
 #             "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"] } }
 #
 # Options:
-#   -Root <dir>   task store root (default: .opencode/tasks under the current
+#   -Root <dir>   task store root (default: .harness/tasks under the current
 #                 working directory, i.e. the repository opencode started in)
 #
 # Requirements: a JDK 21+ (java on PATH or JAVA_HOME), the built tasks+tools
 # bundles (mvn package in eclipse/), and gson (resolved from the local Tycho
 # p2 cache or the ECLIPSE_HOME install - never a hardcoded path).
 param(
-    [string]$Root = $(Join-Path (Get-Location) ".opencode/tasks")
+    [string]$Root = $(Join-Path (Get-Location) ".harness/tasks")
 )
 $ErrorActionPreference = "Stop"
 

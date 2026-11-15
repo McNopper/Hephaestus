@@ -33,7 +33,7 @@ release definition in `ROADMAP.md`. Classic mapping: Product Goal = GOAL
 ticket, epic = the `epic` field, story = a ticket (stage-sized), sub-task =
 todos, sprint = a wave.
 
-## Ticket contract (`task_*` tools, `.opencode/tasks/` store)
+## Ticket contract (`task_*` tools, `.harness/tasks/` store)
 
 A ticket is the **hand-off unit**. Its authoritative shape (per project):
 
@@ -62,7 +62,7 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 
 ### The store (Maven-ready Markdown storage)
 
-One **file per ticket** — `<repo>/.opencode/tasks/<project>/T-NNN.md` — Markdown with a
+One **file per ticket** — `<repo>/.harness/tasks/<project>/T-NNN.md` — Markdown with a
 frontmatter block (scalars + one-line JSON lists) and tool-owned body sections
 (`## Todos`, `## Artifacts`, `## Comments`, `## History`); the free-form description is the
 body. A `_meta.json` sidecar holds the per-prefix id counters and `sprint` metadata

@@ -24,7 +24,7 @@ import java.util.logging.Logger;
  * Board view resolves — workspace climb, open-project repo adoption, then the {@code tasksRoot}
  * preference — so both surfaces always see one store. The component is {@code immediate="false"} so
  * it activates only when the first consumer binds {@link McpInfo} — after the bridge has run (the
- * plain fallback is {@code <user.home>/.opencode/tasks} for non-Eclipse embedders).
+ * plain fallback is {@code <user.home>/.harness/tasks} for non-Eclipse embedders).
  */
 public class McpServiceComponent implements McpInfo {
 
@@ -42,7 +42,7 @@ public class McpServiceComponent implements McpInfo {
           Path.of(
               System.getProperty(
                   "opencode.tasks.root",
-                  Path.of(System.getProperty("user.home"), ".opencode", "tasks").toString()));
+                  Path.of(System.getProperty("user.home"), ".harness", "tasks").toString()));
       List<ToolProvider> providers =
           List.of(new CppToolProvider(), new TaskToolProvider(tasksRoot));
       server = McpHttpServer.start(new McpDispatcher(providers));

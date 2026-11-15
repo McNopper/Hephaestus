@@ -50,7 +50,7 @@ recreatable by re-running one script (`ticker-setup.ps1`).
 └─────────────────────────────────────────────────┼────────────────────┘
                                                   │ task_* verbs only
 ┌─────────────────────────────────────────────────▼────────────────────┐
-│  task store (.opencode/tasks/hephaestus/ — the ONLY memory)           │
+│  task store (.harness/tasks/hephaestus/ — the ONLY memory)           │
 │  tickets · claims · epic/basis links · artifacts · history            │
 │  · ONE rolling sprint record "ticker-v" (U-108 reopen semantics)      │
 └──────────────────────────────────────────────────────────────────────┘

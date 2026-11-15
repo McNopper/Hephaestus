@@ -26,7 +26,7 @@ public final class StoreIo {
 
   /**
    * Resolves the store root: the explicitly configured directory when given, otherwise the nearest
-   * ancestor of {@code startDir} containing a {@code .opencode/tasks} directory. Returns null when
+   * ancestor of {@code startDir} containing a {@code .harness/tasks} directory. Returns null when
    * nothing is found (the caller decides whether that is a skip or an error).
    */
   public static Path resolveRoot(File configured, Path startDir) {

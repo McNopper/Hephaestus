@@ -9,7 +9,7 @@
 Repository-level conventions for agentic work in this repository. Hephaestus is an
 **opencode-native**, **domain-organized** system: skills and agents are flat under
 `.opencode/` and named by `<domain>-<descriptor>`; project management is a concrete,
-Scrum-like ticket/sprint workflow over the **task store** (`.opencode/tasks/`, one
+Scrum-like ticket/sprint workflow over the **task store** (`.harness/tasks/`, one
 Markdown file per ticket) served as `task_*` MCP tools; C++ and graphics tooling are
 first-class agents / MCP tools.
 
@@ -174,7 +174,7 @@ by the fleet (no weekly cadence, no time-box). The store field, tool names
 stability; treat "wave" and "sprint" as synonyms everywhere else.
 
 The **task store** stores **tickets** and **sprints**, scoped per **project** (one
-subdirectory of `.opencode/tasks/` each, so several independent projects run at once).
+subdirectory of `.harness/tasks/` each, so several independent projects run at once).
 **The store is the ground truth — the single coordination blackboard.** The Eclipse Board
 is a projection of it, and every agent (a user's chat session, a fleet worker, the
 auto-dispatcher) is a *peer* that reads and writes the store; no agent owns or messages

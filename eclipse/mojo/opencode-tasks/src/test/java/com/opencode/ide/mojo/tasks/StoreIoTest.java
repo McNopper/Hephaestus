@@ -13,7 +13,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** Root resolution: explicit property wins, otherwise walk up for .opencode/tasks. */
+/** Root resolution: explicit property wins, otherwise walk up for .harness/tasks. */
 public class StoreIoTest {
 
   @Rule public TemporaryFolder tmp = new TemporaryFolder();

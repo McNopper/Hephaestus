@@ -15,7 +15,7 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * O-002 store actions (AC 1..3): a new task-store project is created without hand-editing {@code
- * .opencode/tasks}, and a reset clears one project's tickets after the UI's explicit confirmation -
+ * .harness/tasks}, and a reset clears one project's tickets after the UI's explicit confirmation -
  * never touching another project's reservations, history or ownership.
  */
 public class ProjectActionsTest {

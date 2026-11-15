@@ -59,7 +59,7 @@ public final class OpencodePreferences {
   /**
    * Default task store: derived from the workspace at first use (P1-4 fix — no developer-machine
    * hard-coded path). The Board view walks up from the workspace root looking for {@code
-   * .opencode/tasks}; if none is found the user must configure it via preferences.
+   * .harness/tasks}; if none is found the user must configure it via preferences.
    */
   public static final String DEFAULT_TASKS_ROOT = "";
 
@@ -302,7 +302,7 @@ public final class OpencodePreferences {
   // ---------- task board defaults ----------
 
   /**
-   * Default task-store root ({@code <repo>/.opencode/tasks}); the Board view's fallback when no
+   * Default task-store root ({@code <repo>/.harness/tasks}); the Board view's fallback when no
    * override is set.
    */
   public String getTasksRoot() {

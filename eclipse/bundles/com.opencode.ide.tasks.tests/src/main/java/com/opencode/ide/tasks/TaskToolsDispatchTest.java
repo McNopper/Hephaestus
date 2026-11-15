@@ -303,7 +303,7 @@ public class TaskToolsDispatchTest {
 
   @Test
   public void doctorReportsUnresolvableArtifactRefsThroughTools() throws IOException {
-    // a store shaped like production (<repo>/.opencode/tasks) - only then
+    // a store shaped like production (<repo>/.harness/tasks) - only then
     // can the doctor derive the repo root and check refs against it
     Path repo = tmp.newFolder("repo").toPath();
     McpDispatcher inRepo =

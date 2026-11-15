@@ -11,7 +11,7 @@
 - **Related:** `docs/opencode-v2-adoption.md` (the experimental-surface policy
   this design applies — W1 and W12 are adopted by it), `docs/fleet-redundancy-review-2026-11.md`
   (the research that showed the execution primitives are native), ticket
-  `.opencode/tasks/hephaestus/U-110.md` (the full decision trail).
+  `.harness/tasks/hephaestus/U-110.md` (the full decision trail).
 
 ## Scope decision (owner, 2026-11-14)
 

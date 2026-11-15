@@ -15,6 +15,6 @@ globs:
   - "**/*.md"
 ignores:
   # the task store is runtime data - task_doctor lints it (QUALITY.md)
-  - ".opencode/tasks/**"
+  - ".harness/tasks/**"
   - "**/node_modules/**"
   - "**/target/**"

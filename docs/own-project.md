@@ -13,9 +13,9 @@
 ## The core idea
 
 To the harness, **a project is a subdirectory of the task store**:
-`.opencode/tasks/<project>/` holds one Markdown file per ticket plus the
+`.harness/tasks/<project>/` holds one Markdown file per ticket plus the
 `_meta.json` sidecar. Hephaestus keeps its own work in
-`.opencode/tasks/hephaestus/` - that name is the only thing "wired" to this
+`.harness/tasks/hephaestus/` - that name is the only thing "wired" to this
 repo. Everything else (skills, agents, board, fleet, the V-pipeline) is
 project-agnostic: every `task_*` tool takes a `project` parameter, and
 several projects live side by side in one store.
@@ -34,12 +34,12 @@ resolve (README "Install & Use", step 4).
 ### 1. Name your project and create its store
 
 ```bash
-mkdir -p .opencode/tasks/<your-project>
+mkdir -p .harness/tasks/<your-project>
 ```
 
 No registration anywhere: the store is just files. The Board, the readiness
 machinery and the fleet all discover the project from the folder name. Keep
-tickets out of `.opencode/tasks/` root - the project subdirectory is what
+tickets out of `.harness/tasks/` root - the project subdirectory is what
 gives them a namespace.
 
 ### 2. Point the config at your world
@@ -96,7 +96,7 @@ Use the `project-manager-create-ticket` skill (or the Board's New Ticket):
 ### 7. If you use the Eclipse harness
 
 Open **your repo** as the workspace: the tasks root is adopted from the
-workspace project (anything under a git repo carrying `.opencode/tasks`
+workspace project (anything under a git repo carrying `.harness/tasks`
 qualifies; there is also a preference override). The PM Board, Fleet and
 Background views then show your project, not Hephaestus'.
 
@@ -115,7 +115,7 @@ each is a one-timer:
 
 1. **Open the relevant directory**: import/open your project's repo folder
    as a workspace project. The adoption rules then do the rest - the task
-   store (`<repo>/.opencode/tasks`) and the connection scope (the repo root,
+   store (`<repo>/.harness/tasks`) and the connection scope (the repo root,
    which is what MCP servers/agents/skills are scoped to) are both adopted
    from the open project. This is the recommended path without an ini pin.
 2. **Adopt it from the Board**: the Board's *Adopt repo…* action opens a
@@ -135,13 +135,13 @@ each is a one-timer:
 Either way, the Server view's description line shows the active scope
 (`scoped to: ...`) so an empty MCP list is never silently misleading, and a
 user-typed store root that is really a repo root descends into its
-`.opencode/tasks` automatically.
+`.harness/tasks` automatically.
 
 ## Replacing the Hephaestus-specific bits (checklist)
 
 | Template artifact | Replace with |
 |---|---|
-| `.opencode/tasks/hephaestus/` | your project directory (delete ours) |
+| `.harness/tasks/hephaestus/` | your project directory (delete ours) |
 | `ROADMAP.md` | your own roadmap (or delete) |
 | `opencode.json` model ids | your providers' models per tier |
 | `AGENTS.md` repo description | your repo's conventions + verification gate |

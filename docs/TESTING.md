@@ -8,7 +8,7 @@
   assumed); **written by:** maintainers.
 - **Related:** `README.md` (install), `ROADMAP.md` (what is open),
   `docs/HISTORY.md` (what changed), the task store
-  `.opencode/tasks/hephaestus/` (where findings become tickets).
+  `.harness/tasks/hephaestus/` (where findings become tickets).
 
 ## 1. Setup (once)
 

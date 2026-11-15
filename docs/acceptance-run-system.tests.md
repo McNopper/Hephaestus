@@ -19,7 +19,7 @@
 The system under test is not a program — it is the **running task store plus
 its actors** (system doc §Overview). These are therefore **live-observation
 integration tests**: a criterion is decided by running the named `task_*`
-read(s) against `.opencode/tasks/hephaestus/` and comparing field states and
+read(s) against `.harness/tasks/hephaestus/` and comparing field states and
 history events with actors. Every read named here is non-mutating
 (`task_get`, `task_readiness`, `task_traceability`, `task_doctor`). PASS bar
 per the requirements: **PASS iff D-1, D-2 and D-3 each hold on store evidence
@@ -40,7 +40,7 @@ From the system doc §Major Parts, in the interactions these tests exercise:
 
 | Part | Role in the integration |
 |---|---|
-| Task store (`.opencode/tasks/hephaestus/`) | coordination blackboard; history with actors is the evidence medium |
+| Task store (`.harness/tasks/hephaestus/`) | coordination blackboard; history with actors is the evidence medium |
 | Per-stage ticker (steward session + `experimental.schedules`) | claims READY tickets, spawns workers, divides on done |
 | Goal-driven worker subagent | one per claimed ticket; produces the stage product, records it, sets `in-review` |
 | Engine review pass + quality gate | the only `done` authority |
@@ -233,7 +233,7 @@ criterion of this doc:
 
 ## Environment and data
 
-- **Fixture:** the live store `.opencode/tasks/hephaestus/` (no seeding, no
+- **Fixture:** the live store `.harness/tasks/hephaestus/` (no seeding, no
   teardown — the run is the fixture). Chain under test: T-031 (done) → A-001
   (done 2026-11-14T18:02:20Z by engine review) → A-002 (this ticket),
   A-003 (in-review), A-004 (READY, unclaimed), epic U-111, sprint ticker-v.

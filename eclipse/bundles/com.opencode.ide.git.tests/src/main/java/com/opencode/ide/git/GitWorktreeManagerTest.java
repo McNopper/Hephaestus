@@ -64,13 +64,13 @@ public class GitWorktreeManagerTest {
     git("add", "user.txt");
     manager.commitAll(repo, FleetGit.STORE_PATH, "store only");
     assertEquals(
-        ".opencode/tasks/ticket.md",
+        ".harness/tasks/ticket.md",
         git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").trim());
     assertEquals("user.txt", git("diff", "--cached", "--name-only").trim());
     Files.writeString(repo.resolve(FleetGit.STORE_PATH).resolve("ticket.md"), "updated ticket");
     StoreSync.sync(repo.resolve(FleetGit.STORE_PATH), "scoped sync");
     assertEquals(
-        ".opencode/tasks/ticket.md",
+        ".harness/tasks/ticket.md",
         git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").trim());
     assertEquals("user.txt", git("diff", "--cached", "--name-only").trim());
     manager.commitAll(repo, FleetGit.STORE_PATH, "empty store commit");
@@ -286,15 +286,15 @@ public class GitWorktreeManagerTest {
 
   /**
    * Review F1/F4 (2026-09-13): fleet commits must be SCOPED to the store subtree - in the
-   * production layout (.opencode/tasks inside the host repo) a pathspec-less add would sweep the
+   * production layout (.harness/tasks inside the host repo) a pathspec-less add would sweep the
    * host repo's unrelated WIP into a fleet commit and push it.
    */
   @Test
   public void commitAllIsScopedToTheStoreSubtree() throws Exception {
     Files.writeString(repo.resolve("WIP.java"), "user work in progress\n", StandardCharsets.UTF_8);
-    Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+    Path store = Files.createDirectories(repo.resolve(".harness/tasks"));
     Files.writeString(store.resolve("T-1.md"), "ticket\n", StandardCharsets.UTF_8);
-    manager.commitAll(repo, ".opencode/tasks", "fleet: pre-claim T-1");
+    manager.commitAll(repo, ".harness/tasks", "fleet: pre-claim T-1");
     assertEquals(
         "out-of-store WIP must stay uncommitted",
         "?? WIP.java",
@@ -314,7 +314,7 @@ public class GitWorktreeManagerTest {
     Worktree wt = manager.create(repo, "t1");
     Files.writeString(wt.path().resolve("code.txt"), "worker change\n", StandardCharsets.UTF_8);
     commitIn(wt.path(), "worker work");
-    Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+    Path store = Files.createDirectories(repo.resolve(".harness/tasks"));
     Files.writeString(store.resolve("T-1.md"), "peer comment\n", StandardCharsets.UTF_8);
     MergeResult result = manager.mergeBack(repo, "t1");
     assertTrue(result.output(), result.merged());
@@ -372,7 +372,7 @@ public class GitWorktreeManagerTest {
    */
   @Test(timeout = 300_000)
   public void concurrentCommitAndSyncSerializeThroughTheRepoGate() throws Exception {
-    Path store = Files.createDirectories(repo.resolve(".opencode/tasks"));
+    Path store = Files.createDirectories(repo.resolve(".harness/tasks"));
     java.util.concurrent.atomic.AtomicInteger failures =
         new java.util.concurrent.atomic.AtomicInteger();
     int iterations = 3; // CI runners spawn git ~10x slower - keep the total bounded
@@ -382,7 +382,7 @@ public class GitWorktreeManagerTest {
             for (int i = 0; i < iterations; i++) {
               Files.writeString(
                   store.resolve("T-" + i + ".md"), "tick " + i + "\n", StandardCharsets.UTF_8);
-              manager.commitAll(repo, ".opencode/tasks", "concurrent commit " + i);
+              manager.commitAll(repo, ".harness/tasks", "concurrent commit " + i);
             }
           } catch (Exception e) {
             failures.incrementAndGet();

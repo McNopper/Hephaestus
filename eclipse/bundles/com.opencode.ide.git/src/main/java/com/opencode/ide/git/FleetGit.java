@@ -19,7 +19,7 @@ public final class FleetGit {
    * The task store's conventional location inside the repo - the ONLY path fleet git discipline may
    * commit.
    */
-  public static final String STORE_PATH = ".opencode/tasks";
+  public static final String STORE_PATH = ".harness/tasks";
 
   private static final String BRANCH_REF_PREFIX = "refs/heads/" + BRANCH_PREFIX;
 

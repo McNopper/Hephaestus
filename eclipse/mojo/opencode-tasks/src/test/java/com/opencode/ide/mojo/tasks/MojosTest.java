@@ -72,7 +72,7 @@ public class MojosTest {
 
     mojo.execute();
 
-    assertTrue(log.infos.toString().contains("No .opencode/tasks store found walking up"));
+    assertTrue(log.infos.toString().contains("No .harness/tasks store found walking up"));
   }
 
   @Test
@@ -219,7 +219,7 @@ public class MojosTest {
 
     mojo.execute();
 
-    assertTrue(log.infos.toString().contains("No .opencode/tasks store found walking up"));
+    assertTrue(log.infos.toString().contains("No .harness/tasks store found walking up"));
   }
 
   @Test

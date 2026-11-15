@@ -10,7 +10,7 @@
   the acceptance tests; the maintainer.
 - **Related:** `docs/design-stage-pipeline.md` (the governing design — the
   HOW; trace to it, do not duplicate), ticket
-  `.opencode/tasks/hephaestus/U-111.md`, `docs/opencode-v2-adoption.md`
+  `.harness/tasks/hephaestus/U-111.md`, `docs/opencode-v2-adoption.md`
   (W1/W12/W13 adoption policy), `docs/research-epic-decomposition-2026-11.md`
   (why epic and basis are separate relations).
 

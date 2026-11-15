@@ -64,7 +64,7 @@ Eclipse.
 | Our mechanism | Why not v2 / Eclipse |
 |---|---|
 | `StoreSync` / `GitStore` commit-pull-push over the git CLI | `vcs.*` is READ-ONLY (get/base/status/branch/diff); the store's write discipline has no v2 equivalent |
-| `TaskStore` (`.opencode/tasks` Markdown store) | no v2 task/ticket API (session todos are not in the contract) |
+| `TaskStore` (`.harness/tasks` Markdown store) | no v2 task/ticket API (session todos are not in the contract) |
 | SWT views, dialogs | the Eclipse presentation layer itself |
 | `RepoGate` (git single-writer gate) | process-level mutual exclusion across engines; v2 worktree API has no cross-process lock |
 | `SessionDiffSides` revision-content reads (git CLI) | `session.diff` shows patches, not resolved before/after file content at a revision; no v2 read serves a side-by-side view |

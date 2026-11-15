@@ -48,7 +48,7 @@ public class StageEvidenceTest {
   public void everyStageRowAcceptsAndRefusesItsEvidenceClasses() {
     for (String stage : VStages.STAGES) {
       List<String> docAndStore =
-          List.of(".opencode/tasks/hephaestus/" + stage + "-t1.md", "docs/requirements/feature.md");
+          List.of(".harness/tasks/hephaestus/" + stage + "-t1.md", "docs/requirements/feature.md");
       List<String> codeOnly = List.of("eclipse/bundles/x/src/main/Foo.java");
       List<String> testsOnly = List.of("eclipse/bundles/x.tests/src/main/FooTest.java");
       List<String> implOnly = List.of("eclipse/bundles/x/src/main/Bar.java");
@@ -96,7 +96,7 @@ public class StageEvidenceTest {
   public void theU026DefinitionLegCaseIsNeverRefused() {
     List<String> changed =
         List.of(
-            ".opencode/tasks/hephaestus/U-026.md",
+            ".harness/tasks/hephaestus/U-026.md",
             "docs/requirements/_req-u026-v-flow-visibility.md");
     assertNull(
         "ticket + requirements doc is exactly the correct stage-1 output",
@@ -148,7 +148,7 @@ public class StageEvidenceTest {
   /** Evidence path classes (FR-002c, FR-004). */
   @Test
   public void evidencePathClassesAreStable() {
-    assertTrue(StageEvidence.isStoreOrDocPath(".opencode/tasks/hephaestus/U-1.md"));
+    assertTrue(StageEvidence.isStoreOrDocPath(".harness/tasks/hephaestus/U-1.md"));
     assertTrue(StageEvidence.isStoreOrDocPath("docs/requirements/x.md"));
     assertTrue(StageEvidence.isStoreOrDocPath("README.md"));
     assertFalse(StageEvidence.isStoreOrDocPath("src/main/Foo.java"));

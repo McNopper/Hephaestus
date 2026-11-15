@@ -18,7 +18,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 @Mojo(name = "sync")
 public class SyncMojo extends AbstractMojo {
 
-  /** The store root (the tasks directory itself). Default: nearest .opencode/tasks walking up. */
+  /** The store root (the tasks directory itself). Default: nearest .harness/tasks walking up. */
   @Parameter(property = "opencode.tasks.root")
   private File tasksRoot;
 
@@ -39,7 +39,7 @@ public class SyncMojo extends AbstractMojo {
     if (root == null) {
       getLog()
           .info(
-              "No .opencode/tasks store found walking up from "
+              "No .harness/tasks store found walking up from "
                   + basedir
                   + " and opencode.tasks.root is unset; nothing to sync.");
       return;

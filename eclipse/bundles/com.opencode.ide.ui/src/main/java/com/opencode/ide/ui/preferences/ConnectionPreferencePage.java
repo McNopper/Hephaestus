@@ -210,7 +210,7 @@ public class ConnectionPreferencePage extends PreferencePage implements IWorkben
     tasksRow.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
     tasksRootText = new Text(tasksRow, SWT.BORDER);
     tasksRootText.setToolTipText(
-        "<repo>/.opencode/tasks — the Board view's store (fallback when the workspace is elsewhere)");
+        "<repo>/.harness/tasks — the Board view's store (fallback when the workspace is elsewhere)");
     tasksRootText.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
     Button tasksBrowse = new Button(tasksRow, SWT.PUSH);
     tasksBrowse.setText("Browse...");

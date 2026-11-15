@@ -203,7 +203,7 @@ public class CoreActivator extends Plugin {
    * gets the FULL shared resolution ({@link TasksRootResolution#resolveForWorkspace(String)}, empty
    * override — workspace climb, open-project repo adoption, then the preference), not just the raw
    * preference: with a blank tasksRoot preference the endpoint used to fall back to {@code
-   * ~/.opencode/tasks} while the Board adopted the open repo's store — two surfaces, two stores.
+   * ~/.harness/tasks} while the Board adopted the open repo's store — two surfaces, two stores.
    * Safe at any activation phase: a no-op while the workspace location is not yet available (the
    * bridge re-runs on the first service consumer, when the workspace is open). Public so the wiring
    * test can drive it.

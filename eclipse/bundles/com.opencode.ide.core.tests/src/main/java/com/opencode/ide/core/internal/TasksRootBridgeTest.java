@@ -21,7 +21,7 @@ import org.junit.rules.TemporaryFolder;
  * from — must be the Board surface's resolution ({@link TasksRootResolution#
  * resolveForWorkspace(String)} with an empty override) for the same workspace and preferences. With
  * the old raw-preference bridge a blank {@code tasksRoot} preference left the property unset, so
- * the endpoint fell back to {@code ~/.opencode/tasks} while the Board adopted the open repo's store
+ * the endpoint fell back to {@code ~/.harness/tasks} while the Board adopted the open repo's store
  * — two surfaces, two stores.
  *
  * <p>Runs inside the OSGi test runtime (workspace location, resources and instance preferences all
@@ -83,7 +83,7 @@ public class TasksRootBridgeTest {
   @Test
   public void blankPreferenceStillBridgesTheSharedOrder() {
     // THE B-016 failure: a blank tasksRoot preference must NOT leave the
-    // property unset (the endpoint would watch ~/.opencode/tasks while
+    // property unset (the endpoint would watch ~/.harness/tasks while
     // the Board shows the climbed/adopted store)
     prefs.raw().remove(OpencodePreferences.KEY_TASKS_ROOT);
 

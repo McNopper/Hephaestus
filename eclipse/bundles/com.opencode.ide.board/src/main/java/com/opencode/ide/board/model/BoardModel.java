@@ -316,7 +316,7 @@ public final class BoardModel {
    *
    * @return {@code null} on success, a human-readable failure message otherwise.
    */
-  /** O-002: scaffold a fresh task-store project (no hand-editing of .opencode/tasks). */
+  /** O-002: scaffold a fresh task-store project (no hand-editing of .harness/tasks). */
   public void newProject(String name) {
     store.newProject(name, "board");
   }

@@ -453,7 +453,7 @@ public class TaskStoreSemanticsTest {
     Path repo = tmp.newFolder("repo").toPath();
     Files.createDirectories(repo.resolve("docs"));
     Files.writeString(repo.resolve("docs").resolve("real.md"), "# real\n");
-    // the convention the doctor derives the repo root from: <repo>/.opencode/tasks
+    // the convention the doctor derives the repo root from: <repo>/.harness/tasks
     TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
     Task t = repoStore.create("p", TaskStore.CreateSpec.of("artifacts"));
     repoStore.addArtifact("p", t.id, "file", "docs/real.md", "", "dev");
@@ -489,7 +489,7 @@ public class TaskStoreSemanticsTest {
   @Test
   public void doctorSkipsArtifactResolutionWhenTheRepoRootIsUnknown() {
     // this fixture's root (<tmp>/tasks) does not match the
-    // <repo>/.opencode/tasks convention: the check must skip rather than
+    // <repo>/.harness/tasks convention: the check must skip rather than
     // resolve refs against an accidental parent directory
     Task t = store.create("p", TaskStore.CreateSpec.of("a"));
     store.addArtifact("p", t.id, "file", "docs/missing.md", "", "dev");

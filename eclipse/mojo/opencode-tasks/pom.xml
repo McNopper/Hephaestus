@@ -15,7 +15,7 @@
   <packaging>maven-plugin</packaging>
 
   <name>OpenCode Tasks Maven Plugin</name>
-  <description>opencode-tasks:sync (validate/normalize the .opencode/tasks store) and
+  <description>opencode-tasks:sync (validate/normalize the .harness/tasks store) and
     opencode-tasks:plan (render the sprint board as Markdown/HTML). Maven plans, CMake builds —
     the mojos never invoke a compiler.</description>
 

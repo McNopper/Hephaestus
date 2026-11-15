@@ -9,7 +9,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.Platform;
 
 /**
- * The ONE task-store root order (B-016): which {@code <something>/.opencode/tasks} directory the
+ * The ONE task-store root order (B-016): which {@code <something>/.harness/tasks} directory the
  * harness actually watches. Both surfaces resolve through this seam — the Board view (its toolbar
  * override feeds {@link #resolveForWorkspace}) and the {@code eclipse-build} MCP endpoint (the core
  * activator bridges {@link #resolveForWorkspace(String)} with an empty override into the {@code
@@ -24,17 +24,17 @@ import org.eclipse.core.runtime.Platform;
  *       does not exist: the mistake stays visible as the board's "Task store not found" notice
  *       instead of silently watching a different store.
  *   <li><b>Workspace climb</b> — walk up from the workspace location; the first ancestor carrying
- *       {@code .opencode/tasks} (workspace nested in the repo).
+ *       {@code .harness/tasks} (workspace nested in the repo).
  *   <li><b>Open-project repo adoption</b> — any open workspace project that lives in an opencode
  *       repo (nearest marker ancestor, the same {@link OpencodeConnection#repoRootOf} rule the
- *       spawned server uses) contributes its {@code <repo>/.opencode/tasks}. This is what makes an
+ *       spawned server uses) contributes its {@code <repo>/.harness/tasks}. This is what makes an
  *       imported repo project adopt its store even when the workspace directory itself is outside
  *       the repo — the O-001 auto-adoption rule. Deterministic among candidates: lexicographically
  *       smallest store path (mirrors the server-side pick).
  *   <li><b>Preference default</b> — the {@code tasksRoot} workspace preference, but only as a
  *       <em>fallback</em> below adoption: a stale preference value (old clone, pre-P1-4 dev
  *       default) must never override the repo that is actually open (the B-002 live failure).
- *   <li><b>Historical guess</b> — {@code <workspace>/../.opencode/tasks}, kept so the resolution
+ *   <li><b>Historical guess</b> — {@code <workspace>/../.harness/tasks}, kept so the resolution
  *       always yields a path (the board shows its not-found notice for it).
  * </ol>
  *
@@ -107,8 +107,8 @@ public final class TasksRootResolution {
   }
 
   /**
-   * A root that is really a REPO ROOT (carries {@code .opencode/tasks}) descends into that store:
-   * typing {@code C:\dev\myrepo} must yield its {@code .opencode/tasks}, not treat every top-level
+   * A root that is really a REPO ROOT (carries {@code .harness/tasks}) descends into that store:
+   * typing {@code C:\dev\myrepo} must yield its {@code .harness/tasks}, not treat every top-level
    * folder as a project (2026-09-23 live finding: "the repo points to root and not to hephaestus").
    * Anything else is honored as-is.
    */
@@ -178,7 +178,7 @@ public final class TasksRootResolution {
 
   /**
    * O-001/B-002 adoption candidates: the locations of the open workspace projects. A project
-   * imported from inside a repo makes that repo's {@code .opencode/tasks} adoptable even when the
+   * imported from inside a repo makes that repo's {@code .harness/tasks} adoptable even when the
    * workspace directory itself is outside every repo. Empty when the resources plugin is
    * unavailable (tests, non-workbench hosts) — the climb still runs.
    */

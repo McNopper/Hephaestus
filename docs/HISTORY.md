@@ -97,7 +97,7 @@ stages MERGED (R/S/A/D verified against the pinned binding table).
 
 ## Session 2026-09-13 — review + rubberduck + opencode-docs + hardening
 
-Store git discipline path-scoped to `.opencode/tasks` (repo-wide `add -A`
+Store git discipline path-scoped to `.harness/tasks` (repo-wide `add -A`
 auto-committed+pushed unrelated WIP). Watchdog v2 (busy resets the stall
 clock; permission waits pause it; budget timeout aborts). Peer store writes
 committed before merge. `SelfClaimPrompt` explicit write scope. opencode API

@@ -638,7 +638,7 @@ public final class TaskStore {
 
   /**
    * O-002: creates a NEW task-store project - the scaffold a user would otherwise hand-write under
-   * {@code .opencode/tasks/} (the directory plus the store's own {@code _meta.json} shape: id seq,
+   * {@code .harness/tasks/} (the directory plus the store's own {@code _meta.json} shape: id seq,
    * counter, sprints). Only this project is created; every other project keeps its history, actuals
    * and fleet ownership bindings untouched.
    *
@@ -1665,7 +1665,7 @@ public final class TaskStore {
 
   /**
    * The repository root this store lives in, or null when it cannot be determined. The store does
-   * not know its repo: it is by convention rooted at {@code <repo>/.opencode/tasks} (the stdio
+   * not know its repo: it is by convention rooted at {@code <repo>/.harness/tasks} (the stdio
    * launcher's default and the Eclipse preference's derived root both use exactly that), so the
    * repo root is two levels up the store root's parents - but only when the immediate parent really
    * is a directory named {@code .opencode}. Any other layout (a temp fixture, a custom root) means

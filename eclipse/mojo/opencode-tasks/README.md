@@ -8,7 +8,7 @@
 - **Related:** the store itself lives in the OSGi-free bundle `eclipse/bundles/com.opencode.ide.tasks`
   (`TaskStore`, `Task`, `TaskFileCodec`); the store layout is documented on `TaskStore`.
 
-Two mojos over the Markdown task store (`.opencode/tasks/<project>/*.md` + `_meta.json`).
+Two mojos over the Markdown task store (`.harness/tasks/<project>/*.md` + `_meta.json`).
 The store classes are **reused from the tasks bundle** — this module adds no store logic of
 its own, only validation, fixing and rendering on top of `TaskFileCodec`/`Task`.
 
@@ -89,10 +89,10 @@ rename ticket files and never write outside the store root.
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync  # validate, warn on fixables
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.strict  # ... and fail on fixables
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.fix=true
-mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.root=C:/path/.opencode/tasks
+mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:sync -Dopencode.tasks.root=C:/path/.harness/tasks
 ```
 
-The default root is the nearest `.opencode/tasks` found walking up from the module
+The default root is the nearest `.harness/tasks` found walking up from the module
 basedir; when none exists and `opencode.tasks.root` is unset, the goal skips with an INFO.
 
 ## opencode-tasks:plan

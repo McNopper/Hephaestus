@@ -15,7 +15,7 @@ import java.nio.file.Path;
  *
  * <p>Usage: {@code java -cp <tasks-jar>;<gson-jar>;<tools-jar>
  * com.opencode.ide.tasks.TasksStdioMain [--root <dir>]} - the {@code eclipse/tasks-tools.ps1}
- * launcher resolves the jars. The default root is {@code .opencode/tasks} relative to the working
+ * launcher resolves the jars. The default root is {@code .harness/tasks} relative to the working
  * directory, so an opencode session started in a repository shares that repo's task store. The loop
  * speaks the same subset as the HTTP endpoint (initialize, ping, tools/list, tools/call);
  * notifications produce no output.
@@ -30,7 +30,7 @@ public final class TasksStdioMain {
    * StdioServer}).
    */
   public static void main(String[] args) throws Exception {
-    Path root = Path.of(".opencode", "tasks");
+    Path root = Path.of(".harness", "tasks");
     for (int i = 0; i < args.length - 1; i++) {
       if ("--root".equals(args[i])) {
         root = Path.of(args[i + 1]);

@@ -50,7 +50,7 @@ documents, so a human can overview the whole the pre-AI way. It is organized by
 **domain** (not by a lifecycle or folder
 tree): skills and agents are flat under `.opencode/` and named `<domain>-<descriptor>`.
 Project management is a concrete, Scrum-like **ticket/sprint** workflow over the
-**task store** (`.opencode/tasks/`, one Markdown file per ticket) served as `task_*`
+**task store** (`.harness/tasks/`, one Markdown file per ticket) served as `task_*`
 MCP tools by the Eclipse harness's `eclipse-build` endpoint and the stdio
 `tasks-tools` launcher (opencode prefixes them with the server name — `tasks_task_*`
 in TUI sessions, `eclipse-build_task_*` in Eclipse; the tool/wire names stay `task_*`);
@@ -130,7 +130,7 @@ The harness works **with and without the fleet**.
 | `.opencode/skills/*/SKILL.md` | the skill library, flat by domain. |
 | `.opencode/agent/*.md` | lean custom agents (coordination + domain). |
 | `.opencode/docs/` | `domains.md`, `contracts.md`. |
-| `.opencode/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
+| `.harness/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
 | `mcp/graphics/` | the graphics MCP server (captures, comparisons). |
 | `cpp/` | standalone AI-first C++23 build skeleton (its own `AGENTS.md`). |
 | `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1` stdio launcher; Maven/Tycho reactor). |
@@ -167,7 +167,7 @@ not static-vs-shared linkage (that is a build decision):
 
 ## The ticket / sprint workflow
 
-The **task store** (`.opencode/tasks/<project>/`, one Markdown file per ticket) holds
+The **task store** (`.harness/tasks/<project>/`, one Markdown file per ticket) holds
 **tickets** and **sprints**, scoped per **project** so several independent projects run at
 once. Agents read/write it through the `task_*` MCP tools; humans can read the files
 directly (and hand edits are tolerated between tool writes). Ticket states:
@@ -321,7 +321,7 @@ cp    /path/to/Hephaestus/AGENTS.md .
 # CHECKOUT's launcher (absolute path) — do NOT copy tasks-tools.ps1 into your
 # repo: it resolves the built jars relative to itself (falling back to this
 # repo's git common-dir for worktrees); a copy in a foreign repo finds no jars.
-# -Root defaults to .opencode/tasks under the directory opencode runs in.
+# -Root defaults to .harness/tasks under the directory opencode runs in.
 ```
 
 Trim to what you need (e.g. drop `graphics-*` / `mcp.graphics` if unused). Set the

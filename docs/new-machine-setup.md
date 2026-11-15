@@ -22,7 +22,7 @@
 
 ## Bring-up
 
-1. `git clone <repo>` — the task store (`.opencode/tasks/`) and all docs come
+1. `git clone <repo>` — the task store (`.harness/tasks/`) and all docs come
    with it; **the board state is in the repo, so it survives the switch**.
 2. Build + gate: `cd eclipse; .\build.ps1 clean verify` (Java 21, Tycho).
    This also populates the Tycho p2 cache (`~/.m2/repository/p2/`) that the
@@ -47,7 +47,7 @@
    and for the workspace directory the service answers empty — MCP servers
    look dead while they are alive. Fix once in *Preferences → OpenCode →
    Connection*: **Working directory** = the repo root (next to it: task-store
-   root = `<repo>\.opencode\tasks` for the Board).
+   root = `<repo>\.harness\tasks` for the Board).
 5. opencode: start it in the repo root. The shared background service
    self-registers (`~/.local/state/opencode/service.json`, generated per
    machine; `~/.config/opencode/` is the legacy password fallback).

@@ -47,7 +47,7 @@ public final class TaskToolProvider implements ToolProvider {
 
   /**
    * @param root the store root; each {@code project} argument addresses a subdirectory. Use {@code
-   *     .opencode/tasks} of the repository the agents work in (the stdio launcher defaults to that
+   *     .harness/tasks} of the repository the agents work in (the stdio launcher defaults to that
    *     relative to its working directory).
    */
   public TaskToolProvider(Path root) {
@@ -661,7 +661,7 @@ public final class TaskToolProvider implements ToolProvider {
                 + "other task_* read), inconsistent flag combinations per ticket (done but blocked, "
                 + "sprint set while product-backlog) and file/path artifact refs that do not resolve "
                 + "under the repo root (glob/brace/prose-like refs are skipped, and so is the whole "
-                + "check when the store root is not <repo>/.opencode/tasks); ok=true when the store "
+                + "check when the store root is not <repo>/.harness/tasks); ok=true when the store "
                 + "is consistent.",
             schema(new String[] {"project"}, obj -> obj.add("project", strP()))));
     return List.copyOf(out);

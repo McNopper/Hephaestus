@@ -124,7 +124,7 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
    - per agent and per model: totals and means
    - cost **per story point** and per task `type`/`role` — the estimator's leverage numbers
 5. **Emit the baseline** — write a Markdown report (e.g.
-   `.opencode/tasks/<project>/_reports/cost-baseline-<date>.md`) and attach it:
+   `.harness/tasks/<project>/_reports/cost-baseline-<date>.md`) and attach it:
    `task_add_artifact(project, ticket_id="EP-…|none", kind="path", ref="<report>")`
    when a wave/epic owns the batch, else just report in-channel.
 6. **Calibrate** — hand the measured numbers to `project-manager-estimate-costs`: per-tier actuals

@@ -184,7 +184,7 @@ one-time setup:
       highlighted code fences) via a per-request system prompt
       (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; toggle:
       *Preferences -> OpenCode -> Advertise rendering* (U-055).
-5. The **Board** view (PM kanban over the repo's `.opencode/tasks/` store: six status
+5. The **Board** view (PM kanban over the repo's `.harness/tasks/` store: six status
     columns — *paused* included — or the ten V-stage pipeline columns, sprint selector
     - goal, blocked flags, ticket details with artifact links, live refresh) and the
     **Fleet** view (a tree of engine → wave → job (ticket) → worker session → subagents →
@@ -198,7 +198,7 @@ one-time setup:
     checkbox, opencode binary, hostname, working directory — no port; CONNECT: server URL,
     username, password) plus the **Defaults** group (chat model `provider/model` + variant —
     blank by default (falls back to the server-configured default model); task-store root + Board project — blank
-    root = derived from the workspace (the Board walks up looking for `.opencode/tasks`),
+    root = derived from the workspace (the Board walks up looking for `.harness/tasks`),
     project default `hephaestus`; remote-connections list with passwords in secure storage) —
     then hit **Refresh**. Provider/model choices are LOCAL settings, never committed (D-004):
     on a fresh machine run `releng\init-local-settings.ps1 (from the repository root)` to generate the local

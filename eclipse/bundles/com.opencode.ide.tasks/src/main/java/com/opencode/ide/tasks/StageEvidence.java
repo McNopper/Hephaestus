@@ -78,7 +78,7 @@ public final class StageEvidence {
               + "): valid evidence is a ticket"
               + " body/acceptance-criteria update, recorded doc/path/url artifacts, and"
               + " doc/store paths in the diff (the stage's named artifact paths, docs/**,"
-              + " .opencode/tasks/**). Code changes are permitted but never required.";
+              + " .harness/tasks/**). Code changes are permitted but never required.";
       case IMPLEMENTATION ->
           "implementation run: code plus tests are expected - at least one"
               + " acceptance-criterion-named path in the diff, with test changes alongside.";
@@ -134,7 +134,7 @@ public final class StageEvidence {
 
   /**
    * Definition-leg output class (FR-002c): the ticket store and docs are the stage's own
-   * deliverable territory - {@code .opencode/tasks/**}, {@code docs/**}, and Markdown anywhere
+   * deliverable territory - {@code .harness/tasks/**}, {@code docs/**}, and Markdown anywhere
    * (ticket bodies, requirements and architecture docs, skills, agent prompts).
    */
   public static boolean isStoreOrDocPath(String file) {
@@ -142,7 +142,7 @@ public final class StageEvidence {
       return false;
     }
     String normalized = file.replace('\\', '/');
-    return normalized.startsWith(".opencode/tasks/")
+    return normalized.startsWith(".harness/tasks/")
         || normalized.startsWith("docs/")
         || normalized.toLowerCase(java.util.Locale.ROOT).endsWith(".md");
   }

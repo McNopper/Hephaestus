@@ -12,6 +12,13 @@
   satisfies), `docs/requirements-stage-pipeline.md` (the arc's FR/NFR
   baseline), `docs/design-stage-pipeline.md` (downstream: the HOW — model §1,
   tick §4, fulfillment §5, verdict §8).
+- **Amendment 2026-11-15 (T-097):** the actor-attribution promise
+  re-specified to the store's observable reality — status-transition events
+  carry no stamped actor, so engine attribution rests on the review pass's
+  observable marks (the annotated done event or the engine-verdict comment)
+  plus `in-review` → `done` ordering, with a legacy rule for pre-mitigation
+  dones. Escalated by paired verification A-002; see §Interfaces 1 and the
+  D-point map.
 
 ## Overview
 
@@ -20,12 +27,12 @@ around it**: stationary tickets, per-stage tickers, goal-driven workers, and
 the engine review pass + quality gate as the only `done` authority. Stages
 are decoupled through the store (no direct handoffs); the tick boundary is
 the only synchronization point; every D-point is decidable from store
-evidence alone — history events with actors, ticket fields, recorded
-artifacts.
+evidence alone — history events, the review pass's verdict comments,
+ticket fields, recorded artifacts.
 
 ## Major Parts
 
-- **Task store** (`.opencode/tasks/hephaestus/`, one Markdown file per
+- **Task store** (`.harness/tasks/hephaestus/`, one Markdown file per
   ticket) — the single coordination blackboard: tickets with immutable
   `stage:` ownership, `epic` (scope) / `basis` (derivation edge) links,
   artifact indexes, claims, sprint records, readiness, and the append-only
@@ -51,8 +58,22 @@ artifacts.
   creation, `task_close_sprint`. Workers use `task_get`, `task_add_artifact`,
   `task_update` (→ `in-review`), `task_add_comment`, `task_set_blocked`. The
   engine review uses `task_get` / `task_traceability` and performs the `done`
-  transition. Every verb writes a history event with its actor — this is what
-  makes each D-point decidable from the store.
+  transition. Every verb writes an append-only history event, and actor
+  attribution on those events is partial: claim and artifact writes carry the
+  acting identity; status transitions record only the change
+  (`updated:status`, no stamped actor) — identities are caller-asserted peer
+  conventions, not authenticated. Engine attribution therefore rests on the
+  observable marks the review pass leaves on the ticket, read together with
+  the `in-review` → `done` ordering: **(1)** an engine-annotated done event
+  (observed 2026-11-14: `done (engine review pass: …)` by `review`), or
+  **(2)** an engine-verdict comment in the ticket's own `comments[]` by a
+  review-pass identity (observed: `review`, `ticker-v:review`; recorded on
+  every PASS flip since 2026-11-15), landing within the review batch around
+  the flip (observed span: 51 ms before to ~17 min after it). A `done` on or
+  after 2026-11-15 with neither mark is not decidable as engine-set and fails
+  D-3; `done`s before that date without a mark are grandfathered
+  (pre-mitigation legacy). This is what makes each D-point decidable from the
+  store.
 - **Subagent spawn mechanism** — ticker → one background subagent per claimed
   ticket, under the global spawn cap (default 4), serialized when file lanes
   overlap. The spawn prompt IS the worker's narrow brief. The worker reports
@@ -79,10 +100,13 @@ artifacts.
   readiness marks the ticket READY → `task_claim` (history: claim, status →
   in-progress) → the ticker spawns one worker with the brief → the worker
   produces the stage product → `task_add_artifact` (history: artifact add by
-  worker) → `task_update` to `in-review` (history: transition by worker).
-  `stage:` is never rewritten; no `done` by worker or ticker. Evidence: the
-  claim → artifact → `in-review` history chain with actors, on a ticket whose
-  `stage:` never moved.
+  worker) → `task_update` to `in-review` (history: status transition; the
+  worker's identity evidenced by its fulfillment comment adjacent to the
+  flip). `stage:` is never rewritten; no `done` by worker or ticker.
+  Evidence: the claim → artifact → `in-review` history chain — claim and
+  artifact events actor-stamped, the status flips bare with the acting
+  identities in the adjacent comments — on a ticket whose `stage:` never
+  moved.
 - **D-2 Division + linking** (this run's instance: T-031 → A-001): the engine
   sets the basis `done` → the next tick of the downstream stage's ticker (its
   DONE step) creates the child with `epic` = upstream epic, `basis` = the
@@ -94,16 +118,19 @@ artifacts.
 - **D-3 Engine verdict** (this run's instance: A-001): the worker leaves the
   ticket at `in-review` → the engine review pass reads ticket + artifacts and
   runs the quality gate → only the engine performs the `done` transition.
-  Evidence: history carries `in-review` (worker actor) then `done` (engine
-  actor); no worker/ticker `done` event anywhere in the chain.
+  Evidence: history carries `in-review` then `done`, and the done carries the
+  engine's mark — an engine-annotated done event or the engine-verdict
+  comment on the ticket within the review batch around the flip (legacy
+  `done`s before 2026-11-15 without a mark are grandfathered, §Interfaces 1);
+  no worker/ticker `done` event anywhere in the chain.
 
 ## D-point → parts / evidence map
 
 | D-point | Parts that generate its evidence | Store evidence |
 |---|---|---|
-| D-1 | ticker (claim + spawn), worker (artifact + `in-review`), store history | claim → artifact → `in-review` events with actors; `stage:` immutable |
+| D-1 | ticker (claim + spawn), worker (artifact + `in-review`), store history | claim → artifact events with actors → bare `in-review` flip + the worker's fulfillment comment; `stage:` immutable |
 | D-2 | store (division + links + readiness), ticker DONE step | child's `basis`/`epic` + carried artifacts; WAIT_UPSTREAM → READY |
-| D-3 | engine review pass + quality gate (sole `done` authority), store history actors | `in-review` by worker → `done` by engine; no other `done` |
+| D-3 | engine review pass + quality gate (sole `done` authority), store history + verdict comments | `in-review` → `done` ordering; engine mark on the done (annotated done event, or engine-verdict comment by `review` / `ticker-v:review` adjacent to the flip; pre-2026-11-15 dones grandfathered); no other `done` |
 
 ## Key trade-offs / open questions
 

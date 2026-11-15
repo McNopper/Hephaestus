@@ -28,7 +28,7 @@ docs/design-stage-pipeline.md and the stage-pipeline skill instead.
 
 ## What runs where (read this first)
 
-- **The task store is the ground truth.** `.opencode/tasks/` (one Markdown file per
+- **The task store is the ground truth.** `.harness/tasks/` (one Markdown file per
   ticket) is the single coordination blackboard. Workers report to their *ticket* —
   status, artifacts, actuals — never back to the session that dispatched them.
 - **Your chat session is a launcher and a peer**, not a command tree. After a

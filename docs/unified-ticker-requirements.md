@@ -11,8 +11,8 @@
   stages of the ticker-v arc.**
 - **Read by:** the downstream stages deriving from T-035; the testers writing
   the paired acceptance tests; the maintainer.
-- **Related:** ticket `.opencode/tasks/hephaestus/T-035.md` (owner requirement
-  - provenance), epic `.opencode/tasks/hephaestus/U-112.md` (the walked
+- **Related:** ticket `.harness/tasks/hephaestus/T-035.md` (owner requirement
+  - provenance), epic `.harness/tasks/hephaestus/U-112.md` (the walked
   release path that exposed the ten-schedule cost), `docs/design-stage-pipeline.md`
   (the U-110 design — its scheduling-topology sections are superseded on the
   ten→one point by this document; store contract, readiness, verdicts and
