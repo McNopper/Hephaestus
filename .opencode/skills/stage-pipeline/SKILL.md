@@ -40,7 +40,16 @@ Per stage:
    (scope inherits), `basis` = the done ticket's id (the derivation edge), and
    carry the artifact references into the description. Pairing: also create
    the paired `test-*` ticket linked to the same basis when the child is a
-   definition stage.
+   definition stage. Live-in-Eclipse rule (owner requirement 2026-11-15,
+   T-039): a definition ticket whose acceptance criteria include
+   live-in-Eclipse checks (console checks, UI passes, panel round trips)
+   divides with a paired test-requirements child carrying that live check —
+   live-in-Eclipse verification is ACCEPTANCE verification and belongs to
+   the last V stage, not in ad-hoc blocked/in-review states or manual
+   follow-up notes. The child is the recurrence pattern, NON-BLOCKING:
+   every successful wave/release produces a fresh test-requirements
+   acceptance ticket (the T-002 pattern systematized) — it hardens
+   acceptance and never gates; no verdict, wave or release waits on it.
 5. READY → KICKOFF: **plan first, then claim** — READY tickets born from
    division sit in `product-backlog` without a sprint, and `task_claim`
    only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
