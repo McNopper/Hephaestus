@@ -21,7 +21,7 @@ public class StoreIoTest {
   @Test
   public void walksUpToDotOpencodeTasks() throws Exception {
     Path base = tmp.getRoot().toPath();
-    Path store = base.resolve(".opencode").resolve("tasks");
+    Path store = base.resolve(".harness").resolve("tasks");
     Files.createDirectories(store);
     Path deep = base.resolve("a").resolve("b").resolve("c");
     Files.createDirectories(deep);

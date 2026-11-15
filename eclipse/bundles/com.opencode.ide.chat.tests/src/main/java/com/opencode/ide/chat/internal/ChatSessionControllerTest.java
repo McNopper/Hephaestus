@@ -31,6 +31,7 @@ import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.VcsInfo;
 import java.net.http.HttpTimeoutException;
 import java.nio.file.Path;
@@ -192,6 +193,79 @@ public class ChatSessionControllerTest {
     assertEquals(List.of("⚠ Send failed: boom"), renderer.notices);
     assertTrue(renderer.assistants.isEmpty());
     assertFalse(controller.isSending());
+  }
+
+  // ---------- inline shell mode (chat parity CP-02) ----------
+
+  @Test
+  public void inlineShellCommandParsesTheComposerLine() {
+    assertEquals("git status", ChatSessionController.inlineShellCommand("!git status"));
+    assertEquals("git status", ChatSessionController.inlineShellCommand("! git status"));
+    assertNull(ChatSessionController.inlineShellCommand("explain this"));
+    assertNull(ChatSessionController.inlineShellCommand("look! a bang")); // not at the start
+    assertNull(ChatSessionController.inlineShellCommand("!")); // nothing runnable
+    assertNull(ChatSessionController.inlineShellCommand(" ! space first"));
+    assertNull(ChatSessionController.inlineShellCommand(null));
+  }
+
+  @Test
+  public void runInlineShellEchoesRunsAndRendersTheOutputStrip() {
+    controller.runInlineShell("git status");
+
+    assertEquals(List.of("!git status"), renderer.users);
+    // the session is created on first use, then the adopted runShell verb runs
+    assertEquals(List.of("ses_1:git status"), connection.client.shellCalls);
+    assertEquals(List.of("git status|ok|exited"), renderer.shells);
+    assertFalse(controller.isSending()); // a shell run is never a sending state
+  }
+
+  @Test
+  public void runInlineShellFailureRendersAFailedStrip() {
+    connection.client.shellFailure = new OpencodeException("no shell message appeared");
+    controller.runInlineShell("sleep 500");
+
+    assertEquals(List.of("sleep 500||failed: no shell message appeared"), renderer.shells);
+    assertTrue(connection.client.shellCalls.contains("ses_1:sleep 500"));
+  }
+
+  @Test
+  public void runInlineShellBlankCommandShowsNotice() {
+    controller.runInlineShell("   ");
+
+    assertEquals(List.of("⚠ Empty shell command - nothing to run."), renderer.notices);
+    assertTrue(renderer.users.isEmpty());
+    assertTrue(connection.client.shellCalls.isEmpty());
+  }
+
+  @Test
+  public void runInlineShellWorksWhileAReplyIsInFlight() {
+    host.holdBackground = true;
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+    assertTrue(controller.isSending());
+
+    controller.runInlineShell("git status");
+    drainBackground();
+
+    assertEquals(List.of("ses_1:git status"), connection.client.shellCalls);
+    assertEquals(List.of("git status|ok|exited"), renderer.shells);
+  }
+
+  @Test
+  public void resumeReplaysShellRunsAsTranscriptRows() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "list them"),
+            shellEntry("msg_sh", "git status", "On branch main", "exited"));
+    controller.resume("ses_42");
+
+    List<Map<String, Object>> rows = renderer.histories.get(0);
+    assertEquals(2, rows.size());
+    assertEquals("shell", rows.get(1).get("role"));
+    assertEquals("msg_sh", rows.get(1).get("id"));
+    assertEquals("git status", rows.get(1).get("command"));
+    assertEquals("On branch main", rows.get(1).get("output"));
+    assertEquals("exited", rows.get(1).get("status"));
   }
 
   // ---------- late replies (POST budget exceeded) ----------
@@ -2552,6 +2626,14 @@ public class ChatSessionControllerTest {
     return new ChatEntry(info, List.of(new ChatPart("text", text, null, null)));
   }
 
+  /** A shell-run history row (chat parity CP-02): the command plus its captured output tail. */
+  private static ChatEntry shellEntry(String id, String command, String output, String status) {
+    ChatMessageInfo info =
+        new ChatMessageInfo(
+            id, "ses_1", "shell", null, null, null, status, null, null, null, null, null, null, 0L);
+    return new ChatEntry(info, List.of(), command, output);
+  }
+
   private static final class RecordingRenderer implements ChatSessionController.Renderer {
     final List<String> users = new ArrayList<>();
     final List<String> assistants = new ArrayList<>();
@@ -2562,6 +2644,8 @@ public class ChatSessionControllerTest {
     final List<List<ChatSessionController.InboxEntry>> inboxes = new ArrayList<>();
     final List<List<ChatSessionController.FormCard>> forms = new ArrayList<>();
     final List<Boolean> reasoningVisibilities = new ArrayList<>();
+    /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
+    final List<String> shells = new ArrayList<>();
     int clears;
 
     @Override
@@ -2620,6 +2704,11 @@ public class ChatSessionControllerTest {
     @Override
     public void setForms(List<ChatSessionController.FormCard> cards) {
       forms.add(cards);
+    }
+
+    @Override
+    public void appendShell(String command, String output, String status) {
+      shells.add(command + "|" + output + "|" + status);
     }
 
     @Override
@@ -2907,6 +2996,26 @@ public class ChatSessionControllerTest {
         throw historyFailure;
       }
       return history;
+    }
+
+    /** Recorded {@code session:command} shell calls (chat parity CP-02). */
+    final List<String> shellCalls = new ArrayList<>();
+
+    /** The shell result the fake answers with ({@code null} = an exited run with its output). */
+    ShellResult shellResult;
+
+    OpencodeException shellFailure;
+
+    @Override
+    public ShellResult runShell(String sessionId, String agent, String command)
+        throws OpencodeException {
+      shellCalls.add(sessionId + ":" + command);
+      if (shellFailure != null) {
+        throw shellFailure;
+      }
+      return shellResult != null
+          ? shellResult
+          : new ShellResult("msg_shell_1", null, command, "exited", "ok");
     }
 
     @Override

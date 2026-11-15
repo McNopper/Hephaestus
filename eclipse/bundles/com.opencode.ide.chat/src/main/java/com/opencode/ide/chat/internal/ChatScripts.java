@@ -104,6 +104,19 @@ public final class ChatScripts {
     return "window.__setNotice(" + GSON.toJson(nullToEmpty(text)) + ")";
   }
 
+  /**
+   * {@code window.__appendShell("{...}")} - chat parity CP-02: renders one inline shell run as a
+   * transcript strip ({@code $ command}, the captured output tail, the lifecycle status). Blank
+   * output/status render nothing extra; the page builds the strip with textContent only.
+   */
+  public static String appendShell(String command, String output, String status) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("command", nullToEmpty(command));
+    payload.put("output", nullToEmpty(output));
+    payload.put("status", nullToEmpty(status));
+    return call("__appendShell", payload);
+  }
+
   /** {@code window.__setTheme("light"|"dark")}. */
   public static String setTheme(String theme) {
     return "window.__setTheme(" + GSON.toJson(nullToEmpty(theme)) + ")";

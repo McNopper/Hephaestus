@@ -34,7 +34,7 @@ public final class StoreIo {
       return configured.toPath();
     }
     for (Path dir = startDir; dir != null; dir = dir.getParent()) {
-      Path candidate = dir.resolve(".opencode").resolve("tasks");
+      Path candidate = dir.resolve(".harness").resolve("tasks");
       if (Files.isDirectory(candidate)) {
         return candidate;
       }

@@ -395,6 +395,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
   }
 
   @Override
+  public void appendShell(String command, String output, String status) {
+    executeJs(ChatScripts.appendShell(command, output, status));
+  }
+
+  @Override
   public void notice(String text) {
     executeJs(ChatScripts.setNotice(text));
   }

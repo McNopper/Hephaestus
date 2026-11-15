@@ -309,7 +309,7 @@ public final class OpencodePreferences {
     String repo = repoRoot();
     if (repo != null) {
       try {
-        return java.nio.file.Path.of(repo).resolve(".opencode").resolve("tasks").toString();
+        return java.nio.file.Path.of(repo).resolve(".harness").resolve("tasks").toString();
       } catch (RuntimeException e) {
         ClientLog.warning("invalid -Dopencode.repo value: " + repo);
       }

@@ -125,6 +125,15 @@
   .att-line { font-family: Consolas, "Courier New", monospace; font-size: 11px;
               opacity: 0.85; margin: 3px 0; padding: 1px 6px 1px 8px;
               border-left: 2px solid currentColor; overflow-wrap: anywhere; }
+  /* inline shell runs (chat parity CP-02): a '!'-prefixed composer line ran as a
+     session shell command - the strip shows $ command, the RAW output tail
+     (plain text, never markdown) and the optional lifecycle status */
+  .msg.shell .bubble { background: var(--bubble-ai-bg); border: 1px solid var(--border); flex: 1; }
+  .shell-cmd { font-family: Consolas, "Courier New", monospace; font-size: 12px; font-weight: 600; }
+  .shell-out { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+               padding: 8px; margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere;
+               font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+  .shell-status { font-size: 11px; color: var(--muted); margin-top: 4px; }
   /* copy button on every code fence (theme-aware, no external assets) */
   .copy-btn { position: absolute; top: 4px; right: 4px; padding: 1px 8px;
               font: inherit; font-size: 11px; cursor: pointer;

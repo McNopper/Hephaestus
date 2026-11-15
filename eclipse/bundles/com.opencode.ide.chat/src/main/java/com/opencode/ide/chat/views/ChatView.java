@@ -630,7 +630,8 @@ public class ChatView extends ViewPart {
     input = new Text(inputRow, SWT.MULTI | SWT.WRAP | SWT.BORDER);
     input.setToolTipText(
         "Prompt (ENTER sends - while a reply streams, ENTER queues the message; "
-            + "Shift+ENTER newline, / commands, \uD83D\uDCCE attach files/images)");
+            + "Shift+ENTER newline, / commands, \uD83D\uDCCE attach files/images, "
+            + "! shell command)");
     GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
     inputData.heightHint = 52;
     input.setLayoutData(inputData);
@@ -1374,6 +1375,16 @@ public class ChatView extends ViewPart {
     if (builtIn != null) {
       input.setText(""); // fires the modify listener, hiding the picker
       dispatchBuiltInCommand(builtIn);
+      return;
+    }
+    // Chat parity CP-02 (TUI '!' mode): a line starting with '!' runs the rest as
+    // a session shell command, output rendered in the transcript. A '!'-prefixed
+    // send carries TEXT ONLY - attached chips are dropped with the submission.
+    String shellCommand = ChatSessionController.inlineShellCommand(text);
+    if (shellCommand != null) {
+      input.setText(""); // fires the modify listener, hiding the picker
+      clearAttachments();
+      controller.runInlineShell(shellCommand);
       return;
     }
     submitSelection(composer.resolve(text));

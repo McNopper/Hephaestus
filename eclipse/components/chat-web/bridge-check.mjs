@@ -666,6 +666,62 @@ exec("window.__setAssistantText(" + JSON.stringify(toolFinal) + ")");
 check("re-render does not duplicate tool lines",
   !!t2 && t2.querySelectorAll(".tool-line").length === 1);
 
+// ---------------- inline shell runs (chat parity CP-02) ----------------
+// A '!'-prefixed composer line runs as a session shell command; the run renders
+// as its own strip ($ command, RAW output, optional status) via __appendShell,
+// and history replays it through __setMessages rows with role "shell".
+exec("window.__clear()");
+const shellErrBefore = reports.filter(r => r.startsWith("JS ERROR")).length;
+const rs = exec("window.__appendShell(" + JSON.stringify(JSON.stringify({
+  command: "git status",
+  output: "On branch main\nnothing to commit\n",
+  status: "exited"
+})) + ")");
+check("__appendShell returns true", rs === true);
+const shellNode = chatEl.querySelector(".msg.shell");
+check("__appendShell renders the shell strip", !!shellNode
+  && textOf(shellNode).includes("$ git status")
+  && textOf(shellNode).includes("nothing to commit"),
+  shellNode ? JSON.stringify(textOf(shellNode)) : "no node");
+check("the output tail is its own pre (raw text)",
+  !!shellNode && shellNode.querySelectorAll("pre.shell-out").length === 1);
+check("the lifecycle status renders",
+  !!shellNode && textOf(shellNode).includes("[exited]"));
+check("__appendShell reports to Java",
+  reports.some(r => r.startsWith("shell row rendered")));
+
+// hostile command/output: the strip is built with textContent only - no markup
+// can survive a '<' in a command or in the captured output
+exec("window.__appendShell(" + JSON.stringify(JSON.stringify({
+  command: "<script>alert(1)</script>rm -rf /",
+  output: "</pre><script>alert(2)</script>",
+  status: ""
+})) + ")");
+const hostileShell = chatEl.querySelectorAll(".msg.shell").pop();
+check("a hostile shell command cannot inject markup",
+  !!hostileShell && hostileShell.querySelectorAll("script").length === 0
+    && textOf(hostileShell).includes("<script>alert(1)</script>rm -rf /"));
+check("a hostile shell output cannot inject markup",
+  !!hostileShell && hostileShell.querySelectorAll("script").length === 0
+    && textOf(hostileShell).includes("</pre><script>alert(2)</script>"));
+check("an empty status renders no status line",
+  !!hostileShell && hostileShell.querySelectorAll(".shell-status").length === 0);
+
+// history replay: a shell row renders as the same strip between its turns
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "user", id: "u0", text: "list the files", reasoning: "", meta: "" },
+  { role: "shell", id: "msg_sh", command: "ls", output: "a.txt", status: "exited" },
+  { role: "assistant", id: "a0", text: "done", reasoning: "", meta: "" }
+])) + ")");
+check("__setMessages replays a shell row as its strip",
+  textOf(chatEl).includes("$ ls") && textOf(chatEl).includes("a.txt"),
+  JSON.stringify(textOf(chatEl)).slice(0, 80));
+check("__setMessages keeps the neighbouring turns",
+  textOf(chatEl).includes("list the files") && textOf(chatEl).includes("done"));
+check("no JS errors on any shell path",
+  reports.filter(r => r.startsWith("JS ERROR")).length === shellErrBefore);
+exec("window.__clear()");
+
 // ---------------- math (extract BEFORE markdown) ----------------
 // Real model output captured from a live opencode server, plus the shapes that
 // the previous "markdown first, KaTeX auto-render after" pipeline destroyed.

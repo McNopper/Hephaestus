@@ -495,7 +495,10 @@ window.__setMessages = guard("__setMessages", function (json) {
   forgetStreams(); // pending progressive ticks no-op (their mid is gone)
   const entries = payload(json);
   entries.forEach(e => {
-    if (e.role === "user") {
+    if (e.role === "shell") {
+      // chat parity CP-02: shell runs replay from history as their own strip
+      addShell(e.command, e.output, e.status);
+    } else if (e.role === "user") {
       addUser(e.text, e.id);
     } else {
       const a = addAssistant(e.id, e.reasoning);
@@ -513,6 +516,44 @@ window.__appendUser = guard("__appendUser", function (json) {
   const p = payload(json);
   addUser(typeof p.text === "string" ? p.text : "", null, p.files);
   showWaiting();
+  return true;
+});
+
+// ---- inline shell runs (chat parity CP-02) ----
+// A '!'-prefixed composer line runs as a session shell command; the run renders
+// as its own transcript strip ($ command, the RAW output tail, optional
+// lifecycle status). The output is plain text - never markdown - and every
+// element is built with createElement/textContent, so a hostile command or
+// output cannot inject markup (same discipline as tool lines and attachments).
+// History rows (resume) arrive through __setMessages with role "shell".
+const SHELL_STATUS_LABELS = { running: "running…", exited: "exited", timeout: "timed out", killed: "killed" };
+function addShell(command, output, status) {
+  const wrap = document.createElement("div"); wrap.className = "msg shell";
+  const bubble = document.createElement("div"); bubble.className = "bubble shell-bubble";
+  const cmd = document.createElement("div"); cmd.className = "shell-cmd";
+  cmd.textContent = "$ " + (typeof command === "string" && command ? command : "(unknown command)");
+  bubble.appendChild(cmd);
+  if (typeof output === "string" && output.trim().length > 0) {
+    const pre = document.createElement("pre"); pre.className = "shell-out";
+    pre.textContent = output.replace(/\s+$/, "");
+    bubble.appendChild(pre);
+  }
+  if (typeof status === "string" && status.trim().length > 0) {
+    const line = document.createElement("div"); line.className = "shell-status";
+    const known = Object.prototype.hasOwnProperty.call(SHELL_STATUS_LABELS, status);
+    line.textContent = "[" + (known ? SHELL_STATUS_LABELS[status] : status) + "]";
+    bubble.appendChild(line);
+  }
+  wrap.appendChild(bubble); chatEl.appendChild(wrap); scrollBottom();
+  report("shell row rendered: " + cmd.textContent.slice(0, 60));
+  return wrap;
+}
+
+window.__appendShell = guard("__appendShell", function (json) {
+  const p = payload(json);
+  addShell(typeof p.command === "string" ? p.command : "",
+    typeof p.output === "string" ? p.output : "",
+    typeof p.status === "string" ? p.status : "");
   return true;
 });
 

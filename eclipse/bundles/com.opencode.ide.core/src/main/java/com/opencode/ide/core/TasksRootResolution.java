@@ -69,7 +69,7 @@ public final class TasksRootResolution {
       return normalizeStore(path.isAbsolute() ? path : workspace.resolve(path));
     }
     for (Path dir = workspace; dir != null; dir = dir.getParent()) {
-      Path candidate = dir.resolve(".opencode").resolve("tasks");
+      Path candidate = dir.resolve(".harness").resolve("tasks");
       if (Files.isDirectory(candidate)) {
         return candidate.normalize();
       }
@@ -85,7 +85,7 @@ public final class TasksRootResolution {
         return normalizeStore(candidate);
       }
     }
-    return workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize();
+    return workspace.resolve("..").resolve(".harness").resolve("tasks").normalize();
   }
 
   /**
@@ -113,7 +113,7 @@ public final class TasksRootResolution {
    * Anything else is honored as-is.
    */
   private static Path normalizeStore(Path root) {
-    Path store = root.resolve(".opencode").resolve("tasks");
+    Path store = root.resolve(".harness").resolve("tasks");
     return (Files.isDirectory(store) ? store : root).normalize();
   }
 
@@ -138,7 +138,7 @@ public final class TasksRootResolution {
       if (!OpencodeConnection.isRepoMarker(repo)) {
         continue;
       }
-      Path store = repo.resolve(".opencode").resolve("tasks");
+      Path store = repo.resolve(".harness").resolve("tasks");
       if (!Files.isDirectory(store)) {
         continue;
       }

@@ -14,6 +14,7 @@ import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
+import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.VcsInfo;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -130,6 +131,14 @@ public final class ChatSessionController {
      * forms stay compiling.
      */
     default void setForms(List<FormCard> forms) {}
+
+    /**
+     * Renders one inline shell run (chat parity CP-02): the '!'-prefixed composer line ran as a
+     * session shell command - the strip shows {@code $ command}, the captured output tail and the
+     * run's lifecycle status (blank output/status simply render nothing extra). Default no-op so
+     * renderers (and existing test fakes) without the strip stay compiling.
+     */
+    default void appendShell(String command, String output, String status) {}
 
     /**
      * Pushes the reasoning-visibility preference into the page ({@code /thinking} and the toolbar
@@ -640,8 +649,24 @@ public final class ChatSessionController {
   private static List<Map<String, Object>> historyRows(List<ChatEntry> entries) {
     List<Map<String, Object>> rows = new ArrayList<>();
     for (ChatEntry entry : entries) {
-      String meta = (entry.info() != null) ? entry.info().modelLabel() : "";
       Map<String, Object> row = new LinkedHashMap<>();
+      if (entry.isShell()) {
+        // chat parity CP-02: shell runs stay in the transcript on resume - the
+        // page renders them as their own strip ($ command, output tail, status)
+        row.put("role", "shell");
+        row.put(
+            "id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
+        row.put("command", entry.command() == null ? "" : entry.command());
+        row.put("output", entry.shellOutput() == null ? "" : entry.shellOutput());
+        // the deserializer carries the shell lifecycle (running/exited/...) in
+        // the finish slot
+        String shellStatus =
+            entry.info() != null && entry.info().finish() != null ? entry.info().finish() : "";
+        row.put("status", shellStatus);
+        rows.add(row);
+        continue;
+      }
+      String meta = (entry.info() != null) ? entry.info().modelLabel() : "";
       row.put("role", entry.isUser() ? "user" : "assistant");
       row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
       row.put("text", entry.text());
@@ -788,6 +813,53 @@ public final class ChatSessionController {
     } catch (OpencodeException e) {
       String failure = e.getMessage();
       host.runOnUi(() -> renderer.notice("⚠ Steer failed: " + failure));
+    }
+  }
+
+  // ---------- inline shell mode (chat parity CP-02) ----------
+
+  /**
+   * The shell command of a composer line (TUI '!' mode): a line whose FIRST character is {@code !}
+   * runs the remainder (trimmed) as a session shell command; {@code null} when the line is not a
+   * shell line (no leading {@code !}, or nothing runnable after it). Pure - unit-testable.
+   */
+  public static String inlineShellCommand(String line) {
+    if (line == null || !line.startsWith("!")) {
+      return null;
+    }
+    String command = line.substring(1).trim();
+    return command.isEmpty() ? null : command;
+  }
+
+  /**
+   * Chat parity CP-02: runs {@code command} as a session shell command (the adopted runShell verb,
+   * {@code POST /session/:id/shell}) with the output rendered as a transcript strip - reachable
+   * from the chat, no Session Details hop, no model turn. The echo renders immediately; the run
+   * executes on a background job (independent of the sending state - the TUI runs shell lines
+   * mid-turn too). The server's permission rules gate the run unchanged (NFR-SEC-001): an ask
+   * surfaces in the existing ask row, and a denial aborts the run server-side (surfaced here as a
+   * failed strip - the chat adds no bypass).
+   */
+  public void runInlineShell(String command) {
+    if (command == null || command.isBlank()) {
+      renderer.notice("⚠ Empty shell command - nothing to run.");
+      return;
+    }
+    renderer.appendUser("!" + command);
+    host.runInBackground("Running inline shell command", () -> runInlineShellJob(command));
+  }
+
+  private void runInlineShellJob(String command) {
+    try {
+      String sid = ensureSession();
+      host.info("inline shell: " + command);
+      ShellResult result = connection.getClient().runShell(sid, null, command);
+      String output = (result == null) ? null : result.output();
+      String status = (result == null) ? null : result.status();
+      host.runOnUi(() -> renderer.appendShell(command, output, status));
+    } catch (OpencodeException e) {
+      String failure = e.getMessage();
+      host.runOnUi(() -> renderer.appendShell(command, null, "failed: " + failure));
     }
   }
 

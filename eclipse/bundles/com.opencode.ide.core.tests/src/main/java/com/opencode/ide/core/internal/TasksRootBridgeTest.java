@@ -103,12 +103,12 @@ public class TasksRootBridgeTest {
     // outranks it and the bridge must follow the SAME order, not the
     // preference.
     Path store = tmp.getRoot().toPath().resolve("pref-store");
-    Files.createDirectories(store.resolve(".opencode").resolve("tasks"));
+    Files.createDirectories(store.resolve(".harness").resolve("tasks"));
     prefs
         .raw()
         .put(
             OpencodePreferences.KEY_TASKS_ROOT,
-            store.resolve(".opencode").resolve("tasks").toString());
+            store.resolve(".harness").resolve("tasks").toString());
 
     CoreActivator.bridgeTasksRootPreference();
 
@@ -118,7 +118,7 @@ public class TasksRootBridgeTest {
         System.getProperty("opencode.tasks.root"));
     assertNotEquals(
         "the preference's store must not leak past the workspace climb",
-        store.resolve(".opencode").resolve("tasks").toString(),
+        store.resolve(".harness").resolve("tasks").toString(),
         System.getProperty("opencode.tasks.root"));
   }
 }

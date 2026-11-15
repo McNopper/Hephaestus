@@ -454,7 +454,7 @@ public class TaskStoreSemanticsTest {
     Files.createDirectories(repo.resolve("docs"));
     Files.writeString(repo.resolve("docs").resolve("real.md"), "# real\n");
     // the convention the doctor derives the repo root from: <repo>/.harness/tasks
-    TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+    TaskStore repoStore = new TaskStore(repo.resolve(".harness").resolve("tasks"));
     Task t = repoStore.create("p", TaskStore.CreateSpec.of("artifacts"));
     repoStore.addArtifact("p", t.id, "file", "docs/real.md", "", "dev");
     repoStore.addArtifact("p", t.id, "path", "docs/missing.md", "", "dev");
@@ -473,7 +473,7 @@ public class TaskStoreSemanticsTest {
   @Test
   public void doctorStaysQuietForGlobBraceAndProseArtifactRefs() throws IOException {
     Path repo = tmp.newFolder("repo").toPath();
-    TaskStore repoStore = new TaskStore(repo.resolve(".opencode").resolve("tasks"));
+    TaskStore repoStore = new TaskStore(repo.resolve(".harness").resolve("tasks"));
     Task t = repoStore.create("p", TaskStore.CreateSpec.of("a"));
     repoStore.addArtifact("p", t.id, "path", "docs/*.md", "", "dev");
     repoStore.addArtifact("p", t.id, "path", "eclipse/{bundles,features}/**", "", "dev");

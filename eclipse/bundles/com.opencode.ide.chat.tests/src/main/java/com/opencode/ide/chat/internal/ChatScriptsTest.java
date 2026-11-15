@@ -48,11 +48,26 @@ public class ChatScriptsTest {
   }
 
   @Test
+  public void appendShellEmitsAJsonStringLiteral() {
+    assertEquals(
+        "window.__appendShell("
+            + "\"{\\\"command\\\":\\\"git status\\\",\\\"output\\\":\\\"on main\\\","
+            + "\\\"status\\\":\\\"exited\\\"}\")",
+        ChatScripts.appendShell("git status", "on main", "exited"));
+    // blank output/status render as nothing extra on the page
+    assertEquals(
+        "window.__appendShell(\"{\\\"command\\\":\\\"ls\\\",\\\"output\\\":\\\"\\\","
+            + "\\\"status\\\":\\\"\\\"}\")",
+        ChatScripts.appendShell("ls", null, ""));
+  }
+
+  @Test
   public void payloadIsNeverAJsObjectLiteral() {
     // the original bug: window.__appendUser({"text":"hi"}) -> JSON.parse("[object Object]")
     List<String> scripts =
         List.of(
             ChatScripts.appendUser("hi"),
+            ChatScripts.appendShell("git status", "on main", "exited"),
             ChatScripts.startAssistant("msg_1"),
             ChatScripts.appendDelta("msg_1", "chunk"),
             ChatScripts.appendReasoning("msg_1", "ponder"),

@@ -307,7 +307,7 @@ public class TaskToolsDispatchTest {
     // can the doctor derive the repo root and check refs against it
     Path repo = tmp.newFolder("repo").toPath();
     McpDispatcher inRepo =
-        new McpDispatcher(new TaskToolProvider(repo.resolve(".opencode").resolve("tasks")));
+        new McpDispatcher(new TaskToolProvider(repo.resolve(".harness").resolve("tasks")));
     callOk(inRepo, "task_create", "{\"project\":\"p\",\"title\":\"a\"}");
     callOk(
         inRepo,

@@ -38,7 +38,7 @@ public class TasksRootResolutionTest {
     stalePreferenceStore = storeAt(tmp.newFolder("stale-clone").toPath());
     // a real opencode repo (marker: .opencode dir) with a task store
     repo = tmp.newFolder("repo").toPath();
-    repoStore = storeAt(repo.resolve(".opencode").resolve("tasks"));
+    repoStore = storeAt(repo.resolve(".harness").resolve("tasks"));
   }
 
   private static Path storeAt(Path dir) throws IOException {
@@ -83,7 +83,7 @@ public class TasksRootResolutionTest {
   @Test
   public void repoRootInputDescendsIntoItsDotOpencodeTasks() throws Exception {
     java.nio.file.Path repo = java.nio.file.Files.createTempDirectory("tasks-root-repo");
-    java.nio.file.Path store = repo.resolve(".opencode").resolve("tasks");
+    java.nio.file.Path store = repo.resolve(".harness").resolve("tasks");
     java.nio.file.Files.createDirectories(store);
 
     assertEquals(
@@ -139,7 +139,7 @@ public class TasksRootResolutionTest {
   public void opencodeJsonIsAlsoARepoMarker() throws IOException {
     Path jsonRepo = tmp.newFolder("json-repo").toPath();
     Files.writeString(jsonRepo.resolve("opencode.json"), "{}\n");
-    Path jsonStore = storeAt(jsonRepo.resolve(".opencode").resolve("tasks"));
+    Path jsonStore = storeAt(jsonRepo.resolve(".harness").resolve("tasks"));
 
     Path resolved =
         TasksRootResolution.resolve(
@@ -192,17 +192,17 @@ public class TasksRootResolutionTest {
   @Test
   public void unsetBlankOrThrowingPreferenceReadsAsNone() {
     assertEquals(
-        workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize(),
+        workspace.resolve("..").resolve(".harness").resolve("tasks").normalize(),
         TasksRootResolution.resolve("", workspace, List.of(), () -> null));
     assertEquals(
-        workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize(),
+        workspace.resolve("..").resolve(".harness").resolve("tasks").normalize(),
         TasksRootResolution.resolve("", workspace, List.of(), () -> "  "));
     assertEquals(
-        workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize(),
+        workspace.resolve("..").resolve(".harness").resolve("tasks").normalize(),
         TasksRootResolution.resolve("  ", workspace, List.of(), null));
     assertEquals(
         "a throwing supplier (headless contexts) must not escape",
-        workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize(),
+        workspace.resolve("..").resolve(".harness").resolve("tasks").normalize(),
         TasksRootResolution.resolve(
             null,
             workspace,
@@ -215,7 +215,7 @@ public class TasksRootResolutionTest {
   @Test
   public void historicalGuessAppliesWhenNothingMatches() {
     assertEquals(
-        workspace.resolve("..").resolve(".opencode").resolve("tasks").normalize(),
+        workspace.resolve("..").resolve(".harness").resolve("tasks").normalize(),
         TasksRootResolution.resolve(null, workspace, List.of(), () -> ""));
   }
 }
