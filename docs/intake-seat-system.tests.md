@@ -83,7 +83,7 @@ visible as `verified_by` until the review verdict lands. Semantic note, not a
 query failure.
 
 **S-2 (by-field provenance).** Grepped `"by":"` over
-`.opencode/tasks/hephaestus/*.md` (the doc's own file-form fallback). Sampled
+`.harness/tasks/hephaestus/*.md` (the doc's own file-form fallback). Sampled
 values: `fleet`, `ticker-v`, `ticker-v:review`, `system-ticker`, `system-worker`,
 `architecture-worker`, `test-system-worker:A-002`, `executor (board half)`,
 `review`, `store-hygiene`, `chat-session`, `agent` — all within/near the §4
@@ -187,9 +187,15 @@ None of the notes fails a T-083 acceptance criterion; they are improvement
 surface for the doc's own honesty, to route through the store as the reviewer
 sees fit. This ticket claims no done on T-083 — the verdict is the engine's.
 
-**Note five (the store-path defect, post-review addition):** the subject doc's
-section 4 read-grep originally cited `.opencode/tasks/hephaestus/*.md` - the
-pre-relocation store path, empty since the T-052 relocation to
-`.harness/tasks/`. The S-2 recorded path was corrected in the rework; the
-subject doc's path references were fixed in the same pass (the T-083 lane).
-Recorded as a known one-line follow-up rather than a T-083 criterion failure.
+**Note five (the store-path defect, known follow-up):** the subject doc's
+section 4 (lines 122–123) cited the store path as
+`.opencode/tasks/hephaestus/*.md` — the pre-relocation store path, empty since
+the T-052 relocation to `.harness/tasks/` — so the S-2 file-form query as
+written there greps nothing. The subject doc is T-083's lane and is not edited
+by this ticket: the defect is recorded as a known follow-up routed to T-083's
+lane, carried by child ticket T-105's scope ("fix or record in the coherence
+pass") — a known follow-up, not a T-083 criterion failure. Observed at this
+rework: the cite now reads `.harness/tasks/hephaestus/*.md`; T-105's coherence
+pass owns that file's correctness. This rework corrected only this tests doc's
+own S-2 recorded path (above); the sampled values it reports stand, reproduced
+over the real store.
