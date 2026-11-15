@@ -345,6 +345,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
   }
 
   @Override
+  public void appendUser(String text, List<ChatSessionController.AttachmentView> files) {
+    executeJs(ChatScripts.appendUser(text, files));
+  }
+
+  @Override
   public void startAssistant(String messageId) {
     executeJs(ChatScripts.startAssistant(messageId));
   }

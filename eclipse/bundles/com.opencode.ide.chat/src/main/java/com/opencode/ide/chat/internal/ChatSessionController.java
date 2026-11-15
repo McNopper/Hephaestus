@@ -3,6 +3,7 @@ package com.opencode.ide.chat.internal;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.opencode.ide.chat.ChatPermissionAdapter;
+import com.opencode.ide.client.ChatAttachment;
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.client.DefaultModels;
 import com.opencode.ide.client.OpencodeEventListener;
@@ -48,6 +49,14 @@ public final class ChatSessionController {
   public record ToolLine(String name, String state) {}
 
   /**
+   * One attachment row of a sent prompt for the renderer (chat parity CP-01): the file name plus
+   * the coarse kind ({@code image}/{@code pdf}/{@code file}) the page renders as compact rows above
+   * the prompt text (images as a labeled placeholder row - the file itself is read by the opencode
+   * server, never shipped through the harness).
+   */
+  public record AttachmentView(String name, String kind) {}
+
+  /**
    * One built-in slash command this chat handles locally (opencode TUI parity): its {@code name}
    * (without the leading slash) and a one-line description. {@link #BUILT_IN_COMMANDS} is the
    * single registry both {@link #builtInSlashCommand(String)} and the {@code /help} notice derive
@@ -77,6 +86,16 @@ public final class ChatSessionController {
   public interface Renderer {
 
     void appendUser(String text);
+
+    /**
+     * Echoes a prompt WITH its attachments (chat parity CP-01): the attachment views ({@code {name,
+     * kind}}) render as compact rows above the prompt text inside the user bubble. Default falls
+     * back to the text-only echo so renderers (and existing test fakes) without attachment support
+     * stay compiling.
+     */
+    default void appendUser(String text, List<AttachmentView> files) {
+      appendUser(text);
+    }
 
     void startAssistant(String messageId);
 
@@ -188,14 +207,35 @@ public final class ChatSessionController {
     default void reasoningVisibilityChanged(boolean visible) {}
   }
 
-  /** One prompt to send: the typed text plus the current agent/model/variant pick. */
+  /**
+   * One prompt to send: the typed text plus the current agent/model/variant pick and its
+   * attachments (chat parity CP-01).
+   */
   public record OutgoingMessage(
       String agent,
       String providerId,
       String modelId,
       String variant,
       String system,
-      String text) {}
+      String text,
+      List<ChatAttachment> files) {
+
+    /** The historical no-attachment shape ({@code files} empty); kept for existing callers. */
+    public OutgoingMessage(
+        String agent,
+        String providerId,
+        String modelId,
+        String variant,
+        String system,
+        String text) {
+      this(agent, providerId, modelId, variant, system, text, List.of());
+    }
+
+    /** Compact constructor: {@code null} files become empty (nothing attached). */
+    public OutgoingMessage {
+      files = files == null ? List.of() : List.copyOf(files);
+    }
+  }
 
   /**
    * One prompt parked in the session's server-side inbox (the v2 Alt+Enter queue, fed by {@link
@@ -630,6 +670,38 @@ public final class ChatSessionController {
     return tools;
   }
 
+  /**
+   * Renderer views of a prompt's attachments (chat parity CP-01): one {@link AttachmentView} per
+   * attachment; {@code null}/empty in, empty out.
+   */
+  private static List<AttachmentView> attachmentViews(List<ChatAttachment> files) {
+    if (files == null || files.isEmpty()) {
+      return List.of();
+    }
+    List<AttachmentView> views = new ArrayList<>();
+    for (ChatAttachment file : files) {
+      String name = file.name() == null || file.name().isBlank() ? file.uri() : file.name();
+      views.add(new AttachmentView(name, attachmentKind(name)));
+    }
+    return List.copyOf(views);
+  }
+
+  /**
+   * Coarse display kind of an attachment from its file name (chat parity CP-01): {@code image} for
+   * the formats the server passes to the model as media (PNG/JPEG/GIF/WebP), {@code pdf} for PDF
+   * document media, {@code file} otherwise.
+   */
+  public static String attachmentKind(String name) {
+    String lower = (name == null ? "" : name).toLowerCase(Locale.ROOT);
+    int dot = lower.lastIndexOf('.');
+    String extension = dot >= 0 ? lower.substring(dot + 1) : "";
+    return switch (extension) {
+      case "png", "jpg", "jpeg", "gif", "webp" -> "image";
+      case "pdf" -> "pdf";
+      default -> "file";
+    };
+  }
+
   // ---------- selectors ----------
 
   /** Fetches agents/providers plus the default model for the selector combos. */
@@ -675,8 +747,13 @@ public final class ChatSessionController {
     sendStartedAtMillis = System.currentTimeMillis();
     try {
       host.sendingChanged(true);
-      host.info("send: begin (" + message.text().length() + " chars)");
-      renderer.appendUser(message.text());
+      host.info(
+          "send: begin ("
+              + message.text().length()
+              + " chars"
+              + (message.files().isEmpty() ? "" : ", " + message.files().size() + " attachment(s)")
+              + ")");
+      renderer.appendUser(message.text(), attachmentViews(message.files()));
       host.runInBackground("Sending opencode chat message", () -> runSendJob(message, delivery));
       // the run may block on an unanswered form mid-flight (U-014): a
       // POST that never settles must still surface the form card
@@ -748,7 +825,8 @@ public final class ChatSessionController {
               modelId,
               message.variant(),
               message.system(),
-              message.text());
+              message.text(),
+              message.files());
       ChatEntry reply = connection.getClient().sendMessage(request, null, delivery);
       settleReply(reply);
       historyHasUserMessage = true; // the prompt is recorded server-side now
@@ -893,7 +971,11 @@ public final class ChatSessionController {
     }
   }
 
-  /** Display text of a submission: the message, or a reconstructed {@code /cmd args}. */
+  /**
+   * Display text of a submission: the message, or a reconstructed {@code /cmd args}. A prompt that
+   * carries ONLY attachments (blank text) displays as {@code [N attachment(s)]} so its queue row is
+   * never blank.
+   */
   private static String displayOf(
       CommandComposer.CommandSelection command, OutgoingMessage message) {
     if (command != null) {
@@ -902,7 +984,14 @@ public final class ChatSessionController {
           command.command().name(),
           command.arguments() == null ? List.of() : command.arguments());
     }
-    return message == null ? "" : message.text();
+    if (message == null) {
+      return "";
+    }
+    String text = message.text() == null ? "" : message.text();
+    if (!text.isBlank() || message.files().isEmpty()) {
+      return text;
+    }
+    return "[" + message.files().size() + " attachment(s)]";
   }
 
   /**

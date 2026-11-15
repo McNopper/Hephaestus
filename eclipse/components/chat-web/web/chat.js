@@ -239,11 +239,12 @@ const chatEl = document.getElementById("chat");
 function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
 function report(msg) { try { if (typeof window.__javaReport === "function") window.__javaReport(msg); } catch (e) {} }
 
-function addUser(text, mid) {
+function addUser(text, mid, files) {
   const wrap = document.createElement("div"); wrap.className = "msg user";
   if (mid) wrap.dataset.mid = mid;
   const bubble = document.createElement("div"); bubble.className = "bubble";
   renderMarkdown(bubble, text);
+  renderAttachments(bubble, files); // prompt attachments ABOVE the text (chat parity CP-01)
   wrap.appendChild(bubble); addForkButton(wrap, mid); chatEl.appendChild(wrap); scrollBottom();
   report("user bubble rendered: " + text.slice(0, 60));
 }
@@ -319,6 +320,36 @@ function renderToolLines(container, tools, before) {
     rendered++;
   });
   if (rendered > 0) report(rendered + " tool line(s) rendered");
+  return rendered;
+}
+
+// ---- prompt attachments (chat parity CP-01) ---------------------------------
+// The files/images a sent prompt carried, rendered as compact name/type rows
+// inside the user bubble ABOVE the prompt text (images as the same labeled
+// placeholder row - the file itself lives on disk and is read by the opencode
+// server). CALLED AFTER renderMarkdown: the markdown render assigns innerHTML,
+// which replaces the bubble's children - rows painted first would be wiped.
+// One wrapper is inserted at the top so the rows keep their file order.
+// Built with createElement/textContent only (never innerHTML), so a hostile
+// file name cannot inject markup - same discipline as the tool lines.
+function renderAttachments(container, files) {
+  if (!container || !Array.isArray(files) || files.length === 0) return 0;
+  const wrap = document.createElement("div");
+  wrap.className = "att-list";
+  let rendered = 0;
+  files.forEach(f => {
+    if (!f || typeof f !== "object") return;
+    const name = (typeof f.name === "string" && f.name) ? f.name : "attachment";
+    const kind = (typeof f.kind === "string" && f.kind) ? f.kind : "file";
+    const line = document.createElement("div");
+    line.className = "att-line att-" + kind;
+    line.textContent = name + " (" + kind + ")";
+    wrap.appendChild(line);
+    rendered++;
+  });
+  if (rendered === 0) return 0;
+  container.insertBefore(wrap, container.children[0] || null);
+  report(rendered + " attachment row(s) rendered");
   return rendered;
 }
 
@@ -480,7 +511,7 @@ window.__setMessages = guard("__setMessages", function (json) {
 
 window.__appendUser = guard("__appendUser", function (json) {
   const p = payload(json);
-  addUser(typeof p.text === "string" ? p.text : "");
+  addUser(typeof p.text === "string" ? p.text : "", null, p.files);
   showWaiting();
   return true;
 });

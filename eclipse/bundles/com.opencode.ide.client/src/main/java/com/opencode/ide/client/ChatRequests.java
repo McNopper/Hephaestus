@@ -1,5 +1,6 @@
 package com.opencode.ide.client;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 /**
@@ -22,7 +23,7 @@ public final class ChatRequests {
 
   private ChatRequests() {}
 
-  /** {@code POST /session/:id/prompt} body: the user prompt text. */
+  /** {@code POST /session/:id/prompt} body: the user prompt text plus its attachments (CP-01). */
   /**
    * The v2 prompt body with explicit delivery (T-005 send-time parity): {@code "queue"} parks the
    * prompt in the session inbox (v2 Alt+Enter); {@code "steer"} is the default shape.
@@ -30,6 +31,7 @@ public final class ChatRequests {
   public static String promptBody(ChatRequest request, String delivery) {
     JsonObject body = new JsonObject();
     body.addProperty("text", request.text() == null ? "" : request.text());
+    addFiles(body, request);
     if (delivery != null && !delivery.isBlank()) {
       body.addProperty("delivery", delivery);
     }
@@ -39,7 +41,30 @@ public final class ChatRequests {
   public static String promptBody(ChatRequest request) {
     JsonObject body = new JsonObject();
     body.addProperty("text", request.text() == null ? "" : request.text());
+    addFiles(body, request);
     return body.toString();
+  }
+
+  /**
+   * Adds the {@code files} field (chat parity CP-01): one {@code {uri, name}} object per attachment
+   * - v2's {@code PromptInput.FileAttachment} needs only {@code uri}; {@code name} is the display
+   * name. Omitted entirely when nothing is attached (the schema is {@code
+   * additionalProperties:false}).
+   */
+  private static void addFiles(JsonObject body, ChatRequest request) {
+    if (request.files().isEmpty()) {
+      return;
+    }
+    JsonArray files = new JsonArray();
+    for (ChatAttachment file : request.files()) {
+      JsonObject attachment = new JsonObject();
+      attachment.addProperty("uri", file.uri() == null ? "" : file.uri());
+      if (isSet(file.name())) {
+        attachment.addProperty("name", file.name());
+      }
+      files.add(attachment);
+    }
+    body.add("files", files);
   }
 
   /** {@code POST /session/:id/agent} body, or {@code null} when no agent is requested. */

@@ -119,6 +119,12 @@
   .tool-line.tool-completed { opacity: 0.85; }
   .tool-line.tool-error { color: #e5554f; border-left-color: #e5554f; }
   @keyframes tool-pulse { 50% { opacity: 0.45; } }
+  /* prompt attachment rows (chat parity CP-01): compact name/type rows inside
+     the user bubble, above the prompt text - images render as the same labeled
+     placeholder row (the file itself is read by the opencode server) */
+  .att-line { font-family: Consolas, "Courier New", monospace; font-size: 11px;
+              opacity: 0.85; margin: 3px 0; padding: 1px 6px 1px 8px;
+              border-left: 2px solid currentColor; overflow-wrap: anywhere; }
   /* copy button on every code fence (theme-aware, no external assets) */
   .copy-btn { position: absolute; top: 4px; right: 4px; padding: 1px 8px;
               font: inherit; font-size: 11px; cursor: pointer;

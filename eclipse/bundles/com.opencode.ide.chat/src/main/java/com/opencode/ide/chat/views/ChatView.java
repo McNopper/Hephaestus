@@ -9,6 +9,7 @@ import com.opencode.ide.chat.internal.ChatViewSettings;
 import com.opencode.ide.chat.internal.CommandComposer;
 import com.opencode.ide.chat.internal.FileReferenceToken;
 import com.opencode.ide.chat.internal.SelectorGuard;
+import com.opencode.ide.client.ChatAttachment;
 import com.opencode.ide.client.ChatCapabilities;
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeEventListener;
@@ -18,6 +19,8 @@ import com.opencode.ide.client.model.CommandInfo;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.core.OpencodePreferences;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.eclipse.core.runtime.Status;
@@ -100,6 +103,13 @@ import org.eclipse.ui.part.ViewPart;
  * {@code __javaInboxAction} bridge to {@link ChatSessionController#steerInbox}/ {@link
  * ChatSessionController#deliverInboxNext}/ {@link ChatSessionController#cancelInbox}; the row
  * re-reads the server after every action, so a failed action keeps the item and says why.
+ *
+ * <p>Chat parity CP-01 attachments: the composer carries an <b>Attach</b> button (OS file picker,
+ * multi-select); the picked files/images list in a chips row above the input and are sent in the v2
+ * prompt body's {@code files} field (one {@code file:} URI + name per attachment - the opencode
+ * server reads them itself), and the transcript renders each attachment as a name/type row in the
+ * sent message's bubble. Steered prompts stay text-only (U-092), so a prompt carrying attachments
+ * while a turn runs waits in the pending queue instead.
  */
 public class ChatView extends ViewPart {
 
@@ -129,6 +139,9 @@ public class ChatView extends ViewPart {
   private Button sendButton;
   private Button stopButton;
   private Button backgroundButton;
+  private Button attachButton;
+  private org.eclipse.swt.widgets.List attachmentsList;
+  private final List<Path> attachedFiles = new ArrayList<>();
   private Action abortAction;
   private Action undoAction;
   private Action redoAction;
@@ -570,9 +583,45 @@ public class ChatView extends ViewPart {
     queueForkButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
     queueForkButton.addListener(SWT.Selection, e -> forkSelectedQueued());
 
-    // row 2: prompt input + send/stop/background buttons (separate row below the transcript)
+    // row 1.9: pending attachments of the NEXT prompt (chat parity CP-01) -
+    // excluded from the layout until the first file is attached, like the
+    // picker and queue rows above it
+    Composite attachRow = new Composite(outer, SWT.NONE);
+    GridLayout attachLayout = new GridLayout(2, false);
+    attachLayout.marginWidth = 0;
+    attachLayout.marginHeight = 0;
+    attachRow.setLayout(attachLayout);
+    GridData attachRowData = new GridData(GridData.FILL, GridData.CENTER, true, false);
+    attachRowData.exclude = true;
+    attachRow.setLayoutData(attachRowData);
+    attachRow.setVisible(false);
+
+    attachmentsList =
+        new org.eclipse.swt.widgets.List(attachRow, SWT.SINGLE | SWT.V_SCROLL | SWT.BORDER);
+    attachmentsList.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    attachmentsList.setToolTipText("Attached files - sent with the next prompt.");
+    // full path of the SELECTED row on hover: SWT List has no hit-test, so the
+    // tooltip follows the selection (the queue table's row-hover pattern needs
+    // Table's getItem(Point), which List lacks)
+    attachmentsList.addListener(
+        SWT.Selection,
+        e -> {
+          int index = attachmentsList.getSelectionIndex();
+          attachmentsList.setToolTipText(
+              index < 0 || index >= attachedFiles.size()
+                  ? "Attached files - sent with the next prompt."
+                  : attachedFiles.get(index).toString());
+        });
+
+    Button removeAttachmentButton = new Button(attachRow, SWT.PUSH);
+    removeAttachmentButton.setText("\uD83D\uDDD1\uFE0F Remove");
+    removeAttachmentButton.setToolTipText("Drop the selected attachment from the next prompt");
+    removeAttachmentButton.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, false, false));
+    removeAttachmentButton.addListener(SWT.Selection, e -> removeSelectedAttachment());
+
+    // row 2: prompt input + attach/send/stop/background buttons (separate row below the transcript)
     inputRow = new Composite(outer, SWT.NONE);
-    GridLayout inputLayout = new GridLayout(4, false);
+    GridLayout inputLayout = new GridLayout(5, false);
     inputLayout.marginWidth = 0;
     inputLayout.marginHeight = 0;
     inputRow.setLayout(inputLayout);
@@ -581,7 +630,7 @@ public class ChatView extends ViewPart {
     input = new Text(inputRow, SWT.MULTI | SWT.WRAP | SWT.BORDER);
     input.setToolTipText(
         "Prompt (ENTER sends - while a reply streams, ENTER queues the message; "
-            + "Shift+ENTER newline, / commands)");
+            + "Shift+ENTER newline, / commands, \uD83D\uDCCE attach files/images)");
     GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
     inputData.heightHint = 52;
     input.setLayoutData(inputData);
@@ -631,6 +680,14 @@ public class ChatView extends ViewPart {
             }
           }
         });
+
+    // Chat parity CP-01: attach files/images to the next prompt - the picker
+    // opens the OS file dialog (multi-select); the chips row above lists them
+    attachButton = new Button(inputRow, SWT.PUSH);
+    attachButton.setText("\uD83D\uDCCE Attach");
+    attachButton.setToolTipText("Attach files or images to the next prompt");
+    attachButton.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, false, false));
+    attachButton.addListener(SWT.Selection, e -> attachFiles());
 
     sendButton = new Button(inputRow, SWT.PUSH);
     sendButton.setText("Send");
@@ -1305,7 +1362,7 @@ public class ChatView extends ViewPart {
 
   private void send() {
     String text = input.getText().trim();
-    if (text.isEmpty()) {
+    if (text.isEmpty() && attachedFiles.isEmpty()) {
       return;
     }
     // Built-in slash commands are handled locally BEFORE the composer's
@@ -1358,11 +1415,22 @@ public class ChatView extends ViewPart {
       queued = controller.submit(selection, null);
     } else if (controller.isSending()) {
       // U-092 direct injection: ENTER during a running turn steers it immediately
-      // (delivery=steer reaches the live turn; Alt+Enter still parks in the inbox)
-      controller.steer(selection.message());
-      queued = false;
+      // (delivery=steer reaches the live turn; Alt+Enter still parks in the inbox).
+      // Steered prompts are TEXT-ONLY (the steer body carries no files), so a
+      // prompt with attachments waits in the pending queue instead and goes out
+      // with its files when the turn settles.
+      if (attachedFiles.isEmpty()) {
+        controller.steer(selection.message());
+        queued = false;
+      } else {
+        ChatSessionController.OutgoingMessage message = outgoingMessage(selection.message());
+        queued = controller.submit(null, message);
+        clearAttachments();
+      }
     } else {
-      queued = controller.submit(null, outgoingMessage(selection.message()));
+      ChatSessionController.OutgoingMessage message = outgoingMessage(selection.message());
+      queued = controller.submit(null, message);
+      clearAttachments();
     }
     if (queued) {
       refreshQueue();
@@ -1721,11 +1789,13 @@ public class ChatView extends ViewPart {
   /** T-005 send-time queue: park the current input in the session inbox (v2 Alt+Enter). */
   private void queueCurrentInput() {
     String text = input.getText().trim();
-    if (text.isEmpty() || controller == null) {
+    if ((text.isEmpty() && attachedFiles.isEmpty()) || controller == null) {
       return;
     }
     input.setText("");
-    controller.send(outgoingMessage(text), "queue");
+    ChatSessionController.OutgoingMessage message = outgoingMessage(text);
+    controller.send(message, "queue");
+    clearAttachments();
     // best-effort immediate row update: the send job re-reads the inbox
     // when the parking POST settles, which is the authoritative refresh
     controller.refreshInbox();
@@ -1754,8 +1824,91 @@ public class ChatView extends ViewPart {
             ? ChatCapabilities.RENDERER_SYSTEM_PROMPT
             : null;
 
+    // snapshot of the pending attachments (chat parity CP-01): absolute file
+    // URIs - the opencode server reads the files itself, content is never
+    // shipped through the prompt body
+    List<ChatAttachment> files = new ArrayList<>();
+    for (Path file : attachedFiles) {
+      files.add(ChatAttachment.of(file));
+    }
+
     return new ChatSessionController.OutgoingMessage(
-        agent, pickedProvider, pickedModel, pickedVariant, system, text);
+        agent, pickedProvider, pickedModel, pickedVariant, system, text, List.copyOf(files));
+  }
+
+  // ---------- attachments (chat parity CP-01) ----------
+
+  /** Opens the OS file picker (multi-select) and adds the picked files to the next prompt. */
+  private void attachFiles() {
+    if (input == null || input.isDisposed()) {
+      return;
+    }
+    org.eclipse.swt.widgets.FileDialog dialog =
+        new org.eclipse.swt.widgets.FileDialog(input.getShell(), SWT.OPEN | SWT.MULTI);
+    dialog.setText("Attach files to the prompt");
+    String first = dialog.open();
+    if (first == null) {
+      return; // cancelled
+    }
+    String directory = dialog.getFilterPath();
+    for (String name : dialog.getFileNames()) {
+      Path file = Path.of(directory, name);
+      if (!attachedFiles.contains(file)) {
+        attachedFiles.add(file);
+      }
+    }
+    refreshAttachments();
+  }
+
+  /** Remove: drops the selected attachment from the next prompt. */
+  private void removeSelectedAttachment() {
+    int index =
+        attachmentsList == null || attachmentsList.isDisposed()
+            ? -1
+            : attachmentsList.getSelectionIndex();
+    if (index < 0 || index >= attachedFiles.size()) {
+      return;
+    }
+    attachedFiles.remove(index);
+    refreshAttachments();
+  }
+
+  /** Drops every pending attachment (the prompt they belonged to went out). */
+  private void clearAttachments() {
+    if (attachedFiles.isEmpty()) {
+      return;
+    }
+    attachedFiles.clear();
+    refreshAttachments();
+  }
+
+  /** Rebuilds the attachment chips from the pending list (hidden while empty). */
+  private void refreshAttachments() {
+    if (attachmentsList == null || attachmentsList.isDisposed()) {
+      return;
+    }
+    attachmentsList.removeAll();
+    for (Path file : attachedFiles) {
+      attachmentsList.add(attachmentLabel(file));
+    }
+    int rowHeight = Math.max(attachmentsList.getItemHeight(), 18);
+    ((GridData) attachmentsList.getLayoutData()).heightHint =
+        Math.min(attachedFiles.size(), 3) * rowHeight + 8;
+    boolean show = !attachedFiles.isEmpty();
+    boolean visibilityChanged = show != attachmentsList.isVisible();
+    Composite row = attachmentsList.getParent();
+    attachmentsList.setVisible(show);
+    ((GridData) row.getLayoutData()).exclude = !show;
+    row.setVisible(show);
+    if (show || visibilityChanged) {
+      row.getParent().layout(true);
+    }
+  }
+
+  /** One attachment chip: the file name plus its coarse display kind ({@code a.png (image)}). */
+  private static String attachmentLabel(Path file) {
+    String name = file.getFileName() != null ? file.getFileName().toString() : file.toString();
+    return name + " (" + ChatSessionController.attachmentKind(name) + ")";
   }
 
   @Override

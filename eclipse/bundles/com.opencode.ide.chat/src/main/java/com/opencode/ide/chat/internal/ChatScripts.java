@@ -27,6 +27,21 @@ public final class ChatScripts {
     return call("__appendUser", Map.of("text", nullToEmpty(text)));
   }
 
+  /**
+   * {@code window.__appendUser("{...}")} with the prompt's attachments (chat parity CP-01): the
+   * page renders each {@code {name, kind}} as a compact row above the prompt text inside the user
+   * bubble. Without attachments this is exactly the text-only call.
+   */
+  public static String appendUser(String text, List<ChatSessionController.AttachmentView> files) {
+    if (files == null || files.isEmpty()) {
+      return appendUser(text);
+    }
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("text", nullToEmpty(text));
+    payload.put("files", files);
+    return call("__appendUser", payload);
+  }
+
   /** {@code window.__startAssistant("{...}")} - creates the reply bubble if absent. */
   public static String startAssistant(String messageId) {
     return call("__startAssistant", Map.of("mid", nullToEmpty(messageId)));

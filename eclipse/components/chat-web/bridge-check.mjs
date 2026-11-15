@@ -314,6 +314,34 @@ const r2 = exec('window.__appendUser({"text":"object form"})');
 check("__appendUser(object) is tolerated", r2 === true && textOf(chatEl).includes("object form"));
 check("__appendUser(object) reported a render", reports.length > before);
 
+// prompt attachments (chat parity CP-01): the sent prompt's files/images render
+// as compact name/type rows inside the user bubble, ABOVE the prompt text
+exec("window.__appendUser(" + JSON.stringify(JSON.stringify({
+  text: "see attached",
+  files: [
+    { name: "a.png", kind: "image" },
+    { name: "notes.txt", kind: "file" },
+    { name: "<script>alert(1)</script>.png", kind: "image" }
+  ]
+})) + ")");
+const attNode = chatEl.querySelectorAll(".msg.user").pop();
+check("__appendUser renders attachment rows", !!attNode
+  && attNode.querySelectorAll(".att-line").length === 3
+  && textOf(attNode).includes("a.png (image)")
+  && textOf(attNode).includes("notes.txt (file)"),
+  attNode ? "rows=" + attNode.querySelectorAll(".att-line").length : "no node");
+check("attachment rows sit above the prompt text", !!attNode && (() => {
+  const kids = attNode.querySelector(".bubble").children;
+  // kids[0] is the wrapper; the markdown body (P, then markdown-it's trailing
+  // text node) follows
+  return !!kids[0] && kids[0].classList.contains("att-list")
+    && kids[0].querySelectorAll(".att-line").length === 3
+    && kids.some(c => c.tagName === "P");
+})());
+check("a hostile attachment name cannot inject markup",
+  !!attNode && attNode.querySelectorAll("script").length === 0
+    && textOf(attNode).includes("<script>alert(1)</script>.png (image)"));
+
 // streaming: PROGRESSIVE markdown (throttled ~5 renders/s). The first chunk of
 // a burst paints immediately (leading edge); chunks inside the throttle window
 // coalesce into one trailing render - __flushStream drives that pending tick

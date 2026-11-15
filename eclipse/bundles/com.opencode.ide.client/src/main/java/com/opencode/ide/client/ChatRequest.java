@@ -1,5 +1,7 @@
 package com.opencode.ide.client;
 
+import java.util.List;
+
 /**
  * One {@code POST /session/:id/message} request.
  *
@@ -16,6 +18,8 @@ package com.opencode.ide.client;
  *     {@link com.opencode.ide.client.model.Model#variantNames()}
  * @param system per-request system prompt, or {@code null}
  * @param text the user prompt (markdown allowed)
+ * @param files files/images sent with the prompt (chat parity CP-01: the v2 prompt body's {@code
+ *     files} field, one {@code {uri, name}} per attachment); empty for a plain-text prompt
  */
 public record ChatRequest(
     String sessionId,
@@ -24,7 +28,25 @@ public record ChatRequest(
     String modelId,
     String variant,
     String system,
-    String text) {
+    String text,
+    List<ChatAttachment> files) {
+
+  /** The historical no-attachment shape ({@code files} empty); kept for existing callers. */
+  public ChatRequest(
+      String sessionId,
+      String agent,
+      String providerId,
+      String modelId,
+      String variant,
+      String system,
+      String text) {
+    this(sessionId, agent, providerId, modelId, variant, system, text, List.of());
+  }
+
+  /** Compact constructor: {@code null} files become empty (nothing attached). */
+  public ChatRequest {
+    files = files == null ? List.of() : List.copyOf(files);
+  }
 
   /** A minimal request: session + prompt, everything else server-default. */
   public static ChatRequest of(String sessionId, String text) {
@@ -32,19 +54,25 @@ public record ChatRequest(
   }
 
   public ChatRequest withAgent(String newAgent) {
-    return new ChatRequest(sessionId, newAgent, providerId, modelId, variant, system, text);
+    return new ChatRequest(sessionId, newAgent, providerId, modelId, variant, system, text, files);
   }
 
   public ChatRequest withModel(String newProviderId, String newModelId) {
-    return new ChatRequest(sessionId, agent, newProviderId, newModelId, variant, system, text);
+    return new ChatRequest(
+        sessionId, agent, newProviderId, newModelId, variant, system, text, files);
   }
 
   public ChatRequest withVariant(String newVariant) {
-    return new ChatRequest(sessionId, agent, providerId, modelId, newVariant, system, text);
+    return new ChatRequest(sessionId, agent, providerId, modelId, newVariant, system, text, files);
   }
 
   public ChatRequest withSystem(String newSystem) {
-    return new ChatRequest(sessionId, agent, providerId, modelId, variant, newSystem, text);
+    return new ChatRequest(sessionId, agent, providerId, modelId, variant, newSystem, text, files);
+  }
+
+  /** Attachments for this prompt (chat parity CP-01); {@code null} or empty = plain text. */
+  public ChatRequest withFiles(List<ChatAttachment> newFiles) {
+    return new ChatRequest(sessionId, agent, providerId, modelId, variant, system, text, newFiles);
   }
 
   /**
