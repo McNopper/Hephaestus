@@ -1,5 +1,8 @@
 package com.opencode.ide.tools;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -72,7 +75,14 @@ public final class StdioServer {
     reader.start();
     try {
       while (true) {
-        if (!parentAlive.getAsBoolean()) {
+        boolean alive;
+        try {
+          alive = parentAlive.getAsBoolean();
+        } catch (RuntimeException livenessFailed) {
+          // a liveness probe failure is not a death sentence (B-0xx: keep serving)
+          alive = true;
+        }
+        if (!alive) {
           return EXIT_ORPHANED;
         }
         Object next;
@@ -95,7 +105,16 @@ public final class StdioServer {
         if (line.isBlank()) {
           continue;
         }
-        String response = dispatcher.handle(line);
+        String response;
+        try {
+          response = dispatcher.handle(line);
+        } catch (Throwable t) {
+          // B-0xx: a Throwable escaping a handler (an Error after a jar swap mid-flight,
+          // store contention turning into an Error, memory pressure) must NEVER kill the
+          // server - the McpDispatcher already converts RuntimeExceptions, this is the
+          // last-resort net: answer -32603 and keep the loop alive.
+          response = errorResponse(line, t);
+        }
         if (response != null) {
           out.println(response);
           out.flush();
@@ -108,6 +127,30 @@ public final class StdioServer {
       }
     } finally {
       reader.interrupt();
+    }
+  }
+
+  /**
+   * Best-effort JSON-RPC error response for a request whose handler threw a {@link Throwable};
+   * {@code null} when the request is a notification (nothing to answer) or unparseable.
+   */
+  private static String errorResponse(String line, Throwable t) {
+    try {
+      JsonObject req = JsonParser.parseString(line).getAsJsonObject();
+      JsonElement id = req.get("id");
+      if (id == null || id.isJsonNull()) {
+        return null;
+      }
+      JsonObject err = new JsonObject();
+      err.addProperty("jsonrpc", "2.0");
+      err.add("id", id);
+      JsonObject error = new JsonObject();
+      error.addProperty("code", -32603);
+      error.addProperty("message", "internal error: " + t);
+      err.add("error", error);
+      return err.toString();
+    } catch (RuntimeException parseFailure) {
+      return null;
     }
   }
 

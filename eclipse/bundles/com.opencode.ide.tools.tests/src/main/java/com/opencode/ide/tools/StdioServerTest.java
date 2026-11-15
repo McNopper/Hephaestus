@@ -1,5 +1,6 @@
 package com.opencode.ide.tools;
 
+import com.google.gson.JsonObject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -45,6 +46,52 @@ public class StdioServerTest {
   }
 
   private static final String PING = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}";
+
+  /** A tool provider whose invocation throws an {@link Error} - the B-0xx crash class. */
+  private static final class ThrowingProvider implements ToolProvider {
+    @Override
+    public String language() {
+      return "poison";
+    }
+
+    @Override
+    public java.util.List<McpTool> tools() {
+      return java.util.List.of(
+          new McpTool("poison", "a tool whose invocation throws an Error", schemaForPoison()));
+    }
+
+    @Override
+    public McpToolResult call(String toolName, JsonObject arguments) {
+      throw new AssertionError("simulated Error escaping a handler (store contention class)");
+    }
+
+    private JsonObject schemaForPoison() {
+      JsonObject obj = new JsonObject();
+      obj.addProperty("type", "object");
+      return obj;
+    }
+  }
+
+  @Test
+  public void aThrowingHandlerDoesNotKillTheLoop() {
+    ByteArrayOutputStream captured = new ByteArrayOutputStream();
+    int code =
+        StdioServer.serve(
+            reader(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"poison\",\"arguments\":{}}}",
+                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}"),
+            new PrintStream(captured, true, StandardCharsets.UTF_8),
+            new McpDispatcher(new ThrowingProvider()),
+            () -> true);
+
+    assertEquals("the loop survives the Error from the handler", StdioServer.EXIT_OK, code);
+    String out = captured.toString(StandardCharsets.UTF_8);
+    assertTrue(
+        "the poison request is answered with an internal error: " + out,
+        out.contains("\"id\":1") && out.contains("-32603"));
+    assertTrue(
+        "the loop keeps serving: the next request is answered: " + out, out.contains("\"id\":2"));
+  }
 
   @Test
   public void cleanEofExitsOkAndAnswersRequests() {

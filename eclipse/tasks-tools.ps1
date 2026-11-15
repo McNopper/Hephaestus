@@ -137,7 +137,7 @@ $cp = (Publish-ToolClasspath @($tasksJar.FullName, $toolsJar.FullName, $gsonJar.
 # stderr of the JVM goes to a capture file: MCP protocol runs on stdout, so this
 # cannot disturb the wire; it gives us the dying words when the process exits 1
 # (both ticker-v passes died post-scan with stderr uncaptured - B-027 follow-up).
-$mcpErr = Join-Path $env:TEMP "opencode\tasks-mcp.err"
+$mcpErr = Join-Path $env:TEMP "opencode\tasks-mcp-$PID.err"
 "--- spawn $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') root=$Root ---" | Out-File -FilePath $mcpErr -Append -Encoding utf8
 & $java -cp $cp "-Dfile.encoding=UTF-8" com.opencode.ide.tasks.TasksStdioMain --root $Root 2>> $mcpErr
 # Propagate the JVM's exit code: opencode must see a crashed MCP server as a failure.

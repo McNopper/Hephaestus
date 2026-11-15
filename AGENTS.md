@@ -297,6 +297,18 @@ work: read the store (`tasks_task_get`, `task_readiness`); do not address worker
 sessions directly. This store-mediated coordination is exactly what lets one user run
 several agents in parallel on a project without anyone blocking anyone.
 
+**Intake discipline (owner requirement 2026-11-14, ticket T-036):** what the owner
+types is a **requirement or a bug** — it enters the harness as a registered ticket
+(store -> tickers -> workers -> engine verdicts), never as direct implementation in
+chat. The chat agent **registers** (tickets with distilled acceptance criteria),
+**governs** (records, epics, escalation) and **verifies** (evidence from the store);
+**workers implement** — direct implementation by the chat agent is a **process
+violation**. Build belongs to the machine; the rule binds the machine and its agents,
+not the PO (the owner can override). Enforcement is **by role** where possible: the
+`product-owner` agent (`.opencode/agent/product-owner.md`) denies
+write/edit/patch/bash and owns registration (evaluation:
+`docs/intake-agent-evaluation.md`).
+
 Concretely, the chat agent — the PO's **kickoff assistant** — can:
 
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
