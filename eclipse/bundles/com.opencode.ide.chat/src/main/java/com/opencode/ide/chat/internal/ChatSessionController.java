@@ -654,8 +654,7 @@ public final class ChatSessionController {
         // chat parity CP-02: shell runs stay in the transcript on resume - the
         // page renders them as their own strip ($ command, output tail, status)
         row.put("role", "shell");
-        row.put(
-            "id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
+        row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
         row.put("command", entry.command() == null ? "" : entry.command());
         row.put("output", entry.shellOutput() == null ? "" : entry.shellOutput());
         // the deserializer carries the shell lifecycle (running/exited/...) in

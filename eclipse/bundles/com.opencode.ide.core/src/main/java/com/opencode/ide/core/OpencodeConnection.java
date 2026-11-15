@@ -453,8 +453,10 @@ public final class OpencodeConnection {
 
   /**
    * O-001 repo-marker predicate: the one shared definition of "this directory is an opencode repo"
-   * ({@code .opencode} dir or {@code opencode.json}). Every climb - server spawn AND the board's
-   * store adoption - must agree on the marker set or the two drift apart.
+   * ({@code .opencode} dir, {@code opencode.json}, or the harness store dir {@code .harness} —
+   * T-052: the task store relocated to {@code .harness/tasks}, so a repo carrying it is a harness
+   * repo). Every climb - server spawn AND the board's store adoption - must agree on the marker set
+   * or the two drift apart.
    */
   public static boolean isRepoMarker(Path dir) {
     // The user home is never a repo root (2026-09-25, see repoRootOf):
@@ -463,7 +465,8 @@ public final class OpencodeConnection {
     return dir != null
         && !isAtOrAboveUserHome(dir)
         && (Files.isDirectory(dir.resolve(".opencode"))
-            || Files.isRegularFile(dir.resolve("opencode.json")));
+            || Files.isRegularFile(dir.resolve("opencode.json"))
+            || Files.isDirectory(dir.resolve(".harness")));
   }
 
   /**

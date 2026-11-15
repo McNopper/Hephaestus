@@ -43,12 +43,12 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
       variant = string(model, "variant");
     }
 
-    String type = string(msg, "type");
+    String role = string(msg, "type");
     ChatMessageInfo info =
         new ChatMessageInfo(
             string(msg, "id"),
             string(msg, "sessionID"),
-            type,
+            role,
             new Session.Time(created, completed > 0 ? completed : created, 0),
             string(msg, "agent"),
             string(msg, "mode"),
@@ -58,7 +58,7 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
                 ? string(msg, "finish")
                 : string(msg, "outcome") != null
                     ? string(msg, "outcome")
-                    : ("shell".equals(type) ? string(msg, "status") : null),
+                    : ("shell".equals(role) ? string(msg, "status") : null),
             msg.has("cost") && msg.get("cost").isJsonPrimitive()
                 ? msg.get("cost").getAsDouble()
                 : null,
@@ -71,7 +71,7 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
 
     // shell runs carry their command and captured output tail on the message
     // (chat parity CP-02) - the transcript renders the run as its own strip
-    boolean shell = "shell".equals(type);
+    boolean shell = "shell".equals(role);
     String shellCommand = shell ? string(msg, "command") : null;
     String shellOutput = null;
     if (shell && msg.has("output") && msg.get("output").isJsonObject()) {

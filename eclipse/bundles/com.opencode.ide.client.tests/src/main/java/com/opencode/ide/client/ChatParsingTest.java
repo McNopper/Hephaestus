@@ -128,6 +128,29 @@ public class ChatParsingTest {
     assertEquals("", entry.text());
   }
 
+  /**
+   * v2's {@code Session.Message.Shell} (probed against the live openapi.json, 2026-11-15 - chat
+   * parity CP-02): the command and its captured output ride on the message, the lifecycle status
+   * maps into the finish slot; conversational entries keep the shell fields null.
+   */
+  @Test
+  public void shellRunsCarryCommandStatusAndOutput() {
+    ChatEntry entry =
+        GSON.fromJson(
+            "{\"id\":\"msg_sh1\",\"time\":{\"created\":1,\"completed\":2},\"type\":\"shell\","
+                + "\"shellID\":\"sh_abc\",\"command\":\"git status\",\"status\":\"exited\","
+                + "\"output\":{\"output\":\"On branch main\\nclean\",\"cursor\":18,\"size\":18,"
+                + "\"truncated\":false}}",
+            ChatEntry.class);
+    assertTrue(entry.isShell());
+    assertFalse(entry.isUser());
+    assertEquals("git status", entry.command());
+    assertEquals("On branch main\nclean", entry.shellOutput());
+    assertEquals("exited", entry.info().finish());
+    assertNull(history().get(0).command());
+    assertNull(history().get(0).shellOutput());
+  }
+
   @Test
   public void nullContentIsTolerated() {
     ChatEntry entry =

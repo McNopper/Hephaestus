@@ -15,7 +15,9 @@ public record ChatEntry(
     parts = (parts == null) ? List.of() : List.copyOf(parts);
   }
 
-  /** The historical two-field shape ({@code command}/{@code shellOutput} null); kept for callers. */
+  /**
+   * The historical two-field shape ({@code command}/{@code shellOutput} null); kept for callers.
+   */
   public ChatEntry(ChatMessageInfo info, List<ChatPart> parts) {
     this(info, parts, null, null);
   }

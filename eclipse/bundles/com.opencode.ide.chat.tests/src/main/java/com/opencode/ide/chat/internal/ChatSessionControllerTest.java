@@ -224,7 +224,7 @@ public class ChatSessionControllerTest {
     connection.client.shellFailure = new OpencodeException("no shell message appeared");
     controller.runInlineShell("sleep 500");
 
-    assertEquals(List.of("sleep 500||failed: no shell message appeared"), renderer.shells);
+    assertEquals(List.of("sleep 500|null|failed: no shell message appeared"), renderer.shells);
     assertTrue(connection.client.shellCalls.contains("ses_1:sleep 500"));
   }
 
@@ -2644,8 +2644,10 @@ public class ChatSessionControllerTest {
     final List<List<ChatSessionController.InboxEntry>> inboxes = new ArrayList<>();
     final List<List<ChatSessionController.FormCard>> forms = new ArrayList<>();
     final List<Boolean> reasoningVisibilities = new ArrayList<>();
+
     /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
     final List<String> shells = new ArrayList<>();
+
     int clears;
 
     @Override

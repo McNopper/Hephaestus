@@ -1668,18 +1668,21 @@ public final class TaskStore {
    * not know its repo: it is by convention rooted at {@code <repo>/.harness/tasks} (the stdio
    * launcher's default and the Eclipse preference's derived root both use exactly that), so the
    * repo root is two levels up the store root's parents - but only when the immediate parent really
-   * is a directory named {@code .opencode}. Any other layout (a temp fixture, a custom root) means
-   * the repo root is unknown, and every repo-root-dependent check (task_doctor's artifact
-   * resolution) must skip rather than resolve refs against an accidental parent directory.
+   * is a directory named {@code .harness}. The legacy layout {@code <repo>/.opencode/tasks} is
+   * honored too (stores predating the T-052 relocation). Any other layout (a temp fixture, a custom
+   * root) means the repo root is unknown, and every repo-root-dependent check (task_doctor's
+   * artifact resolution) must skip rather than resolve refs against an accidental parent directory.
    */
   private Path repoRootOrNull() {
-    Path opencode = root.toAbsolutePath().normalize().getParent();
-    if (opencode == null
-        || opencode.getFileName() == null
-        || !".opencode".equals(opencode.getFileName().toString())) {
+    Path parent = root.toAbsolutePath().normalize().getParent();
+    if (parent == null || parent.getFileName() == null) {
       return null;
     }
-    Path repo = opencode.getParent();
+    String name = parent.getFileName().toString();
+    if (!".harness".equals(name) && !".opencode".equals(name)) {
+      return null;
+    }
+    Path repo = parent.getParent();
     return repo != null && Files.isDirectory(repo) ? repo : null;
   }
 
