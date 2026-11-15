@@ -221,7 +221,7 @@ and the store API.
 | F-36 | `docs/opencode-v2-adoption.md:104` | consumer "the fleet watchdog long-polls it (`TaskFleet.java:1175` -> `FleetRunner.java:312` …)" for `waitForSession` | both deleted — `waitForSession` now has zero production consumers (`OpencodeClient.java:393-395`, `HttpOpencodeClient.java:1660`) |
 | F-37 | `docs/opencode-v2-adoption.md:131` | consumer "the fleet's raw worktree writes" for `worktree.create` | fleet deleted |
 | F-38 | `docs/opencode-v2-adoption.md:230` | "`fleet` MCP endpoints.** They are the current access layer to the store" | fleet stdio endpoint deleted; only `tasks` remains |
-| F-39 | `eclipse/bundles/com.opencode.ide.tasks/src/main/java/com/opencode/ide/tasks/TaskStore.java:845` | `public Task prepareAutoDispatch(...)` — fleet-era auto-dispatch reservation | **no live caller**: zero task_* tools expose it (`TaskToolProvider` has no auto-dispatch verb), the Board pump that called it was removed; only callers are TaskStore-internal and one test suite (`tasks.tests` Auto*Test) |
+| F-39 | `eclipse/bundles/com.opencode.ide.tasks/src/main/java/com/opencode/ide/tasks/TaskStore.java:845` | `public Task prepareAutoDispatch(...)` — fleet-era auto-dispatch reservation | \*\*no live caller\*\*: zero task_\* tools expose it (`TaskToolProvider` has no auto-dispatch verb), the Board pump that called it was removed; only callers are TaskStore-internal and one test suite (`tasks.tests` Auto\*Test) |
 
 **Code-level verdict (AC-2):** zero stale UI references inside the plugin sources'
 UI surfaces (plugin.xml, views, handlers, actions). All findings are docs (F-01..F-24,
