@@ -170,11 +170,19 @@ right.**
 - **Chunk small** (AGENTS.md): one ticket = one independently verifiable
   change; the store, not this file, is the status source once work runs on
   the board.
-- **A successful wave cuts a version** (owner requirement, 2026-11-14):
-  when a wave completes — all its tickets done with engine verdicts — cut a
-  version via `eclipse/releng/release.ps1` (tag per D-002, bump to the next
-  `-SNAPSHOT`). The wave, not the calendar, is the release cadence. Ticker
-  micro-records (the per-stage rolling records) are not waves in this
-  sense; substantive planned waves are.
+- **A human review unlocks a release; otherwise commit and push** (owner
+  requirement, 2026-11-15, refining the 2026-11-14 wave-version rule):
+  when a wave completes — all its tickets done with engine verdicts — its
+  result is committed and pushed. The version is cut only when the wave's
+  work carries a human review: cut it via `eclipse/releng/release.ps1`
+  (tag per D-002, bump to the next `-SNAPSHOT`). Waves that complete
+  without a human review end at commit + push — no version, no tag; the
+  release stays pending until a review unlocks it. The wave, not the
+  calendar, is the release cadence — and the human review, not the wave
+  alone, is the release trigger. The recurring live-in-Eclipse acceptance
+  hardens the work without gating it (T-039): engine verdicts are
+  necessary for a release, never sufficient. Ticker micro-records (the
+  per-stage rolling records) are not waves in this sense; substantive
+  planned waves are.
 - **History discipline:** past events are recorded only in
   `docs/HISTORY.md` — this file carries open work only.

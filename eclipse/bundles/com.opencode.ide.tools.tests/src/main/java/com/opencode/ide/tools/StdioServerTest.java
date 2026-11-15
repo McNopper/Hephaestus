@@ -1,9 +1,9 @@
 package com.opencode.ide.tools;
 
-import com.google.gson.JsonObject;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.google.gson.JsonObject;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

@@ -87,6 +87,13 @@ distinguishable from inflation, and a definition with no signal still reports
 as an orphan (the `project-manager-audit-traceability` skill drives the
 manual artifact-level audit). A definition
 stage without its linked verification counterpart is incomplete work.
+Live-in-Eclipse verification (console checks, UI passes, panel round trips)
+is ACCEPTANCE verification (owner requirement 2026-11-15, ticket T-039): it
+pairs to requirements via the `test-requirements` leg - the last stage of
+the V - and belongs there, not in ad-hoc blocked/in-review states or manual
+follow-up notes; the stage-pipeline skill's division map carries the
+recurrence (a fresh, NON-BLOCKING test-requirements acceptance ticket per
+successful wave/release).
 
 **How work moves (the reporting lines):** the flow is either **along the
 V** or **horizontal for validation** - nothing moves any other way. When a
