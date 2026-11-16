@@ -68,6 +68,26 @@ public final class SessionDetailsController {
   }
 
   /**
+   * The most recently ACTIVE session id ({@code time.updated} max), {@code null} for an empty or
+   * unusable list — the pure selection behind Session Details' standalone-open fallback (T-140),
+   * unit-tested here without SWT.
+   */
+  public static String mostRecentlyActiveSessionId(List<Session> sessions) {
+    String best = null;
+    long bestUpdated = -1L;
+    for (Session s : sessions) {
+      if (s == null || s.id() == null || s.time() == null) {
+        continue;
+      }
+      if (s.time().updated() > bestUpdated) {
+        bestUpdated = s.time().updated();
+        best = s.id();
+      }
+    }
+    return best;
+  }
+
+  /**
    * @return the snapshot for this session; on any failure a snapshot with an {@code errorNote}
    *     (never {@code null}, never throws).
    */

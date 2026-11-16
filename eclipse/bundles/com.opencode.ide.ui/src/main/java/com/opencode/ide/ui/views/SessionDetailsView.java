@@ -4,6 +4,7 @@ import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.OpencodeEvent;
+import com.opencode.ide.client.model.Session;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.core.context.SessionViewIds;
 import com.opencode.ide.ui.console.ShellTasksConsole;
@@ -226,6 +227,12 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     hookContextMenu();
     contributeActions();
     if (sessionId == null) {
+      // T-140: standalone opens (Show View, perspective restore) carry no session id.
+      // Default to the most recently active session instead of dead-shelving every
+      // action; only when there is no session at all does the pointer notice show.
+      sessionId = mostRecentlyActiveSessionId();
+    }
+    if (sessionId == null) {
       headerLabel.setText("No session selected — open this view via the Server view.");
       setContentDescription("Open via the Server view");
       setLifecycleActionsEnabled(false); // nothing to act on
@@ -234,6 +241,27 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
       registerEventListener();
       armAutoRefresh(input.autoRefresh());
       refresh();
+    }
+  }
+
+  /**
+   * The standalone-open fallback (T-140): the most recently ACTIVE session id — scoped to the
+   * connection's resolved working directory (the Server view's scope), unscoped as a secondary
+   * attempt; {@code null} when no session exists or the list cannot be read (lenient: the
+   * dead-shell notice below then explains the state instead of an error dialog).
+   */
+  private String mostRecentlyActiveSessionId() {
+    try {
+      OpencodeClient client = OpencodeConnection.getInstance().getClient();
+      String dir = OpencodeConnection.getInstance().getWorkingDirectory();
+      List<Session> sessions =
+          (dir == null || dir.isBlank()) ? client.getSessions() : client.getSessions(dir);
+      if (sessions.isEmpty()) {
+        sessions = client.getSessions();
+      }
+      return SessionDetailsController.mostRecentlyActiveSessionId(sessions);
+    } catch (OpencodeException | RuntimeException e) {
+      return null;
     }
   }
 

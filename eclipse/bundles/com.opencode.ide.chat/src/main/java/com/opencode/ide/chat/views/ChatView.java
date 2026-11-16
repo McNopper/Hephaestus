@@ -635,6 +635,7 @@ public class ChatView extends ViewPart {
     GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
     inputData.heightHint = 52;
     input.setLayoutData(inputData);
+    showCurrentGoal();
     input.addModifyListener(
         e -> {
           pickerDismissed = false;
@@ -1357,6 +1358,26 @@ public class ChatView extends ViewPart {
     input.setSelection(Math.min(input.getText().length(), start + path.length() + 2));
     input.setFocus();
     hideFileCompletions();
+  }
+
+  /**
+   * T-141: the goal line - the newest active sprint's goal (the store's {@code _meta.json}, the
+   * Board's authoritative source) mirrored onto the empty input's placeholder, visible exactly
+   * while composing. Lenient on every failure (no store, no project, malformed JSON): the view
+   * simply opens without a placeholder.
+   */
+  private void showCurrentGoal() {
+    try {
+      String project = new com.opencode.ide.core.OpencodePreferences().getTasksProject();
+      String goal =
+          com.opencode.ide.chat.internal.CurrentGoal.activeSprintGoal(
+              com.opencode.ide.core.TasksRootResolution.resolveForWorkspace(null), project);
+      if (goal != null) {
+        input.setMessage("Goal: " + goal);
+      }
+    } catch (RuntimeException e) {
+      ChatLog.info("goal line unavailable: " + e.getMessage());
+    }
   }
 
   // ---------- sending / pending queue ----------

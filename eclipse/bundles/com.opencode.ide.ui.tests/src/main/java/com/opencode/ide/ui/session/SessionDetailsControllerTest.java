@@ -18,6 +18,7 @@ import com.opencode.ide.ui.session.SessionDetailsController.MessageRow;
 import com.opencode.ide.ui.session.SessionDetailsController.SessionDetails;
 import com.opencode.ide.ui.session.SessionDetailsController.TokenTotals;
 import com.opencode.ide.ui.session.SessionDetailsController.ToolLine;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 
@@ -78,6 +79,49 @@ public class SessionDetailsControllerTest {
   }
 
   // ---------- mapping ----------
+
+  /** T-140: the standalone-open fallback picks the most recently updated usable session. */
+  @Test
+  public void mostRecentlyActiveSessionIdPicksTheNewestUpdated() {
+    assertNull(SessionDetailsController.mostRecentlyActiveSessionId(List.of()));
+    assertNull(
+        SessionDetailsController.mostRecentlyActiveSessionId(Collections.singletonList(null)));
+    Session older =
+        new Session(
+            "ses_a",
+            null,
+            "A",
+            null,
+            null,
+            null,
+            new Session.Time(1, 50, 0),
+            null,
+            null,
+            null,
+            null);
+    Session newer =
+        new Session(
+            "ses_b",
+            null,
+            "B",
+            null,
+            null,
+            null,
+            new Session.Time(2, 900, 0),
+            null,
+            null,
+            null,
+            null);
+    Session noTime =
+        new Session("ses_c", null, "C", null, null, null, null, null, null, null, null);
+    assertEquals(
+        "ses_b",
+        SessionDetailsController.mostRecentlyActiveSessionId(List.of(older, noTime, newer)));
+    assertEquals(
+        "unusable entries are skipped",
+        "ses_a",
+        SessionDetailsController.mostRecentlyActiveSessionId(List.of(noTime, older)));
+  }
 
   @Test
   public void userAndAssistantMessagesAreMappedInOrder() {
