@@ -390,10 +390,10 @@ structure outside T-115's ACs and this ticket's description.
   document.
 - **Evidence (decided 2026-11-16):** §9 verbatim OPEN with the decision
   request restated; the contribution (every contract treats the seat name
-  as a **value** — DR-3's dispatch key — so either owner decision is data
-  + docs, no contract signature changes) matches [ARCH AD-003]; the §8
-  row reads "OPEN, unchanged"; no section names a chosen name as decided.
-  **PASS.**
+  as a **value** — DR-3's dispatch key — so either owner decision is just
+  data plus docs, no contract signature changes) matches [ARCH AD-003];
+  the §8 row reads "OPEN, unchanged"; no section names a chosen name as
+  decided. **PASS.**
 
 ### CT-010 · Artifact-before-review store discipline on T-115; done never self-assessed (T-115 AC-3)
 
