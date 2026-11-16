@@ -47,4 +47,28 @@ public class CdtBundleBasicsTest {
         "CdtProjectContext must implement the core seam",
         ProjectContext.class.isAssignableFrom(component));
   }
+
+  /**
+   * T-146: the component must stay DELAYED. The implementation class-loads {@code
+   * org.eclipse.cdt.core.model.*}, so {@code immediate} would lazy-start {@code
+   * org.eclipse.cdt.core} at framework start - before IDEApplication sets the instance area - and
+   * every launch would log {@code IllegalStateException: The instance data location has not been
+   * specified yet} from {@code CCorePlugin.start()}. Delayed activation waits for core's lazy
+   * ProjectContext tracker (first {@code getService}), long after the instance area exists.
+   */
+  @Test
+  public void projectContextComponentIsDelayedSoCdtNeverStartsBeforeTheInstanceArea()
+      throws Exception {
+    try (java.io.InputStream in =
+        getClass().getResourceAsStream("/OSGI-INF/CdtProjectContext.xml")) {
+      assertNotNull("component descriptor must be on the bundle classpath", in);
+      String xml = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+      assertTrue(
+          "descriptor still declares the component",
+          xml.contains("com.opencode.ide.cdt.internal.CdtProjectContext"));
+      assertTrue(
+          "the component must NOT be immediate (T-146): " + xml,
+          !xml.contains("immediate=\"true\""));
+    }
+  }
 }

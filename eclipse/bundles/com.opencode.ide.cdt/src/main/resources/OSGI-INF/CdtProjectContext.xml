@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0"
-               name="com.opencode.ide.cdt.internal.CdtProjectContext"
-               immediate="true">
+               name="com.opencode.ide.cdt.internal.CdtProjectContext">
+  <!-- DELAYED on purpose (T-146): the implementation class-loads org.eclipse.cdt.core.model.*,
+       so an immediate component would lazy-start org.eclipse.cdt.core at FRAMEWORK start, before
+       IDEApplication sets the instance area - CCorePlugin.start() then dies with
+       "The instance data location has not been specified yet" on every launch. Delayed keeps the
+       service registration eager while activation waits for the first getService (core's lazy
+       ProjectContext tracker), long after the instance area exists. -->
   <service>
     <provide interface="com.opencode.ide.core.context.ProjectContext"/>
   </service>
