@@ -172,7 +172,7 @@ public class ChatParsingTest {
             """
             {"id":"msg_01COMPACT","time":{"created":1794832813851},"type":"compaction",
              "status":"completed","reason":"manual",
-             "model":{"id":"mimo-v2.6-flash","providerID":"xiaomi-token-plan-ams","variant":"default"},
+             "model":{"id":"llm-1","providerID":"opencode-go","variant":"default"},
              "summary":"## Objective\\n- Current goal: make the Eclipse harness behave like the original opencode TUI …",
              "cost":0.0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}
             """,
