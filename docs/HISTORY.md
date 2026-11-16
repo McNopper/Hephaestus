@@ -594,3 +594,52 @@ and made the ticker enable/disable reliable:
   the workers implement); the lint-clean requirement moved into the
   fulfillment brief; the autonomy spectrum and the release-cadence ruleset
   documented (T-042/T-041).
+
+## H18 - v0.4.0 released - the TUI visible-surface arc - 2026-11-16
+
+Owner objective for the day: review what the opencode TUI/GUI shows the
+user, give Eclipse the same functionality and visibility (context window,
+current goal, …), and align the tabs/views with that functionality and
+wording. Delivered, live-accepted by the owner's clicks, and released the
+same day:
+
+- **T-148 (review):** `docs/tui-visible-surface-review.md` - every TUI
+  surface with source `file:line` citations, probed wire contracts, gaps
+  G1-G6; scope split confirmed (chat = the TUI surface; tabs/views = the
+  harness layer).
+- **T-149 (status strip):** context usage (`517.2K (49%)`), session cost
+  (`$9.96`) and the goal chip (`goal` / `goal paused` / `goal met`) pinned
+  above the chat input, with the goal dialog (objective/status/reason +
+  pause/resume/clear over the fire-and-forget `{name,text}` command - never
+  `runCommand`, which would poll 60 min for a reply that never comes); goal
+  synthetic messages render as the TUI's `◎` notice rows instead of
+  full-text assistant bubbles. Gates: ChatSessionControllerTest 144/144,
+  ContextUsageTest 9/9, T149 contract tests 6/6, chat-web checks green;
+  live: intercept `status strip rendered …` ×N, `goal dialog opened:
+  status=complete` (owner click), JS ERROR 0.
+- **T-151 (Context block):** Session Details shows the TUI's verbatim
+  `Context / 1,234 tokens / 57% used / $9.96 spent` under the header, over
+  the new shared `ContextUsage` seam (both surfaces derive from it and can
+  no longer drift); consumes the previously **unconsumed** `getSessionContext`
+  (live shape probed: `{data:[contextItems]}`); live intercept:
+  `context=833,393 tokens | 79% used | $9.96 spent`.
+- **Live defect caught by the owner's screen check:** the goal-notice retry
+  invoked the UI-thread-only `Display.timerExec` from a background job →
+  "Invalid thread access" error dialog; fixed at the owning layer -
+  `Host.schedulePoll` marshals through `asyncExec` with a disposed-display
+  guard (`84d9b99`), hardening the U-014 form poller's first arm too.
+- **Release:** D-002 via `eclipse/releng\release.ps1 -ReleaseVersion 0.4.0
+  -Push` — CI green locally first (lint / D-004 / `clean verify` / SCA,
+  plus the `-Pquality` release gate), annotated tag `v0.4.0`, `Prepare
+  0.4.1-SNAPSHOT`, push re-ran the full CI through the hook; deployed to
+  the local Eclipse (10 jars) and acceptance-clicked live (Eclipse kept
+  minimized, interception-only discipline).
+- **Docs/currency:** chat-web bridge table completed (T-147 + T-149 rows),
+  TESTING checklist rows, feature-matrix parity rows, emoji vocabulary
+  (◎/◈), adoption matrix (context row moved to consumed), T-150's §4b
+  wording-alignment table with the two-goal rule and the `Shell tasks`
+  wording decision.
+- **Registered next:** T-152 (usage-limits surface — live probe recorded:
+  `{workspace, budgets[{limit, spent, scope, per, coverage, resetsAt}]}`),
+  T-153 (model-combo detail), ROADMAP row for launched shells in the
+  server browser.
