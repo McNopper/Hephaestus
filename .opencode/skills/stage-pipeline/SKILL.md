@@ -14,10 +14,38 @@ tickets instead.
 ## The tick (ONE pass over the whole V - always the same)
 
 Run this loop exactly. Do not improvise steps or order. ONE schedule
-(`ticker-v`) walks the whole V: for each stage in canonical order —
+(`ticker-v`) walks the whole V - the whole-V pass is the standing shape
+(DS-003), not a per-stage sub-pass: for each stage in canonical order —
 requirements, system, architecture, design, implementation,
 test-implementation, test-design, test-architecture, test-system,
 test-requirements — run steps 1-4, then step 5 once.
+
+**Pass preamble - reconcile (S-2, DS-004):** before the stage loop,
+classify every claimed ticket over the spawn ledger (your own bookkeeping:
+one entry per spawn of this steward lifetime, `completed` set on the
+child's completion report) and the job list (W13) - lifetime-scoped
+classification, no time-based staleness bound:
+
+- **in flight** - assignee in the `ticker-v:<ticketId>` namespace AND the
+  ledger entry's job is live in the job list: skip; it counts toward the
+  cap.
+- **dead child** (ledger entry, job absent from the job list, no completion
+  report) or **orphaned** (assignee in the namespace, no ledger entry):
+  `task_release`, re-plan, re-claim under the cap. After a restart the
+  ledger is empty, so every machinery claim classifies as orphaned -
+  correct, because nothing survives the restart.
+- **foreign claim** (assignee outside the namespace): not the ticker's
+  property - untouched, never released.
+
+Two hard lines hold by construction: orphans are released on the first
+pass that observes them (never silently `in-progress` forever), and
+release happens only when no live child of any lifetime can still be
+executing (never double-spawn). Conservative fallback: job list
+unavailable → every ledger entry without a completion report counts as
+live - reconciliation may under-release, never double-spawn; stragglers
+resolve when the surface recovers. Re-check the liveness sweep at step 5.
+The preamble only releases claims; it never writes stage business state,
+and the stage loop's order below is untouched.
 
 Per stage:
 
@@ -38,7 +66,15 @@ Per stage:
    children, create the next-stage ticket(s) per your stage's division map —
    `task_create` with `stage` = the child stage, `epic` = the parent's epic
    (scope inherits), `basis` = the done ticket's id (the derivation edge), and
-   carry the artifact references into the description. Pairing: also create
+   carry the artifact references into the description. Quota (DS-003): the
+   pass divides up to **10 basis tickets** - the division-burst quota, a
+   procedure constant, deliberately NOT an arm-time parameter. It counts
+   basis tickets divided, never child tickets created, and one basis
+   ticket's division is atomic: all its children + the paired `test-*` in
+   one step. Quota exhausted → the remaining done tickets stay
+   done-without-children and are re-discovered next pass (a burst after a
+   wave landing drains over several ticks - the pipeline's normal async
+   behavior). Pairing: also create
    the paired `test-*` ticket linked to the same basis when the child is a
    definition stage. Live-in-Eclipse rule (owner requirement 2026-11-15,
    T-039): a definition ticket whose acceptance criteria include
@@ -56,8 +92,16 @@ Per stage:
    rolling `ticker-v` sprint record in the same tick, then claim under the
    spawn cap (`task_claim`), then spawn ONE
    background subagent per claimed ticket with the fulfillment brief
-   (below). Never spawn two subagents whose file lanes overlap; when lanes
-   overlap, serialize within the stage. **A landed markdown doc must be
+   (below). Claims are machinery claims: the assignee is
+   `ticker-v:<ticketId>` - the ticker's reserved claim namespace (DS-001);
+   peer sessions claim under their own identities and never into it.
+   Count before every spawn: ledger entries whose child job is live in the
+   job list, counting BOTH workers and reviewers; a child stops counting
+   on its completion report. Record every spawn in the ledger and mark the
+   entry `completed` on the child's completion report; spawn failure after
+   a successful claim → release the claim immediately. Never spawn two
+   subagents whose file lanes overlap; when lanes overlap, serialize within
+   the stage. **A landed markdown doc must be
    lint-clean** (`releng/lint.ps1` over the touched files — CI's markdown
    gate runs on every push and a lint-broken doc turns CI red).
 6. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
@@ -99,7 +143,9 @@ product define done.
 - **Claims are targeted, not role-based.** A blind role-claim grabs the next
   sprint-backlog ticket of the role — which can cross into ANOTHER sprint's
   backlog. Pre-check the candidate's assignee/status, then claim with a
-  targeted `task_update` (status + assignee in one move).
+  targeted `task_update` (status + assignee in one move), the assignee
+  `ticker-v:<ticketId>` (the machinery claim namespace the preamble's
+  classification keys on).
 - **Division-with-rationale for legacy done tickets:** a done ticket whose
   derivation already exists in substance (delivered under the old model,
   `basis: null`) gets division recorded SATISFIED with a comment on the
@@ -124,11 +170,22 @@ product define done.
   jars (B-027 fix).
 - **Pause/resume semantics (owner directive, days-run):** shutting the PC
   down pauses the pipeline - schedules are bound to sessions on the running
-  service and die with it. Resume after boot = re-run
-  `ticker-setup.ps1` with the same `-Stages`; the store is the memory,
-  nothing else needs re-arming. A fresh `deploy-dev.ps1` also kills the
+  service and die with it. Resume after boot = re-run `ticker-setup.ps1`
+  alone (its own parameter surface; the store is the memory,
+  nothing else needs re-arming). A fresh `deploy-dev.ps1` also kills the
   live `tasks` server (jar replaced under it) - reconnect via
   `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`.
+- **Re-arm binding (DS-002):** on a LIVE re-arm (the `ticker-v` schedule
+  still exists on the running service) `ticker-setup.ps1` REUSES the
+  steward binding - same session, refreshed interval and prompt; a fresh
+  steward is created only when no schedule exists (first arm or
+  post-restart). Reuse preserves the cap counter and ledger, so no drain
+  rule is needed; post-restart is cap-safe without one because nothing
+  survives the restart (no old children exist to exceed the cap). The
+  interlock: a live re-arm never replaces the steward, so there is NEVER a
+  state where an old steward's children run while a new steward reconciles
+  claims - which is what makes the preamble's lifetime-scoped orphan
+  detection sound.
 - **Reliable enable/disable (T-052 mitigation, the watchdog):** the
   T-052 cycling eats session-bound schedules stochastically, so a bare
   `ticker-setup.ps1` arming is NOT durable. The self-healing layer:
