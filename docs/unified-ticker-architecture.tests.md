@@ -92,10 +92,14 @@
   (the record sharing C1 with the store is [SYS I-5]'s own assignment: store
   DATA driven through C4's writes, recorded as such).
 - **LT-003 PASS.** All eight component rows carry Basis citations that
-  resolve: C1→[SYS §Major parts + I-3; I-5], C2→[SYS §Major parts +
-  remember-vs-forget], C3→[SYS §Major parts + I-1], C4→[SYS §Major parts +
-  I-2..I-4], C5→[SYS §Major parts + I-2; DSG §5], C6→[SYS §Major parts +
-  I-2; I-3], C7→[SYS §Related; DSG §6], C8→[SYS I-1; S-3/S-4; §Route A].
+  resolve (re-verified 2026-11-16 against the source docs after T-103's
+  citation correction): C1→[SYS §Major parts + I-3; I-5], C2→[SYS §Major
+  parts + remember-vs-forget], C3→[SYS §Major parts + I-1], C4→[SYS §Major
+  parts + I-2..I-4], C5→[SYS §Major parts + I-2; DSG §5], C6→[SYS §Major
+  parts + I-2; I-3], C7→[DSG §6] (corrected from the dangling "[SYS
+  §Related]" — [SYS] defines no Related section, only its About-header
+  bullet; [DSG §6] "Stage skills: one common process skill, parameterized
+  by stage" carries C7's content), C8→[SYS I-1; S-3/S-4; §Route A].
   Responsibility spot-checks match the basis text: the steward "never works
   a ticket itself and never accepts one" ([SYS] verbatim); the worker's
   store footprint is the four own-ticket verbs ([SYS I-2]); the reviewer is
@@ -196,9 +200,15 @@
   §5, §6, §7, §8, §11) — all exist in their files. The two SUPERSEDED rows
   cover exactly [SYS §Supersession]'s scope ([DSG §1] model + [DSG §4]
   cadence/rolling-record topology, on the ten→one point only); the
-  carried-over sections [SYS §Supersession] lists (§2, §3, §5, §6, §7, §8,
-  §11) all appear as mapping rows with pass-through rationale — nothing
-  outside the supersession scope is dropped, nothing inside it is carried.
+  carried-over content [SYS §Supersession] actually lists (§2 store
+  contract, §3 link contract, §5 fulfillment narrow-brief rules, §8 division
+  and the engine verdict, §11 native-first inventory — plus the readiness/
+  STALE semantics) all appear as mapping rows with pass-through rationale;
+  [DSG §6] and [DSG §7] are [ARCH]'s own additional pass-through rows, not
+  [SYS §Supersession] carry-overs (sentence corrected 2026-11-16 — the
+  earlier version misquoted the carry-over list as including §6/§7) —
+  nothing outside the supersession scope is dropped, nothing inside it is
+  carried.
 - **LT-013 PASS.** [REQ] definitions observed (read-only `Select-String`):
   FR-001..FR-015 each defined exactly once ("**FR-0xx (C...)**" definition
   lines); NFR-OPER-001, NFR-REL-001, NFR-COST-001 present; C-A..C-F present.

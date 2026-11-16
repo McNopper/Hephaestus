@@ -77,7 +77,7 @@ component set collapses from ten tickers to one steward.
 | **C4 `steward`** | control | The tick executor: ONE pass over all ten stages in canonical order — BLOCKED escalate to basis → IN-REVIEW verdict application → DONE divide → READY plan-then-claim under the cap → gated pass close — plus reconciliation of interrupted work at the first pass after a resume, count-before-spawn + defer-at-cap, and the mid-pass store-loss reconnect. Holds the big picture and the cap counter; never works a ticket itself and never accepts one. | the steward session titled `ticker-v`, created as a CHILD of a repo-rooted parent (C-C); the procedure is [SKILL] | [SYS §Major parts "steward session"; I-2..I-4] |
 | **C5 `worker`** | execution | One background subagent per claimed ticket (FR-008); its world is exactly the fulfillment brief: ticket + direct basis artifacts + its stage's discipline skill + lane constraints. Store footprint is exactly its own ticket: record the artifact, set `in-review`, comment, block when stuck. Never `done`, never another ticket, never spawns. | native background subagents (spawn returns immediately, reports on idle) | [SYS §Major parts "worker subagents"; I-2; DSG §5] |
 | **C6 `reviewer`** | governance | One read-only subagent per `in-review` ticket per stage visit (FR-006 step 2); judges the ticket + its recorded artifacts (and runs acceptance/lint gates via bash; file edits denied) and DELIVERS the engine verdict: PASS → `done`, FAIL → blocked, UNCLEAR → one retry round-trip. Delivers only — the verdict WRITE is the steward's, in the tick's fixed write order (I-3; AD-005). | the `reviewer` agent (`.opencode/agent/reviewer.md`, `edit: deny`; "the engine applies it, you stay read-only") | [SYS §Major parts "reviewer subagents"; I-2; I-3] |
-| **C7 `process`** | knowledge (static) | The procedure and discipline knowledge: the common `stage-pipeline` skill (the tick procedure + the fulfillment loop + boundaries) parameterized by the per-stage discipline skills (`software-*`, `test-software-*`). Loaded by actors; never an active process. | `.opencode/skills/stage-pipeline/` + the discipline skill family | [SYS §Related; DSG §6] |
+| **C7 `process`** | knowledge (static) | The procedure and discipline knowledge: the common `stage-pipeline` skill (the tick procedure + the fulfillment loop + boundaries) parameterized by the per-stage discipline skills (`software-*`, `test-software-*`). Loaded by actors; never an active process. | `.opencode/skills/stage-pipeline/` + the discipline skill family | [DSG §6] |
 | **C8 `arming`** | setup | The ONLY path that mutates runtime topology: `ticker-setup.ps1` creates/looks up the steward session (child of a repo-rooted parent) and the `ticker-v` schedule, with arm-time parameters (`-IntervalMinutes` default 15, `-Cap` default 4 — C-F) interpolated into the tick prompt; resume = re-running it alone (FR-015). REQUIRED behavior: exactly ONE schedule and ONE steward on re-arm (the guard — Route A); never touches store business state; no per-stage mode. | `.opencode/skills/stage-pipeline/ticker-setup.ps1` (prototype: it POSTs unconditionally today — delta #1; hardening is Route A's content, not re-specified here) | [SYS I-1; S-3/S-4; §Route A] |
 
 ```text
@@ -432,6 +432,14 @@ that the invariants survive at the architecture level:
   one path exists and it cannot express ten schedules. Trade-off: none
   material; the prototype's unconditional POST (delta #1) is the deviation
   Route A removes, not a structure question.
+
+- **Correction note (2026-11-16, T-103 rework; materiality: LOW,
+  citation-correctness only):** the C7 row's Basis citation "[SYS §Related"
+  pointed at a section [SYS] does not define (its only "Related" is the
+  About-header bullet); corrected to "[DSG §6]" alone — §6 is the anchor
+  that carries C7's actual content (the common stage-pipeline skill,
+  parameterized by the per-stage discipline skill family). No structural
+  change.
 
 ## Open questions — routed, not decided
 
