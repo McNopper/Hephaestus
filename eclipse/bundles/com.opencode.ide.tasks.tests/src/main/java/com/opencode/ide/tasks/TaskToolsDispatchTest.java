@@ -440,19 +440,24 @@ public class TaskToolsDispatchTest {
   // U-110: the wandering-verb tests (vPipeline advance/send-back, passStage) retired with the
   // model - the pipeline is the linked stage graph; division creates the downstream tickets.
 
+  // C-M1-1 (acceptance-run design, T-095/T-127): stage: is immutable V-pipeline ownership -
+  // task_create sets it at creation (division), task_update refuses any rewrite.
   @Test
-  public void updateStageThroughToolsSetsAndClears() {
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"a\"}");
-    JsonObject set =
-        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":\"design\"}");
-    assertEquals("design", set.get("stage").getAsString());
-    JsonObject cleared =
-        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":null}");
-    assertTrue("explicit null clears the stage", cleared.get("stage").isJsonNull());
+  public void updateStageThroughToolsIsRefused() {
+    callOk("task_create", "{\"project\":\"p\",\"title\":\"a\",\"stage\":\"design\"}");
     assertTrue(
-        "invalid stage string -> isError",
-        call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":\"nope\"}")
+        "stage write through task_update -> isError (immutable ownership)",
+        call(
+                "task_update",
+                "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":\"implementation\"}")
             .get("isError")
             .getAsBoolean());
+    assertTrue(
+        "stage clear through task_update -> isError too",
+        call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":null}")
+            .get("isError")
+            .getAsBoolean());
+    JsonObject t = callOk("task_get", "{\"project\":\"p\",\"ticket_id\":\"T-001\"}");
+    assertEquals("the stage survives unchanged", "design", t.get("stage").getAsString());
   }
 }

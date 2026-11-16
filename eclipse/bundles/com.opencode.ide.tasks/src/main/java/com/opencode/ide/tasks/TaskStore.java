@@ -364,6 +364,8 @@ public final class TaskStore {
         project,
         data -> {
           Task t = require(data, project, id);
+          String priorStatus = t.status;
+          String priorAssignee = t.assignee;
           List<String> applied = new ArrayList<>();
           String requestedStatus = null;
           Boolean requestedBlocked = null;
@@ -454,6 +456,19 @@ public final class TaskStore {
               }
             }
           }
+          // The claim door (T-113 double-claim, 2026-11-16): task_claim stays the
+          // atomic path; a bare update may not TAKE a live claim - status ->
+          // in-progress while a different actor already holds the assignee is
+          // refused check-before-act. Release (assignee -> null), idempotent
+          // re-writes by the same holder, and the first claim stay open.
+          if ("in-progress".equals(requestedStatus)
+              && "in-progress".equals(priorStatus)
+              && priorAssignee != null
+              && t.assignee != null
+              && !priorAssignee.equals(t.assignee)) {
+            throw new Invalid(
+                "already claimed by " + priorAssignee + " - task_release first (T-113)");
+          }
           // U-067: the state door - one coherent move regardless of the
           // key order the caller used (enter with a retargeted resume, or
           // leave back to resume_to; a plain status move leaves cleanup to
@@ -461,6 +476,11 @@ public final class TaskStore {
           if (requestedBlocked != null && requestedBlocked) {
             if ("done".equals(t.status)) {
               throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+            }
+            if ("paused".equals(t.status)) {
+              throw new Invalid(
+                  "a paused ticket is never blocked (U-038: paused is parked for maintenance"
+                      + " - resume it first)");
             }
             String resume =
                 requestedStatus != null && !"blocked".equals(requestedStatus)
@@ -473,6 +493,18 @@ public final class TaskStore {
           } else if (requestedBlocked != null && t.isBlocked()) {
             t.leaveBlocked();
           } else if (requestedStatus != null) {
+            // U-067/U-038: a bare status write may not enter the blocked STATE from a
+            // terminal or parked status either - the invariant holds on every entry path,
+            // not only on task_set_blocked and the blocked-flag door above.
+            if ("blocked".equals(requestedStatus)
+                && ("done".equals(t.status) || "paused".equals(t.status))) {
+              throw new Invalid(
+                  "a "
+                      + t.status
+                      + " ticket is never blocked (U-067/U-038"
+                      + (t.status.equals("done") ? ": done is terminal" : ": resume it first")
+                      + ")");
+            }
             t.status = requestedStatus;
           }
           // U-110: done-time enforcement - the DEFINITION stage's product is the point of the V,
@@ -746,6 +778,11 @@ public final class TaskStore {
           Task t = require(data, project, id);
           if ("done".equals(t.status)) {
             throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+          }
+          if ("paused".equals(t.status)) {
+            throw new Invalid(
+                "a paused ticket is never blocked (U-038: paused is parked for maintenance"
+                    + " - resume it first)");
           }
           t.enterBlocked(blocker);
           t.updatedAt = now();

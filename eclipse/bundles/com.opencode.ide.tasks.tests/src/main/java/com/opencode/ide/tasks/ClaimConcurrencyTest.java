@@ -1,12 +1,14 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -111,5 +113,40 @@ public class ClaimConcurrencyTest {
     } finally {
       pool.shutdownNow();
     }
+  }
+
+  // T-113 double-claim (2026-11-16): task_claim is the atomic path; a bare update
+  // may not take a live claim. Release, idempotent re-writes and the FIRST claim
+  // stay open.
+  @Test
+  public void updateMayNotStealALiveClaim() {
+    Path root = tmp.getRoot().toPath().resolve("tasks3");
+    TaskStore store = new TaskStore(root);
+    String id = store.create("p", TaskStore.CreateSpec.of("steal")).id;
+    store.planSprint("p", "S-01", List.of(id), "g");
+    store.claim("p", "developer", null, "agent-a");
+    TaskStore.Invalid refused =
+        assertThrows(
+            TaskStore.Invalid.class,
+            () -> store.update("p", id, Map.of("status", "in-progress", "assignee", "agent-b")));
+    assertTrue(
+        "the refusal names the live holder",
+        refused.getMessage().contains("already claimed by agent-a"));
+    Task after = store.get("p", id);
+    assertEquals("the live claim survives", "agent-a", after.assignee);
+    assertEquals("the status survives", "in-progress", after.status);
+    // idempotent re-write by the same holder stays open
+    store.update("p", id, Map.of("status", "in-progress", "assignee", "agent-a"));
+    assertEquals("agent-a", store.get("p", id).assignee);
+    // release + the atomic re-claim by the next actor stay open
+    store.release("p", id, "agent-a");
+    Task next = store.claim("p", "developer", null, "agent-b");
+    assertEquals("the released ticket is claimable again", id, next.id);
+    assertEquals("agent-b", store.get("p", id).assignee);
+    // the FIRST claim through update (from sprint-backlog) stays open
+    String id2 = store.create("p", TaskStore.CreateSpec.of("first")).id;
+    store.planSprint("p", "S-02", List.of(id2), "g");
+    store.update("p", id2, Map.of("status", "in-progress", "assignee", "agent-c"));
+    assertEquals("agent-c", store.get("p", id2).assignee);
   }
 }

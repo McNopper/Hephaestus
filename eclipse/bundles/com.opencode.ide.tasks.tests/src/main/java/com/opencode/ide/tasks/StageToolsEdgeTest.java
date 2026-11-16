@@ -2,7 +2,6 @@ package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonObject;
@@ -47,11 +46,12 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
   }
 
   @Test
-  public void updateWithNullStageClearsItThroughTools() {
+  public void updateWithNullStageIsRefusedThroughTools() {
     callOk("task_create", "{\"project\":\"p\",\"title\":\"a\",\"stage\":\"design\"}");
-    JsonObject cleared =
-        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":null}");
-    assertTrue("explicit null clears the stage", cleared.get("stage").isJsonNull());
-    assertNull(new TaskStore(root).get("p", "T-001").stage);
+    String text =
+        callErrorText("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"stage\":null}");
+    assertTrue(text.contains("stage"));
+    assertEquals(
+        "the stage survives unchanged", "design", new TaskStore(root).get("p", "T-001").stage);
   }
 }

@@ -129,6 +129,16 @@ public final class TaskToolProvider implements ToolProvider {
         }
       case "task_update":
         {
+          // C-M1-1 (acceptance-run design, T-095/T-127): stage: is immutable
+          // V-pipeline ownership (U-110) - set at creation by division
+          // (task_create), never rewritten through the actor verb surface.
+          // The Board's owner override mutates stages in-process, not here.
+          if (a.has("stage")) {
+            throw new TaskStore.Invalid(
+                "stage: is immutable V-pipeline ownership (U-110) - it is set at"
+                    + " creation by division (task_create) and never rewritten;"
+                    + " tickets are stationary");
+          }
           Map<String, Object> changes = new LinkedHashMap<>();
           for (String field :
               List.of(
@@ -139,7 +149,6 @@ public final class TaskToolProvider implements ToolProvider {
                   "story_points",
                   "priority",
                   "role",
-                  "stage",
                   "model",
                   "assignee",
                   "acceptance_criteria",
@@ -472,7 +481,8 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_update",
-            "Update mutable fields of a task (id/created_at/history/comments are protected).",
+            "Update mutable fields of a task (id/created_at/history/comments are protected;"
+                + " stage is immutable ownership - U-110).",
             schema(
                 new String[] {"project", "ticket_id"},
                 obj -> {
@@ -485,7 +495,6 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("story_points", intP());
                   obj.add("priority", enumP(List.of("low", "medium", "high", "critical")));
                   obj.add("role", strP(roleDesc));
-                  obj.add("stage", stageP());
                   obj.add(
                       "model",
                       strP(
