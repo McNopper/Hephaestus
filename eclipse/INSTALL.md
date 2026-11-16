@@ -8,7 +8,7 @@ Source lives in the repo's `eclipse/` folder.
 ## About this document
 
 - **Kind:** `doc` / install & run guide for the `eclipse/` plugin.
-- **Read by:** anyone building or running the plugin (or the `tasks`/`fleet`
+- **Read by:** anyone building or running the plugin (or the `tasks`
   stdio launchers); **written by:** maintainers.
 - **Related:** `README.md` (bundle map), `ARCHITECTURE.md` (layer rules),
   `QUALITY.md` (the quality gate), `DISTRIBUTED-FLEETS.md` (multi-machine stores).
@@ -20,7 +20,7 @@ Source lives in the repo's `eclipse/` folder.
   `JAVA_HOME` does not have to be valid).
 - **PowerShell 7 (`pwsh`) on PATH** — required by the build itself (the
   `tools`/`tasks` Eclipse-import-ban scan runs through it) and by the
-  `tasks`/`fleet` stdio MCP launchers. Install: `winget install Microsoft.PowerShell`.
+  the `tasks` stdio MCP launcher. Install: `winget install Microsoft.PowerShell`.
 - **Node.js on PATH** — only needed for the chat web renderer/bridge checks that run inside
   `mvn verify` (skip with `-DskipNodeChecks=true` if you just want jars).
 - **WebView2 Runtime** (preinstalled on Windows 10/11) for the Chat view.
@@ -51,7 +51,7 @@ Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules
             -pl bundles/com.opencode.ide.chat -pl bundles/com.opencode.ide.chat.tests `
             -pl bundles/com.opencode.ide.cdt -pl bundles/com.opencode.ide.cdt.tests `
             -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.git.tests `
-            -pl bundles/com.opencode.ide.fleet -pl bundles/com.opencode.ide.fleet.tests `
+            -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools `
             -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.tools.tests `
             -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tasks.tests `
             -pl bundles/com.opencode.ide.board -pl bundles/com.opencode.ide.board.tests `
@@ -185,14 +185,12 @@ one-time setup:
       (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; toggle:
       *Preferences -> OpenCode -> Advertise rendering* (U-055).
 5. The **Board** view (PM kanban over the repo's `.harness/tasks/` store: six status
-    columns — *paused* included — or the ten V-stage pipeline columns, sprint selector
-    - goal, blocked flags, ticket details with artifact links, live refresh) and the
-    **Fleet** view (a tree of engine → wave → job (ticket) → worker session → subagents →
-    console/shell tasks, with per-job diff/folder/watch actions; jobs launched by peer
-    engines group under their own root; *Take over* opens the worktree and marks the job
-    taken over — v2 has no TUI steering channel any more) drive the headless fleet: select
-    a sprint-backlog/in-progress ticket and **Launch task** to run it in an isolated git
-    worktree with a role-mapped agent (merge-back and ticket bookkeeping are automatic).
+    columns - *paused* included - or the ten V-stage pipeline columns, sprint selector
+    - goal, blocked flags, ticket details with artifact links, live refresh) drives the
+    workflow: select a sprint-backlog/in-progress ticket, work it to `in-review` (the
+    ticker's reviewers give the engine verdict), or use the context-menu actions (open,
+    copy id, copy stage journey, archive). The ticker-v schedule drives claims and
+    verdicts unattended when armed.
 6. If the server URL or credentials differ, set them in
     **Window → Preferences → OpenCode** — primary connection (mode; SPAWN: the attach
     checkbox, opencode binary, hostname, working directory — no port; CONNECT: server URL,
