@@ -1,18 +1,21 @@
-# ticker-setup.ps1 - arm the V-pipeline ticker (U-110 chunk 3, unified per
+﻿# ticker-setup.ps1 - arm the V-pipeline ticker (U-110 chunk 3, unified per
 # owner directive 2026-11-14: ONE schedule walks the whole V step by step).
 #
 # Creates ONE steward session and ONE experimental schedule; each tick is
 # ONE pass over all stages in canonical V order under the global spawn cap.
+# Re-running re-arms: the steward binding is reused (refreshed interval +
+# prompt, DS-006 supersession clause), never duplicated - the name-lookup
+# guard per docs/unified-ticker-design.md §2 C8.
 #
 # Requirements:
 #   - the running opencode service (url + password from service.json, same
-#     pattern the Eclipse host uses), or -BaseUrl/-Password overrides
+#     pattern the Eclipse host uses), or -BaseUrl/-Token overrides
 #   - "experimental": { "schedules": true } in the service config
 #   - the stage-pipeline skill (this directory)
 #
-# Usage: pwsh -NoProfile -File ticker-setup.ps1 [-IntervalMinutes 15] [-Cap 4]
+# Usage: pwsh -NoProfile -File ticker-setup.ps1 [-IntervalMinutes 5] [-Cap 4]
 param(
-    [int]$IntervalMinutes = 15,
+    [int]$IntervalMinutes = 5,
     [int]$Cap = 4,
     [string]$BaseUrl,
     [string]$Token,
@@ -22,14 +25,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not $BaseUrl -or -not $Password) {
+# C8 step 1 precedence (delta #3 fix, T-104): explicit -BaseUrl/-Token win
+# over service.json; each missing value falls back individually. The old
+# code tested an undefined $Password (the param is $Token) and clobbered
+# explicit overrides wholesale.
+if (-not $BaseUrl -or -not $Token) {
     $serviceJson = Join-Path $env:USERPROFILE ".local\state\opencode\service.json"
     if (-not (Test-Path $serviceJson)) {
-        throw "service.json not found at $serviceJson - is the opencode service running?"
+        throw "service.json not found at $serviceJson - is the opencode service running? (or pass -BaseUrl/-Token overrides)"
     }
     $reg = Get-Content $serviceJson -Raw | ConvertFrom-Json
-    $BaseUrl = $reg.url
-    $Token = $reg.password
+    if (-not $BaseUrl) { $BaseUrl = $reg.url }
+    if (-not $Token) { $Token = $reg.password }
 }
 $auth = "Basic " + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("opencode:$Token"))
 
@@ -76,10 +83,58 @@ function Invoke-Api {
 # ONE schedule walks the whole V (owner directive 2026-11-14): a single
 # steward session + a single experimental schedule; each tick is ONE pass
 # over all stages in canonical V order under the global spawn cap.
-$session = Invoke-Api -Method "POST" -Path "/api/session$suffix" -Body @{ title = "ticker-v"; parentID = $ParentSessionId }
-$sessionId = if ($session.data) { $session.data.id } else { $session.id }
-if (-not $sessionId) { throw "session creation returned no id" }
+function Get-TickerSchedule {
+    # ticker-v schedules are session-bound (T-052): enumerate the repo's
+    # sessions and query each (GET /api/experimental/schedule?sessionID=...);
+    # a response is either a bare array or the v2 {data:[...]} envelope.
+    $sessions = Invoke-Api -Method "GET" -Path "/api/session$suffix"
+    $list = @($sessions); if ($sessions.data) { $list = @($sessions.data) }
+    $found = @()
+    foreach ($ses in $list) {
+        if (-not $ses.id) { continue }
+        $sch = Invoke-Api -Method "GET" -Path "/api/experimental/schedule?sessionID=$($ses.id)"
+        $perSession = @($sch); if ($sch.data) { $perSession = @($sch.data) }
+        foreach ($x in $perSession) {
+            if ($x.name -eq "ticker-v") { $found += $x }
+        }
+    }
+    return $found
+}
+
+# Re-arm guard (C8 step 2, delta #1 fix): look up BEFORE creating. Found +
+# live steward binding -> reuse it (S-3, DS-002); binding dead (the host
+# cycling eats sessions, T-052) or not found -> fresh steward (S-4). The
+# schedule RECORD is retired and re-created either way, bound to the chosen
+# session: the schedule API has create/list/get/pause/resume/delete but no
+# update, so Q-001 resolves to retire-and-recreate - a re-arm always
+# refreshes interval + prompt (DS-006) and never duplicates (INV-1/INV-2).
+$tickers = @(Get-TickerSchedule)
+$repoSessions = Invoke-Api -Method "GET" -Path "/api/session$suffix"
+$sessionList = @($repoSessions); if ($repoSessions.data) { $sessionList = @($repoSessions.data) }
+$newest = $tickers | Sort-Object { $_.time.updated } -Descending | Select-Object -First 1
+$binding = $null
+if ($newest -and $newest.sessionID) {
+    $binding = $sessionList | Where-Object { $_.id -eq $newest.sessionID } | Select-Object -First 1
+}
+if ($binding) {
+    $sessionId = $binding.id
+} else {
+    if ($newest) {
+        Write-Host "[ticker] stale ticker-v binding $($newest.sessionID) (session gone) - creating a fresh steward (S-4)"
+    }
+    $session = Invoke-Api -Method "POST" -Path "/api/session$suffix" -Body @{ title = "ticker-v"; parentID = $ParentSessionId }
+    $sessionId = if ($session.data) { $session.data.id } else { $session.id }
+    if (-not $sessionId) { throw "session creation returned no id" }
+}
+foreach ($t in $tickers) {
+    Invoke-Api -Method "DELETE" -Path "/api/experimental/schedule/$($t.id)" | Out-Null
+}
 $stages = "requirements, system, architecture, design, implementation, test-implementation, test-design, test-architecture, test-system, test-requirements"
+# DS-006 supersession clause (design §2 C3, verbatim; §2 C7 lands it in this
+# script's tick-prompt template): static arm-time prompt text, never carried
+# state - each firing is a complete, independent pass (E2). It exists because
+# DS-002 reuses the steward session on a live re-arm: a refreshed prompt must
+# not be second-guessed by an older prompt's parameters in the session history.
 $prompt =
     "You are the V-pipeline ticker. Load the stage-pipeline skill and run ONE pass " +
     "through the whole V, stage by stage in this order: $stages. For EACH stage: " +
@@ -97,17 +152,31 @@ $prompt =
     "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +
     "artifact, set in-review - never done; a landed markdown doc must be lint-clean " +
     "(releng/lint.ps1 over the touched files). After the last stage, close the pass " +
-    "with a digest. An empty V is a successful pass."
+    "with a digest. An empty V is a successful pass. " +
+    "SUPERSESSION: this prompt is the current parameterization; it supersedes any earlier tick prompt still visible in this session's history."
 $body = @{
     sessionID = $sessionId
     name = "ticker-v"
     when = @{ type = "every"; every = "$IntervalMinutes minutes" }
     prompt = $prompt
 }
-$schedule = Invoke-Api -Method "POST" -Path "/api/experimental/schedule" -Body $body
-$scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
-if ($scheduleId) {
-    Write-Host "[ticker] ticker-v armed: session $sessionId, schedule $scheduleId, every $IntervalMinutes min, cap $Cap"
-} else {
-    throw "schedule creation returned no id"
+try {
+    $schedule = Invoke-Api -Method "POST" -Path "/api/experimental/schedule" -Body $body
+} catch {
+    # duplicate-name race on create (C8 error contract): re-lookup and reuse;
+    # fail only if the second lookup is also inconsistent
+    $raced = Get-TickerSchedule | Select-Object -First 1
+    if (-not $raced) { throw }
+    $schedule = $raced
+    Write-Host "[ticker] create raced an existing ticker-v schedule - reused $($schedule.id)"
 }
+$scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
+if (-not $scheduleId) { throw "schedule creation returned no id" }
+# assert exactly one schedule and one steward afterwards (C8 step 3, INV-1/INV-2)
+$final = @(Get-TickerSchedule)
+if ($final.Count -ne 1) { throw "arming invariant violated: $($final.Count) ticker-v schedules exist after arming (INV-1: exactly one)" }
+if ($final[0].sessionID -ne $sessionId) { throw "arming invariant violated: ticker-v schedule bound to $($final[0].sessionID), not the steward $sessionId (INV-2)" }
+$sessionsAfter = Invoke-Api -Method "GET" -Path "/api/session$suffix"
+$sessionAfter = @($sessionsAfter); if ($sessionsAfter.data) { $sessionAfter = @($sessionsAfter.data) }
+if (-not ($sessionAfter | Where-Object { $_.id -eq $sessionId })) { throw "arming invariant violated: steward session $sessionId not found on the service (INV-2)" }
+Write-Host "[ticker] ticker-v armed: session $sessionId, schedule $scheduleId, every $IntervalMinutes min, cap $Cap"

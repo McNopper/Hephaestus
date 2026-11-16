@@ -75,7 +75,7 @@ $log = Join-Path $repo '.harness\ticker-watchdog.log'
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] enabled but no active ticker-v schedule found - re-arming" | Out-File $log -Append -Encoding utf8
 try {
     $env:JAVA_HOME = 'C:\Program Files\Java\jdk-21.0.12.1'
-    & $setupScript -IntervalMinutes 15 -Cap 4 2>&1 | Out-File $log -Append -Encoding utf8
+    & $setupScript -IntervalMinutes 5 -Cap 4 2>&1 | Out-File $log -Append -Encoding utf8
     "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] re-arm done" | Out-File $log -Append -Encoding utf8
 } catch {
     "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] re-arm FAILED: $($_.Exception.Message)" | Out-File $log -Append -Encoding utf8
