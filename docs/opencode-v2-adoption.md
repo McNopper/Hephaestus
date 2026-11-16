@@ -37,8 +37,8 @@ Discovered capability question order: `GET /openapi.json` (the live contract)
 something, record it here as a justified exception instead of building around
 it silently.
 
-**A fleet is just many opencode agents:** every worker run is an ordinary v2
-session (create, prompt, watch, abort over the API). The fleet layer adds only
+**The harness is just many opencode agents:** every worker run is an ordinary v2
+session (create, prompt, watch, abort over the API). The harness adds only
 what opencode does not have: scheduling and admission, steering (waves,
 readiness, resolution), and git bookkeeping (worktrees, merge-back - the
 justified git-CLI tier). Never a parallel agent runtime, never our own
@@ -48,7 +48,7 @@ model/session machinery.
 tiers. ChatView / SessionDetailsView = v2 capability parity; ServerView /
 BackgroundView / ProvidersView / RepoView = projections of v2 data (RepoView
 stays SERVICE-scoped - local workspace browsing is Eclipse Navigator's job,
-tier 2); BoardView / FleetView = the justified store/orchestration tier (no
+tier 2); BoardView = the justified store/display tier (the fleet-era FleetView was removed in U-110) (no
 v2 task API). No panel duplicates a host capability; no retired (daemon-era)
 machinery remains.
 
@@ -70,7 +70,7 @@ Eclipse.
 | `SessionDiffSides` revision-content reads (git CLI) | `session.diff` shows patches, not resolved before/after file content at a revision; no v2 read serves a side-by-side view |
 | `BuildRunner` / `StdioServer` raw threads | host plumbing of the plain-JVM tool processes (pump + reader/watcher); everything else runs on the Eclipse JobManager |
 | `TextDialog` exists twice: `ui.session` (public) and `board.views` (package-private) | the bundles share no dependency edge (board does not require ui), so consolidation needs either a new bundle dependency or a move into `com.opencode.ide.core`; deferred to the dependency-graph cleanup, untracked |
-| `GitWorktreeManager` worktree writes (git CLI) | the guarded create (reclaim stale residue, refuse unmerged/dirty work) is fleet bookkeeping over git-level checks the v2 worktree API does not expose; v2 has no worktree-remove verb at all (only `worktree.list/create/refresh` - `listWorktrees`/`createWorktree`/`refreshWorktrees` landed, see below). Untracked shrink: route the raw creates through `worktree.create` where the guarded semantics allow |
+| `GitWorktreeManager` worktree writes (git CLI) | the guarded create (reclaim stale residue, refuse unmerged/dirty work) is store bookkeeping over git-level checks the v2 worktree API does not expose; v2 has no worktree-remove verb at all (only `worktree.list/create/refresh` - `listWorktrees`/`createWorktree`/`refreshWorktrees` landed, see below). Untracked shrink: route the raw creates through `worktree.create` where the guarded semantics allow |
 
 ## The adoption matrix (live contract vs Hephaestus)
 
@@ -80,11 +80,11 @@ Eclipse.
 |---|---|---|
 | **Session rename** | `renameSession` | "Rename session..." (SessionDetailsView.java:601 -> SessionDetailsController.java:181) |
 | **Background sessions** | `backgroundSession` | ChatView.java:1533 + "Send to background" (SessionDetailsController.java:343) |
-| **Shells per session** | `runShell` (+ `listShellTasks`/shell output reads) | "Run shell command..." (SessionDetailsController.java:414), the fleet's agent bootstrap (FleetRunner.java:435), the Background view's Shells pane (BackgroundView.java:238) |
+| **Shells per session** | `runShell` (+ `listShellTasks`/shell output reads) | "Run shell command..." (SessionDetailsController.java:414), the Background view's Shells pane (BackgroundView.java:238) |
 | **Queue/steer inbox** | `sendMessage(..., delivery)` = `POST /prompt` with `delivery`, `listInbox`, `updateInboxItem`, inbox cancel | the chat's Steer now / Deliver next / Cancel (T-005): ChatSessionController.java:701/:986/:927-934, ChatView.java:350 |
-| **opencode worktrees (reads)** | `listWorktrees` | `PeerJobReconstructor.worktreesVia` (PeerJobReconstructor.java:139) in `FleetView`'s service-first ladder (FleetView.java:1093) |
-| **VCS reads** | `getFileStatus`, `getSessionDiff` | WorkingSet.java:60 / ProjectVcs.java:165; FleetView.java:1146; revision-level content reads stay git-CLI (exceptions table) |
-| **Permission REST** | `listPermissionRequests` (+ reply/set) | `PermissionQueue.reconcile` in the watchdog (TaskFleet.java:1025), BackgroundView.java:243, `ChatPermissionRecovery` |
+| **opencode worktrees (reads)** | `listWorktrees` | the fleet-era consumers (PeerJobReconstructor/FleetView) were removed in U-110; the verb stays client-side (`HttpOpencodeClient.listWorktrees`) for today's Board reconciliation |
+| **VCS reads** | `getFileStatus`, `getSessionDiff` | WorkingSet.java:60 / ProjectVcs.java:165; the fleet-era FleetView consumer was removed in U-110; revision-level content reads stay git-CLI (exceptions table) |
+| **Permission REST** | `listPermissionRequests` (+ reply/set) | the fleet-era watchdog consumer was removed in U-110, BackgroundView.java:243, `ChatPermissionRecovery` |
 | **Two-phase revert** | `revertMessage`, `unrevertSession`, `commitSessionRevert` | "Revert to here…" / "Undo revert…" / "Commit revert…" (SessionDetailsView.java:666-722 -> SessionDetailsController.java:198); the chat's message revert (ChatSessionController.java:1949) |
 | **Session fork** | `forkSession` | the chat's fork button (ChatSessionController.java:1255) + Session Details (SessionDetailsController.java:503) |
 | **Forms** | `listForms` (+ reply/cancel) | form cards in the chat (ChatSessionController.java:1059) + "Forms..." (SessionDetailsController.java:314, `FormsDialog` over `FormSchema`); the reply posts the declared `Form.Reply {answer}` shape |
@@ -101,7 +101,7 @@ Eclipse.
 | **Provider OAuth connect** | `beginProviderOauth` (+ the typed auth catalog) | the Providers view's Connect (ProvidersView.java:231) |
 | **Integrations (GitHub/GitLab)** | `startIntegrationCommand/Oauth`, `integrationOauthAttempt/Complete/Abort`, catalog reads | the Server view's Integrations dialog (IntegrationsDialog.java:273): command start + poll + abort, key entry, oauth poll -> URL -> complete/paste; failures are notices, never faked |
 | **Skills API** | `listSkills`, session skill attach | Session Details *Attach skill…* (SessionDetailsView.java:624 -> SessionDetailsController.java:358); `GET` returns full skill bodies (heavy: paginate/prefetch); the attach POST is experimental and appends a `skill` message to history. **Body is `{"skill": "<id>"}`** - the schema's `id` member is a `^msg_` message anchor, so `{"id": ...}` 400s; route under `/experimental` on v2.0.19 (later builds publish it without the prefix - re-probe on upgrade); resumes unless `"resume": false`; 404 = SkillNotFoundError |
-| **Session wait** | `waitForSession` | the fleet watchdog long-polls it with a deadline-aware window (TaskFleet.java:1175 -> FleetRunner.java:312; 30 poll ticks cap, stall/budget/cap deadlines shrink it, anti-spin guard, pause-while-asks-pending); any failure falls back to the poll loop. Wire truth: 204 on settle, no body, route under `/experimental` on v2.0.19 |
+| **Session wait** | `waitForSession` | the fleet-era watchdog long-polled it (removed in U-110); today's tickers/session pollers use the plain poll loop, falling back on any failure. Wire truth: 204 on settle, no body, route under `/experimental` on v2.0.19 |
 | **Saved permissions** | `listSavedPermissions` / `deleteSavedPermission` | the Server view's *Saved permissions…* manager (ServerView.java:447, SavedPermissionsDialog.java:87/115) - the TUI's "remember this choice" |
 | **`session/generate`** (context-conditioned LLM call, **no history mutation**) | `generateOnSession` (HttpOpencodeClient.java:1334) | Session Details *Suggest title* (SessionDetailsView.java:333 -> SessionDetailsController.java:386; prefills Rename, never auto-renames) |
 | **Session view marker** | `markSessionViewed` | Session Details marks the session viewed on open/refresh (SessionDetailsController.java:455; feeds the unread/idle badges) |
@@ -128,7 +128,7 @@ consumer in the table above would be a lie.
 | `credential.*` | `renameCredential` (:366), `activateCredential` (:373), `removeCredential` (:378) | credential label/activation management (no list endpoint exists in the contract; the OAuth *connect* flows are separate, adopted verbs) |
 | `GET /api/config/shell` | `getShellConfig` (:1209) | a terminal/shell picker; pure read (answers a BARE array) |
 | `fs.read` | `getFileContent` (:1850) | file-content preview (RepoView and the composer use `list`/`find` only) |
-| `worktree.create` | `createWorktree` (:556) | the fleet's raw worktree writes (guarded writes stay git-CLI - exceptions table) |
+| `worktree.create` | `createWorktree` (:556) | the fleet-era raw worktree writes (removed in U-110) (guarded writes stay git-CLI - exceptions table) |
 | `POST /session/{id}/synthetic` | posted by `sendMessage` (HttpOpencodeClient.java:770) | **not the inbox path**: it carries only the per-request system prompt (`ChatRequests.syntheticBody`, sent only when one is set; `steer`\|`queue`, `msg_` id = idempotency key, 409 on dup) |
 
 ### Adopt next (what genuinely remains)
@@ -227,7 +227,7 @@ gone → drop the row; changed → update). Adoption is a tier decision like any
 other - it happens when the trigger fires, not before.
 
 **Endpoint case (owner, 2026-10-29): this extends to our own `tasks` and
-`fleet` MCP endpoints.** They are the current access layer to the store and
+`tasks` MCP endpoint.** It is the current access layer to the store (the fleet stdio endpoint was removed in U-110) and
 the current engine host - not sacred. If upstream natively covers their
 function (stable ticket/orchestration/scheduling APIs instead of
 `experimental.*`), they are removed like any other parallel implementation.
@@ -245,10 +245,10 @@ guarantees we arrive by adoption, not by competition.
 | # | Upstream surface | Since | Status today | Parallel-implementation guard (do NOT build) | Adopt when |
 |---|---|---|---|---|---|
 | W1 | `experimental.schedule.*` (list/get/create/pause/resume/delete) + `experimental.schedules` flag | 2.2.1 | Disabled by default (ForbiddenError without the flag); session-bound recurring prompts `{sessionID, when, prompt}` | Any timer/cron/scheduling layer of our own - RecurringWaves is ticket-governed planning, not a cron; no schedules-derived triggers in the pump | Prefix drops AND schedules can express work-item/goal triggers (not just session prompts) |
-| W2 | `experimental.usage.limits` | 2.2.0 | Live; coverage unprobed (suspected Console/Go-only) | Self-built quota tracking or limit models in the fleet (U-098 chains must not invent them) | Stable AND covers third-party providers → U-098 adds the preflight probe |
+| W2 | `experimental.usage.limits` | 2.2.0 | Live; coverage unprobed (suspected Console/Go-only) | Self-built quota tracking or limit models in the harness (U-098 chains must not invent them) | Stable AND covers third-party providers → U-098 adds the preflight probe |
 | W3 | `experimental.session.instructions.entry.*` | 2.1.0 | Live, documented (#56550); survives compaction + reverts | A second lesson-attachment channel next to the prompt path (U-100) | Stable → U-100 switches substrate, keeps prompt fallback, adds a survives-compaction check |
 | W4 | `experimental.generate.{text,image,decisions}` (+ `textLegacy`) | 2.2.0 | Live; decisions = cheap constrained judgments | Custom cheap-classification plumbing (reviewer pre-screen, triage, flake judgment) | Stable → wire decisions to one concrete repeated judgment |
-| W5 | `experimental.background_compaction` (config flag) | 2.1.4 | Opt-in; unused tokens if summary unused | Worker-side compaction management | Stable → set `true` for long fleet workers (config-only) |
+| W5 | `experimental.background_compaction` (config flag) | 2.1.4 | Opt-in; unused tokens if summary unused | Worker-side compaction management | Stable → set `true` for long ticker workers (config-only) |
 | W6 | `experimental.fs.watch` / `unwatch` | 2.2.0 | Live; unused | Delegating Board's `TaskStoreWatcher` or chat-web watchers to it | Stable AND a real limitation of our local watcher appears |
 | W7 | `experimental.client-mcp` + `/token` | 2.2.0 | Live; purpose unprobed | — (no need identified) | Probe before any MCP-management feature work |
 | W8 | `experimental.media/{hash}` + `media_blob` | 2.2.0 | Opt-in blob storage for session media | Own media stores for transcripts/artifacts | Stable AND a media feature is wanted |
@@ -287,11 +287,11 @@ native per-agent model-fallback chain ships in opencode is **false for our
 2.2.1 build** - no fallback config key exists in the binary or config surface
 (the fallback commits found on GitHub are not in the installed product; the
 plugin ecosystem exists because of this gap). U-098 re-scoped accordingly:
-the chain is delivered by a plugin or the fleet layer, not by config.
+the chain is delivered by a plugin or a harness layer, not by config.
 
 | New since v2.1.3 (live 2.2.0) | Operations | Decision |
 |---|---|---|
-| +12 / -2 (156 vs 146): fs.watch/unwatch, client-mcp + token, media/{hash}, usage/limits, plugin/gui, debug/heap-dump, generate/text+image+decisions+textLegacy; REMOVED: `POST /api/experimental/generate` (moved to `/text`, old path kept as `textLegacy`), voice instructions (added 2.1.3, removed 2.2.0) | 12 added, 2 removed (both non-consumed), 0 changed on consumed routes | **No collisions, no required client changes** - our client never wired the generate route (grep-verified), so the move costs nothing. Enhancements flagged: **`GET /api/experimental/usage/limits`** - the fleet can preflight quota/limits before dispatch instead of dying mid-run (U-098 design hook); **session instruction entries** (`experimental.session.instructions.entry.*`, routes live since 2.1.0, now documented as the sanctioned mechanism: attach instructions to a session without prompt-cache busts, surviving compaction and reverts) - the better substrate for U-100's wave-lesson injection; **`experimental.background_compaction`** (2.1.4) - prepares compaction summaries in the background so long fleet workers do not stall mid-run; **provider-reported session costs** (#58562) - sharper actuals; prompt-cache TTLs per model (#59157) - cost lever. Breaking changes assessed: `@opencode/ai` SDK restructure + GitHub Action removal + OpenTUI 0.7 requirement - all JS/TUI-side, zero impact on the Java client (no GitHub Action in our CI - T-027 runs the Maven gate). 2.1.4 (between rounds) was behavioral-only: MCP input forms surface (elicitation), background compaction flag. Collision watch unchanged: still no upstream orchestration/run-queue/scheduling surface. Pin bumped 2.1.3 → 2.2.0 |
+| +12 / -2 (156 vs 146): fs.watch/unwatch, client-mcp + token, media/{hash}, usage/limits, plugin/gui, debug/heap-dump, generate/text+image+decisions+textLegacy; REMOVED: `POST /api/experimental/generate` (moved to `/text`, old path kept as `textLegacy`), voice instructions (added 2.1.3, removed 2.2.0) | 12 added, 2 removed (both non-consumed), 0 changed on consumed routes | **No collisions, no required client changes** - our client never wired the generate route (grep-verified), so the move costs nothing. Enhancements flagged: **`GET /api/experimental/usage/limits`** - the fleet can preflight quota/limits before dispatch instead of dying mid-run (U-098 design hook); **session instruction entries** (`experimental.session.instructions.entry.*`, routes live since 2.1.0, now documented as the sanctioned mechanism: attach instructions to a session without prompt-cache busts, surviving compaction and reverts) - the better substrate for U-100's wave-lesson injection; **`experimental.background_compaction`** (2.1.4) - prepares compaction summaries in the background so long ticker workers do not stall mid-run; **provider-reported session costs** (#58562) - sharper actuals; prompt-cache TTLs per model (#59157) - cost lever. Breaking changes assessed: `@opencode/ai` SDK restructure + GitHub Action removal + OpenTUI 0.7 requirement - all JS/TUI-side, zero impact on the Java client (no GitHub Action in our CI - T-027 runs the Maven gate). 2.1.4 (between rounds) was behavioral-only: MCP input forms surface (elicitation), background compaction flag. Collision watch unchanged: still no upstream orchestration/run-queue/scheduling surface. Pin bumped 2.1.3 → 2.2.0 |
 
 | New since v2.1.0 (live 2.1.3) | Operations | Decision |
 |---|---|---|
@@ -331,7 +331,7 @@ live service after each cross-check.
 |---|---|---|
 | **Integrations** (GitHub/GitLab connect: command/key/oauth + attempts, wellknown) | `integration/*` (8) | **Adopted** - see the matrix above (IntegrationsDialog); the old "PR/CI is a non-goal (gh + Actions)" is superseded |
 | **Skills API** (list + per-session skill attach) | `GET /skill`, `POST .../session/{id}/skill` | **Adopted** - see the matrix above (Attach skill) |
-| **Session wait** | `POST .../session/{id}/wait` | **Adopted** - see the matrix above (fleet watchdog) |
+| **Session wait** | `POST .../session/{id}/wait` | **Adopted** - see the matrix above (the fleet-era watchdog, removed in U-110) |
 | **Saved permissions** (remembered allow/deny) | `permission/saved*` (3) | **Adopted** - see the matrix above (Saved permissions manager) |
 | `session/generate` (context-conditioned LLM call, **no history mutation**) | `POST .../session/{id}/generate` | **Adopted** - see the matrix above (Suggest title) |
 | `session/synthetic` (automation input) | `POST .../session/{id}/synthetic` | **Adopted** - carries the per-request system prompt (posted by `sendMessage` only when one is set); the queue/steer inbox is `POST /prompt` + `delivery` + `/session/{id}/inbox` - see the contract notes |
