@@ -75,9 +75,15 @@ try {
   const js = readFileSync(join(webDir, "chat.js"), "utf8");
   for (const fn of ["__setTheme", "__clear", "__setMessages", "__appendUser",
     "__startAssistant", "__appendDelta", "__appendReasoningDelta", "__flushStream",
-    "__setAssistantText", "__linkClick", "__copyCode"]) {
+    "__setAssistantText", "__linkClick", "__copyCode", "__appendNoticeRow"]) {
     check(`chat.js exposes ${fn}`, js.includes(`window.${fn} =`));
   }
+  // T-145: compaction markers replay from history as persistent notice rows -
+  // an empty assistant bubble must never stand in for a compaction again
+  check("history renders notice rows (T-145)",
+    js.includes('e.role === "notice"') && js.includes("addNoticeRow(e.text)"));
+  check("live compaction appends a notice row (T-145)",
+    js.includes("__appendNoticeRow") && js.includes("notice row rendered:"));
   check("chat.html loads chat.js", html.includes("chat.js"));
   check("chat.html loads markdown-it", html.includes("markdown-it.min.js"));
   check("chat.html loads katex css+js", html.includes("katex.min.css") && html.includes("katex.min.js"));

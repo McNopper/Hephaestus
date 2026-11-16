@@ -268,6 +268,30 @@ public class ChatSessionControllerTest {
     assertEquals("exited", rows.get(1).get("status"));
   }
 
+  /**
+   * T-145: a compaction marker replays as its own persistent {@code role=notice} row - the defect
+   * was an empty assistant bubble standing in for the compact, which read as "compact does not
+   * work" (live joint test 2026-11-16).
+   */
+  @Test
+  public void resumeReplaysCompactionAsNoticeRow() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "list them"),
+            compactionEntry(
+                "msg_c1",
+                "Context compacted (manual) - the earlier history now stands as a summary."));
+    controller.resume("ses_43");
+
+    List<Map<String, Object>> rows = renderer.histories.get(0);
+    assertEquals(2, rows.size());
+    assertEquals("notice", rows.get(1).get("role"));
+    assertEquals("msg_c1", rows.get(1).get("id"));
+    assertTrue(
+        String.valueOf(rows.get(1).get("text")),
+        String.valueOf(rows.get(1).get("text")).startsWith("Context compacted (manual)"));
+  }
+
   // ---------- late replies (POST budget exceeded) ----------
 
   @Test
@@ -1406,15 +1430,21 @@ public class ChatSessionControllerTest {
     assertNull(ChatSessionController.builtInSlashCommand("share/@x"));
   }
 
-  /** T-143: /compact runs v2 POST .../compact on the session and reports through a notice. */
+  /**
+   * T-143: /compact runs v2 POST .../compact on the session; T-145: the result is reported as a
+   * PERSISTENT transcript notice row (not a transient notice), so /compact leaves a visible trace.
+   */
   @Test
   public void compactBuiltInCompactsTheSessionAndNotices() {
     controller.compactSessionCommand();
     drainBackground();
     assertEquals(List.of("ses_1"), connection.client.compactCalls);
     assertTrue(
-        "compact notice expected, got: " + renderer.notices,
-        renderer.notices.stream().anyMatch(n -> n.contains("Context compacted")));
+        "compact marker row expected, got: " + renderer.noticeRows,
+        renderer.noticeRows.stream().anyMatch(n -> n.contains("Context compacted")));
+    assertTrue(
+        "the marker must not be transient-only (T-145)",
+        renderer.notices.stream().noneMatch(n -> n.contains("Context compacted")));
   }
 
   // ---------- built-in commands: /init, /help, /thinking, /share (U-047) ----------
@@ -2646,6 +2676,30 @@ public class ChatSessionControllerTest {
     return new ChatEntry(info, List.of(), command, output);
   }
 
+  /**
+   * A compaction history row (T-145): role {@code compaction} carrying the deserializer's readable
+   * marker text - what GET /message yields after ChatEntryDeserializer reduction.
+   */
+  private static ChatEntry compactionEntry(String id, String marker) {
+    ChatMessageInfo info =
+        new ChatMessageInfo(
+            id,
+            "ses_1",
+            "compaction",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            0L);
+    return new ChatEntry(info, List.of(new ChatPart("text", marker, null, null)));
+  }
+
   private static final class RecordingRenderer implements ChatSessionController.Renderer {
     final List<String> users = new ArrayList<>();
     final List<String> assistants = new ArrayList<>();
@@ -2659,6 +2713,9 @@ public class ChatSessionControllerTest {
 
     /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
     final List<String> shells = new ArrayList<>();
+
+    /** One entry per persistent notice row (T-145): the /compact transcript marker. */
+    final List<String> noticeRows = new ArrayList<>();
 
     int clears;
 
@@ -2723,6 +2780,11 @@ public class ChatSessionControllerTest {
     @Override
     public void appendShell(String command, String output, String status) {
       shells.add(command + "|" + output + "|" + status);
+    }
+
+    @Override
+    public void appendNoticeRow(String text) {
+      noticeRows.add(text);
     }
 
     @Override

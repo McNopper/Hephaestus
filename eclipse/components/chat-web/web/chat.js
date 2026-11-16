@@ -489,6 +489,24 @@ window.__setNotice = guard("__setNotice", function (text) {
   return true;
 });
 
+// T-145: persistent transcript notice rows - unlike __setNotice they are part of the
+// transcript, so they SURVIVE history reloads (compaction markers replay via
+// __setMessages with role "notice"; live appends go through __appendNoticeRow).
+function addNoticeRow(text) {
+  const div = document.createElement("div");
+  div.className = "notice";
+  div.textContent = typeof text === "string" ? text : String(text);
+  chatEl.appendChild(div);
+  scrollBottom();
+  report("notice row rendered: " + div.textContent.slice(0, 60));
+  return div;
+}
+
+window.__appendNoticeRow = guard("__appendNoticeRow", function (text) {
+  addNoticeRow(typeof text === "string" ? text : String(text));
+  return true;
+});
+
 window.__setMessages = guard("__setMessages", function (json) {
   chatEl.innerHTML = "";
   hideWaiting();
@@ -500,6 +518,9 @@ window.__setMessages = guard("__setMessages", function (json) {
       addShell(e.command, e.output, e.status);
     } else if (e.role === "user") {
       addUser(e.text, e.id);
+    } else if (e.role === "notice") {
+      // T-145: persistent transcript markers (the /compact row) - never an empty bubble
+      addNoticeRow(e.text);
     } else {
       const a = addAssistant(e.id, e.reasoning);
       renderToolLines(a.bubble, e.tools, a.body);

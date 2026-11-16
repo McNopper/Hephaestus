@@ -159,6 +159,50 @@ public class ChatParsingTest {
     assertEquals(0, entry.parts().size());
   }
 
+  /**
+   * T-145 (real capture from opencode.db, session ses_f37a…, the joint test 2026-11-16): a
+   * compaction row carries {@code summary/status/reason} - neither {@code content[]} nor {@code
+   * text} - and must reduce to a readable marker so /compact leaves a visible transcript trace
+   * instead of an empty bubble.
+   */
+  @Test
+  public void completedCompactionReducesToAReadableMarker() {
+    ChatEntry entry =
+        GSON.fromJson(
+            """
+            {"id":"msg_01COMPACT","time":{"created":1794832813851},"type":"compaction",
+             "status":"completed","reason":"manual",
+             "model":{"id":"mimo-v2.6-flash","providerID":"xiaomi-token-plan-ams","variant":"default"},
+             "summary":"## Objective\\n- Current goal: make the Eclipse harness behave like the original opencode TUI …",
+             "cost":0.0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}
+            """,
+            ChatEntry.class);
+    assertTrue(entry.isCompaction());
+    assertFalse(entry.isUser());
+    assertTrue("marker: " + entry.text(), entry.text().startsWith("Context compacted (manual)"));
+    assertTrue("points at the summary", entry.text().contains("summary"));
+    assertTrue("promises the fresh window", entry.text().contains("fresh window"));
+    assertEquals("", entry.reasoning());
+  }
+
+  /** The failed compaction shape (real capture: provider.auth / Invalid API Key, 401). */
+  @Test
+  public void failedCompactionStatesTheReason() {
+    ChatEntry entry =
+        GSON.fromJson(
+            """
+            {"id":"msg_01COMPACTF","time":{"created":1794779434613},"type":"compaction",
+             "status":"failed","reason":"manual",
+             "error":{"type":"provider.auth","message":"Invalid API Key","status":401,
+                      "response":{"body":"{\\n    \\"error\\": {\\n        \\"message\\": \\"Invalid API Key\\"\\n    }\\n}"}}}
+            """,
+            ChatEntry.class);
+    assertTrue(entry.isCompaction());
+    assertTrue("marker: " + entry.text(), entry.text().startsWith("Context compaction failed:"));
+    assertTrue("carries the error type", entry.text().contains("provider.auth"));
+    assertTrue("carries the error message", entry.text().contains("Invalid API Key"));
+  }
+
   @Test
   public void malformedEntriesYieldNull() {
     assertNull(GSON.fromJson("\"not an object\"", ChatEntry.class));

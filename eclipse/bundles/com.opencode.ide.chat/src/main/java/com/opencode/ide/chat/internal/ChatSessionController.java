@@ -143,6 +143,14 @@ public final class ChatSessionController {
     default void appendShell(String command, String output, String status) {}
 
     /**
+     * Appends a persistent transcript notice row (T-145: the {@code /compact} marker). Unlike
+     * {@link #notice(String)}, the row is part of the transcript - it survives history reloads
+     * through the {@code role=notice} row mapping. Default no-op so renderers (and existing test
+     * fakes) without the concept stay compiling.
+     */
+    default void appendNoticeRow(String text) {}
+
+    /**
      * Pushes the reasoning-visibility preference into the page ({@code /thinking} and the toolbar
      * toggle; re-applied after every history render so the preference survives across messages).
      * Default no-op so renderers without the concept stay compiling.
@@ -647,8 +655,12 @@ public final class ChatSessionController {
     refreshForms(); // ... and open question forms (U-014)
   }
 
-  /** Maps served history entries into the renderer's transcript rows. */
-  private static List<Map<String, Object>> historyRows(List<ChatEntry> entries) {
+  /**
+   * Maps served history entries into the renderer's transcript rows. Public for the cross-bundle
+   * mapping test (T-145: a compaction entry becomes a {@code role=notice} row, never an empty
+   * assistant bubble).
+   */
+  public static List<Map<String, Object>> historyRows(List<ChatEntry> entries) {
     List<Map<String, Object>> rows = new ArrayList<>();
     for (ChatEntry entry : entries) {
       Map<String, Object> row = new LinkedHashMap<>();
@@ -664,6 +676,15 @@ public final class ChatSessionController {
         String shellStatus =
             entry.info() != null && entry.info().finish() != null ? entry.info().finish() : "";
         row.put("status", shellStatus);
+        rows.add(row);
+        continue;
+      }
+      if (entry.isCompaction()) {
+        // T-145: the compaction marker rides its own role - the page renders it as a
+        // persistent transcript notice, so /compact stays visible across reloads
+        row.put("role", "notice");
+        row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
+        row.put("text", entry.text());
         rows.add(row);
         continue;
       }
@@ -1949,9 +1970,11 @@ public final class ChatSessionController {
           try {
             String sid = ensureSession();
             connection.getClient().compactSession(sid);
+            // T-145: a PERSISTENT transcript row (not a transient notice) - the marker
+            // survives history reloads, so /compact leaves a visible trace (TUI parity)
             host.runOnUi(
                 () ->
-                    renderer.notice(
+                    renderer.appendNoticeRow(
                         "Context compacted (the next reply runs with a fresh window)."));
           } catch (OpencodeException e) {
             host.runOnUi(() -> renderer.notice("Compact failed: " + e.getMessage()));

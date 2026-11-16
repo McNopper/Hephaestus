@@ -57,4 +57,9 @@ public record ChatEntry(
   public boolean isShell() {
     return info != null && "shell".equals(info.role());
   }
+
+  /** Convenience: is this a context-compaction marker (T-145, transcript notice rows)? */
+  public boolean isCompaction() {
+    return info != null && "compaction".equals(info.role());
+  }
 }

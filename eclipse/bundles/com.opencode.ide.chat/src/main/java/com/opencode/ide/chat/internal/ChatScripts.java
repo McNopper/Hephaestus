@@ -104,6 +104,11 @@ public final class ChatScripts {
     return "window.__setNotice(" + GSON.toJson(nullToEmpty(text)) + ")";
   }
 
+  /** {@code window.__appendNoticeRow("...")} - persistent transcript notice row (T-145). */
+  public static String appendNoticeRow(String text) {
+    return "window.__appendNoticeRow(" + GSON.toJson(nullToEmpty(text)) + ")";
+  }
+
   /**
    * {@code window.__appendShell("{...}")} - chat parity CP-02: renders one inline shell run as a
    * transcript strip ({@code $ command}, the captured output tail, the lifecycle status). Blank

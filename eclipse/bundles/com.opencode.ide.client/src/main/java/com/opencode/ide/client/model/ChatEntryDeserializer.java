@@ -93,11 +93,41 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
       }
       return parts;
     }
+    if ("compaction".equals(string(msg, "type"))) {
+      // T-145: a compaction row carries summary/status/reason - neither content[]
+      // nor text - so without this reduction the transcript renders an empty
+      // assistant bubble and /compact leaves no visible trace (TUI parity).
+      parts.add(new ChatPart("text", compactionMarker(msg), null, null));
+      return parts;
+    }
     String text = string(msg, "text");
     if (text != null) {
       parts.add(new ChatPart("text", text, null, null));
     }
     return parts;
+  }
+
+  /** T-145: readable transcript marker for a compaction row (completed / failed / other). */
+  private static String compactionMarker(JsonObject msg) {
+    String status = string(msg, "status");
+    if ("failed".equals(status)) {
+      JsonObject error =
+          msg.has("error") && msg.get("error").isJsonObject() ? msg.getAsJsonObject("error") : null;
+      String type = error != null ? string(error, "type") : null;
+      String message = error != null ? string(error, "message") : null;
+      return "Context compaction failed: "
+          + (type == null || type.isBlank() ? "unknown error" : type)
+          + (message == null || message.isBlank() ? "" : " - " + message);
+    }
+    if ("completed".equals(status)) {
+      String reason = string(msg, "reason");
+      return (reason == null || reason.isBlank()
+              ? "Context compacted"
+              : "Context compacted (" + reason + ")")
+          + " - the earlier history now stands as a summary; the next reply runs with a fresh"
+          + " window.";
+    }
+    return "Context compaction " + (status == null || status.isBlank() ? "started" : status) + "…";
   }
 
   private static String string(JsonObject object, String key) {

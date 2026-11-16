@@ -406,6 +406,11 @@ public final class ChatPage implements ChatSessionController.Renderer {
   }
 
   @Override
+  public void appendNoticeRow(String text) {
+    executeJs(ChatScripts.appendNoticeRow(text));
+  }
+
+  @Override
   public void clear() {
     executeJs(ChatScripts.clear());
   }
