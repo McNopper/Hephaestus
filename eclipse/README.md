@@ -37,13 +37,13 @@ for a second backend, extracted when one actually arrives).
 | `com.opencode.ide.git` | **agentic git** | `client` (git CLI) — Eclipse-free | `WorktreeManager`: branch + worktree per agent task (under `.git/opencode-fleet/`), serial merge-back with clean conflict abort. Fleet isolation layer. `StoreGitStatus`/`StoreSync` = distributed-fleet store discipline (status summary; commit → pull-rebase → push with recover — see [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md)). |
 | `com.opencode.ide.tools` | **agent tools** | `com.google.gson` only - **Eclipse-free, build-enforced** | **`ToolProvider` SPI** + JSON-RPC/MCP dispatch (`McpDispatcher`, shared by every server surface incl. `ping`) + the built-in C++ tool pack (`tools.cpp`: toolchain detection + build, lint, format, debug). Future language packs = new providers depending on this bundle only. The stdio server loop (B-012 liveness) answers `-32603` on handler **Throwable**s and keeps serving (T-044: stale jars mid-flight / store contention never kill the server). |
 | `com.opencode.ide.tasks` | **task board** | `tools` + gson — **Eclipse-free, build-enforced** | The **task store** (`.harness/tasks/<project>/`, one Markdown file per ticket) + the **`task_*` tool pack** (create/claim/release/sprint/traceability/readiness/doctor/invalidations) + `StageReadiness` (the pure dataflow-readiness function behind H6 auto-dispatch and `task_readiness`). Also ships `TasksStdioMain` — the same tools over stdio via `eclipse/tasks-tools.ps1` for TUI-only sessions. |
-| `com.opencode.ide.board` | **board ui** | `core` + `client` + `tasks` + `fleet` + `git` + `chat` + gson + Eclipse UI | **PM Board view** (kanban over the task store: **six status columns — paused included** — sprint selector + goal, blocked flags, artifact links with markdown/diagram rendering, *Launch task* → `TaskFleet` via `TaskFleetLauncher`, *Take over*, fleet-row **Shutdown...** (graceful: park admissions, checkpoint + pause in-flight workers, kill a spawned serve - never an attached shared service), activation refresh + an `updated HH:mm:ss` freshness stamp, **Cost overview** dialog + `• $X spent` header suffix aggregating the `fleet actuals:` comments; **Auto ▶** arms the auto-dispatch pump and **Waves ▶/■** toggles the U-022 recurring-waves loop — both off by default) + **Fleet view** (U-040 tree: engine → wave → job (ticket badges) → worker session → subagent sessions → console/shell tasks, live activity per node + tokens/cost rolled up, per-job **server diff** (`/session/:id/diff`) with local-git fallback, folder/takeover, **Permissions (n)** dialog — approve once/always/reject on pending `permission.asked` requests). SWT-free model (`BoardModel`, `TaskStoreWatcher`, `FleetJobsModel`, `FleetTree`, `CostOverview`, `DiffSource`/`SessionDiffText`, `FleetPermissions`) is unit-tested. |
+| `com.opencode.ide.board` | **board ui** | `core` + `client` + `tasks` + `git` + `chat` + gson + Eclipse UI | **PM Board view** (kanban over the task store: **six status columns — paused included** — sprint selector + goal, blocked flags, artifact links with markdown/diagram rendering, *Launch task* → `TaskFleet` via `TaskFleetLauncher`, *Take over*, fleet-row **Shutdown...** (graceful: park admissions, checkpoint + pause in-flight workers, kill a spawned serve - never an attached shared service), activation refresh + an `updated HH:mm:ss` freshness stamp, **Cost overview** dialog + `• $X spent` header suffix aggregating the `fleet actuals:` comments; **Auto ▶** arms the auto-dispatch pump and **Waves ▶/■** toggles the U-022 recurring-waves loop — both off by default) + **Fleet view** (U-040 tree: engine → wave → job (ticket badges) → worker session → subagent sessions → console/shell tasks, live activity per node + tokens/cost rolled up, per-job **server diff** (`/session/:id/diff`) with local-git fallback, folder/takeover, **Permissions (n)** dialog — approve once/always/reject on pending `permission.asked` requests). SWT-free model (`BoardModel`, `TaskStoreWatcher`, `FleetJobsModel`, `FleetTree`, `CostOverview`, `DiffSource`/`SessionDiffText`, `FleetPermissions`) is unit-tested. |
 | `mojo/opencode-tasks` | **maven plugin** | the `tasks` bundle store classes (plain jar dep) | **`opencode-tasks:sync`** (validate/normalize `.harness/tasks/`: schema lint, id/counter consistency, LF; `-Dopencode.tasks.fix=true` applies safe fixes) and **`opencode-tasks:plan`** (render the sprint board as Markdown + standalone HTML into `target/opencode-tasks/`). Maven plans, CMake builds — never invokes a compiler. |
 | `com.opencode.ide.mcp` | **agent endpoint** | `tools` + `tasks` + `client` + gson | Local **MCP server** (stateless Streamable HTTP on 127.0.0.1, **per-start token auth** — the registered `?token=` URL or a `Bearer` header; 401 otherwise, G-003): OSGi DS lifecycle + HTTP endpoint only; tool implementations live in `tools`/`tasks`. Service-driven activation — the endpoint comes up when core binds it, after the tasksRoot preference was bridged. |
 | `com.opencode.ide.cdt` | **C++/CDT** | `core` + CDT bundles | Implements the `ProjectContext` seam (`CdtProjectContext`: active `ICProject` → spawn cwd) + `DiagnosticsMarkers`/`MarkerApplier` (opencode diagnostics → CDT markers). |
 
 Dependency rules (enforced in the manifests, plus **build-time Eclipse-import bans in five
-bundles** — `client`, `tools`, `fleet`, `git` and `tasks` fail the build on any
+bundles** — `client`, `tools`, `git` and `tasks` fail the build on any
 `org.eclipse.*`/`org.osgi.*` reference under `src/main/java`; the `client` ban's allowlist
 admits exactly `org.eclipse.core.jobs` + `org.eclipse.equinox.common`): **layering runs
 `client` → `core` → `ui`/`cdt`** — `client` is the pure-Java opencode layer, `core` the Eclipse
@@ -74,10 +74,9 @@ eclipse/
 │   ├── com.opencode.ide.ui        # + ui.tests — views, perspective, session details
 │   ├── com.opencode.ide.chat      # + chat.tests; consumes components/chat-web at build time
 │   ├── com.opencode.ide.git       # + git.tests (worktree fleet isolation, Eclipse-free)
-│   ├── com.opencode.ide.fleet     # + fleet.tests — headless fleet engine incl. TaskFleet (Eclipse-free)
 │   ├── com.opencode.ide.tools     # + tools.tests — ToolProvider SPI + C++ pack (Eclipse-free)
 │   ├── com.opencode.ide.tasks     # + tasks.tests — task store + task_* tool pack (Eclipse-free)
-│   ├── com.opencode.ide.board     # + board.tests — PM Board + Fleet views (Eclipse UI; SWT-free model)
+│   ├── com.opencode.ide.board     # + board.tests — PM Board views (Eclipse UI; SWT-free model)
 │   ├── com.opencode.ide.mcp       # + mcp.tests — MCP HTTP endpoint + DS lifecycle
 │   └── com.opencode.ide.cdt       # + cdt.tests — CDT ProjectContext + markers bridge
 ├── mojo/opencode-tasks            # plain maven-plugin: opencode-tasks:sync / :plan over the store
@@ -158,8 +157,7 @@ Apply these to every change so the plugin stays consistent:
   (preference *Attach to the shared opencode service (v2)*, default ON). Two v2 realities shape
   the views: **session state is global per user** (every server lists every session), so the
   Server view scopes its list via `GET /session?directory=…`; **event streams stay per-process**,
-  which is why the **fleet deliberately keeps its own spawned server** (a quiet stream, a private
-  password, a killable budget). Chat is async in v2: `POST /session/:id/prompt`
+    password, a killable budget). Chat is async in v2: `POST /session/:id/prompt`
   (+`/agent` `/model` `/synthetic`) then poll `GET …/message` until `time.completed`;
   shell commands follow the same split.
 - **Server readiness ≠ health.** The spawn launcher must wait for `/api/info` **and** a data
@@ -195,7 +193,7 @@ a cross-process claim race against a spawned stdio JVM in the tasks suite, and a
 workspace for marker application in the cdt suite) and the three Node checks against
 `components/chat-web` (`renderer-check.mjs`, `bridge-check.mjs`, `mermaid-check.mjs` — the last
 renders diagrams in **real headless Edge** and SKIPs where Edge/puppeteer-core are absent;
-wired into `mvn verify` via `exec-maven-plugin`). The client, tools, fleet, git and tasks
+wired into `mvn verify` via `exec-maven-plugin`). The client, tools, git and tasks
 bundles additionally fail the build on any `org.eclipse.*`/`org.osgi.*` import (see the
 dependency rules above). The reactor also assembles the p2 update site at
 `releng/com.opencode.ide.repository/target/repository/`.
@@ -247,7 +245,7 @@ distinguished one jar from another.
    (If you set `OPENCODE_SERVER_PASSWORD`, also fill it in below.)
 2. **Window → Perspective → Open Perspective → Other… → OpenCode**.
 3. The perspective opens **chat-first**: the Chat view takes the large right
-   area, and every other view — Server, Repo, Providers, Board, Fleet,
+   area, and every other view — Server, Repo, Providers, Board,
    **Background** (background jobs + live tuning), **Session Details** — is a
    tab in the single left column. Agent tool calls stream into the
    **Agent Tools** console (*Window → Show View → Console*). If the server URL
@@ -261,14 +259,14 @@ The Providers view shows providers as tree roots with their models as children
 ## Status & roadmap
 
 The harness is deployed and **dogfooded daily**: the Hephaestus project plans, executes and
-reviews its own work through the Board, the fleet engine and the store.
+reviews its own work through the Board and the store.
 
-- **Engine (all Eclipse-free, headless-tested):** worktree-per-task isolation with guarded
-  merge-back; progress-aware watchdog with permission-aware stall clock and per-abort
-  diagnostic snapshots; the permission queue for unattended runs; U-021 autonomous acceptance
-  (the engine's review pass applies the verdict: PASS → done + advance, FAIL → staged
-  send-back, UNCLEAR → human); U-022 recurring waves with NEEDS-HUMAN parking; the H6
-  dataflow V-pipeline (`StageReadiness` → invalidations → `task_readiness` → auto-dispatch
+- **Engine (all Eclipse-free, headless-tested):** the task store with the `task_*` tool
+  pack; the H6 dataflow readiness (`StageReadiness` → invalidations → `task_readiness`);
+  distributed-fleet store sync. The fleet-era engine (the progress-aware watchdog, the
+  permission queue, U-021/U-022 autonomous acceptance + recurring waves, the auto-dispatch
+  policy, graceful shutdown with checkpointing) was removed in U-110 (b81ec6f) — its
+  orchestration role moved to the ticker-v schedule and the spawned workers/reviewers.
   policy); distributed-fleet store sync; graceful shutdown with checkpointing.
 - **IDE surfaces:** native chat view (markdown, KaTeX math, syntax highlighting, mermaid,
   streaming, abort, tool parts, copy-code, `/command` picker, `@`-file references, question
@@ -277,12 +275,8 @@ reviews its own work through the Board, the fleet engine and the store.
   fuzzy file search); Session Details (lifecycle, two-phase truth, environment replace,
   import preview, attach skill, suggest title, subagents + shell consoles); Background view
   - attention notifications; the six-column PM Board with V-pipeline layout, cost overview,
-  launch/take-over/shutdown, **Auto ▶** and **Waves ▶** pumps; the Fleet tree with per-job
-  diffs and permissions; CDT ProjectContext + diagnostic markers.
-- **TUI parity (chat-first control plane):** the whole ticket/sprint workflow via the `tasks`
-  stdio server, the whole fleet via the `fleet` stdio server (ships disabled in
-  `opencode.json` - enable by flipping `"disabled"` to `false`); the Board is the maintainer's
-  control surface on top of the same engine.
+- attention notifications; the six-column PM Board with the V-pipeline layout, the wave
+  digest, sync/store/project/group-by controls; CDT ProjectContext + diagnostic markers.
 - **Verification posture:** the entire stack is unit/component-tested headless and the
   reactor is the gate; the live in-Eclipse UI pass over the deployed jars is the rolling
   verification step.
