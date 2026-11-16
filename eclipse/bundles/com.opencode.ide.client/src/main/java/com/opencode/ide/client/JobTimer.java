@@ -15,7 +15,7 @@ import org.eclipse.core.runtime.jobs.Job;
 
 /**
  * A {@link ScheduledExecutorService} facade over the ECLIPSE JOB MANAGER's timer ({@link
- * Job#schedule(long)}) for the periodic loops (auto-dispatch tick, recurring waves). There is no
+ * Job#schedule(long)}) for the periodic loops (periodic reconciliation loops). There is no
  * scheduler thread of ours: each tick is a Job and the platform's timer sleeps between ticks -
  * "sleep and wait after each loop" is structural. Periodic work is FIXED-DELAY (the next tick is
  * scheduled after the current one finishes), so a slow tick can never overlap or queue up behind

@@ -122,9 +122,6 @@ ICONS = {
     "launch": [
         f'<path d="M4.5 2.8v10.4l8-5.2z" {FILLED}/>',
     ],
-    "auto-dispatch": [
-        f'<path d="M9 1.8L4.2 9h3L6.4 14.2 12 7H8.8z" {OPEN}/>',
-    ],
     "auto-loop": [
         f'<path d="M2.8 6.2A3.8 3.8 0 0 1 6.6 2.8h6.2M13 3.2l-2.2-1.6M13 3.2l-2.2 1.6" {OPEN}/>',
         f'<path d="M13.2 9.8a3.8 3.8 0 0 1-3.8 3.4H3.2M3 12.8l2.2 1.6M3 12.8l2.2-1.6" {OPEN}/>',
