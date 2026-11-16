@@ -1392,6 +1392,7 @@ public class ChatSessionControllerTest {
     assertEquals("init", ChatSessionController.builtInSlashCommand("/Init"));
     assertEquals("help", ChatSessionController.builtInSlashCommand(" /help "));
     assertEquals("thinking", ChatSessionController.builtInSlashCommand("/THINKING"));
+    assertEquals("compact", ChatSessionController.builtInSlashCommand("/compact"));
     assertEquals("share", ChatSessionController.builtInSlashCommand("/share"));
     assertEquals("unshare", ChatSessionController.builtInSlashCommand("/unshare"));
     assertNull(ChatSessionController.builtInSlashCommand(null));
@@ -1403,6 +1404,17 @@ public class ChatSessionControllerTest {
     assertNull(ChatSessionController.builtInSlashCommand("/help me"));
     assertNull(ChatSessionController.builtInSlashCommand("redo /redo"));
     assertNull(ChatSessionController.builtInSlashCommand("share/@x"));
+  }
+
+  /** T-143: /compact runs v2 POST .../compact on the session and reports through a notice. */
+  @Test
+  public void compactBuiltInCompactsTheSessionAndNotices() {
+    controller.compactSessionCommand();
+    drainBackground();
+    assertEquals(List.of("ses_1"), connection.client.compactCalls);
+    assertTrue(
+        "compact notice expected, got: " + renderer.notices,
+        renderer.notices.stream().anyMatch(n -> n.contains("Context compacted")));
   }
 
   // ---------- built-in commands: /init, /help, /thinking, /share (U-047) ----------
@@ -2873,6 +2885,7 @@ public class ChatSessionControllerTest {
     final List<Path> createdSessionDirs = new ArrayList<>();
     final List<String> abortCalls = new ArrayList<>();
     final List<CommandCall> commandCalls = new ArrayList<>();
+    final List<String> compactCalls = new ArrayList<>();
     final List<ForkCall> forkCalls = new ArrayList<>();
     final List<RevertCall> revertCalls = new ArrayList<>();
     final List<String> unrevertCalls = new ArrayList<>();
@@ -3059,6 +3072,11 @@ public class ChatSessionControllerTest {
         throw commandFailure;
       }
       return reply;
+    }
+
+    @Override
+    public void compactSession(String sessionId) throws OpencodeException {
+      compactCalls.add(sessionId);
     }
 
     @Override

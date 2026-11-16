@@ -1270,15 +1270,132 @@ public final class HttpOpencodeClient implements OpencodeClient {
     // v2's command body is {name, text} (v1 sent {command, arguments[]});
     // additionalProperties=false rejects the v1 keys with HTTP 400
     String path = "/session/" + sessionId + "/command";
-    return parseBody(
-        "POST",
-        path,
+    // server-clock anchor: this run's reply must be strictly newer than anything
+    // already there (the same race guard as runShell)
+    long anchor = newestMessageCreated(sessionId);
+    HttpResponse<String> response =
         request(
             "POST",
             path,
             ChatRequests.commandBody(command, arguments),
-            ClientTuning.PROMPT_TIMEOUT),
-        ChatEntry.class);
+            ClientTuning.PROMPT_TIMEOUT);
+    String body = response.body();
+    if (body != null && !body.isBlank()) {
+      // a synchronous server answers the reply inline - keep that path
+      return parseBody("POST", path, response, ChatEntry.class);
+    }
+    // v2 answers 204 (accepted, no body): the command runs asynchronously and its
+    // reply arrives as messages - the same async split POST /shell documents. Poll
+    // until a newer assistant message settles, then return its parsed entry. A
+    // command that never replies within the budget resolves to null (tolerated by
+    // ChatSessionController.settleReply - the streamed bubbles already carry it).
+    return awaitCommandReply(sessionId, anchor);
+  }
+
+  /** Newest {@code time.created} across the session's messages (any type); 0 when none. */
+  private long newestMessageCreated(String sessionId) throws OpencodeException {
+    JsonArray data = messagesArray(sessionId);
+    if (data == null) {
+      return 0L;
+    }
+    long newest = 0L;
+    for (JsonElement item : data) {
+      if (!item.isJsonObject()) {
+        continue;
+      }
+      JsonObject time = asObject(item.getAsJsonObject(), "time");
+      if (time != null && time.has("created") && time.get("created").isJsonPrimitive()) {
+        newest = Math.max(newest, time.get("created").getAsLong());
+      }
+    }
+    return newest;
+  }
+
+  /**
+   * {@code id} of an {@code assistant} message STRICTLY newer than {@code anchorMs}: settled
+   * ({@code time.completed} present) returns immediately; a newer assistant still streaming returns
+   * {@code null} so the caller re-polls; only older assistants means no reply yet.
+   */
+  private String settledAssistantReplyId(String sessionId, long anchorMs) throws OpencodeException {
+    JsonArray data = messagesArray(sessionId);
+    if (data == null) {
+      return null;
+    }
+    for (JsonElement item : data) {
+      if (!item.isJsonObject()) {
+        continue;
+      }
+      JsonObject message = item.getAsJsonObject();
+      if (!"assistant".equals(stringOf(message, "type"))) {
+        continue;
+      }
+      JsonObject time = asObject(message, "time");
+      long created =
+          (time != null && time.has("created") && time.get("created").isJsonPrimitive())
+              ? time.get("created").getAsLong()
+              : 0L;
+      if (created <= anchorMs) {
+        continue; // a pre-run assistant: keep looking
+      }
+      if (time != null && time.has("completed")) {
+        return stringOf(message, "id");
+      }
+      return null; // the run's assistant exists but is still streaming - re-poll
+    }
+    return null;
+  }
+
+  /**
+   * Polls the message list for the command's reply: a newer settled assistant message, mapped
+   * through the chat-shaped parsing. Resolves to {@code null} when no reply appears within {@link
+   * ClientTuning#PROMPT_TIMEOUT} (the SSE stream already carried a long turn's content; silent
+   * metadata commands never reply at all).
+   */
+  private ChatEntry awaitCommandReply(String sessionId, long anchorMs) throws OpencodeException {
+    long deadline = System.nanoTime() + ClientTuning.PROMPT_TIMEOUT.toNanos();
+    while (System.nanoTime() < deadline) {
+      String replyId = settledAssistantReplyId(sessionId, anchorMs);
+      if (replyId != null) {
+        for (ChatEntry entry : getMessages(sessionId)) {
+          if (entry != null && entry.info() != null && replyId.equals(entry.info().id())) {
+            return entry;
+          }
+        }
+      }
+      try {
+        Thread.sleep(ClientTuning.REPLY_POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new OpencodeException(
+            "opencode " + sessionId + ": interrupted while awaiting the command reply", e);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The unwrapped {@code data} array of {@code GET /session/:id/message}; {@code null} on error.
+   */
+  private JsonArray messagesArray(String sessionId) throws OpencodeException {
+    String path = "/session/" + sessionId + "/message";
+    HttpResponse<String> response = send("GET", path, null, ClientTuning.REQUEST_TIMEOUT);
+    if (response.statusCode() >= 400) {
+      return null; // like newestShellMessage: let the caller's budget decide
+    }
+    String body = response.body();
+    if (body == null || body.isBlank()) {
+      return null;
+    }
+    try {
+      JsonElement element = JsonParser.parseString(body);
+      JsonElement data =
+          element.isJsonObject() && element.getAsJsonObject().has("data")
+              ? element.getAsJsonObject().get("data")
+              : element;
+      return data.isJsonArray() ? data.getAsJsonArray() : null;
+    } catch (JsonParseException | IllegalStateException e) {
+      return null;
+    }
   }
 
   // ---------- U-045 / v2 parity surfaces (background tasks, ask recovery) ----------

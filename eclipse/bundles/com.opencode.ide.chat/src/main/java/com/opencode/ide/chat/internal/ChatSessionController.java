@@ -76,6 +76,8 @@ public final class ChatSessionController {
               "init", "guided setup: create or update AGENTS.md for this repository"),
           new BuiltInCommand("thinking", "toggle the visibility of thinking/reasoning blocks"),
           new BuiltInCommand(
+              "compact", "compact this session's context (TUI parity: free context window space)"),
+          new BuiltInCommand(
               "undo", "undo the last exchange (message and replies; files from the git snapshot)"),
           new BuiltInCommand("redo", "redo the undone exchange"),
           new BuiltInCommand(
@@ -1921,6 +1923,34 @@ public final class ChatSessionController {
         "\nAnything else starting with / runs the project's custom commands"
             + " (.opencode/command/, offered by the picker as you type).");
     renderer.notice(help.toString());
+  }
+
+  /**
+   * {@code /compact} (TUI parity): compacts this session's context through the v2 {@code POST
+   * /session/:id/compact} endpoint (the same call Session Details' Compact context action makes). A
+   * metadata operation: it never joins the prompt queue - it runs in its own background job and
+   * reports through a notice.
+   */
+  public void compactSessionCommand() {
+    if (sending) {
+      renderer.notice(
+          "Warning: a reply is still streaming - wait for it to finish before compacting.");
+      return;
+    }
+    host.runInBackground(
+        "Compacting session context",
+        () -> {
+          try {
+            String sid = ensureSession();
+            connection.getClient().compactSession(sid);
+            host.runOnUi(
+                () ->
+                    renderer.notice(
+                        "Context compacted (the next reply runs with a fresh window)."));
+          } catch (OpencodeException e) {
+            host.runOnUi(() -> renderer.notice("Compact failed: " + e.getMessage()));
+          }
+        });
   }
 
   // ---------- /thinking (reasoning visibility) ----------

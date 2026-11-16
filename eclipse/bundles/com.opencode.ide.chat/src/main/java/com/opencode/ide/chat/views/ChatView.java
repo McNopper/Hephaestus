@@ -1402,6 +1402,8 @@ public class ChatView extends ViewPart {
       controller.showHelp();
     } else if ("thinking".equals(builtIn)) {
       controller.toggleThinking();
+    } else if ("compact".equals(builtIn)) {
+      controller.compactSessionCommand();
     } else if ("share".equals(builtIn)) {
       controller.shareNotAvailable(false);
     } else if ("unshare".equals(builtIn)) {

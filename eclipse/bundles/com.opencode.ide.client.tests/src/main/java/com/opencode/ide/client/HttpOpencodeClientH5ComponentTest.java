@@ -52,6 +52,10 @@ public class HttpOpencodeClientH5ComponentTest {
   private static final AtomicReference<String> lastQuery = new AtomicReference<>();
   private static final AtomicReference<String> lastBody = new AtomicReference<>();
 
+  /** Every request in order ({@code "METHOD /path"}) - for flows where last* is overwritten. */
+  private static final java.util.List<String> callLog =
+      new java.util.concurrent.CopyOnWriteArrayList<>();
+
   @BeforeClass
   public static void startStub() throws IOException {
     server = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -63,7 +67,14 @@ public class HttpOpencodeClientH5ComponentTest {
           lastQuery.set(exchange.getRequestURI().getRawQuery());
           lastBody.set(
               new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+          callLog.add(exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath());
           byte[] bytes = respond(exchange.getRequestURI().getPath());
+          if (bytes == null) {
+            // v2's async split: the command endpoint ACCEPTS with 204 and no body
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+            return;
+          }
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, bytes.length);
           try (OutputStream out = exchange.getResponseBody()) {
@@ -83,11 +94,38 @@ public class HttpOpencodeClientH5ComponentTest {
     lastPath.set(null);
     lastQuery.set(null);
     lastBody.set(null);
+    messagePollCalls.set(0);
+    callLog.clear();
   }
+
+  /**
+   * Poll sequence for {@code /session/ses_2/message}: call #1 is the pre-run anchor (an older
+   * settled assistant only), later calls add the command's NEW settled reply - the async 204 flow
+   * runCommand must poll through.
+   */
+  private static final java.util.concurrent.atomic.AtomicInteger messagePollCalls =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  private static final String ANCHOR_MESSAGE_LIST =
+      """
+            [{"id":"msg_old","type":"assistant","time":{"created":1,"completed":2},
+              "content":[{"type":"text","text":"older turn"}]}]
+            """;
+
+  private static final String REPLY_MESSAGE_LIST =
+      """
+            [{"id":"msg_new","type":"assistant","time":{"created":10,"completed":11},
+              "content":[{"type":"text","text":"async reply"}]},
+             {"id":"msg_old","type":"assistant","time":{"created":1,"completed":2},
+              "content":[{"type":"text","text":"older turn"}]}]
+            """;
 
   private static byte[] respond(String path) {
     String json =
         switch (path) {
+          case "/api/session/ses_2/command" -> null; // 204 accepted, no body
+          case "/api/session/ses_2/message" ->
+              messagePollCalls.incrementAndGet() == 1 ? ANCHOR_MESSAGE_LIST : REPLY_MESSAGE_LIST;
           case "/api/session/ses_1/diff" ->
               """
                     {"data":[{"path":"src/a.cpp","before":"HEAD","after":"opencode/ses_1",
@@ -140,6 +178,9 @@ public class HttpOpencodeClientH5ComponentTest {
           case "/api/experimental/config" -> "{\"model\":\"prov/m2\",\"small_model\":null}";
           default -> "{}";
         };
+    if (json == null) {
+      return null; // the 204 path: accepted with no body
+    }
     return json.getBytes(StandardCharsets.UTF_8);
   }
 
@@ -288,6 +329,24 @@ public class HttpOpencodeClientH5ComponentTest {
     assertTrue(
         "command scope must use bracket syntax, got: " + q,
         q != null && q.startsWith("location%5Bdirectory%5D="));
+  }
+
+  /**
+   * T-142: v2 answers the command POST with 204 (accepted, NO body) - the client must poll the
+   * message list for the command's settled reply instead of parsing an empty body. The anchor GET
+   * precedes the POST; the poll then finds the newer settled assistant and returns its parsed
+   * entry.
+   */
+  @Test
+  public void commandAcceptedWithNoBodyPollsForTheReply() throws Exception {
+    ChatEntry reply = client.runCommand("ses_2", "goal", List.of("keep going"));
+    org.junit.Assert.assertNotNull("the polled reply is returned", reply);
+    assertEquals("async reply", reply.text());
+    assertEquals("the settled newer message's id", "msg_new", reply.info().id());
+    org.junit.Assert.assertTrue(
+        "the command POST must be in the call log, got: " + callLog,
+        callLog.contains("POST /api/session/ses_2/command"));
+    org.junit.Assert.assertFalse("no error surfaced: " + callLog, callLog.isEmpty());
   }
 
   @Test
