@@ -34,8 +34,8 @@ board by sharing the store's git history. The store is the **only** shared state
 
 **Single shared store repo (chosen).** All projects, all machines, one repository.
 
-Why: the store's value is *the* global queue — cross-project dispatch
-(`AutoDispatch`), cost rollups (`CostOverview`), traceability audits all assume
+Why: the store's value is *the* global queue — readiness gating
+(`task_readiness`), cross-machine traceability audits all assume
 one linear history; a single repo makes "what's runnable right now" one
 `git pull` away, keeps claim conflicts detectable by git itself, and needs zero
 extra infrastructure (no hosting beyond one bare repo, no sync service).
