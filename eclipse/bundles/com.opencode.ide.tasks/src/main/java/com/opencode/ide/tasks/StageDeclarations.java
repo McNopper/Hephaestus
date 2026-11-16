@@ -35,8 +35,9 @@ import java.util.Map;
  *       such lines out before they can reach it.
  * </ul>
  *
- * <p>The launch side lives in {@code TaskFleet} (the one front end every dispatch path runs
- * through); this class is pure parsing over store data - no I/O, no clock.
+ * <p>The launch side historically lived in the fleet engine (removed in U-110 - the ticker-v
+ * schedule and the spawned workers are the dispatch paths now); the stage declarations through);
+ * this class is pure parsing over store data - no I/O, no clock.
  */
 public final class StageDeclarations {
 

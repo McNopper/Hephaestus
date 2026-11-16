@@ -132,8 +132,7 @@ public class LayerArchitectureTest {
             "com.opencode.ide.client..",
             "com.opencode.ide.tools..",
             "com.opencode.ide.tasks..",
-            "com.opencode.ide.git..",
-            "com.opencode.ide.fleet..")
+            "com.opencode.ide.git..")
         .should()
         .dependOnClassesThat()
         .resideInAnyPackage(

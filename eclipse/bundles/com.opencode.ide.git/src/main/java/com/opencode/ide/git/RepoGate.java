@@ -8,11 +8,11 @@ import java.util.function.Supplier;
  *
  * <p>Why it exists: git does not queue on {@code .git/index.lock} — it fails fast. Without a shared
  * gate, two concurrent fleet launches (or a launch and a store sync) intermittently lost that race
- * and surfaced as blocked tickets; worse, a per-instance Java lock (like the old
- * TaskFleet.mergeLock) only serialized ONE engine while the Board and a chat session each built
- * their own. The gate uses the canonical common git directory, so linked worktrees and path aliases
- * share a permanent OS lock file. Nested calls on the owning thread are reentrant. Callers must
- * acquire admission before this gate, never in the opposite order.
+ * and surfaced as blocked tickets; worse, a per-instance Java lock (like the old the fleet engine's
+ * merge lock, removed in U-110) only serialized ONE engine while the Board and a chat session each
+ * built their own. The gate uses the canonical common git directory, so linked worktrees and path
+ * aliases share a permanent OS lock file. Nested calls on the owning thread are reentrant. Callers
+ * must acquire admission before this gate, never in the opposite order.
  *
  * <p>Pure Java, no Eclipse/OSGi. The lock map never evicts: one entry per distinct repository per
  * process lifetime is bounded by usage.
