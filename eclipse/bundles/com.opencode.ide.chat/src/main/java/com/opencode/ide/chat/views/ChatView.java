@@ -219,9 +219,23 @@ public class ChatView extends ViewPart {
 
         @Override
         public void schedulePoll(long delayMillis, Runnable task) {
-          // the U-014 form-poll tick: a UI timer, so the tick itself never
-          // blocks and the HTTP refresh runs as a normal background job
-          Display.getDefault().timerExec((int) Math.max(0, delayMillis), task);
+          // the U-014 form-poll tick and the T-149 goal-notice retry: a UI timer, so the
+          // tick itself never blocks and the HTTP refresh runs as a normal background job.
+          // Callers schedule from BACKGROUND jobs - live proof 2026-11-16: the goal-notice
+          // retry hit "Invalid thread access" (timerExec is UI-thread-only) and raised an
+          // internal-error dialog. Marshal through asyncExec (legal from any thread) and
+          // drop the poll when the display is gone (shutdown race) instead of dialoging.
+          try {
+            Display display = Display.getDefault();
+            display.asyncExec(
+                () -> {
+                  if (!display.isDisposed()) {
+                    display.timerExec((int) Math.max(0, delayMillis), task);
+                  }
+                });
+          } catch (org.eclipse.swt.SWTException e) {
+            ChatLog.info("pending poll dropped (display unavailable): " + e.getMessage());
+          }
         }
 
         @Override
