@@ -267,7 +267,18 @@ public class HttpOpencodeClientComponentTest {
             return;
           }
           if (path.endsWith("/context")) {
-            respond(exchange, 200, "{\"data\":{\"tokens\":123,\"cost\":0.5}}");
+            // T-151 live shape (2.3.0, probed 2026-11-16): {data:[contextItems]} - message-shaped
+            // items; served NEWEST-FIRST here to pin the chronological normalization the client
+            // applies (same contract as getMessages).
+            respond(
+                exchange,
+                200,
+                "{\"data\":["
+                    + "{\"id\":\"msg_ctx_a\",\"type\":\"assistant\",\"time\":{\"created\":2,\"completed\":3},"
+                    + "\"model\":{\"id\":\"llm-1\",\"providerID\":\"prov\",\"variant\":\"default\"},"
+                    + "\"tokens\":{\"input\":700,\"output\":20,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},"
+                    + "\"content\":[{\"type\":\"text\",\"text\":\"later\"}]},"
+                    + "{\"id\":\"msg_ctx_b\",\"type\":\"user\",\"time\":{\"created\":1},\"text\":\"earlier\"}]}");
             return;
           }
           if ("PATCH".equals(exchange.getRequestMethod()) && path.matches("/api/session/[^/]+")) {
@@ -878,12 +889,22 @@ public class HttpOpencodeClientComponentTest {
   }
 
   @Test
-  public void sessionContextReadsTheDataEnvelope() throws Exception {
-    Map<String, Object> context = client.getSessionContext("ses_123");
+  public void sessionContextParsesTheContextItemsAsChronologicalMessages() throws Exception {
+    List<com.opencode.ide.client.model.ChatEntry> context = client.getSessionContext("ses_123");
 
     assertEquals("/api/session/ses_123/context", lastPath.get());
+    assertEquals("both context items parse", 2, context.size());
     assertEquals(
-        "tokens come from the service, not from message math", 123.0, context.get("tokens"));
+        "normalized chronological like getMessages (the wire may be newest-first)",
+        "user",
+        context.get(0).info().role());
+    assertEquals("assistant", context.get(1).info().role());
+    assertEquals(
+        "the assistant usage rides the item", 700L, context.get(1).info().tokens().input());
+    assertEquals(
+        "the model triple parses (drives the limit lookup)",
+        "prov",
+        context.get(1).info().providerId());
   }
 
   @Test

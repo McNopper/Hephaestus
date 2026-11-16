@@ -11,6 +11,7 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatPart;
+import com.opencode.ide.client.model.ContextUsage;
 import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
@@ -984,78 +985,35 @@ public final class ChatSessionController {
   }
 
   /**
-   * TUI {@code Locale.number}: 999950+ renders "X.XM", 1000+ renders "X.XK", else the plain number.
+   * TUI {@code Locale.number} - the formatter moved to {@link ContextUsage} with T-151 (the
+   * cross-bundle seam shared with the Session Details Context block); kept as a delegate for the
+   * compaction usage suffix.
    */
   private static String compactNumber(long value) {
-    if (value >= 999950) {
-      return String.format(Locale.ROOT, "%.1fM", value / 1_000_000.0);
-    }
-    if (value >= 1000) {
-      return String.format(Locale.ROOT, "%.1fK", value / 1000.0);
-    }
-    return Long.toString(value);
+    return ContextUsage.compactNumber(value);
   }
 
   /**
-   * T-149: the TUI's context-usage strip value ({@code util/session.ts:46-66}): the LAST assistant
-   * message with usage AFTER the last completed compaction - {@code tokens} summed over all five
-   * fields, {@code percent} of the matched model's {@code limit.context}. Returns {@code null} when
-   * nothing qualifies (no usage yet, or a completed compaction with no assistant step after it yet
-   * - the TUI hides the segment in exactly those cases). The revert boundary needs no handling: the
-   * server drops reverted messages from {@code GET /message} (the undo contract this codebase
-   * already tests), so the served list IS the boundary.
+   * T-149/T-151: the TUI's context-usage value in the FOOTER dialect ({@code util/session.ts
+   * contextUsage}: last assistant usage after the newest completed compaction, five token fields,
+   * percent of {@code limit.context} -> {@code 596.1K (7%)}) - the numbers live in {@link
+   * ContextUsage} so the chat strip and the Session Details Context block can never drift. Revert
+   * boundary: the served list IS the boundary (the server drops reverted messages; a pending revert
+   * hides the segment via {@code serverHasReverted} at the call site).
    *
-   * <p>Static and pure for the unit tests; {@code limits} maps {@code "providerId/modelId"} to
-   * {@code limit.context} (absent = no percent, matching the TUI when the model is unknown).
+   * <p>{@code limits} maps {@code "providerId/modelId"} to {@code limit.context} (absent = no
+   * percent, matching the TUI when the model is unknown).
    */
   public static String contextUsageLabel(List<ChatEntry> entries, Map<String, Long> limits) {
-    int start = 0;
-    for (int i = entries.size() - 1; i >= 0; i--) {
-      ChatEntry entry = entries.get(i);
-      if (entry.isCompaction()
-          && entry.compaction() != null
-          && "completed".equals(entry.compaction().status())) {
-        start = i + 1; // only assistant steps AFTER the newest completed compaction count
-        break;
-      }
-    }
-    for (int i = entries.size() - 1; i >= start; i--) {
-      ChatEntry entry = entries.get(i);
-      if (entry.info() == null || !"assistant".equals(entry.info().role())) {
-        continue;
-      }
-      Session.Tokens tokens = entry.info().tokens();
-      if (tokens == null) {
-        continue; // the TUI skips assistants without usage (tokens undefined)
-      }
-      long sum =
-          tokens.input()
-              + tokens.output()
-              + tokens.reasoning()
-              + (tokens.cache() == null ? 0 : tokens.cache().read() + tokens.cache().write());
-      if (sum <= 0) {
-        return null; // TUI: tokens <= 0 -> undefined -> hidden (no fall-through to older steps)
-      }
-      String value = compactNumber(sum);
-      Long limit = limits.get(entry.info().providerId() + "/" + entry.info().modelId());
-      if (limit == null || limit <= 0) {
-        return value; // percent omitted exactly like the TUI when the model is unknown
-      }
-      long percent = Math.round(sum / (double) limit * 100);
-      return value + " (" + percent + "%)";
-    }
-    return null;
+    return ContextUsage.footerLabel(ContextUsage.compute(entries, limits));
   }
 
   /**
-   * T-149: the TUI's footer cost segment ({@code feature-plugins/prompt/footer.tsx:46-49}): USD
-   * currency format, shown only when the session costed something - {@code null} hides the segment.
+   * T-149: the TUI's footer cost segment ({@code feature-plugins/prompt/footer.tsx:46-49}) - the
+   * shared USD formatter lives in {@link ContextUsage#costLabel(Double)} since T-151.
    */
   public static String costLabel(Double cost) {
-    if (cost == null || cost <= 0) {
-      return null;
-    }
-    return String.format(Locale.US, "$%,.2f", cost);
+    return ContextUsage.costLabel(cost);
   }
 
   // ---------- status strip (T-149): the TUI prompt-footer status ----------

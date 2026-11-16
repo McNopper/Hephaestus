@@ -92,7 +92,8 @@ public class SessionTranscriptTest {
             List.of(),
             List.of(new MessageRow("u1", "user", null, "", "12:00", "hi", null, List.of())),
             null,
-            List.of());
+            List.of(),
+            null);
 
     assertEquals(
         "T  \u2022  ses_1\n\n---- [1] user  \u2022  12:00 ----\n\nhi",
@@ -122,7 +123,8 @@ public class SessionTranscriptTest {
                     null,
                     List.of())),
             null,
-            List.of());
+            List.of(),
+            null);
 
     String transcript = SessionTranscript.transcript(snapshot);
 
@@ -150,7 +152,8 @@ public class SessionTranscriptTest {
             List.of(),
             List.of(new MessageRow("a1", "assistant", null, "", "", "hi", null, List.of())),
             null,
-            List.of());
+            List.of(),
+            null);
 
     assertTrue(SessionTranscript.transcript(snapshot).startsWith("(untitled)  \u2022  ses_1"));
   }
@@ -161,14 +164,14 @@ public class SessionTranscriptTest {
         "boom",
         SessionTranscript.transcript(
             new SessionDetails(
-                "ses_1", null, null, null, null, List.of(), List.of(), List.of(), "boom",
-                List.of())));
+                "ses_1", null, null, null, null, List.of(), List.of(), List.of(), "boom", List.of(),
+                null)));
     assertEquals(
         SessionDetailsController.EMPTY_NOTE,
         SessionTranscript.transcript(
             new SessionDetails(
-                "ses_1", null, null, null, null, List.of(), List.of(), List.of(), null,
-                List.of())));
+                "ses_1", null, null, null, null, List.of(), List.of(), List.of(), null, List.of(),
+                null)));
     assertEquals(SessionDetailsController.EMPTY_NOTE, SessionTranscript.transcript(null));
   }
 }

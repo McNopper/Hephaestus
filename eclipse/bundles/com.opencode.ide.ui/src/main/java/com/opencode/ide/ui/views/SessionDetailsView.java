@@ -153,6 +153,10 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
   private static final int EVENT_REFRESH_DEBOUNCE_MILLIS = 300;
 
   private Label headerLabel;
+
+  /** T-151: the TUI sidebar's Context block ({@code Context / N tokens / P% used / $X spent}). */
+  private Label contextLabel;
+
   private TreeViewer viewer;
   private SessionDetailsController controller;
   private boolean autoRefresh;
@@ -198,6 +202,13 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
 
     headerLabel = new Label(outer, SWT.WRAP);
     headerLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+    // T-151: the TUI sidebar's Context block directly under the header (sidebar/context.tsx:
+    // "Context" + "<N> tokens" / "<P>% used" / "$<X> spent"); hidden until a snapshot carries it
+    contextLabel = new Label(outer, SWT.WRAP);
+    contextLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    contextLabel.setText("");
+    contextLabel.setVisible(false);
 
     Composite treeComposite = new Composite(outer, SWT.NONE);
     TreeColumnLayout treeLayout = new TreeColumnLayout();
@@ -1555,6 +1566,7 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     }
     currentSnapshot = snapshot; // feeds the editor actions (content + enablement)
     headerLabel.setText(headerText(snapshot));
+    applyContext(snapshot.context());
     if (snapshot.errorNote() != null) {
       viewer.setInput(List.of());
       setContentDescription(snapshot.errorNote());
@@ -1565,6 +1577,37 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     setContentDescription(snapshot.rows().size() + " messages");
     markSessionViewed(); // U-048: the unread/idle read marker
     refreshShellConsoles(snapshot); // U-041: keep open consoles' tails live
+  }
+
+  /**
+   * T-151: renders the TUI sidebar's Context block under the header - the {@code Context} header
+   * plus whichever of {@code <N> tokens / <P>% used / $<X> spent} the snapshot carries ({@code
+   * sidebar/context.tsx:21-41} verbatim); the whole block hides when there is nothing to show (no
+   * usage and nothing spent - the TUI's {@code Show when(state() || cost() > 0)}).
+   */
+  private void applyContext(SessionDetails.ContextBlock block) {
+    if (contextLabel == null || contextLabel.isDisposed()) {
+      return;
+    }
+    boolean show = block != null && (block.tokens() != null || block.spent() != null);
+    StringBuilder text = new StringBuilder();
+    if (show) {
+      text.append("Context");
+      if (block.tokens() != null) {
+        text.append('\n').append(block.tokens());
+      }
+      if (block.percent() != null) {
+        text.append('\n').append(block.percent());
+      }
+      if (block.spent() != null) {
+        text.append('\n').append(block.spent());
+      }
+    }
+    contextLabel.setText(text.toString());
+    if (contextLabel.getVisible() != show) {
+      contextLabel.setVisible(show);
+      contextLabel.getParent().layout(true, true);
+    }
   }
 
   /**

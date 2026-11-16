@@ -86,7 +86,7 @@ in-chat rows are §1's, listed where the same data now exists in both places).
 
 | TUI element (verbatim wording) | Source | Eclipse tabs/views today | Verdict / action |
 |---|---|---|---|
-| Sidebar Context block: **`Context`** / `` `1,234 tokens` `` / `` `57% used` `` / `` `$9.96 spent` `` | `[TUI] feature-plugins/sidebar/context.tsx:21-41` | Session Details offers only *"Session stats…"* → a raw `ServiceText.keyValues(sessionStats())` **text dialog** (`SessionDetailsView.java:1016-1022`, `SessionDetailsController.stats():387`) — no labeled block, no `% used`, no `spent`; the client verb for the telemetry (`getSessionContext`, `GET /api/session/{id}/context`) is **unconsumed** (`opencode-v2-adoption.md` → "Verbs landed, no consumer yet") | ✗ **misaligned** → derived ticket: consume `getSessionContext` into a labeled `Context` / `N tokens` / `P% used` / `$X spent` section with the TUI's wording |
+| Sidebar Context block: **`Context`** / `` `1,234 tokens` `` / `` `57% used` `` / `` `$9.96 spent` `` | `[TUI] feature-plugins/sidebar/context.tsx:21-41` | Session Details now renders the labeled block under the header (`SessionDetailsController.contextBlock` over the shared `ContextUsage` seam: assembled context via `getSessionContext` + `/model` limits + session cost); the raw *"Session stats..."* key-values dialog stays as a fallback action | **Landed (T-151)** - intercept-carried on the `session-details` channel as `context=<tokens> / <percent> / <spent>` |
 | Context window per model (model options) | `[TUI] component/model-options.tsx:49` | Providers view column **`Context`** (`ProvidersView.java:140`) — same word, same meaning | ✓ aligned (the chat model *combo* detail stays G5) |
 | Session cost / tokens | `footer.tsx:46-49`, sidebar above | Background view columns **`Cost`** / **`Tokens`** (`BackgroundView.java:83-84`) | ✓ aligned wording |
 | Footer context + cost **in the transcript** | `footer.tsx:41-49` | the chat status strip (T-149): intercept `ctx=517.2K (49%) cost=$9.96` | ✓ landed (T-149) — but the Session Details tab still lacks the Context block above (the one-hop sidebar equivalent stays raw) |
@@ -96,9 +96,10 @@ in-chat rows are §1's, listed where the same data now exists in both places).
 | `usage.show`: budgets, spent/left per model | `[TUI] component/usage.tsx` | **absent** | ✗ → G4 derived ticket (route live since 2.1.0) |
 | Model options: price, modalities, context window, reasoning | `[TUI] component/model-options.tsx:49` | Providers column ✓; chat combo names-only | ~ → G5 derived ticket |
 
-Derived fix legs (basis T-150): the **Context block** ticket, **G4 usage-limits**, **G5 model
-detail**. The two-goal distinction and the `Shell tasks` wording rule above are documentation
-decisions — no code change needed to satisfy them.
+Derived fix legs (basis T-150): the **Context block** — **landed (T-151)**; **G4 usage-limits**
+(**T-152**) and **G5 model detail** (**T-153**) remain registered and pending. The two-goal
+distinction and the `Shell tasks` wording rule above are documentation decisions — no code change
+needed to satisfy them.
 
 ### 5. Per-message rows
 

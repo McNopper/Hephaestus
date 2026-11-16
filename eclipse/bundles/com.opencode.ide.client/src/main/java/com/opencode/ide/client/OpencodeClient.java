@@ -361,12 +361,14 @@ public interface OpencodeClient {
   }
 
   /**
-   * Per-session context usage (v2 {@code GET /api/session/{id}/context}). Adoption 2026-09-25:
-   * token/context telemetry straight from the service, no message-list math. Default throws so test
-   * fakes stay minimal.
+   * The session's ASSEMBLED CONTEXT (v2 {@code GET /api/session/{id}/context}) as entries - T-151
+   * live probe 2026-11-16 (2.3.0): the route answers {@code {data:[contextItems]}} where every item
+   * is message-shaped (the same union {@code /message} serves; the first item is typically the kept
+   * compaction marker). Chronological like {@link #getMessages(String)}; an empty list on a server
+   * without the route is tolerated by callers (the Context block then hides). Default throws so
+   * test fakes stay minimal.
    */
-  default java.util.Map<String, Object> getSessionContext(String sessionId)
-      throws OpencodeException {
+  default java.util.List<ChatEntry> getSessionContext(String sessionId) throws OpencodeException {
     throw new UnsupportedOperationException("getSessionContext");
   }
 

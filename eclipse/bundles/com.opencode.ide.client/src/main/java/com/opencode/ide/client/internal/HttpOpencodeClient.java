@@ -619,12 +619,15 @@ public final class HttpOpencodeClient implements OpencodeClient {
   }
 
   @Override
-  public Map<String, Object> getSessionContext(String sessionId) throws OpencodeException {
-    // v2 adoption 2026-09-25: per-session context usage; same envelope
-    // handling as getSessionStatus (data object, absent data = empty)
-    HttpResponse<String> response =
-        send("GET", "/session/" + sessionId + "/context", null, ClientTuning.REQUEST_TIMEOUT);
-    return objectMap(response.body());
+  public List<ChatEntry> getSessionContext(String sessionId) throws OpencodeException {
+    // T-151 live probe 2026-11-16 (2.3.0): the route returns the ASSEMBLED CONTEXT as
+    // {data:[contextItems]} - message-shaped items (compaction marker first, latest assistant
+    // last). Same deserializer and the same chronological normalization as getMessages (the
+    // stable sort leaves an already-ordered list untouched).
+    List<ChatEntry> context =
+        new ArrayList<>(getList("/session/" + sessionId + "/context", ChatEntry.class));
+    context.sort(java.util.Comparator.comparingLong(HttpOpencodeClient::createdAt));
+    return List.copyOf(context);
   }
 
   @Override

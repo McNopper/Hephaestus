@@ -73,6 +73,32 @@ public class SessionDetailsControllerTest {
         0L);
   }
 
+  /** T-151: the session record's own cost (the Context block's {@code $X spent} source). */
+  private static Session sessionWithCost(Double cost) {
+    return new Session(
+        "ses_1", null, "Session One", null, null, null, TIME, cost, null, null, null);
+  }
+
+  /** T-151: a catalog entry with a context window (the {@code % used} denominator). */
+  private static com.opencode.ide.client.model.Model modelWithLimit(
+      String providerId, String id, long context) {
+    return new com.opencode.ide.client.model.Model(
+        id,
+        id,
+        providerId,
+        null,
+        null,
+        null,
+        null,
+        null,
+        new com.opencode.ide.client.model.Model.Limit(context, 0),
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
   private static Session session() {
     return new Session(
         "ses_1", null, "Session One", "build", null, null, TIME, 9.0, null, null, null);
@@ -247,6 +273,81 @@ public class SessionDetailsControllerTest {
 
     assertEquals(Double.valueOf(1.0), snapshot.totalCost());
     assertNull(snapshot.tokens());
+  }
+
+  // ---------- T-151: the TUI sidebar's Context block ----------
+
+  @Test
+  public void contextBlockUsesTheTuiWordingFromTheAssembledContext() {
+    client.sessions = List.of(sessionWithCost(9.96));
+    client.context =
+        List.of(
+            new ChatEntry(
+                assistant("a1", "prov", null, new Session.Tokens(600_000, 0, 0, null)), List.of()));
+    client.models = List.of(modelWithLimit("prov", "llm-2", 1_000_000L));
+
+    SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+    assertTrue("block present", snapshot.context() != null);
+    assertEquals(
+        "grouped plain tokens (sidebar dialect, not the compact footer)",
+        "600,000 tokens",
+        snapshot.context().tokens());
+    assertEquals("60% used", snapshot.context().percent());
+    assertEquals("$9.96 spent", snapshot.context().spent());
+  }
+
+  @Test
+  public void contextBlockHidesWithoutUsageAndWithoutCost() {
+    client.sessions = List.of(sessionWithCost(null));
+    client.context = List.of();
+
+    SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+    assertNull("the TUI shows the block only for state() || cost() > 0", snapshot.context());
+  }
+
+  @Test
+  public void contextBlockShowsCostOnlyWhenNothingUsage() {
+    client.sessions = List.of(sessionWithCost(0.5));
+    client.context = List.of();
+
+    SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+    assertTrue("block present on cost alone", snapshot.context() != null);
+    assertNull(snapshot.context().tokens());
+    assertNull(snapshot.context().percent());
+    assertEquals("$0.50 spent", snapshot.context().spent());
+  }
+
+  @Test
+  public void contextBlockHidesWhenTheContextCallFails() {
+    client.sessions = List.of(sessionWithCost(9.96));
+    client.contextFails = true;
+
+    SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+    assertNull("telemetry failure never breaks the view - the block hides", snapshot.context());
+    assertEquals("the rest of the snapshot still loads", "Session One", snapshot.title());
+  }
+
+  @Test
+  public void contextBlockKeepsTokensWhenTheModelCatalogFails() {
+    client.sessions = List.of(sessionWithCost(9.96));
+    client.context =
+        List.of(
+            new ChatEntry(
+                assistant("a1", "prov", null, new Session.Tokens(7_000, 0, 0, null)), List.of()));
+    client.modelsFail = true;
+
+    SessionDetails snapshot = new SessionDetailsController("ses_1", () -> client).load();
+
+    assertTrue("block present", snapshot.context() != null);
+    assertEquals("7,000 tokens", snapshot.context().tokens());
+    assertNull(
+        "no catalog -> no percent, like the TUI with an unknown model",
+        snapshot.context().percent());
+    assertEquals("$9.96 spent", snapshot.context().spent());
   }
 
   @Test
@@ -766,6 +867,29 @@ public class SessionDetailsControllerTest {
     String generatePrompt;
     String generateAnswer;
     OpencodeException generateFailure;
+
+    // T-151: the assembled context + model catalog behind the Context block
+    List<ChatEntry> context = List.of();
+    boolean contextFails;
+    List<com.opencode.ide.client.model.Model> models = List.of();
+    boolean modelsFail;
+
+    @Override
+    public List<ChatEntry> getSessionContext(String sessionId) throws OpencodeException {
+      if (contextFails) {
+        throw new OpencodeException("context unreadable");
+      }
+      return context;
+    }
+
+    @Override
+    public List<com.opencode.ide.client.model.Model> getModels(String directory)
+        throws OpencodeException {
+      if (modelsFail) {
+        throw new OpencodeException("catalog unreadable");
+      }
+      return models;
+    }
 
     @Override
     public Session forkSession(String sessionId, String messageId) throws OpencodeException {

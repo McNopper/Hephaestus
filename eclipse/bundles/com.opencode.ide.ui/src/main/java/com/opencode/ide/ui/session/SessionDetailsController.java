@@ -8,6 +8,8 @@ import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatMessageInfo;
 import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.ConfigInfo;
+import com.opencode.ide.client.model.ContextUsage;
+import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
@@ -118,7 +120,15 @@ public final class SessionDetailsController {
               + " questions="
               + details.questions().size()
               + " error="
-              + details.errorNote());
+              + details.errorNote()
+              + " context="
+              + (details.context() == null
+                  ? "none"
+                  : details.context().tokens()
+                      + " | "
+                      + details.context().percent()
+                      + " | "
+                      + details.context().spent()));
       return details;
     } catch (Exception e) {
       return new SessionDetails(
@@ -131,7 +141,8 @@ public final class SessionDetailsController {
           List.of(),
           List.of(),
           message(e),
-          List.of());
+          List.of(),
+          null);
     }
   }
 
@@ -691,7 +702,53 @@ public final class SessionDetailsController {
         shellTasks,
         List.copyOf(rows),
         note,
-        questions);
+        questions,
+        contextBlock(self));
+  }
+
+  /**
+   * T-151: the TUI sidebar's Context block (verbatim wording) computed from the session's ASSEMBLED
+   * CONTEXT ({@code getSessionContext}) + the model catalog's {@code limit.context} + the session's
+   * own cost - the same {@link ContextUsage} numbers the chat status strip renders, so the two
+   * surfaces can never drift. Hidden ({@code null}) when there is no usage AND nothing was spent
+   * ({@code context.tsx:21}); any failure hides it too: telemetry must never break the view.
+   */
+  private SessionDetails.ContextBlock contextBlock(Session self) {
+    try {
+      OpencodeClient client = clientSupplier.get();
+      ContextUsage.Usage usage =
+          ContextUsage.compute(client.getSessionContext(sessionId), contextLimits(client));
+      Double spent = (self == null) ? null : self.cost();
+      boolean spentSomething = spent != null && spent > 0;
+      if (usage == null && !spentSomething) {
+        return null; // the TUI's Show condition: state() || cost() > 0 (context.tsx:21)
+      }
+      return new SessionDetails.ContextBlock(
+          ContextUsage.tokensLine(usage),
+          ContextUsage.percentLine(usage),
+          ContextUsage.spentLine(spent));
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /**
+   * T-151: {@code "providerId/modelId" -> limit.context} from the model catalog for the percent
+   * line; empty on any failure (the block then shows tokens/spent without a percent, like the TUI
+   * when the model is unknown).
+   */
+  private static Map<String, Long> contextLimits(OpencodeClient client) {
+    try {
+      Map<String, Long> limits = new java.util.HashMap<>();
+      for (Model model : client.getModels(null)) {
+        if (model != null && model.limit() != null && model.limit().context() > 0) {
+          limits.put(model.providerID() + "/" + model.id(), model.limit().context());
+        }
+      }
+      return limits;
+    } catch (Exception e) {
+      return Map.of();
+    }
   }
 
   private Session findSession(List<Session> sessions) {
@@ -781,7 +838,8 @@ public final class SessionDetailsController {
       List<SessionShells.Row> shellTasks,
       List<MessageRow> rows,
       String errorNote,
-      List<PendingQuestions.Row> questions) {
+      List<PendingQuestions.Row> questions,
+      ContextBlock context) {
 
     public SessionDetails {
       subagents = (subagents == null) ? List.of() : List.copyOf(subagents);
@@ -789,6 +847,15 @@ public final class SessionDetailsController {
       rows = (rows == null) ? List.of() : List.copyOf(rows);
       questions = (questions == null) ? List.of() : List.copyOf(questions);
     }
+
+    /**
+     * T-151: the TUI sidebar's Context block in verbatim wording ({@code
+     * sidebar/context.tsx:21-41}): the {@code Context} header plus up to three lines - {@code 1,234
+     * tokens}, {@code 57% used}, {@code $9.96 spent}. A {@code null} block hides the whole section
+     * (no usage and nothing spent); a {@code null} line hides just that line (the TUI's per-line
+     * Show).
+     */
+    public record ContextBlock(String tokens, String percent, String spent) {}
 
     /**
      * The tree's root nodes: the sections (questions, subagents, shell tasks) above the message
