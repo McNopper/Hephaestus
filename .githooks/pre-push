@@ -1,0 +1,9 @@
+#!/bin/sh
+# The pre-push gate: CI must pass locally before a push lands (owner directive
+# 2026-11-16, ticket T-129). Runs the CI-mirror runner; a non-zero exit blocks
+# the push.
+#
+# Wired as a LOCAL git setting (never committed):
+#   git config core.hooksPath .githooks
+# which releng/init-local-settings.ps1 sets on a fresh machine.
+exec pwsh -NoProfile -File "$(git rev-parse --show-toplevel)/releng/pre-push.ps1"

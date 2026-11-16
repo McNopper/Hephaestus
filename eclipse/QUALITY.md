@@ -30,9 +30,13 @@
 | Duplication (≥100 tokens) | PMD CPD (`-Pquality`) | `verify -Pquality` | yes, within the profile |
 | chat-web checks | Node `renderer-check` / `bridge-check` / `mermaid-check` | `mvn verify` (chat module) | yes |
 | C++ lint/format/analysis | clang-format, cppcheck, clang-tidy + sanitizer and analysis lanes | `cpp/ … verify` | yes |
+| Pre-push gate (the CI mirror) | `releng/pre-push.ps1` via `.githooks/pre-push` + `core.hooksPath` (a local setting set by `releng/init-local-settings.ps1`) | every `git push` from this checkout — CI's four checks (lint, D-004, `build.ps1 clean verify`, scan-deps) must pass locally first; fail-fast, non-zero blocks the push | **yes** (blocks the push, owner directive 2026-11-16 / T-129) |
 
 The release gate is `.\build.ps1 clean verify -Pquality`; the inner loop is
-`.\build.ps1 verify` (see `AGENTS.md` for the cadence rule).
+`.\build.ps1 verify` (see `AGENTS.md` for the cadence rule). Nothing lands on
+`main` that CI has not already passed locally: the pre-push gate runs the CI
+verify workflow's checks before every push, so a green push is a green CI run
+(barring runner drift).
 
 ## Clean architecture — the dependency rules
 

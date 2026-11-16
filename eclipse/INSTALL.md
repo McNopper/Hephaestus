@@ -42,6 +42,12 @@ cd eclipse   # from the repo root
 .\build.ps1 clean verify
 ```
 
+**Every push is gated**: a fresh machine wires the pre-push hook via
+`releng\init-local-settings.ps1` (`core.hooksPath` → `.githooks`); the hook runs
+`releng\pre-push.ps1` — CI's four checks (lint, D-004 provider-id scan, the full
+`clean verify`, dependency scan) — and blocks the push on any failure, so CI
+always finds what local CI already passed.
+
 Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules you touched):
 
 ```powershell

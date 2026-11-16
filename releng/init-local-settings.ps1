@@ -13,6 +13,20 @@
 
 $ErrorActionPreference = "Stop"
 
+# The pre-push gate wiring (a LOCAL git config, never committed): point
+# core.hooksPath at the committed .githooks directory so every push from this
+# checkout runs releng/pre-push.ps1 (the CI mirror) first - owner directive
+# 2026-11-16, ticket T-129. Runs before the config-file early-exit below so a
+# fresh checkout gets the gate even when the config skeleton already exists.
+$hooksPath = git config --get core.hooksPath
+if ($hooksPath -ne ".githooks") {
+    git config core.hooksPath .githooks
+    Write-Host "[init] core.hooksPath set to .githooks - pushes are gated by releng/pre-push.ps1."
+}
+else {
+    Write-Host "[init] core.hooksPath already .githooks - the pre-push gate is active."
+}
+
 $dir = Join-Path $env:USERPROFILE ".config\opencode"
 $file = Join-Path $dir "opencode.json"
 
