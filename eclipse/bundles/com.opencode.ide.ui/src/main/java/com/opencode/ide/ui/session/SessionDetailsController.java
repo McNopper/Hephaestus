@@ -96,12 +96,30 @@ public final class SessionDetailsController {
       OpencodeClient client = clientSupplier.get();
       List<ChatEntry> messages = client.getMessages(sessionId);
       List<Session> sessions = client.getSessions();
-      return build(
-          sessions,
-          messages,
-          subagents(sessions, client),
-          shellTasks(client),
-          questions(sessions, client));
+      SessionDetails details =
+          build(
+              sessions,
+              messages,
+              subagents(sessions, client),
+              shellTasks(client),
+              questions(sessions, client));
+      com.opencode.ide.core.intercept.ViewIntercept.record(
+          "session-details",
+          "session="
+              + sessionId
+              + " title="
+              + details.title()
+              + " rows="
+              + details.rows().size()
+              + " subagents="
+              + details.subagents().size()
+              + " shells="
+              + details.shellTasks().size()
+              + " questions="
+              + details.questions().size()
+              + " error="
+              + details.errorNote());
+      return details;
     } catch (Exception e) {
       return new SessionDetails(
           sessionId,

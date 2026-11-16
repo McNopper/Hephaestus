@@ -104,6 +104,7 @@ public final class ChatPage implements ChatSessionController.Renderer {
             }
             Platform.getLog(Platform.getBundle(ChatActivator.PLUGIN_ID))
                 .log(new Status(Status.INFO, ChatActivator.PLUGIN_ID, "[chat-page] " + message));
+            com.opencode.ide.core.intercept.ViewIntercept.record("render", message);
             return null;
           }
         };

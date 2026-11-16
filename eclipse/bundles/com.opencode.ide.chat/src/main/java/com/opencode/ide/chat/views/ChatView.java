@@ -236,6 +236,7 @@ public class ChatView extends ViewPart {
 
         @Override
         public void statusChanged(String description) {
+          com.opencode.ide.core.intercept.ViewIntercept.record("status", description);
           setContentDescription(description);
         }
 
@@ -1372,6 +1373,7 @@ public class ChatView extends ViewPart {
       String goal =
           com.opencode.ide.chat.internal.CurrentGoal.activeSprintGoal(
               com.opencode.ide.core.TasksRootResolution.resolveForWorkspace(null), project);
+      com.opencode.ide.core.intercept.ViewIntercept.record("goal", goal == null ? "(none)" : goal);
       if (goal != null) {
         input.setMessage("Goal: " + goal);
       }

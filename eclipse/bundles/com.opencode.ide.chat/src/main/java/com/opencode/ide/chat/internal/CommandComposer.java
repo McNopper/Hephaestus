@@ -54,6 +54,14 @@ public final class CommandComposer {
       // scoped: commands live in the project's .opencode/command/, and
       // v2 resolves the list per location (unscoped = the server's home)
       commands = sanitize(connection.getClient().getCommands(connection.workingDirectory()));
+      StringBuilder names = new StringBuilder();
+      for (CommandInfo command : commands) {
+        if (names.length() > 0) {
+          names.append(", ");
+        }
+        names.append(command.name());
+      }
+      com.opencode.ide.core.intercept.ViewIntercept.record("commands", names.toString());
     } catch (Throwable t) {
       commands = List.of();
     }

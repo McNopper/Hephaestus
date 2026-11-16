@@ -1568,6 +1568,12 @@ public final class ChatSessionController {
    * tool rounds there are several streamed bubbles: the reply is the LAST.
    */
   private void settleReply(ChatEntry reply) {
+    com.opencode.ide.core.intercept.ViewIntercept.recordTruncated(
+        "assistant",
+        reply == null || reply.text() == null || reply.text().isEmpty()
+            ? "(empty reply)"
+            : reply.text(),
+        400);
     String lastStreamed = streamedMids.isEmpty() ? null : streamedMids.get(streamedMids.size() - 1);
     boolean streamedContent = !streamedMids.isEmpty();
     boolean replyEmpty = reply == null || reply.text() == null || reply.text().isEmpty();
