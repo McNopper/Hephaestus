@@ -108,6 +108,14 @@ when all of the following hold:
   READY children (A-003 architecture, A-002 test-system, A-004
   test-architecture) flow on their own stages' ticks.
 - **U-075** — TUI-vs-Eclipse responsiveness, measured spike, report-only.
+- **Launched shells in the server browser** — keep the Server view's
+  visibility of a session's launched shells first-class (owner requirement
+  2026-11-16: "i also see the launched shells in the server browser"). Today
+  that visibility rides the session activity/status plus Session Details'
+  *Shell tasks* (U-041) and the chat's inline `!` strips (CP-02) — the Fleet
+  tree that nested shells under sessions went away in U-110; add a dedicated
+  shell row in the Server view if the activity feed is not enough. Wording
+  per T-150 §4b (`Shell tasks` in tabs, `shells` only in the TUI-counts row).
 
 ## Decisions
 
