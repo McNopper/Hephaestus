@@ -8,7 +8,9 @@
   assumed); **written by:** maintainers.
 - **Related:** `README.md` (install), `ROADMAP.md` (what is open),
   `docs/HISTORY.md` (what changed), the task store
-  `.harness/tasks/hephaestus/` (where findings become tickets).
+  `.harness/tasks/hephaestus/` (where findings become tickets),
+  `docs/live-in-eclipse-recurrence-flow.md` (the acceptance recurrence —
+  §4 executes the instances it mints).
 
 ## 1. Setup (once)
 
@@ -61,7 +63,29 @@ maps directly to a ticket.
   `task_*` tools (project `hephaestus`): create a ticket, claim it,
   advance/send back a stage, run `task_readiness` and `task_doctor`.
 
-## 4. Reporting feedback
+## 4. The acceptance live pass (recurring instances)
+
+Every completed wave mints a `test-requirements` acceptance instance —
+`Acceptance (live in Eclipse): …` (owner requirement 2026-11-15, T-039;
+flow: `docs/live-in-eclipse-recurrence-flow.md`). Instances sit
+`in-progress`, assignee `owner-acceptance` — "awaits the owner" — and are
+NON-BLOCKING: no verdict, wave or release waits on them (the engine's
+review is their only `done` authority). One live pass evidences several
+open instances — the checklist is shared, the verdicts are separate:
+
+1. **Execute:** work the instance's check lines (console checks, UI
+   passes, panel round trips) in Eclipse; record the evidence — a
+   screenshot or panel transcript reference — with `task_add_artifact`
+   on that instance; flip it to `in-review`.
+2. **File findings:** a failed check becomes a `type: bug` ticket (the
+   reporting rules below); findings ride the NEXT wave — finished work
+   is never re-opened.
+3. **Failed pass:** record the failed evidence on the instance first,
+   then block it (`task_set_blocked`, resume to `sprint-backlog`) with
+   the blocker naming the finding tickets; when the findings land, clear
+   the blocker (only the owner does) and re-run the pass.
+
+## 5. Reporting feedback
 
 - **File it as a ticket** (preferred): `task_create` with `type: bug`,
   a title that states the outcome, and steps-to-reproduce in the

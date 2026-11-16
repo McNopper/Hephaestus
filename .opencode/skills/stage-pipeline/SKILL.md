@@ -86,6 +86,30 @@ Per stage:
    every successful wave/release produces a fresh test-requirements
    acceptance ticket (the T-002 pattern systematized) — it hardens
    acceptance and never gates; no verdict, wave or release waits on it.
+   The LIVE-CHECK PAIRING extension (design C-1/W-1; wording:
+   docs/live-in-eclipse-recurrence-flow.md §5.1) operationalizes the rule
+   once per done definition ticket D, immediately after D's ordinary
+   division children: scan D's acceptance criteria for live-in-Eclipse
+   checks — none → stop (a doubtful line counts as a match, DS-001);
+   source token `(<D id> AC<n>)` from the first matching criterion; if any
+   test-requirements ticket's title already carries the token (open or
+   done), stop — the instance exists; the scan surface unavailable →
+   defer the mint to a later pass, never mint blind (DS-004). Create per
+   flow §3 (title with the token suffix, basis = D, epic = D's epic, role
+   tester, stage test-requirements, type task / 0 points / medium
+   priority, no model, description = flow §3.2 verbatim — the
+   NON-BLOCKING paragraph never reworded, acceptance criteria = flow
+   §3.3's pairing shape: the live check operationalized + the evidence
+   line): `task_create` with the field set, then `task_update` status
+   `in-progress` + assignee `owner-acceptance` — confirmed is read-back
+   truth (`task_get`), never the minter's intent (DS-002). The engine
+   refuses the direct landing → retry in-pass, then the fallback
+   `sprint-backlog` + `owner-acceptance` (the assignee pre-check keeps it
+   out of targeted claims); an unconfirmed update is repaired by
+   re-asserting the update — NEVER re-created (the title scan would see
+   the created ticket and dedup would skip the mint, leaving the state
+   wrong). Do NOT plan the instance into a sprint record, do NOT spawn a
+   worker for it (DR-3).
 5. READY → KICKOFF: **plan first, then claim** — READY tickets born from
    division sit in `product-backlog` without a sprint, and `task_claim`
    only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
@@ -104,9 +128,36 @@ Per stage:
    the stage. **A landed markdown doc must be
    lint-clean** (`releng/lint.ps1` over the touched files — CI's markdown
    gate runs on every push and a lint-broken doc turns CI red).
-6. CLOSE the pass: reopen the `ticker-v` sprint record with the digest
-   (U-108 reopen semantics keep the record rolling) and close it. The next
-   tick repeats.
+6. CLOSE the pass — the order inside the close is fixed (DR-6/DR-9, the
+   W-2 composition seam): (a) reopen the `ticker-v` sprint record with
+   the digest (U-108 reopen semantics keep the record rolling); (b) the
+   WAVE-COMPLETION RECURRENCE sweep (T-039; design C-1/W-2; wording:
+   docs/live-in-eclipse-recurrence-flow.md §5.1), once per pass: for
+   each sprint record W of the project, W is a completed wave iff W's id
+   does not start with `ticker-` (micro-records are never waves), W
+   holds at least one ticket, and zero members are open (open = any
+   status except done; a `paused` member keeps the wave open). Per
+   completed wave: source token `(wave <W id>)`; if any
+   test-requirements ticket's title already carries the token (open or
+   done), skip W — the instance exists; the scan surface unavailable →
+   defer the mint to a later pass, never mint blind (DS-004). Create per
+   flow §3 (title with the token suffix, basis = null, epic = W's single
+   common epic else null — scope container only, role tester, stage
+   test-requirements, type task / 0 points / medium priority, no model,
+   description = flow §3.2 verbatim, acceptance criteria = flow §3.3's
+   wave shape: the four fixed lines naming the wave's agent-facing
+   surfaces, evidence line last): `task_create` with the field set, then
+   `task_update` status `in-progress` + assignee `owner-acceptance` —
+   confirmed is read-back truth (`task_get`, DS-002); refused landing →
+   retry in-pass, then the fallback `sprint-backlog` +
+   `owner-acceptance`; an unconfirmed update is re-asserted, NEVER
+   re-created. One digest note per mint (U-061). Do NOT plan the
+   instance into a sprint record, do NOT spawn a worker for it (DR-3); a
+   record failing the predicate is skipped, not a failure — the sweep
+   re-derives every pass (QA-002); (c) the sibling release-cadence
+   evaluation READS the instances the sweep created or kept
+   (docs/release-cadence-flow.md §6 — read-only across the seam, DR-9);
+   (d) close the record. The next tick repeats.
 
 An empty backlog costs one readiness query. That is a successful tick.
 
