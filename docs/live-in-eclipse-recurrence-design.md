@@ -95,14 +95,15 @@ trigger-shaped composites:
 - `pairingMint(D) -> minted | skipped` — **R1** (tick step 4, immediately
   after D's ordinary division children are created): `detectLiveChecks` →
   `derivePairingToken` → `dedupInstanceExists` (exists → `skipped`, I6) →
-  `mintInstance` with `basis = D`, `epic = D's epic`, landing `in-progress`
-  + `owner-acceptance`. NEVER plans the instance into a sprint record,
-  NEVER spawns a worker for it (DR-3; flow §5.1 step 5). Audit: the store's
-  history events carry the mint with `by` provenance (QA-003); no digest
-  step (DS-003). Convergence: every step is a pure function of durable
-  store state plus the token guard, so re-executing the extension for a
-  visited D is idempotent (QA-002); the machinery's own mid-pass recovery
-  is reconnect-and-continue (SKILL.md field observation).
+  `mintInstance` with `basis = D`, `epic = D's epic`, landing
+  `in-progress` + `owner-acceptance`. NEVER plans the instance into a
+  sprint record, NEVER spawns a worker for it (DR-3; flow §5.1 step 5).
+  Audit: the store's history events carry the mint with `by` provenance
+  (QA-003); no digest step (DS-003). Convergence: every step is a pure
+  function of durable store state plus the token guard, so re-executing
+  the extension for a visited D is idempotent (QA-002); the machinery's
+  own mid-pass recovery is reconnect-and-continue (SKILL.md field
+  observation).
 - `sweepCompletedWaves(records) -> [minted | skipped]*` — **R2** (tick
   step 6, once per pass, AFTER the digest is written, BEFORE the record
   closes — DR-2, DR-6). Per sprint record W: `isCompletedWave(W)` → token
@@ -242,7 +243,7 @@ field set:
 | `sprint` | none | none | none | `task_plan_sprint` is never called for an instance (G1/DR-3) |
 | `status` + `assignee` after mint | `in-progress` + `owner-acceptance` | same | same | matches no dispatch branch (G1); fallback landing `sprint-backlog` + `owner-acceptance` (flow §3.1); the assignee is a routing marker, never evidence (release-cadence §3.1) |
 | `model` | `null` | `null` | `null` | nothing resolves or pins a model (DR-10/D-004) |
-| `description` | flow §3.2 verbatim | same | same | variation points: `<pairing|standing>`, `<source token>`, the live-check lines; the NON-BLOCKING paragraph is never reworded (AD-005) |
+| `description` | flow §3.2 verbatim | same | same | variation points: `<pairing\|standing>`, `<source token>`, the live-check lines; the NON-BLOCKING paragraph is never reworded (AD-005) |
 | `acceptance_criteria` | flow §3.3 pairing shape (the live check(s) operationalized + the evidence line) | flow §3.3 wave shape (four fixed lines) | wave shape with the release's agent-facing surfaces | the evidence line ("Evidence recorded as artifact on this ticket") is I7's verdict-checkable floor (AD-006) |
 
 Further structures:
