@@ -181,6 +181,45 @@ public class ChatScriptsTest {
     assertEquals("window.__clear()", ChatScripts.clear());
   }
 
+  // ---------- compaction rows (T-147, TUI parity) ----------
+
+  @Test
+  public void compactionScriptsFollowTheBridgeContract() {
+    // start carries no payload (the page decides idempotence)
+    assertEquals("window.__startCompaction()", ChatScripts.startCompaction());
+    // delta passes the incremental chunk as a JSON STRING literal
+    assertEquals(
+        "window.__appendCompactionDelta(\"{\\\"text\\\":\\\"## Obj\\\"}\")",
+        ChatScripts.appendCompactionDelta("## Obj"));
+    assertEquals("", payloadOf(ChatScripts.appendCompactionDelta(null)).get("text"));
+    // finish carries the full final state
+    Map<String, Object> finish =
+        payloadOf(
+            ChatScripts.finishCompaction(
+                "failed", "Compaction", "Invalid API Key", false, "1.2K in · 300 out"));
+    assertEquals("failed", finish.get("status"));
+    assertEquals("Compaction", finish.get("label"));
+    assertEquals("Invalid API Key", finish.get("text"));
+    assertEquals(false, finish.get("cancelled"));
+    assertEquals("1.2K in · 300 out", finish.get("usage"));
+    Map<String, Object> cancelled =
+        payloadOf(ChatScripts.finishCompaction("failed", "Compaction", "", true, ""));
+    assertEquals(true, cancelled.get("cancelled"));
+  }
+
+  @Test
+  public void compactionPayloadsAreNeverJsObjectLiterals() {
+    // the no-arg start form carries no payload; the other two must be JSON strings
+    assertEquals("window.__startCompaction()", ChatScripts.startCompaction());
+    for (String script :
+        List.of(
+            ChatScripts.appendCompactionDelta("x"),
+            ChatScripts.finishCompaction("completed", "Compaction", "body", false, ""))) {
+      String argument = argumentOf(script);
+      assertTrue("must pass a JSON string literal: " + script, argument.startsWith("\""));
+    }
+  }
+
   // ---------- @-file autocomplete (U-012) ----------
 
   @Test

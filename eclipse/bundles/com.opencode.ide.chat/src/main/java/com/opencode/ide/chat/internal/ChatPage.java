@@ -406,8 +406,19 @@ public final class ChatPage implements ChatSessionController.Renderer {
   }
 
   @Override
-  public void appendNoticeRow(String text) {
-    executeJs(ChatScripts.appendNoticeRow(text));
+  public void startCompaction() {
+    executeJs(ChatScripts.startCompaction());
+  }
+
+  @Override
+  public void appendCompactionDelta(String text) {
+    executeJs(ChatScripts.appendCompactionDelta(text));
+  }
+
+  @Override
+  public void finishCompaction(
+      String status, String label, String text, boolean cancelled, String usage) {
+    executeJs(ChatScripts.finishCompaction(status, label, text, cancelled, usage));
   }
 
   @Override

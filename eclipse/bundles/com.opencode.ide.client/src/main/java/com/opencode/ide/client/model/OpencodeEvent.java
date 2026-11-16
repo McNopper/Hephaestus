@@ -55,6 +55,25 @@ public record OpencodeEvent(String type, JsonObject properties, String directory
     return current.isJsonPrimitive() ? current.getAsString() : null;
   }
 
+  /**
+   * @return true when a non-null member exists at the dot path ({@code "native.messages"}),
+   *     whatever JSON type it holds - {@link #at(String)} only reads primitives, so presence checks
+   *     for objects/arrays (e.g. a provider compaction's {@code native.messages}) need this.
+   */
+  public boolean has(String path) {
+    if (properties == null || path == null) {
+      return false;
+    }
+    JsonElement current = properties;
+    for (String key : path.split("\\.")) {
+      if (current == null || !current.isJsonObject() || !current.getAsJsonObject().has(key)) {
+        return false;
+      }
+      current = current.getAsJsonObject().get(key);
+    }
+    return current != null && !current.isJsonNull();
+  }
+
   /** Deserialize a top-level property into the given type (e.g. {@code info -> Session}). */
   public <T> T as(String key, Class<T> type) {
     if (properties == null || !properties.has(key)) {

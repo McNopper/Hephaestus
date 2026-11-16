@@ -11,6 +11,7 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatPart;
+import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
 import com.opencode.ide.client.model.SessionStatus;
@@ -143,12 +144,29 @@ public final class ChatSessionController {
     default void appendShell(String command, String output, String status) {}
 
     /**
-     * Appends a persistent transcript notice row (T-145: the {@code /compact} marker). Unlike
-     * {@link #notice(String)}, the row is part of the transcript - it survives history reloads
-     * through the {@code role=notice} row mapping. Default no-op so renderers (and existing test
-     * fakes) without the concept stay compiling.
+     * T-147: opens the live compaction row (the TUI's divider header with a spinner) - called when
+     * {@code session.compaction.started} fires, or seeded by {@code /compact} when no event was
+     * seen yet. The page treats an already-open row as a no-op, so both paths together open exactly
+     * one row. Default no-op so renderers without the concept stay compiling.
      */
-    default void appendNoticeRow(String text) {}
+    default void startCompaction() {}
+
+    /**
+     * T-147: one summary chunk streamed into the open compaction row ({@code
+     * session.compaction.delta} carries INCREMENTAL text - the page appends). Default no-op.
+     */
+    default void appendCompactionDelta(String text) {}
+
+    /**
+     * T-147: finalizes the open compaction row ({@code session.compaction.ended} / {@code
+     * .failed}): {@code status} is {@code completed} or {@code failed}, {@code label} the TUI
+     * header ("Compaction" / "Provider compaction"), {@code text} the authoritative content (full
+     * summary, failure message, or empty for a cancellation), {@code cancelled} the TUI's "·
+     * cancelled" suffix (a failure whose error type is {@code aborted}), {@code usage} the optional
+     * {@code "N in · N out"} suffix. Default no-op so renderers without the concept stay compiling.
+     */
+    default void finishCompaction(
+        String status, String label, String text, boolean cancelled, String usage) {}
 
     /**
      * Pushes the reasoning-visibility preference into the page ({@code /thinking} and the toolbar
@@ -406,6 +424,15 @@ public final class ChatSessionController {
   /** One-shot title for the NEXT created session ({@code /init}); null = default. */
   private volatile String pendingSessionTitle;
 
+  /**
+   * T-147: a compaction row is open on screen (a {@code session.compaction.started} was seen, a
+   * {@code /compact} seeded one, or the resumed history holds a RUNNING compaction) - delta/final
+   * events only render while this is set (the TUI's {@code activeCompaction} gate), and the {@code
+   * /compact} seed only fires when it is clear. Touched from the SSE, background-job and UI
+   * threads; the page's own idempotent start keeps the rare double-set harmless (one row).
+   */
+  private volatile boolean compactionActive;
+
   /** Proposal cap of the {@code @}-file autocomplete (U-012). */
   private static final int MAX_FILE_PROPOSALS = 8;
 
@@ -502,6 +529,12 @@ public final class ChatSessionController {
           if (sid == null) {
             return;
           }
+          // T-147: the four compaction events drive the TUI's CompactionMessage row
+          // (started opens it, delta streams the summary, ended/failed finalize it).
+          if (event.type().startsWith("session.compaction.")) {
+            onCompactionEvent(event, sid);
+            return;
+          }
           // v2 split the single v1 "message.part.delta" (which carried a
           // "field" discriminator) into one event type PER CHANNEL, so the
           // channel is the event NAME now - no payload inspection needed.
@@ -551,6 +584,66 @@ public final class ChatSessionController {
               }
             });
     connection.addEventListener(permissionAdapter);
+  }
+
+  /**
+   * T-147: routes one {@code session.compaction.*} event (SSE thread) to the compaction row, the
+   * same four the TUI renders (mini/stream-v2.transport.ts): {@code started} opens the divider row,
+   * {@code delta} carries an INCREMENTAL summary chunk (the server folds {@code streamed.text +
+   * event.text}, compaction.ts), {@code ended} finalizes with the FULL text + usage, {@code failed}
+   * finalizes with the failure message - empty content for an {@code aborted} cancellation (the
+   * TUI's cancelled suffix).
+   */
+  private void onCompactionEvent(OpencodeEvent event, String sid) {
+    if (!sid.equals(event.string("sessionID"))) {
+      return; // another session's compaction
+    }
+    String type = event.type();
+    if ("session.compaction.started".equals(type)) {
+      compactionActive = true;
+      host.runOnUi(renderer::startCompaction);
+      return;
+    }
+    // delta/ended/failed without an open row would strand content in a row nobody sees
+    // (started missed) - the page opens lazily on the first delta, so forward them all.
+    if ("session.compaction.delta".equals(type)) {
+      String text = event.string("text");
+      if (text != null && !text.isEmpty()) {
+        compactionActive = true;
+        host.runOnUi(() -> renderer.appendCompactionDelta(text));
+      }
+      return;
+    }
+    if ("session.compaction.ended".equals(type)) {
+      compactionActive = false;
+      String text = event.string("text");
+      Session.Tokens tokens = event.as("tokens", Session.Tokens.class);
+      boolean providerNative = event.has("native.messages");
+      host.runOnUi(
+          () ->
+              renderer.finishCompaction(
+                  "completed",
+                  ChatEntry.Compaction.label("completed", providerNative),
+                  text == null ? "" : text,
+                  false,
+                  usageLabel(tokens, "completed")));
+      return;
+    }
+    if ("session.compaction.failed".equals(type)) {
+      compactionActive = false;
+      String errorType = event.at("error.type");
+      String errorMessage = event.at("error.message");
+      boolean cancelled = "aborted".equals(errorType);
+      Session.Tokens tokens = event.as("tokens", Session.Tokens.class);
+      host.runOnUi(
+          () ->
+              renderer.finishCompaction(
+                  "failed",
+                  ChatEntry.Compaction.label("failed", false),
+                  cancelled || errorMessage == null ? "" : errorMessage,
+                  cancelled,
+                  usageLabel(tokens, "failed")));
+    }
   }
 
   /** Unsubscribes from the event stream (view dispose). */
@@ -611,6 +704,7 @@ public final class ChatSessionController {
     sessionId = null;
     historyHasUserMessage = false;
     serverHasReverted = false;
+    compactionActive = false; // no row survives the transcript wipe
     renderer.clear();
     renderer.setInboxItems(List.of()); // the parked prompts belonged to the old session
     renderer.setForms(List.of()); // so did its open question forms (U-014)
@@ -631,6 +725,7 @@ public final class ChatSessionController {
     }
     sessionId = sid;
     serverHasReverted = false; // the resumed session's reverted state is unknown here
+    compactionActive = false; // recomputed from the served history below
     host.sessionChanged(sid);
     host.runInBackground(
         "Loading chat history " + sid,
@@ -639,6 +734,10 @@ public final class ChatSessionController {
             List<ChatEntry> entries = connection.getClient().getMessages(sid);
             historyHasUserMessage = lastUserMessageId(entries) != null;
             List<Map<String, Object>> rows = historyRows(entries);
+            // T-147: a RUNNING compaction in the served history means its row is on screen
+            // after the render below - keep the gate closed so /compact and late events
+            // update THAT row instead of seeding a second one.
+            compactionActive = hasRunningCompaction(entries);
             host.runOnUi(
                 () -> {
                   renderer.setMessages(rows);
@@ -657,8 +756,8 @@ public final class ChatSessionController {
 
   /**
    * Maps served history entries into the renderer's transcript rows. Public for the cross-bundle
-   * mapping test (T-145: a compaction entry becomes a {@code role=notice} row, never an empty
-   * assistant bubble).
+   * mapping test (T-147: a compaction entry becomes the TUI's {@code role=compaction} divider row -
+   * summary/failure as markdown, never an empty assistant bubble).
    */
   public static List<Map<String, Object>> historyRows(List<ChatEntry> entries) {
     List<Map<String, Object>> rows = new ArrayList<>();
@@ -680,11 +779,22 @@ public final class ChatSessionController {
         continue;
       }
       if (entry.isCompaction()) {
-        // T-145: the compaction marker rides its own role - the page renders it as a
-        // persistent transcript notice, so /compact stays visible across reloads
-        row.put("role", "notice");
+        // T-147: the TUI's CompactionMessage row - divider header (status/label/usage) over the
+        // summary (or failure message) as markdown, never an empty assistant bubble (T-145).
+        ChatEntry.Compaction c = entry.compaction();
+        if (c == null) {
+          // role=compaction without a payload can only come from a hand-built entry; still route
+          // to the compaction row (the T-145 contract: never fall through to an assistant bubble)
+          c = new ChatEntry.Compaction("completed", entry.text(), null, null, false);
+        }
+        row.put("role", "compaction");
         row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
-        row.put("text", entry.text());
+        row.put("status", c.status() == null ? "completed" : c.status());
+        row.put("label", c.label());
+        row.put("text", c.content());
+        row.put("cancelled", c.cancelled());
+        row.put(
+            "usage", usageLabel(entry.info() == null ? null : entry.info().tokens(), c.status()));
         rows.add(row);
         continue;
       }
@@ -715,6 +825,55 @@ public final class ChatSessionController {
       }
     }
     return tools;
+  }
+
+  /**
+   * T-147: does the served history end on a RUNNING compaction (its divider row is what the render
+   * below puts on screen)? Entries are chronological, so the NEWEST compaction decides - an older
+   * completed one keeps the gate OPEN, a newer running one closes it.
+   */
+  private static boolean hasRunningCompaction(List<ChatEntry> entries) {
+    for (int i = entries.size() - 1; i >= 0; i--) {
+      ChatEntry entry = entries.get(i);
+      if (entry.isCompaction() && entry.compaction() != null) {
+        return "running".equals(entry.compaction().status());
+      }
+    }
+    return false;
+  }
+
+  /**
+   * T-147: the TUI's compaction usage suffix (routes/session/index.tsx CompactionMessage) - {@code
+   * "<in> in · <out> out"} from the compaction request's own tokens, shown only for settled rows
+   * ({@code running} never shows usage) and only when anything was billed; empty otherwise. The
+   * numbers use the TUI's compact format (util/locale.ts: {@code 1234 -> "1.2K", 999950 ->
+   * "1.0M"}).
+   */
+  static String usageLabel(Session.Tokens tokens, String status) {
+    if (tokens == null || "running".equals(status)) {
+      return "";
+    }
+    long input =
+        tokens.input()
+            + (tokens.cache() == null ? 0 : tokens.cache().read() + tokens.cache().write());
+    long output = tokens.output() + tokens.reasoning();
+    if (input + output <= 0) {
+      return "";
+    }
+    return compactNumber(input) + " in \u00B7 " + compactNumber(output) + " out";
+  }
+
+  /**
+   * TUI {@code Locale.number}: 999950+ renders "X.XM", 1000+ renders "X.XK", else the plain number.
+   */
+  private static String compactNumber(long value) {
+    if (value >= 999950) {
+      return String.format(Locale.ROOT, "%.1fM", value / 1_000_000.0);
+    }
+    if (value >= 1000) {
+      return String.format(Locale.ROOT, "%.1fK", value / 1000.0);
+    }
+    return Long.toString(value);
   }
 
   /**
@@ -1955,8 +2114,10 @@ public final class ChatSessionController {
   /**
    * {@code /compact} (TUI parity): compacts this session's context through the v2 {@code POST
    * /session/:id/compact} endpoint (the same call Session Details' Compact context action makes). A
-   * metadata operation: it never joins the prompt queue - it runs in its own background job and
-   * reports through a notice.
+   * metadata operation: it never joins the prompt queue - it runs in its own background job. The
+   * transcript row is driven by the {@code session.compaction.*} events (T-147); the POST response
+   * only SEEDS the running row when no event has opened one yet, so the two paths together show
+   * exactly one row (the page's start is idempotent as a second line of defence).
    */
   public void compactSessionCommand() {
     if (sending) {
@@ -1970,12 +2131,13 @@ public final class ChatSessionController {
           try {
             String sid = ensureSession();
             connection.getClient().compactSession(sid);
-            // T-145: a PERSISTENT transcript row (not a transient notice) - the marker
-            // survives history reloads, so /compact leaves a visible trace (TUI parity)
             host.runOnUi(
-                () ->
-                    renderer.appendNoticeRow(
-                        "Context compacted (the next reply runs with a fresh window)."));
+                () -> {
+                  if (!compactionActive) {
+                    compactionActive = true;
+                    renderer.startCompaction();
+                  }
+                });
           } catch (OpencodeException e) {
             host.runOnUi(() -> renderer.notice("Compact failed: " + e.getMessage()));
           }

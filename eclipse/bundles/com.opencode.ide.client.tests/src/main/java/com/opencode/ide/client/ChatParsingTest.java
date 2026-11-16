@@ -2,6 +2,7 @@ package com.opencode.ide.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -160,13 +161,13 @@ public class ChatParsingTest {
   }
 
   /**
-   * T-145 (real capture from opencode.db, session ses_f37a…, the joint test 2026-11-16): a
-   * compaction row carries {@code summary/status/reason} - neither {@code content[]} nor {@code
-   * text} - and must reduce to a readable marker so /compact leaves a visible transcript trace
-   * instead of an empty bubble.
+   * T-147 (real capture from opencode.db, session ses_f37a…, the joint test 2026-16): a compaction
+   * row carries {@code summary/status/reason} - neither {@code content[]} nor {@code text} - so it
+   * parses to the Compaction payload the TUI's divider row renders (never a fabricated text part,
+   * never an empty assistant bubble - T-145's defect stays dead).
    */
   @Test
-  public void completedCompactionReducesToAReadableMarker() {
+  public void completedCompactionParsesToThePayload() {
     ChatEntry entry =
         GSON.fromJson(
             """
@@ -179,15 +180,18 @@ public class ChatParsingTest {
             ChatEntry.class);
     assertTrue(entry.isCompaction());
     assertFalse(entry.isUser());
-    assertTrue("marker: " + entry.text(), entry.text().startsWith("Context compacted (manual)"));
-    assertTrue("points at the summary", entry.text().contains("summary"));
-    assertTrue("promises the fresh window", entry.text().contains("fresh window"));
+    assertNotNull("payload parsed", entry.compaction());
+    assertEquals("completed", entry.compaction().status());
+    assertFalse("not a provider compaction", entry.compaction().providerNative());
+    assertFalse("not cancelled", entry.compaction().cancelled());
+    assertTrue("no fabricated text part", entry.parts().isEmpty());
+    assertTrue("content is the summary: " + entry.text(), entry.text().startsWith("## Objective"));
     assertEquals("", entry.reasoning());
   }
 
   /** The failed compaction shape (real capture: provider.auth / Invalid API Key, 401). */
   @Test
-  public void failedCompactionStatesTheReason() {
+  public void failedCompactionCarriesTheErrorPayload() {
     ChatEntry entry =
         GSON.fromJson(
             """
@@ -198,9 +202,49 @@ public class ChatParsingTest {
             """,
             ChatEntry.class);
     assertTrue(entry.isCompaction());
-    assertTrue("marker: " + entry.text(), entry.text().startsWith("Context compaction failed:"));
-    assertTrue("carries the error type", entry.text().contains("provider.auth"));
-    assertTrue("carries the error message", entry.text().contains("Invalid API Key"));
+    assertNotNull("payload parsed", entry.compaction());
+    assertEquals("failed", entry.compaction().status());
+    assertEquals("provider.auth", entry.compaction().errorType());
+    assertEquals("Invalid API Key", entry.compaction().errorMessage());
+    assertFalse("a real failure is not a cancellation", entry.compaction().cancelled());
+    assertTrue("no fabricated text part", entry.parts().isEmpty());
+    assertEquals("content is the failure message", "Invalid API Key", entry.text());
+  }
+
+  /**
+   * TUI cancelled(): a failed compaction whose error type is {@code aborted} shows the divider with
+   * a "cancelled" suffix and NO body text (routes/session/index.tsx CompactionMessage).
+   */
+  @Test
+  public void abortedCompactionIsCancelledWithEmptyContent() {
+    ChatEntry entry =
+        GSON.fromJson(
+            """
+            {"id":"msg_01COMPACTA","time":{"created":1794779434613},"type":"compaction",
+             "status":"failed","reason":"manual",
+             "error":{"type":"aborted","message":"aborted"}}
+            """,
+            ChatEntry.class);
+    assertTrue(entry.compaction().cancelled());
+    assertEquals("", entry.text());
+    assertEquals("Compaction", entry.compaction().label());
+  }
+
+  /**
+   * A provider compaction carries {@code native.messages} - the TUI's "Provider compaction" label.
+   */
+  @Test
+  public void providerNativeCompactionUsesTheProviderLabel() {
+    ChatEntry entry =
+        GSON.fromJson(
+            """
+            {"id":"msg_01COMPACTN","time":{"created":1794779434613},"type":"compaction",
+             "status":"completed","reason":"auto","summary":"kept context",
+             "native":{"messages":[{"role":"user","content":"hi"}]}}
+            """,
+            ChatEntry.class);
+    assertTrue(entry.compaction().providerNative());
+    assertEquals("Provider compaction", entry.compaction().label());
   }
 
   @Test

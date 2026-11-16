@@ -1,7 +1,9 @@
 package com.opencode.ide.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -46,6 +48,17 @@ public class OpencodeEventTest {
     OpencodeEvent event = event("{\"part\":{\"type\":\"text\"}}");
     assertNull(event.at("part.state.status"));
     assertNull(event.at("does.not.exist"));
+  }
+
+  @Test
+  public void hasChecksPresenceOfAnyJsonType() {
+    // T-147: native.messages is an ARRAY - at() only reads primitives, has() walks the path
+    OpencodeEvent event =
+        event("{\"native\":{\"messages\":[{\"role\":\"user\"}]},\"model\":{\"id\":\"llm-1\"}}");
+    assertTrue("array member exists", event.has("native.messages"));
+    assertTrue("object member exists", event.has("model"));
+    assertFalse("missing path", event.has("native.missing"));
+    assertFalse("null member counts as absent", event("{}").has("native"));
   }
 
   @Test

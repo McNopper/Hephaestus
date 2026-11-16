@@ -269,27 +269,80 @@ public class ChatSessionControllerTest {
   }
 
   /**
-   * T-145: a compaction marker replays as its own persistent {@code role=notice} row - the defect
-   * was an empty assistant bubble standing in for the compact, which read as "compact does not
-   * work" (live joint test 2026-11-16).
+   * T-147: a compaction replays as its own {@code role=compaction} divider row carrying the TUI
+   * payload (status/label/content/cancelled/usage) - the defect history here was an empty assistant
+   * bubble standing in for the compact, which read as "compact does not work" (live joint test
+   * 2026-11-16).
    */
   @Test
-  public void resumeReplaysCompactionAsNoticeRow() {
+  public void resumeReplaysCompactionAsTuiDividerRow() {
     connection.client.history =
         List.of(
             entry("u1", "user", "list them"),
             compactionEntry(
                 "msg_c1",
-                "Context compacted (manual) - the earlier history now stands as a summary."));
+                new ChatEntry.Compaction(
+                    "completed",
+                    "## Objective\n- the earlier context, summarized",
+                    null,
+                    null,
+                    false)));
     controller.resume("ses_43");
+    drainBackground();
 
     List<Map<String, Object>> rows = renderer.histories.get(0);
     assertEquals(2, rows.size());
-    assertEquals("notice", rows.get(1).get("role"));
+    assertEquals("compaction", rows.get(1).get("role"));
     assertEquals("msg_c1", rows.get(1).get("id"));
-    assertTrue(
-        String.valueOf(rows.get(1).get("text")),
-        String.valueOf(rows.get(1).get("text")).startsWith("Context compacted (manual)"));
+    assertEquals("completed", rows.get(1).get("status"));
+    assertEquals("Compaction", rows.get(1).get("label"));
+    assertEquals("## Objective\n- the earlier context, summarized", rows.get(1).get("text"));
+    assertEquals(false, rows.get(1).get("cancelled"));
+    assertEquals("", rows.get(1).get("usage"));
+  }
+
+  /**
+   * T-147: the TUI suffix rules reach the history row - a provider compaction gets the "Provider
+   * compaction" label, a cancellation the cancelled flag, billed tokens the usage suffix in the
+   * TUI's compact number format.
+   */
+  @Test
+  public void compactionRowCarriesLabelCancelledAndUsage() {
+    connection.client.history =
+        List.of(
+            compactionEntry(
+                "msg_c2", new ChatEntry.Compaction("completed", "kept", null, null, true)),
+            compactionEntry(
+                "msg_c3", new ChatEntry.Compaction("failed", null, "aborted", "aborted", false)),
+            new ChatEntry(
+                new ChatMessageInfo(
+                    "msg_c4",
+                    "ses_1",
+                    "compaction",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    new Session.Tokens(1234, 300, 0, new Session.Cache(567, 0)),
+                    null,
+                    null,
+                    null,
+                    null,
+                    0L),
+                List.of(),
+                null,
+                null,
+                new ChatEntry.Compaction("completed", "billed", null, null, false)));
+    controller.resume("ses_44");
+    drainBackground();
+
+    List<Map<String, Object>> rows = renderer.histories.get(0);
+    assertEquals(3, rows.size());
+    assertEquals("Provider compaction", rows.get(0).get("label"));
+    assertEquals(true, rows.get(1).get("cancelled"));
+    assertEquals("", rows.get(1).get("text")); // a cancellation shows no body (TUI text())
+    assertEquals("1.8K in · 300 out", rows.get(2).get("usage")); // 1234+567 -> 1.8K (TUI number)
   }
 
   // ---------- late replies (POST budget exceeded) ----------
@@ -1431,20 +1484,129 @@ public class ChatSessionControllerTest {
   }
 
   /**
-   * T-143: /compact runs v2 POST .../compact on the session; T-145: the result is reported as a
-   * PERSISTENT transcript notice row (not a transient notice), so /compact leaves a visible trace.
+   * T-143: /compact runs v2 POST .../compact on the session; T-147: the POST response SEEDS the
+   * running compaction row (the session.compaction.* events drive the rest) - never a transient
+   * notice, never a second row when an event already opened one.
    */
   @Test
-  public void compactBuiltInCompactsTheSessionAndNotices() {
+  public void compactBuiltInCompactsTheSessionAndSeedsTheRunningRow() {
     controller.compactSessionCommand();
     drainBackground();
     assertEquals(List.of("ses_1"), connection.client.compactCalls);
+    assertEquals("the running row is seeded exactly once", 1, renderer.compactionStarts.size());
     assertTrue(
-        "compact marker row expected, got: " + renderer.noticeRows,
-        renderer.noticeRows.stream().anyMatch(n -> n.contains("Context compacted")));
-    assertTrue(
-        "the marker must not be transient-only (T-145)",
+        "the seed must not be a transient notice (T-147)",
         renderer.notices.stream().noneMatch(n -> n.contains("Context compacted")));
+  }
+
+  /**
+   * T-147 idempotence: when session.compaction.started already opened the row, the POST seed is
+   * skipped - the two paths together open exactly ONE row (the page is idempotent too, but the
+   * controller must not even ask twice).
+   */
+  @Test
+  public void compactSeedIsSkippedWhenTheStartedEventOpenedTheRow() {
+    controller.subscribe();
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+    connection.fire(typedEvent("session.compaction.started", "{\"sessionID\":\"ses_1\"}"));
+    assertEquals(1, renderer.compactionStarts.size());
+
+    controller.compactSessionCommand();
+    drainBackground();
+    assertEquals(List.of("ses_1"), connection.client.compactCalls);
+    assertEquals("the seed must not open a second row", 1, renderer.compactionStarts.size());
+  }
+
+  /** T-147: the four events drive the live row (started -> delta -> ended with usage). */
+  @Test
+  public void compactionEventsDriveTheLiveRow() {
+    controller.subscribe();
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+
+    connection.fire(typedEvent("session.compaction.started", "{\"sessionID\":\"ses_1\"}"));
+    assertEquals(1, renderer.compactionStarts.size());
+
+    connection.fire(
+        typedEvent("session.compaction.delta", "{\"sessionID\":\"ses_1\",\"text\":\"## Obj\"}"));
+    connection.fire(
+        typedEvent("session.compaction.delta", "{\"sessionID\":\"ses_1\",\"text\":\"ective\"}"));
+    assertEquals(List.of("## Obj", "ective"), renderer.compactionDeltas);
+
+    connection.fire(
+        typedEvent(
+            "session.compaction.ended",
+            "{\"sessionID\":\"ses_1\",\"text\":\"## Objective\",\"native\":{\"messages\":[]},"
+                + "\"tokens\":{\"input\":1200,\"output\":0,\"reasoning\":0,"
+                + "\"cache\":{\"read\":0,\"write\":0}}}"));
+    assertEquals(1, renderer.compactionFinishes.size());
+    String finish = renderer.compactionFinishes.get(0);
+    assertTrue("completed status: " + finish, finish.startsWith("completed|"));
+    assertTrue("provider label: " + finish, finish.contains("|Provider compaction|"));
+    assertTrue("full text: " + finish, finish.contains("|## Objective|"));
+    assertTrue("usage in the TUI format: " + finish, finish.endsWith("|1.2K in · 0 out"));
+  }
+
+  /** T-147: a failed event finalizes with the error (and cancelled for aborts). */
+  @Test
+  public void failedCompactionEventFinalizesWithErrorOrCancelled() {
+    controller.subscribe();
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+    connection.fire(typedEvent("session.compaction.started", "{\"sessionID\":\"ses_1\"}"));
+
+    connection.fire(
+        typedEvent(
+            "session.compaction.failed",
+            "{\"sessionID\":\"ses_1\",\"error\":{\"type\":\"provider.auth\","
+                + "\"message\":\"Invalid API Key\"}}"));
+    assertEquals("failed|Compaction|Invalid API Key|false|", renderer.compactionFinishes.get(0));
+
+    // an aborted compaction renders as cancelled with NO body (TUI text())
+    connection.fire(typedEvent("session.compaction.started", "{\"sessionID\":\"ses_1\"}"));
+    connection.fire(
+        typedEvent(
+            "session.compaction.failed",
+            "{\"sessionID\":\"ses_1\",\"error\":{\"type\":\"aborted\",\"message\":\"aborted\"}}"));
+    assertEquals("failed|Compaction||true|", renderer.compactionFinishes.get(1));
+  }
+
+  /** T-147: delta/final events for ANOTHER session never touch this transcript. */
+  @Test
+  public void compactionEventsOfOtherSessionsAreIgnored() {
+    controller.subscribe();
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+
+    connection.fire(typedEvent("session.compaction.started", "{\"sessionID\":\"ses_OTHER\"}"));
+    connection.fire(
+        typedEvent("session.compaction.delta", "{\"sessionID\":\"ses_OTHER\",\"text\":\"x\"}"));
+    connection.fire(
+        typedEvent("session.compaction.ended", "{\"sessionID\":\"ses_OTHER\",\"text\":\"done\"}"));
+
+    assertEquals(0, renderer.compactionStarts.size());
+    assertEquals(0, renderer.compactionDeltas.size());
+    assertEquals(0, renderer.compactionFinishes.size());
+  }
+
+  /** T-147: resuming a history that ends on a RUNNING compaction closes the seed gate. */
+  @Test
+  public void resumedRunningCompactionClosesTheSeedGate() {
+    connection.client.history =
+        List.of(
+            compactionEntry(
+                "msg_c5", new ChatEntry.Compaction("running", "partial sum", null, null, false)));
+    controller.resume("ses_45");
+    drainBackground();
+
+    controller.compactSessionCommand();
+    drainBackground();
+    assertEquals(
+        "the running history row already owns the screen - no seed row",
+        0,
+        renderer.compactionStarts.size());
+    assertEquals("the POST itself still ran", List.of("ses_45"), connection.client.compactCalls);
   }
 
   // ---------- built-in commands: /init, /help, /thinking, /share (U-047) ----------
@@ -2677,10 +2839,10 @@ public class ChatSessionControllerTest {
   }
 
   /**
-   * A compaction history row (T-145): role {@code compaction} carrying the deserializer's readable
-   * marker text - what GET /message yields after ChatEntryDeserializer reduction.
+   * A compaction history row (T-147): role {@code compaction} carrying the parsed payload - what
+   * GET /message yields after ChatEntryDeserializer maps the wire shape.
    */
-  private static ChatEntry compactionEntry(String id, String marker) {
+  private static ChatEntry compactionEntry(String id, ChatEntry.Compaction compaction) {
     ChatMessageInfo info =
         new ChatMessageInfo(
             id,
@@ -2697,7 +2859,7 @@ public class ChatSessionControllerTest {
             null,
             null,
             0L);
-    return new ChatEntry(info, List.of(new ChatPart("text", marker, null, null)));
+    return new ChatEntry(info, List.of(), null, null, compaction);
   }
 
   private static final class RecordingRenderer implements ChatSessionController.Renderer {
@@ -2714,8 +2876,16 @@ public class ChatSessionControllerTest {
     /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
     final List<String> shells = new ArrayList<>();
 
-    /** One entry per persistent notice row (T-145): the /compact transcript marker. */
-    final List<String> noticeRows = new ArrayList<>();
+    /** One entry per live compaction row open (T-147): the start/seed calls. */
+    final List<String> compactionStarts = new ArrayList<>();
+
+    /** One entry per streamed summary chunk (T-147): the raw delta text. */
+    final List<String> compactionDeltas = new ArrayList<>();
+
+    /**
+     * One entry per finalized compaction row (T-147): {@code status|label|text|cancelled|usage}.
+     */
+    final List<String> compactionFinishes = new ArrayList<>();
 
     int clears;
 
@@ -2783,8 +2953,19 @@ public class ChatSessionControllerTest {
     }
 
     @Override
-    public void appendNoticeRow(String text) {
-      noticeRows.add(text);
+    public void startCompaction() {
+      compactionStarts.add("start");
+    }
+
+    @Override
+    public void appendCompactionDelta(String text) {
+      compactionDeltas.add(text);
+    }
+
+    @Override
+    public void finishCompaction(
+        String status, String label, String text, boolean cancelled, String usage) {
+      compactionFinishes.add(status + "|" + label + "|" + text + "|" + cancelled + "|" + usage);
     }
 
     @Override

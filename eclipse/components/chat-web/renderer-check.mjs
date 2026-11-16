@@ -75,15 +75,20 @@ try {
   const js = readFileSync(join(webDir, "chat.js"), "utf8");
   for (const fn of ["__setTheme", "__clear", "__setMessages", "__appendUser",
     "__startAssistant", "__appendDelta", "__appendReasoningDelta", "__flushStream",
-    "__setAssistantText", "__linkClick", "__copyCode", "__appendNoticeRow"]) {
+    "__setAssistantText", "__linkClick", "__copyCode",
+    "__startCompaction", "__appendCompactionDelta", "__finishCompaction", "__flushCompaction"]) {
     check(`chat.js exposes ${fn}`, js.includes(`window.${fn} =`));
   }
-  // T-145: compaction markers replay from history as persistent notice rows -
-  // an empty assistant bubble must never stand in for a compaction again
-  check("history renders notice rows (T-145)",
-    js.includes('e.role === "notice"') && js.includes("addNoticeRow(e.text)"));
-  check("live compaction appends a notice row (T-145)",
-    js.includes("__appendNoticeRow") && js.includes("notice row rendered:"));
+  // T-147: compaction rows replay from history as the TUI's divider row and the
+  // live path streams them - an empty assistant bubble must never stand in for a
+  // compaction (T-145's defect stays dead), and the old notice-row seam is gone
+  check("history renders compaction divider rows (T-147)",
+    js.includes('e.role === "compaction"') && js.includes("addCompaction(e)"));
+  check("live compaction streams then finalizes (T-147)",
+    js.includes("__startCompaction") && js.includes("__appendCompactionDelta")
+    && js.includes("__finishCompaction") && js.includes("compaction row finalized:"));
+  check("notice-row seam removed (superseded by T-147)",
+    !js.includes("__appendNoticeRow") && !js.includes('e.role === "notice"'));
   check("chat.html loads chat.js", html.includes("chat.js"));
   check("chat.html loads markdown-it", html.includes("markdown-it.min.js"));
   check("chat.html loads katex css+js", html.includes("katex.min.css") && html.includes("katex.min.js"));
@@ -112,7 +117,10 @@ try {
   check("thinking is surfaced during streaming",
     js.includes('"thinking"') && js.includes("__appendReasoningDelta"));
   check("chat.html styles the raw streaming tail", html.includes(".stream-raw"));
-  check("chat.html styles the thinking indicator", html.includes(".thinking"));  check("tool lines are built without innerHTML (XSS)", /renderToolLines[\s\S]*?insertBefore/.test(js)
+  check("chat.html styles the thinking indicator", html.includes(".thinking"));
+  check("chat.html styles the compaction divider (T-147)",
+    html.includes(".compaction-head") && html.includes(".compaction-body")
+    && html.includes(".compaction-label"));  check("tool lines are built without innerHTML (XSS)", /renderToolLines[\s\S]*?insertBefore/.test(js)
     && !/line\.innerHTML/.test(js));
   check("chat.html styles tool lines per state",
     html.includes(".tool-line.tool-running") && html.includes(".tool-line.tool-completed")

@@ -16,7 +16,9 @@ import java.util.List;
  * where {@code type} is the role. User messages carry their prompt in a flat {@code text} field;
  * assistant messages carry {@code content[]} parts plus {@code agent}, {@code model}, {@code cost},
  * {@code tokens}, {@code finish} and {@code time.completed}. Non-conversational kinds (skill,
- * shell, idle, compaction, switches) are reduced to a text part so the transcript stays readable.
+ * shell, idle, switches) are reduced to a text part so the transcript stays readable; {@code
+ * compaction} rows keep their own {@link ChatEntry.Compaction} payload (T-147) - the TUI renders
+ * them as a divider row over the full summary, never as plain text.
  */
 public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> {
 
@@ -78,7 +80,11 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
       shellOutput = string(msg.getAsJsonObject("output"), "output");
     }
 
-    return new ChatEntry(info, parts(msg, ctx), shellCommand, shellOutput);
+    // T-147: compaction rows keep their payload (status/summary/error/native) -
+    // neither content[] nor text - rendered as the TUI's CompactionMessage row.
+    ChatEntry.Compaction compaction = "compaction".equals(role) ? compaction(msg) : null;
+
+    return new ChatEntry(info, parts(msg, ctx), shellCommand, shellOutput, compaction);
   }
 
   /** v2 parts: {@code content[]} for assistants, a flat {@code text} for everyone else. */
@@ -93,13 +99,6 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
       }
       return parts;
     }
-    if ("compaction".equals(string(msg, "type"))) {
-      // T-145: a compaction row carries summary/status/reason - neither content[]
-      // nor text - so without this reduction the transcript renders an empty
-      // assistant bubble and /compact leaves no visible trace (TUI parity).
-      parts.add(new ChatPart("text", compactionMarker(msg), null, null));
-      return parts;
-    }
     String text = string(msg, "text");
     if (text != null) {
       parts.add(new ChatPart("text", text, null, null));
@@ -107,27 +106,25 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
     return parts;
   }
 
-  /** T-145: readable transcript marker for a compaction row (completed / failed / other). */
-  private static String compactionMarker(JsonObject msg) {
-    String status = string(msg, "status");
-    if ("failed".equals(status)) {
-      JsonObject error =
-          msg.has("error") && msg.get("error").isJsonObject() ? msg.getAsJsonObject("error") : null;
-      String type = error != null ? string(error, "type") : null;
-      String message = error != null ? string(error, "message") : null;
-      return "Context compaction failed: "
-          + (type == null || type.isBlank() ? "unknown error" : type)
-          + (message == null || message.isBlank() ? "" : " - " + message);
-    }
-    if ("completed".equals(status)) {
-      String reason = string(msg, "reason");
-      return (reason == null || reason.isBlank()
-              ? "Context compacted"
-              : "Context compacted (" + reason + ")")
-          + " - the earlier history now stands as a summary; the next reply runs with a fresh"
-          + " window.";
-    }
-    return "Context compaction " + (status == null || status.isBlank() ? "started" : status) + "…";
+  /**
+   * The T-147 compaction payload: {@code status/reason/summary} on completed+running rows, {@code
+   * error{type,message}} on failed rows, {@code native.messages} marking a provider compaction (the
+   * TUI's "Provider compaction" label). No text part is fabricated - the row renders from this.
+   */
+  private static ChatEntry.Compaction compaction(JsonObject msg) {
+    JsonObject error =
+        msg.has("error") && msg.get("error").isJsonObject() ? msg.getAsJsonObject("error") : null;
+    boolean providerNative =
+        msg.has("native")
+            && msg.get("native").isJsonObject()
+            && msg.getAsJsonObject("native").has("messages")
+            && !msg.getAsJsonObject("native").get("messages").isJsonNull();
+    return new ChatEntry.Compaction(
+        string(msg, "status"),
+        string(msg, "summary"),
+        error == null ? null : string(error, "type"),
+        error == null ? null : string(error, "message"),
+        providerNative);
   }
 
   private static String string(JsonObject object, String key) {

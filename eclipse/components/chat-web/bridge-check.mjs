@@ -722,6 +722,147 @@ check("no JS errors on any shell path",
   reports.filter(r => r.startsWith("JS ERROR")).length === shellErrBefore);
 exec("window.__clear()");
 
+// ---------------- compaction rows (T-147, TUI parity) ----------------
+// The TUI's CompactionMessage: a divider header (rules around glyph/label/
+// suffixes) over the summary as markdown. Live: start (idempotent) -> incremental
+// deltas (throttled render, flush hook) -> authoritative finish; a finish with no
+// open row is dropped (the activeCompaction guard); history replays finished rows.
+const compErrBefore = reports.filter(r => r.startsWith("JS ERROR")).length;
+
+// 1. start opens ONE running row (spinner + label), and is idempotent - the
+//    /compact seed and session.compaction.started race in either order
+const cs1 = exec("window.__startCompaction()");
+const cs2 = exec("window.__startCompaction()");
+check("__startCompaction returns true", cs1 === true && cs2 === true);
+const openRow = chatEl.querySelector(".msg.compaction");
+check("__startCompaction opens a running compaction row", !!openRow
+  && openRow.className.includes("compaction-running")
+  && textOf(openRow).includes("Compaction"),
+  openRow ? JSON.stringify(textOf(openRow)) : "no node");
+check("the running row shows the spinner glyph",
+  !!openRow && openRow.querySelectorAll(".glyph > .spin").length === 1);
+check("__startCompaction is idempotent (seed vs started race)",
+  chatEl.querySelectorAll(".msg.compaction").length === 1);
+check("__startCompaction reports to Java",
+  reports.some(r => r.startsWith("compaction row rendered: status=running")));
+
+// 2. deltas are INCREMENTAL chunks: the first renders immediately (leading
+//    edge), the next within the throttle band waits for __flushCompaction
+exec("window.__appendCompactionDelta(" + JSON.stringify(JSON.stringify({ text: "## Objective" })) + ")");
+check("the first delta renders immediately",
+  textOf(openRow).includes("Objective"), // markdown renders the "##" to an h2
+  JSON.stringify(textOf(openRow)));
+exec("window.__appendCompactionDelta(" + JSON.stringify(JSON.stringify({ text: "\n- the earlier context, summarized" })) + ")");
+const flushed = exec("window.__flushCompaction()");
+check("__flushCompaction runs the pending throttled render", flushed === true);
+check("deltas accumulate into one body (INCREMENTAL contract)",
+  textOf(openRow).includes("Objective") && textOf(openRow).includes("the earlier context, summarized"),
+  JSON.stringify(textOf(openRow)));
+check("the delta stream reports once",
+  reports.filter(r => r.startsWith("compaction delta streaming started")).length === 1);
+
+// 3. finish is authoritative: header takes the final state, body is the FULL
+//    text (whatever streamed before is replaced, mermaid pass included)
+exec("window.__finishCompaction(" + JSON.stringify(JSON.stringify({
+  status: "completed", label: "Provider compaction",
+  text: "## Objective\n- the earlier context, summarized (FULL)",
+  cancelled: false, usage: "1.2K in · 340 out"
+})) + ")");
+const doneRow = chatEl.querySelector(".msg.compaction");
+check("__finishCompaction finalizes the open row",
+  !!doneRow && doneRow.className.includes("compaction-completed")
+  && !doneRow.className.includes("compaction-running"));
+check("the final header carries label + usage suffix",
+  !!doneRow && textOf(doneRow).includes("Provider compaction")
+  && textOf(doneRow).includes("· 1.2K in · 340 out"));
+check("the body is the authoritative FULL text (streamed tail replaced)",
+  !!doneRow && textOf(doneRow).includes("(FULL)"));
+check("the running spinner is gone after finish",
+  !!doneRow && doneRow.querySelectorAll(".glyph > .spin").length === 0);
+check("__finishCompaction reports to Java",
+  reports.some(r => r.startsWith("compaction row finalized: status=completed")));
+
+// 4. the TUI activeCompaction guard: a finish with NO open row is dropped -
+//    history already rendered that compaction (no phantom second row)
+const compBefore = chatEl.querySelectorAll(".msg.compaction").length;
+exec("window.__finishCompaction(" + JSON.stringify(JSON.stringify({
+  status: "failed", label: "Compaction", text: "orphan", cancelled: false, usage: ""
+})) + ")");
+check("a finish without an open row is dropped (no phantom row)",
+  chatEl.querySelectorAll(".msg.compaction").length === compBefore
+  && !textOf(chatEl).includes("orphan"));
+
+// 5. failed + cancelled per the TUI: ✗ glyph on a real failure, no glyph and a
+//    "· cancelled" suffix on an aborted one
+exec("window.__startCompaction()");
+exec("window.__finishCompaction(" + JSON.stringify(JSON.stringify({
+  status: "failed", label: "Compaction", text: "Invalid API Key", cancelled: false, usage: ""
+})) + ")");
+const failRow = chatEl.querySelectorAll(".msg.compaction").pop();
+check("a failed row shows the ✗ glyph and the error as body",
+  !!failRow && failRow.className.includes("compaction-failed")
+  && textOf(failRow).includes("✗") && textOf(failRow).includes("Invalid API Key"));
+exec("window.__startCompaction()");
+exec("window.__finishCompaction(" + JSON.stringify(JSON.stringify({
+  status: "failed", label: "Compaction", text: "", cancelled: true, usage: ""
+})) + ")");
+const cancelRow = chatEl.querySelectorAll(".msg.compaction").pop();
+check("a cancelled row shows the suffix and no body",
+  !!cancelRow && cancelRow.className.includes("cancelled")
+  && textOf(cancelRow).includes("· cancelled") && textOf(cancelRow).includes("Compaction"));
+
+// 6. history replay: a finished compaction row renders as the divider over its
+//    summary; a RUNNING one re-binds as the open row so deltas keep appending
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "user", id: "u0", text: "compact it", reasoning: "", meta: "" },
+  { role: "compaction", id: "msg_c1", status: "completed", label: "Compaction",
+    text: "## Kept context\nthe summary", cancelled: false, usage: "" }
+])) + ")");
+const histRow = chatEl.querySelector(".msg.compaction");
+check("__setMessages replays a compaction row as the TUI divider",
+  !!histRow && textOf(histRow).includes("Compaction")
+  && textOf(histRow).includes("the summary"),
+  histRow ? JSON.stringify(textOf(histRow)) : "no node");
+check("the replayed summary is rendered markdown",
+  !!histRow && histRow.querySelectorAll(".compaction-body > h2").length === 1);
+check("the replay keeps the neighbouring turns",
+  textOf(chatEl).includes("compact it"));
+
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "compaction", id: "msg_c2", status: "running", label: "Compaction",
+    text: "partial sum", cancelled: false, usage: "" }
+])) + ")");
+const runRow = chatEl.querySelector(".msg.compaction");
+check("a RUNNING history row renders with the spinner",
+  !!runRow && runRow.className.includes("compaction-running")
+  && runRow.querySelectorAll(".glyph > .spin").length === 1);
+exec("window.__appendCompactionDelta(" + JSON.stringify(JSON.stringify({ text: " + more" })) + ")");
+check("post-reload deltas re-bind to the running history row",
+  textOf(runRow).includes("partial sum") && textOf(runRow).includes("+ more"),
+  JSON.stringify(textOf(runRow)));
+exec("window.__finishCompaction(" + JSON.stringify(JSON.stringify({
+  status: "completed", label: "Compaction", text: "partial sum + more (final)", cancelled: false, usage: ""
+})) + ")");
+check("finishing the rebound row finalizes THAT row",
+  chatEl.querySelectorAll(".msg.compaction").length === 1
+  && textOf(chatEl.querySelector(".msg.compaction")).includes("(final)"));
+
+// 7. XSS: the label is textContent-built, the body goes through renderMarkdown
+//    (html:false) - a hostile summary/label cannot inject markup
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "compaction", id: "msg_c3", status: "failed", label: "<script>alert(1)</script>",
+    text: "</div><script>alert(2)</script>", cancelled: false, usage: "" }
+])) + ")");
+const hostileComp = chatEl.querySelector(".msg.compaction");
+check("a hostile compaction label cannot inject markup",
+  !!hostileComp && hostileComp.querySelectorAll("script").length === 0
+  && textOf(hostileComp).includes("<script>alert(1)</script>"));
+check("a hostile compaction body cannot inject markup",
+  !!hostileComp && hostileComp.querySelectorAll("script").length === 0);
+check("no JS errors on any compaction path",
+  reports.filter(r => r.startsWith("JS ERROR")).length === compErrBefore);
+exec("window.__clear()");
+
 // ---------------- math (extract BEFORE markdown) ----------------
 // Real model output captured from a live opencode server, plus the shapes that
 // the previous "markdown first, KaTeX auto-render after" pipeline destroyed.

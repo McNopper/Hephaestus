@@ -475,6 +475,7 @@ window.__clear = guard("__clear", function () {
   chatEl.innerHTML = "";
   hideWaiting();
   forgetStreams(); // pending progressive ticks no-op (their mid is gone)
+  compactionRow = null; // the open compaction row (if any) went with the transcript
   return true;
 });
 
@@ -489,21 +490,143 @@ window.__setNotice = guard("__setNotice", function (text) {
   return true;
 });
 
-// T-145: persistent transcript notice rows - unlike __setNotice they are part of the
-// transcript, so they SURVIVE history reloads (compaction markers replay via
-// __setMessages with role "notice"; live appends go through __appendNoticeRow).
-function addNoticeRow(text) {
-  const div = document.createElement("div");
-  div.className = "notice";
-  div.textContent = typeof text === "string" ? text : String(text);
-  chatEl.appendChild(div);
-  scrollBottom();
-  report("notice row rendered: " + div.textContent.slice(0, 60));
-  return div;
+// ---- compaction rows (T-147, TUI parity) -------------------------------
+// The TUI's CompactionMessage: a divider header (two rule lines around a glyph,
+// the label and suffixes) over the full summary - or failure message - as
+// markdown. The live path opens ONE row (__startCompaction, idempotent against
+// the /compact seed vs session.compaction.started race), streams incremental
+// summary chunks into it (__appendCompactionDelta) and finalizes it with the
+// authoritative text (__finishCompaction). History replays finished rows via
+// __setMessages role "compaction"; a RUNNING history row re-binds the open row
+// so post-reload deltas keep appending to it. A finish with no open row is
+// DROPPED (the TUI's activeCompaction guard) - history already rendered it.
+const COMPACTION_RENDER_MS = 200; // same throttle band as the streaming renderer
+let compactionRow = null; // { wrap, body, text, timer, lastRender, deltaReported } while open
+
+function compactionHead(p) {
+  const status = typeof p.status === "string" && p.status ? p.status : "completed";
+  const cancelled = !!p.cancelled;
+  const head = document.createElement("div");
+  head.className = "compaction-head";
+  const ruleL = document.createElement("span");
+  ruleL.className = "rule";
+  head.appendChild(ruleL);
+  const glyph = document.createElement("span");
+  glyph.className = "glyph";
+  if (status === "running") {
+    glyph.appendChild(makeSpinner(null)); // TUI: spinner while summarizing
+  } else if (status === "failed" && !cancelled) {
+    glyph.textContent = "✗"; // TUI: cross on a real failure (cancelled shows none)
+  }
+  head.appendChild(glyph);
+  const label = document.createElement("span");
+  label.className = "compaction-label";
+  label.textContent = p.label || "Compaction";
+  head.appendChild(label);
+  if (cancelled) {
+    const suffix = document.createElement("span");
+    suffix.className = "compaction-suffix";
+    suffix.textContent = "· cancelled"; // TUI cancelled suffix
+    head.appendChild(suffix);
+  }
+  if (typeof p.usage === "string" && p.usage) {
+    const suffix = document.createElement("span");
+    suffix.className = "compaction-suffix";
+    suffix.textContent = "· " + p.usage;
+    head.appendChild(suffix);
+  }
+  const ruleR = document.createElement("span");
+  ruleR.className = "rule";
+  head.appendChild(ruleR);
+  return head;
 }
 
-window.__appendNoticeRow = guard("__appendNoticeRow", function (text) {
-  addNoticeRow(typeof text === "string" ? text : String(text));
+function addCompaction(p) {
+  const status = typeof p.status === "string" && p.status ? p.status : "completed";
+  const wrap = document.createElement("div");
+  wrap.className = "msg compaction compaction-" + status + (p.cancelled ? " cancelled" : "");
+  const head = compactionHead(p);
+  wrap.appendChild(head);
+  const body = document.createElement("div");
+  body.className = "bubble compaction-body";
+  if (typeof p.text === "string" && p.text) renderMarkdown(body, p.text);
+  wrap.appendChild(body);
+  chatEl.appendChild(wrap);
+  scrollBottom();
+  report("compaction row rendered: status=" + status
+    + (p.cancelled ? " cancelled" : "") + (p.usage ? " (" + p.usage + ")" : ""));
+  return { wrap: wrap, head: head, body: body, text: (typeof p.text === "string" ? p.text : ""),
+           timer: 0, lastRender: 0, deltaReported: false };
+}
+
+function renderCompactionBody(row) {
+  row.lastRender = Date.now();
+  renderMarkdown(row.body, row.text, { live: true }); // live pass: no mermaid until finalize
+  scrollBottom();
+  return true;
+}
+
+function scheduleCompactionRender(row) {
+  const since = Date.now() - row.lastRender;
+  if (since >= COMPACTION_RENDER_MS) { renderCompactionBody(row); return; }
+  if (row.timer) return;
+  row.timer = setTimeout(function () {
+    row.timer = 0;
+    if (compactionRow === row) renderCompactionBody(row);
+  }, COMPACTION_RENDER_MS - since);
+}
+
+window.__startCompaction = guard("__startCompaction", function () {
+  if (compactionRow) return true; // already open: the /compact seed and the started event race
+  compactionRow = addCompaction({ status: "running", label: "Compaction", text: "" });
+  return true;
+});
+
+window.__appendCompactionDelta = guard("__appendCompactionDelta", function (json) {
+  const p = payload(json);
+  const text = typeof p.text === "string" ? p.text : "";
+  if (!text) return true;
+  if (!compactionRow) {
+    // started was missed (view opened mid-compaction before history listed it) -
+    // open lazily so the summary is never stranded
+    compactionRow = addCompaction({ status: "running", label: "Compaction", text: "" });
+  }
+  compactionRow.text += text; // deltas are INCREMENTAL (the server folds streamed.text + delta)
+  if (!compactionRow.deltaReported) {
+    compactionRow.deltaReported = true;
+    report("compaction delta streaming started (" + compactionRow.text.length + " chars)");
+  }
+  scheduleCompactionRender(compactionRow);
+  return true;
+});
+
+// Test/diagnostic hook: executes the open compaction row's PENDING throttled
+// render right now (mirrors __flushStream - the checks drive the throttle
+// deterministically; a flush with nothing scheduled is a harmless no-op).
+window.__flushCompaction = guard("__flushCompaction", function () {
+  const row = compactionRow;
+  if (!row || !row.timer) return false;
+  clearTimeout(row.timer);
+  row.timer = 0;
+  return renderCompactionBody(row);
+});
+
+window.__finishCompaction = guard("__finishCompaction", function (json) {
+  const p = payload(json);
+  const text = typeof p.text === "string" ? p.text : "";
+  const row = compactionRow;
+  if (!row) return true; // no open row: history already rendered it (TUI activeCompaction guard)
+  if (row.timer) { clearTimeout(row.timer); row.timer = 0; }
+  compactionRow = null;
+  // header takes the final status/suffixes (glyph: none for completed/cancelled, ✗ for failed)
+  row.head.replaceWith(compactionHead(p));
+  row.wrap.className = "msg compaction compaction-"
+    + (typeof p.status === "string" && p.status ? p.status : "completed")
+    + (p.cancelled ? " cancelled" : "");
+  renderMarkdown(row.body, text); // authoritative render (mermaid pass included)
+  scrollBottom();
+  report("compaction row finalized: status=" + (p.status || "completed")
+    + " (" + text.length + " chars" + (p.usage ? ", " + p.usage : "") + ")");
   return true;
 });
 
@@ -511,6 +634,7 @@ window.__setMessages = guard("__setMessages", function (json) {
   chatEl.innerHTML = "";
   hideWaiting();
   forgetStreams(); // pending progressive ticks no-op (their mid is gone)
+  compactionRow = null; // the open row (if any) was just wiped with the transcript
   const entries = payload(json);
   entries.forEach(e => {
     if (e.role === "shell") {
@@ -518,9 +642,10 @@ window.__setMessages = guard("__setMessages", function (json) {
       addShell(e.command, e.output, e.status);
     } else if (e.role === "user") {
       addUser(e.text, e.id);
-    } else if (e.role === "notice") {
-      // T-145: persistent transcript markers (the /compact row) - never an empty bubble
-      addNoticeRow(e.text);
+    } else if (e.role === "compaction") {
+      // T-147: the TUI's divider row - never an empty assistant bubble (T-145)
+      const row = addCompaction(e);
+      if (e.status === "running") compactionRow = row; // rebind: deltas keep appending
     } else {
       const a = addAssistant(e.id, e.reasoning);
       renderToolLines(a.bubble, e.tools, a.body);

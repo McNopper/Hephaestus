@@ -104,9 +104,36 @@ public final class ChatScripts {
     return "window.__setNotice(" + GSON.toJson(nullToEmpty(text)) + ")";
   }
 
-  /** {@code window.__appendNoticeRow("...")} - persistent transcript notice row (T-145). */
-  public static String appendNoticeRow(String text) {
-    return "window.__appendNoticeRow(" + GSON.toJson(nullToEmpty(text)) + ")";
+  /**
+   * {@code window.__startCompaction()} - T-147: opens the live compaction divider row (idempotent).
+   */
+  public static String startCompaction() {
+    return "window.__startCompaction()";
+  }
+
+  /**
+   * {@code window.__appendCompactionDelta("{...}")} - T-147: one INCREMENTAL summary chunk for the
+   * open compaction row (the page appends and renders progressively).
+   */
+  public static String appendCompactionDelta(String text) {
+    return call("__appendCompactionDelta", Map.of("text", nullToEmpty(text)));
+  }
+
+  /**
+   * {@code window.__finishCompaction("{...}")} - T-147: finalizes the open compaction row with the
+   * authoritative content: {@code status} completed/failed, {@code label} the TUI header, {@code
+   * text} the full summary / failure message (empty when cancelled), {@code cancelled} the TUI
+   * suffix, {@code usage} the optional token suffix.
+   */
+  public static String finishCompaction(
+      String status, String label, String text, boolean cancelled, String usage) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("status", nullToEmpty(status));
+    payload.put("label", nullToEmpty(label));
+    payload.put("text", nullToEmpty(text));
+    payload.put("cancelled", cancelled);
+    payload.put("usage", nullToEmpty(usage));
+    return call("__finishCompaction", payload);
   }
 
   /**

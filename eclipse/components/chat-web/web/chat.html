@@ -78,6 +78,18 @@
   .notice { font-size: 12px; color: var(--muted); margin: 6px 4px; text-align: center;
              /* /help and friends render multi-line command lists */
              white-space: pre-line; }
+  /* compaction rows (T-147, TUI parity): a divider header - rule lines around
+     the glyph/label/suffixes - over the summary (or failure) as markdown */
+  .msg.compaction { display: block; }
+  .compaction-head { display: flex; align-items: center; gap: 6px; margin: 8px 0 2px; }
+  .compaction-head .rule { flex: 1; border-top: 1px solid var(--muted); }
+  .compaction-head .glyph { min-width: 14px; text-align: center; font-size: 12px;
+                            color: var(--muted); }
+  .msg.compaction.compaction-failed:not(.cancelled) .compaction-head .glyph { color: #e5554f; }
+  .compaction-label, .compaction-suffix { font-size: 11px; color: var(--muted);
+                                           white-space: nowrap; }
+  .compaction-body { margin-left: 18px; max-width: calc(88% - 18px); padding-top: 2px; }
+  .doc .compaction-body { max-width: calc(100% - 18px); }
   /* streaming: only the trailing in-progress block stays raw text under the
      cursor (completed blocks are rendered markdown above it) */
   .stream-raw { white-space: pre-wrap; overflow-wrap: anywhere;
