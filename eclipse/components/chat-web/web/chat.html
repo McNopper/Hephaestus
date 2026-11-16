@@ -90,6 +90,45 @@
                                            white-space: nowrap; }
   .compaction-body { margin-left: 18px; max-width: calc(88% - 18px); padding-top: 2px; }
   .doc .compaction-body { max-width: calc(100% - 18px); }
+  /* status strip (T-149): the TUI prompt-footer status row - goal chip, context
+     usage, cost - pinned at the bottom of the page directly above the host input
+     row (the chat's composer boundary); hidden while empty like #inbox */
+  #status { flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+            padding: 4px 12px; font-size: 11px; color: var(--muted);
+            border-top: 1px solid var(--border); }
+  #status:empty { display: none; }
+  .status-goal { font: inherit; font-size: 11px; padding: 1px 8px; cursor: pointer;
+                 background: transparent; color: var(--muted);
+                 border: 1px solid var(--border); border-radius: 9px; }
+  .status-goal:hover { border-color: var(--fg); }
+  .status-goal.goal-paused { color: #d29922; border-color: #d29922; }
+  .status-goal.goal-complete { color: #3fb950; border-color: #3fb950; }
+  /* goal dialog (T-149): in-page modal, mirrors the TUI's goal dialog content */
+  #goal-dialog { position: fixed; inset: 0; z-index: 50; display: flex;
+                 align-items: center; justify-content: center;
+                 background: rgba(0, 0, 0, 0.35); }
+  #goal-dialog[hidden] { display: none; }
+  .goal-card { background: var(--bg); border: 1px solid var(--border);
+               border-radius: 8px; padding: 14px 16px; min-width: 280px;
+               max-width: 460px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+  .goal-card h3 { margin: 0 0 8px 0; font-size: 13px; color: var(--fg); }
+  .goal-objective { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px;
+                    color: var(--fg); max-height: 40vh; overflow-y: auto; margin: 0 0 8px 0; }
+  .goal-state { font-size: 12px; margin-bottom: 4px; }
+  .goal-state.goal-paused { color: #d29922; }
+  .goal-state.goal-complete { color: #3fb950; }
+  .goal-reason { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .goal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .goal-actions button { font: inherit; font-size: 11px; padding: 2px 10px; cursor: pointer;
+                         color: var(--fg); background: var(--bg);
+                         border: 1px solid var(--border); border-radius: 4px; }
+  .goal-actions button:hover { border-color: var(--fg); }
+  /* synthetic notice rows (T-149): the TUI's SessionNoticeMessage - muted inline
+     icon + description; the injected objective prompt is never an assistant bubble */
+  .msg.synthetic { display: block; }
+  .synthetic-row { font-size: 12px; color: var(--muted); margin: 6px 4px;
+                   display: flex; gap: 6px; align-items: baseline; }
+  .synthetic-icon { min-width: 14px; text-align: center; }
   /* streaming: only the trailing in-progress block stays raw text under the
      cursor (completed blocks are rendered markdown above it) */
   .stream-raw { white-space: pre-wrap; overflow-wrap: anywhere;
@@ -220,6 +259,21 @@
 <div id="forms"></div>
 <div id="file-complete"></div>
 <div id="inbox"></div>
+<div id="status"></div>
+<div id="goal-dialog" hidden>
+  <div class="goal-card" role="dialog" aria-modal="true" aria-labelledby="goal-dialog-title">
+    <h3 id="goal-dialog-title">Goal</h3>
+    <p class="goal-objective" id="goal-dialog-objective"></p>
+    <div class="goal-state" id="goal-dialog-state"></div>
+    <div class="goal-reason" id="goal-dialog-reason"></div>
+    <div class="goal-actions">
+      <button type="button" id="goal-pause" hidden>pause</button>
+      <button type="button" id="goal-resume" hidden>resume</button>
+      <button type="button" id="goal-clear" hidden>clear</button>
+      <button type="button" id="goal-close">close</button>
+    </div>
+  </div>
+</div>
 <script src="chat.js"></script>
 </body>
 </html>

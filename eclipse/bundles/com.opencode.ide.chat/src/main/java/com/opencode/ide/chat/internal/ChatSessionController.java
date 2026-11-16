@@ -11,9 +11,11 @@ import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatPart;
+import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionGoal;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.VcsInfo;
@@ -174,7 +176,37 @@ public final class ChatSessionController {
      * Default no-op so renderers without the concept stay compiling.
      */
     default void setReasoningVisible(boolean visible) {}
+
+    /**
+     * T-149: replaces the status strip (the TUI prompt footer's status row: session goal chip,
+     * context usage, cost). One record so the push is atomic; empty strings hide their segment and
+     * an all-empty strip hides the row. Default no-op so renderers (and test fakes) without the
+     * strip stay compiling.
+     */
+    default void setStatusStrip(StatusStrip status) {}
+
+    /**
+     * T-149: appends a synthetic notice row to the transcript (the TUI's SessionNoticeMessage) -
+     * called live when {@code rpc.opencode.goal.changed} delivers a goal this view never rendered;
+     * history rows arrive through {@link #setMessages} instead. The page dedupes by {@code goalId}.
+     * Default no-op.
+     */
+    default void appendSynthetic(String source, String text, String goalId) {}
   }
+
+  /**
+   * T-149: the status strip payload (the TUI's prompt-footer status, {@code
+   * feature-plugins/prompt/footer.tsx:37-51}) - session goal chip + context usage + cost. Empty
+   * strings hide their segment (an all-empty strip hides the row); the goal fields are empty when
+   * no goal is set. {@code objective}/{@code reason} feed the goal dialog.
+   */
+  public record StatusStrip(
+      String context,
+      String cost,
+      String goalLabel,
+      String goalStatus,
+      String objective,
+      String reason) {}
 
   /** Ambient services the controller needs from its host view. */
   public interface Host {
@@ -347,6 +379,31 @@ public final class ChatSessionController {
    */
   private final List<String> streamedMids = new CopyOnWriteArrayList<>();
 
+  // ---------- status strip state (T-149) ----------
+
+  /** Context usage label for the strip ({@code "596.1K (7%)"}) or null while hidden. */
+  private volatile String statusContext;
+
+  /** Session cost for the strip (raw value; formatted at push) or null while hidden. */
+  private volatile Double statusCost;
+
+  /** The session's {@code /goal} state (null = no goal / plugin-less server). */
+  private volatile SessionGoal statusGoal;
+
+  /** Goal ids whose synthetic notice row is already on screen (live-append dedupe, T-149). */
+  private final java.util.Set<String> renderedNoticeGoalIds =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  /**
+   * Model context-window limits keyed {@code "providerId/modelId"} for the strip's percent segment
+   * (T-149) - the {@code /model} catalog fetched once per controller lifetime; the catalog lists
+   * every enabled model, so a later miss means the model is genuinely unknown (no percent, TUI
+   * {@code util/session.ts:56-60} behaves the same).
+   */
+  private final Map<String, Long> contextLimits = new java.util.concurrent.ConcurrentHashMap<>();
+
+  private volatile boolean contextLimitsLoaded;
+
   /**
    * Submissions waiting for the in-flight reply. Guarded by itself: the enqueue decision (in {@link
    * #submit}) and the drain decision (in {@link #finishSend}) must be mutually exclusive, or a
@@ -375,6 +432,13 @@ public final class ChatSessionController {
    */
   private static final Duration ABORT_SETTLE_DEFAULT =
       envDuration("CHAT_ABORT_SETTLE_MS", Duration.ofSeconds(10));
+
+  /**
+   * T-149: the single delayed retry for a goal's synthetic notice row - the row is written just
+   * AFTER the goal state publishes its changed event (probe 2026-11-16: +18 ms), so the first
+   * refetch can race the insert. One retry, then the row appears on the next history render.
+   */
+  private static final Duration GOAL_NOTICE_RETRY_MS = Duration.ofMillis(500);
 
   private final Duration lateReplyPoll;
   private final Duration lateReplyCap;
@@ -535,6 +599,28 @@ public final class ChatSessionController {
             onCompactionEvent(event, sid);
             return;
           }
+          // T-149: the status strip's live feeds - session cost and the goal chip - are
+          // session-scoped and carry their payload; no fetch, just a push.
+          if ("session.usage.updated".equals(event.type())) {
+            if (sid.equals(event.string("sessionID"))) {
+              Double cost = event.as("cost", Double.class);
+              if (cost != null) {
+                statusCost = cost;
+                pushStatus();
+              }
+            }
+            return;
+          }
+          if (event.type().startsWith("rpc.opencode.goal.changed")) {
+            onGoalChanged(event, sid);
+            return;
+          }
+          if ("server.connected".equals(event.type())) {
+            // the SSE stream reconnected: events were lost during the gap (the stream's contract)
+            // - re-read cost/goal/context from server truth.
+            refreshStatus(null);
+            return;
+          }
           // v2 split the single v1 "message.part.delta" (which carried a
           // "field" discriminator) into one event type PER CHANNEL, so the
           // channel is the event NAME now - no payload inspection needed.
@@ -627,6 +713,9 @@ public final class ChatSessionController {
                   text == null ? "" : text,
                   false,
                   usageLabel(tokens, "completed")));
+      // T-149: the completed compaction moved the context boundary - the strip hides until the
+      // next assistant step carries usage again (the TUI's own rule).
+      refreshStatus(null);
       return;
     }
     if ("session.compaction.failed".equals(type)) {
@@ -708,6 +797,8 @@ public final class ChatSessionController {
     renderer.clear();
     renderer.setInboxItems(List.of()); // the parked prompts belonged to the old session
     renderer.setForms(List.of()); // so did its open question forms (U-014)
+    renderedNoticeGoalIds.clear(); // T-149: the next session's goal notices start fresh
+    refreshStatus(null); // T-149: sessionId is null now - clears the status strip
     host.statusChanged("New session (created on first message)");
     renderer.notice("Fresh session - your next message starts a new conversation.");
     fireUndoRedoChanged();
@@ -738,6 +829,14 @@ public final class ChatSessionController {
             // after the render below - keep the gate closed so /compact and late events
             // update THAT row instead of seeding a second one.
             compactionActive = hasRunningCompaction(entries);
+            // T-149: record which goal notices history already rendered - a later
+            // rpc.opencode.goal.changed for the SAME goal (a pause/resume re-fires it)
+            // must not append a duplicate row.
+            for (ChatEntry entry : entries) {
+              if (entry.isNotice() && entry.notice() != null && entry.notice().goalId() != null) {
+                renderedNoticeGoalIds.add(entry.notice().goalId());
+              }
+            }
             host.runOnUi(
                 () -> {
                   renderer.setMessages(rows);
@@ -746,6 +845,9 @@ public final class ChatSessionController {
                   renderer.notice("Resumed session " + sid + " - continuing the conversation.");
                   fireUndoRedoChanged();
                 });
+            // T-149: the strip's first paint comes from the history just loaded (context usage)
+            // plus one session fetch (cost) and the goal RPC - all in the status job.
+            refreshStatus(entries);
           } catch (OpencodeException e) {
             host.runOnUi(() -> host.statusChanged("Error loading history: " + e.getMessage()));
           }
@@ -795,6 +897,24 @@ public final class ChatSessionController {
         row.put("cancelled", c.cancelled());
         row.put(
             "usage", usageLabel(entry.info() == null ? null : entry.info().tokens(), c.status()));
+        rows.add(row);
+        continue;
+      }
+      if (entry.isNotice()) {
+        // T-149: the TUI's SessionNoticeMessage (routes/session/index.tsx:1954,2113-2145):
+        // icon + description, muted - and a synthetic WITHOUT a description is dropped exactly
+        // like the TUI drops it (rows.ts:392): the injected objective prompt never becomes a
+        // bubble (the T-149 defect this replaces).
+        ChatEntry.Notice n = entry.notice();
+        String description = n == null ? null : n.description();
+        if (description == null || description.isBlank()) {
+          continue;
+        }
+        row.put("role", "synthetic");
+        row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
+        row.put("text", description);
+        row.put("source", n.source() == null ? "" : n.source());
+        row.put("goalId", n.goalId() == null ? "" : n.goalId());
         rows.add(row);
         continue;
       }
@@ -874,6 +994,249 @@ public final class ChatSessionController {
       return String.format(Locale.ROOT, "%.1fK", value / 1000.0);
     }
     return Long.toString(value);
+  }
+
+  /**
+   * T-149: the TUI's context-usage strip value ({@code util/session.ts:46-66}): the LAST assistant
+   * message with usage AFTER the last completed compaction - {@code tokens} summed over all five
+   * fields, {@code percent} of the matched model's {@code limit.context}. Returns {@code null} when
+   * nothing qualifies (no usage yet, or a completed compaction with no assistant step after it yet
+   * - the TUI hides the segment in exactly those cases). The revert boundary needs no handling: the
+   * server drops reverted messages from {@code GET /message} (the undo contract this codebase
+   * already tests), so the served list IS the boundary.
+   *
+   * <p>Static and pure for the unit tests; {@code limits} maps {@code "providerId/modelId"} to
+   * {@code limit.context} (absent = no percent, matching the TUI when the model is unknown).
+   */
+  public static String contextUsageLabel(List<ChatEntry> entries, Map<String, Long> limits) {
+    int start = 0;
+    for (int i = entries.size() - 1; i >= 0; i--) {
+      ChatEntry entry = entries.get(i);
+      if (entry.isCompaction()
+          && entry.compaction() != null
+          && "completed".equals(entry.compaction().status())) {
+        start = i + 1; // only assistant steps AFTER the newest completed compaction count
+        break;
+      }
+    }
+    for (int i = entries.size() - 1; i >= start; i--) {
+      ChatEntry entry = entries.get(i);
+      if (entry.info() == null || !"assistant".equals(entry.info().role())) {
+        continue;
+      }
+      Session.Tokens tokens = entry.info().tokens();
+      if (tokens == null) {
+        continue; // the TUI skips assistants without usage (tokens undefined)
+      }
+      long sum =
+          tokens.input()
+              + tokens.output()
+              + tokens.reasoning()
+              + (tokens.cache() == null ? 0 : tokens.cache().read() + tokens.cache().write());
+      if (sum <= 0) {
+        return null; // TUI: tokens <= 0 -> undefined -> hidden (no fall-through to older steps)
+      }
+      String value = compactNumber(sum);
+      Long limit = limits.get(entry.info().providerId() + "/" + entry.info().modelId());
+      if (limit == null || limit <= 0) {
+        return value; // percent omitted exactly like the TUI when the model is unknown
+      }
+      long percent = Math.round(sum / (double) limit * 100);
+      return value + " (" + percent + "%)";
+    }
+    return null;
+  }
+
+  /**
+   * T-149: the TUI's footer cost segment ({@code feature-plugins/prompt/footer.tsx:46-49}): USD
+   * currency format, shown only when the session costed something - {@code null} hides the segment.
+   */
+  public static String costLabel(Double cost) {
+    if (cost == null || cost <= 0) {
+      return null;
+    }
+    return String.format(Locale.US, "$%,.2f", cost);
+  }
+
+  // ---------- status strip (T-149): the TUI prompt-footer status ----------
+
+  /**
+   * Loads the {@code /model} catalog once per controller (T-149): {@code limit.context} per {@code
+   * "providerId/modelId"} for the strip's percent segment. A miss after the load means the model is
+   * genuinely absent from the catalog - no percent, exactly like the TUI when it cannot resolve the
+   * model ({@code util/session.ts:56-60}); no refetch loop by design.
+   */
+  private void ensureContextLimits() {
+    if (contextLimitsLoaded) {
+      return;
+    }
+    synchronized (contextLimits) {
+      if (contextLimitsLoaded) {
+        return;
+      }
+      try {
+        for (Model model : connection.getClient().getModels(connection.workingDirectory())) {
+          if (model.limit() != null && model.limit().context() > 0) {
+            contextLimits.put(model.providerID() + "/" + model.id(), model.limit().context());
+          }
+        }
+        contextLimitsLoaded = true;
+      } catch (OpencodeException e) {
+        host.info("status refresh: model limits unavailable: " + e.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Recomputes and pushes the status strip from server truth: message list (context usage), the
+   * session record (cost) and the {@code opencode.goal} RPC (goal state). Always runs in a
+   * background job - it is called from resume, turn settle, the SSE thread (reconnect, compaction)
+   * and the UI thread (new session). {@code entries} short-circuits the message fetch on paths that
+   * just loaded history.
+   */
+  private void refreshStatus(List<ChatEntry> entries) {
+    String sid = sessionId;
+    if (sid == null) {
+      statusContext = null;
+      statusCost = null;
+      statusGoal = null;
+      pushStatus();
+      return;
+    }
+    List<ChatEntry> preloaded = entries; // final for the job lambda
+    host.runInBackground(
+        "Refreshing chat status",
+        () -> {
+          List<ChatEntry> list = preloaded;
+          if (list == null) {
+            try {
+              list = connection.getClient().getMessages(sid);
+            } catch (OpencodeException e) {
+              host.info("status refresh: message list unavailable: " + e.getMessage());
+            }
+          }
+          if (list != null) {
+            ensureContextLimits();
+            statusContext = serverHasReverted ? null : contextUsageLabel(list, contextLimits);
+          }
+          try {
+            Session session = connection.getClient().getSession(sid);
+            statusCost = session == null ? null : session.cost();
+          } catch (OpencodeException e) {
+            host.info("status refresh: session unavailable: " + e.getMessage());
+          }
+          // getSessionGoal never actually throws (plugin-less servers answer null - the TUI
+          // tolerates it the same way); the interface signature still declares it.
+          try {
+            statusGoal = connection.getClient().getSessionGoal(sid);
+          } catch (OpencodeException e) {
+            host.info("status refresh: goal unavailable: " + e.getMessage());
+          }
+          pushStatus();
+        });
+  }
+
+  /** Pushes the current strip state to the page (marshalled onto the UI thread). */
+  private void pushStatus() {
+    SessionGoal goal = statusGoal;
+    StatusStrip strip =
+        new StatusStrip(
+            statusContext,
+            costLabel(statusCost),
+            goal == null ? null : goal.label(),
+            goal == null ? null : goal.status(),
+            goal == null ? null : goal.objective(),
+            goal == null ? null : goal.reason());
+    host.runOnUi(() -> renderer.setStatusStrip(strip));
+  }
+
+  /**
+   * T-149: one goal-dialog action ({@code pause}/{@code resume}/{@code clear}) - the TUI dialog's
+   * own buttons ({@code feature-plugins/prompt/goal.tsx:109-117}). Runs fire-and-forget through
+   * {@link com.opencode.ide.client.OpencodeClient#postSessionCommand} (a goal command answers 204
+   * with no reply - {@code runCommand} would poll for one) and re-reads the goal afterwards; the
+   * {@code rpc.opencode.goal.changed} event refreshes the strip a second time (idempotent). The
+   * action is WHITELISTED - nothing from the page reaches the command text unvalidated.
+   */
+  public void goalAction(String action) {
+    if (!"pause".equals(action) && !"resume".equals(action) && !"clear".equals(action)) {
+      host.info("goal action rejected (not pause/resume/clear): " + action);
+      return;
+    }
+    String sid = sessionId;
+    if (sid == null) {
+      return;
+    }
+    host.runInBackground(
+        "Goal action " + action,
+        () -> {
+          try {
+            connection.getClient().postSessionCommand(sid, "goal", action);
+            statusGoal = connection.getClient().getSessionGoal(sid);
+            pushStatus();
+          } catch (OpencodeException e) {
+            String failure = e.getMessage();
+            host.runOnUi(() -> renderer.notice("⚠ Goal " + action + " failed: " + failure));
+          }
+        });
+  }
+
+  /**
+   * T-149: {@code rpc.opencode.goal.changed} (session-scoped) - updates the chip from the event's
+   * OWN payload (no fetch) and, for a goal id this view never rendered, appends the server's
+   * synthetic notice row once (refetch; the row is written right after the goal state - probe
+   * 2026-11-16 measured +18 ms, so one delayed retry covers the race, and a miss degrades to "row
+   * appears on the next history render").
+   */
+  private void onGoalChanged(OpencodeEvent event, String sid) {
+    if (!sid.equals(event.string("sessionID"))) {
+      return; // another session's goal (the SSE stream is global)
+    }
+    SessionGoal goal = event.as("goal", SessionGoal.class);
+    statusGoal = goal;
+    pushStatus();
+    if (goal == null || !renderedNoticeGoalIds.add(goal.id())) {
+      return; // cleared, or this goal id is already on screen (pause/resume re-fire the event)
+    }
+    scheduleGoalNotice(sid, goal.id(), 0);
+  }
+
+  /**
+   * Appends the synthetic notice row for {@code goalId}, with ONE delayed retry for the write race.
+   */
+  private void scheduleGoalNotice(String sid, String goalId, int attempt) {
+    host.runInBackground(
+        "Rendering goal notice",
+        () -> {
+          try {
+            for (ChatEntry entry : connection.getClient().getMessages(sid)) {
+              if (entry.isNotice()
+                  && entry.notice() != null
+                  && goalId.equals(entry.notice().goalId())) {
+                String description = entry.notice().description();
+                if (description != null && !description.isBlank()) {
+                  String source = entry.notice().source();
+                  host.runOnUi(
+                      () ->
+                          renderer.appendSynthetic(
+                              source == null ? "" : source, description, goalId));
+                }
+                return;
+              }
+            }
+            if (attempt == 0) {
+              host.schedulePoll(
+                  GOAL_NOTICE_RETRY_MS.toMillis(), () -> scheduleGoalNotice(sid, goalId, 1));
+            } else {
+              host.info(
+                  "goal notice "
+                      + goalId
+                      + " not served after retry - it appears on the next history render");
+            }
+          } catch (OpencodeException e) {
+            host.info("goal notice fetch failed: " + e.getMessage());
+          }
+        });
   }
 
   /**
@@ -1779,6 +2142,10 @@ public final class ChatSessionController {
                 reasoningVisible); // the preference survives across messages
           });
     }
+    // T-149: a settled reply is a new assistant step - the context segment (and the cost the
+    // turn just billed) recompute from server truth. Nested job: settleReply already runs on a
+    // background thread, and refreshStatus marshals its own.
+    refreshStatus(null);
   }
 
   /**
@@ -2504,6 +2871,11 @@ public final class ChatSessionController {
           renderer.notice(notice);
           fireUndoRedoChanged();
         });
+    // T-149: the revert boundary moved - recompute the context segment from the same list
+    // (while a revert is pending the strip hides the segment: the served list still contains
+    // the to-be-reverted tail and the boundary lives in session.revert, which we do not parse -
+    // hiding is the honest degradation the review chose over a wrong number).
+    refreshStatus(entries);
   }
 
   /**

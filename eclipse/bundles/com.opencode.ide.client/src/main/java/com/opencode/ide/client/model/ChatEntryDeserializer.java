@@ -84,7 +84,13 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
     // neither content[] nor text - rendered as the TUI's CompactionMessage row.
     ChatEntry.Compaction compaction = "compaction".equals(role) ? compaction(msg) : null;
 
-    return new ChatEntry(info, parts(msg, ctx), shellCommand, shellOutput, compaction);
+    // T-149: synthetic rows keep their notice payload (source/goalID/description) - the injected
+    // objective prompt (msg.text) is NEVER a part: the TUI renders only the description as an
+    // inline notice row (routes/session/index.tsx SessionNoticeMessage), never an assistant bubble.
+    ChatEntry.Notice notice = "synthetic".equals(role) ? notice(msg) : null;
+    List<ChatPart> parts = "synthetic".equals(role) ? List.of() : parts(msg, ctx);
+
+    return new ChatEntry(info, parts, shellCommand, shellOutput, compaction, notice);
   }
 
   /** v2 parts: {@code content[]} for assistants, a flat {@code text} for everyone else. */
@@ -125,6 +131,23 @@ public final class ChatEntryDeserializer implements JsonDeserializer<ChatEntry> 
         error == null ? null : string(error, "type"),
         error == null ? null : string(error, "message"),
         providerNative);
+  }
+
+  /**
+   * The T-149 notice payload: {@code metadata.source} (the {@code goal} source picks the TUI's
+   * &#9678; glyph), {@code metadata.goalID} (live-append dedupe key) and {@code description} (the
+   * row's display text, e.g. "Goal: Fix the build"). Blank/absent description keeps the row
+   * displayable-but-empty - historyRows drops it exactly like the TUI does ({@code rows.ts:392}).
+   */
+  private static ChatEntry.Notice notice(JsonObject msg) {
+    JsonObject metadata =
+        msg.has("metadata") && msg.get("metadata").isJsonObject()
+            ? msg.getAsJsonObject("metadata")
+            : null;
+    return new ChatEntry.Notice(
+        metadata == null ? null : string(metadata, "source"),
+        metadata == null ? null : string(metadata, "goalID"),
+        string(msg, "description"));
   }
 
   private static String string(JsonObject object, String key) {

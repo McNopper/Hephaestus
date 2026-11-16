@@ -44,6 +44,7 @@ public final class ChatPage implements ChatSessionController.Renderer {
   private final BrowserFunction filePickFunction;
   private final BrowserFunction formReplyFunction;
   private final BrowserFunction formCancelFunction;
+  private final BrowserFunction goalActionFunction;
   private boolean pageReady;
 
   /** Whether reasoning progress is visible; re-applied on page reload (user toggle). */
@@ -88,7 +89,16 @@ public final class ChatPage implements ChatSessionController.Renderer {
    */
   private volatile Consumer<String> formCancelHandler;
 
+  /**
+   * Receives goal-dialog actions from the status strip (T-149: {@code __javaGoalAction(action)} -
+   * one of {@code pause}/{@code resume}/{@code clear}); registered by the owning view.
+   */
+  private volatile Consumer<String> goalActionHandler;
+
   private final List<String> pendingJs = new ArrayList<>();
+
+  /** T-149: last pushed status strip - re-executed when the page (re)loads. */
+  private ChatSessionController.StatusStrip lastStatusStrip;
 
   private ChatPage(Browser browser) {
     this.browser = browser;
@@ -209,6 +219,22 @@ public final class ChatPage implements ChatSessionController.Renderer {
             return null;
           }
         };
+    // JS -> Java goal-action bridge (T-149): the status strip's goal dialog buttons
+    // call __javaGoalAction("pause"|"resume"|"clear") - the view hands the validated
+    // action to the controller, which posts it fire-and-forget.
+    this.goalActionFunction =
+        new BrowserFunction(browser, "__javaGoalAction") {
+          @Override
+          public Object function(Object[] arguments) {
+            if (arguments.length > 0 && arguments[0] instanceof String action) {
+              Consumer<String> handler = goalActionHandler;
+              if (handler != null && !action.isBlank()) {
+                handler.accept(action); // Browser calls run on the UI thread
+              }
+            }
+            return null;
+          }
+        };
     this.openExternalFunction = installLinkHandling();
     browser.setLayoutData(new GridData(GridData.FILL, GridData.FILL, true, true));
   }
@@ -281,6 +307,7 @@ public final class ChatPage implements ChatSessionController.Renderer {
       filePickFunction.dispose();
       formReplyFunction.dispose();
       formCancelFunction.dispose();
+      goalActionFunction.dispose();
       openExternalFunction.dispose();
     } catch (SWTException e) {
       // browser torn down concurrently - nothing left to release
@@ -336,6 +363,14 @@ public final class ChatPage implements ChatSessionController.Renderer {
    */
   public void setFormCancelHandler(Consumer<String> handler) {
     this.formCancelHandler = handler;
+  }
+
+  /**
+   * Registers the handler for goal-dialog actions (T-149: {@code __javaGoalAction(action)} with
+   * {@code pause}/{@code resume}/{@code clear}); {@code null} disables the dialog's buttons.
+   */
+  public void setGoalActionHandler(Consumer<String> handler) {
+    this.goalActionHandler = handler;
   }
 
   // ---------- rendering (ChatSessionController.Renderer) ----------
@@ -424,6 +459,25 @@ public final class ChatPage implements ChatSessionController.Renderer {
   @Override
   public void clear() {
     executeJs(ChatScripts.clear());
+  }
+
+  /**
+   * T-149: replaces the status strip (the TUI prompt footer's status row: context usage, cost, goal
+   * chip). Remembered so a page (re)load re-applies it, like the reasoning preference.
+   */
+  @Override
+  public void setStatusStrip(ChatSessionController.StatusStrip status) {
+    lastStatusStrip = status;
+    executeJs(ChatScripts.setStatusStrip(status));
+  }
+
+  /**
+   * T-149: appends a synthetic notice row live (the TUI's SessionNoticeMessage) - history rows
+   * arrive through {@link #setMessages(List)}; this path is for a goal set while the view is open.
+   */
+  @Override
+  public void appendSynthetic(String source, String text, String goalId) {
+    executeJs(ChatScripts.appendSynthetic(source, text, goalId));
   }
 
   // ---------- link handling ----------
@@ -518,6 +572,9 @@ public final class ChatPage implements ChatSessionController.Renderer {
     }
     doExecute(ChatScripts.setTheme(detectTheme()));
     doExecute(ChatScripts.setReasoningVisible(reasoningVisible));
+    if (lastStatusStrip != null) {
+      doExecute(ChatScripts.setStatusStrip(lastStatusStrip)); // T-149: survives a page reload
+    }
     notice("Connected. ENTER sends, Shift+ENTER = newline. Markdown, $math$ and mermaid render.");
   }
 

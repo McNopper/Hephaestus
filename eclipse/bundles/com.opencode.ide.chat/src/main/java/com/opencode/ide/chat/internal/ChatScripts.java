@@ -105,6 +105,35 @@ public final class ChatScripts {
   }
 
   /**
+   * {@code window.__setStatusStrip("{...}")} - T-149: replaces the status strip (the TUI prompt
+   * footer's status row): context usage, cost, session goal chip. Empty strings hide their segment;
+   * an all-empty payload hides the strip.
+   */
+  public static String setStatusStrip(ChatSessionController.StatusStrip status) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("context", nullToEmpty(status.context()));
+    payload.put("cost", nullToEmpty(status.cost()));
+    payload.put("goalLabel", nullToEmpty(status.goalLabel()));
+    payload.put("goalStatus", nullToEmpty(status.goalStatus()));
+    payload.put("objective", nullToEmpty(status.objective()));
+    payload.put("reason", nullToEmpty(status.reason()));
+    return call("__setStatusStrip", payload);
+  }
+
+  /**
+   * {@code window.__appendSynthetic("{...}")} - T-149: one synthetic notice row (the TUI's
+   * SessionNoticeMessage) appended live when a goal this view never rendered becomes active; the
+   * page dedupes by {@code goalId}. History rows arrive through {@link #setMessages(List)}.
+   */
+  public static String appendSynthetic(String source, String text, String goalId) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("source", nullToEmpty(source));
+    payload.put("text", nullToEmpty(text));
+    payload.put("goalId", nullToEmpty(goalId));
+    return call("__appendSynthetic", payload);
+  }
+
+  /**
    * {@code window.__startCompaction()} - T-147: opens the live compaction divider row (idempotent).
    */
   public static String startCompaction() {

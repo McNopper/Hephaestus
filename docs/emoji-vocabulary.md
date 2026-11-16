@@ -35,6 +35,8 @@ second emoji for a concept already listed.
 | action: remove | 🗑️ | chat queue row |
 | action: fork | 🔀 | chat queue row |
 | action: background a session | ⤵ | chat composer button/label (U-064) |
+| session goal (chip, dialog, goal notice row) | ◎ | chat status strip chip + goal dialog header + synthetic goal notice (T-149; the TUI's prompt-footer glyph) |
+| synthetic notice (non-goal source) | ◈ | chat synthetic notice row (T-149; the TUI's generic notice glyph) |
 
 ## Rules
 

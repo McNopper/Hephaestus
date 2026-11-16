@@ -42,6 +42,8 @@
 |---|---|---|
 | Streaming chat (progressive markdown, inline Stop, tool parts) | ✅ **gate-verified; live pass pending (T-002)** | U-003 |
 | v2 parity: permission asks, forms, questions, undo/redo, fork at any message | ✅ | T-004/U-010/U-011/U-014/U-044 |
+| Chat TUI parity: compaction divider row (full summary streamed + usage suffix, live and across reload) | ✅ | T-145/T-147 (ViewIntercept live pass) |
+| Chat TUI parity: status strip — context window usage, session cost, goal chip + dialog (pause/resume/clear) | 🔶 **gate-verified; live pass pending deploy** | T-148/T-149 |
 | @ file references, queued composer (steer/queue), Alt+Enter inbox | ✅ | U-012/T-005 |
 | **Steer a running turn (Enter injects; Alt+Enter queues) + `Steer…` menu on any session incl. subagents** | ✅ | U-092 (v0.1.8; live-probed) |
 | Background sessions (Ctrl+B, list, bring back) | ✅ | U-042/T-005; 🔶 keybinding U-064 |

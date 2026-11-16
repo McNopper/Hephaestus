@@ -490,6 +490,170 @@ window.__setNotice = guard("__setNotice", function (text) {
   return true;
 });
 
+// ---- status strip (T-149, TUI prompt-footer parity) ------------------------
+// The TUI's footer status row: session goal chip, context usage, cost - pinned
+// at the bottom of the page directly above the host input row. One atomic
+// payload replaces the whole strip (empty segments hide themselves; an all-empty
+// payload hides the row). Every value is server data -> textContent only.
+const statusEl = document.getElementById("status");
+let lastStatus = null; // last pushed strip payload (the goal dialog reads from it)
+
+window.__setStatusStrip = guard("__setStatusStrip", function (json) {
+  const p = payload(json);
+  lastStatus = p;
+  statusEl.textContent = "";
+  const parts = [];
+  if (p.goalLabel) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "status-goal" + goalStatusClass(p.goalStatus);
+    chip.textContent = "\u25CE " + p.goalLabel;
+    chip.addEventListener("click", function () { openGoalDialog(); });
+    statusEl.appendChild(chip);
+    parts.push("goal=" + p.goalLabel);
+  }
+  if (p.context) {
+    const span = document.createElement("span");
+    span.className = "status-context";
+    span.textContent = p.context;
+    statusEl.appendChild(span);
+    parts.push("ctx=" + p.context);
+  }
+  if (p.cost) {
+    const span = document.createElement("span");
+    span.className = "status-cost";
+    span.textContent = p.cost;
+    statusEl.appendChild(span);
+    parts.push("cost=" + p.cost);
+  }
+  if (parts.length) {
+    report("status strip rendered: " + parts.join(" "));
+  }
+  if (goalDialogOpen) {
+    fillGoalDialog(); // a pause/resume/clear answer re-pushes the strip - keep the open dialog honest
+  }
+  return true;
+});
+
+function goalStatusClass(status) {
+  if (status === "paused") return " goal-paused";
+  if (status === "complete") return " goal-complete";
+  return "";
+}
+
+// ---- goal dialog (T-149: the TUI's goal dialog content) --------------------
+// objective + status + reason + the TUI's pause/resume/clear actions. The
+// actions post fire-and-forget through __javaGoalAction; a failed post surfaces
+// as a Java-side notice. ALL content is textContent - the objective is server
+// data that may carry anything.
+const goalDialog = document.getElementById("goal-dialog");
+const goalObjectiveEl = document.getElementById("goal-dialog-objective");
+const goalStateEl = document.getElementById("goal-dialog-state");
+const goalReasonEl = document.getElementById("goal-dialog-reason");
+const goalPauseBtn = document.getElementById("goal-pause");
+const goalResumeBtn = document.getElementById("goal-resume");
+const goalClearBtn = document.getElementById("goal-clear");
+const goalCloseBtn = document.getElementById("goal-close");
+let goalDialogOpen = false;
+
+const GOAL_STATE_WORDS = { active: "Active", paused: "Paused", complete: "Met" };
+
+function fillGoalDialog() {
+  const p = lastStatus;
+  if (!p || !p.goalLabel) return;
+  goalObjectiveEl.textContent = p.objective || "";
+  const word = GOAL_STATE_WORDS[p.goalStatus] || "Active";
+  goalStateEl.textContent = "\u25CE " + word;
+  goalStateEl.className = "goal-state" + goalStatusClass(p.goalStatus);
+  goalReasonEl.textContent = p.reason || "";
+  goalPauseBtn.hidden = p.goalStatus !== "active";
+  goalResumeBtn.hidden = p.goalStatus !== "paused";
+  goalClearBtn.hidden = false;
+}
+
+function openGoalDialog() {
+  if (!lastStatus || !lastStatus.goalLabel) return;
+  goalDialogOpen = true;
+  fillGoalDialog();
+  goalDialog.hidden = false;
+  report("goal dialog opened: status=" + lastStatus.goalStatus);
+}
+
+function closeGoalDialog() {
+  goalDialogOpen = false;
+  goalDialog.hidden = true;
+}
+
+// exposed for the automated bridge test (the chip's click handler)
+window.__openGoalDialog = function () {
+  openGoalDialog();
+  return goalDialogOpen;
+};
+
+function goalAction(action) {
+  if (typeof window.__javaGoalAction === "function") {
+    window.__javaGoalAction(action);
+  } else {
+    report("goal action (no Java bridge): " + action);
+  }
+  closeGoalDialog(); // the re-read push reopens nothing - the chip already shows the new state
+}
+
+goalPauseBtn.addEventListener("click", function () { goalAction("pause"); });
+goalResumeBtn.addEventListener("click", function () { goalAction("resume"); });
+goalClearBtn.addEventListener("click", function () { goalAction("clear"); });
+goalCloseBtn.addEventListener("click", closeGoalDialog);
+// backdrop click closes (the card stops propagation)
+goalDialog.addEventListener("click", function (event) {
+  if (event.target === goalDialog) closeGoalDialog();
+});
+
+// ---- synthetic notice rows (T-149: the TUI's SessionNoticeMessage) ---------
+// Muted inline icon + description. The injected objective prompt is NEVER an
+// assistant bubble (that was the T-149 defect); a synthetic without a
+// description never renders (the TUI drops those too, rows.ts:392). History
+// replays rows via __setMessages role "synthetic"; a goal set while the view is
+// open arrives through __appendSynthetic - deduped by data-goalid against rows
+// already on screen.
+const SYNTHETIC_ICONS = { goal: "\u25CE" }; // ◎ for goal, the TUI's generic ◈ otherwise
+
+function addSyntheticRow(source, text, goalId, mid) {
+  if (typeof text !== "string" || !text.trim()) return null; // TUI: description-less = dropped
+  if (goalId) {
+    const existing = chatEl.querySelector('[data-goalid="' + goalId + '"]');
+    if (existing) return null; // already on screen (live append vs history replay)
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "msg synthetic";
+  if (goalId) wrap.dataset.goalid = goalId;
+  if (mid) wrap.dataset.mid = mid;
+  const row = document.createElement("div");
+  row.className = "synthetic-row";
+  const icon = document.createElement("span");
+  icon.className = "synthetic-icon";
+  icon.textContent = SYNTHETIC_ICONS[source] || "\u25C8";
+  const body = document.createElement("span");
+  body.className = "synthetic-text";
+  body.textContent = text;
+  row.appendChild(icon);
+  row.appendChild(body);
+  wrap.appendChild(row);
+  chatEl.appendChild(wrap);
+  scrollBottom();
+  report("synthetic row rendered: " + text.slice(0, 60));
+  return wrap;
+}
+
+window.__appendSynthetic = guard("__appendSynthetic", function (json) {
+  const p = payload(json);
+  addSyntheticRow(
+    typeof p.source === "string" ? p.source : "",
+    typeof p.text === "string" ? p.text : "",
+    typeof p.goalId === "string" ? p.goalId : "",
+    null);
+  return true;
+});
+
 // ---- compaction rows (T-147, TUI parity) -------------------------------
 // The TUI's CompactionMessage: a divider header (two rule lines around a glyph,
 // the label and suffixes) over the full summary - or failure message - as
@@ -646,6 +810,10 @@ window.__setMessages = guard("__setMessages", function (json) {
       // T-147: the TUI's divider row - never an empty assistant bubble (T-145)
       const row = addCompaction(e);
       if (e.status === "running") compactionRow = row; // rebind: deltas keep appending
+    } else if (e.role === "synthetic") {
+      // T-149: the TUI's SessionNoticeMessage - muted icon + description, never an
+      // assistant bubble; description-less rows are dropped (addSyntheticRow, TUI rows.ts:392)
+      addSyntheticRow(e.source, e.text, e.goalId, e.id);
     } else {
       const a = addAssistant(e.id, e.reasoning);
       renderToolLines(a.bubble, e.tools, a.body);

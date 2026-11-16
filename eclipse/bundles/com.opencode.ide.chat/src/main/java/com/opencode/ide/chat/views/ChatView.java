@@ -414,6 +414,14 @@ public class ChatView extends ViewPart {
             controller.cancelForm(formId);
           }
         });
+    // the status strip's goal dialog (T-149): pause/resume/clear route through
+    // the controller, which posts fire-and-forget and re-reads the goal
+    page.setGoalActionHandler(
+        action -> {
+          if (controller != null) {
+            controller.goalAction(action);
+          }
+        });
     page.setFilePickHandler(this::pickFileCompletion);
     composer = new CommandComposer(connection);
     ChatLog.info(

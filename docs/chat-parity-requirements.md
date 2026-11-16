@@ -222,7 +222,12 @@ doc's release-note scans; repo/docs only):
 - **`/goal`** (#59437, [ADOPT L277/L279]): TUI/Desktop session-level
   self-review loop. Governing verdict already recorded: adopt-and-govern
   through the V-model (U-105 intake), never a chat-side feature — the
-  chat exposes nothing for it by design.
+  chat exposes nothing for it by design. **Reconciled (owner requirement
+  2026-11-16, `docs/tui-visible-surface-review.md` R1):** the verdict
+  governs the goal *loop* (intake/acceptance stays the V-model's) and is
+  NOT revoked — but the goal's *visible state* (footer chip, dialog with
+  the TUI's pause/resume/clear, synthetic notice row) is chat-side
+  display parity the owner now explicitly wants; landed as G1/T-149.
 - **Image generation default-on** (2.2.2, [ADOPT L277/L279]): upstream
   client feature for image-capable providers; we generate no images —
   out of scope for chat parity (attachments in FR-CP-01 are a different
@@ -284,7 +289,10 @@ rule, `ROADMAP.md` L153-161: never adopt an unprobed call).
   THEN the chat SHALL show them for the turn. Evidence: no cost/token
   surface in the chat bundle; Stats in Session Details [ADOPT L98];
   [TUI] `usage.show`. *Child: "Context-usage + per-turn cost in the
-  chat".* S.
+  chat".* S. **Spawned (2026-11-16):** G1 of
+  `docs/tui-visible-surface-review.md` → ticket T-149 (status strip:
+  context window + cost + current goal chip; wire contracts probed live
+  that day).
 - **FR-CP-07 (M) — permission depth.** WHEN a permission ask carries the
   tool's input (`metadata.input`, #51062 [ADOPT L306]), THEN the chat's
   ask row SHALL show that input so the decision is informed; and the
@@ -350,8 +358,10 @@ rule, `ROADMAP.md` L153-161: never adopt an unprobed call).
 **Explicitly not gaps** (recorded to keep division honest): `/editor`
 `/themes` palette/keybinds, `/connect`, `/update`, LSP — host tier by
 doctrine [ADOPT L352, L359]; session todos — upstream-blocked (U-013)
-[ADOPT L356]; `/goal` — governed through the V-model, never a chat
-feature [ADOPT L277]; `/share` — upstream retired sharing (#55716,
+[ADOPT L356]; `/goal` — the goal *loop* governed through the V-model,
+never a chat feature [ADOPT L277]; its *visible state* (chip/dialog/
+notice row) is chat display parity per `docs/tui-visible-surface-review.md`
+R1 (2026-11-16), landed as T-149; `/share` — upstream retired sharing (#55716,
 [ADOPT L306]); our honest notice stays; ACP — not applicable (Eclipse is
 the native host) [ADOPT L357].
 

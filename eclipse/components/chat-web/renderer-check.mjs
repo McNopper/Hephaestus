@@ -76,7 +76,8 @@ try {
   for (const fn of ["__setTheme", "__clear", "__setMessages", "__appendUser",
     "__startAssistant", "__appendDelta", "__appendReasoningDelta", "__flushStream",
     "__setAssistantText", "__linkClick", "__copyCode",
-    "__startCompaction", "__appendCompactionDelta", "__finishCompaction", "__flushCompaction"]) {
+    "__startCompaction", "__appendCompactionDelta", "__finishCompaction", "__flushCompaction",
+    "__setStatusStrip", "__appendSynthetic", "__openGoalDialog"]) {
     check(`chat.js exposes ${fn}`, js.includes(`window.${fn} =`));
   }
   // T-147: compaction rows replay from history as the TUI's divider row and the
@@ -89,6 +90,23 @@ try {
     && js.includes("__finishCompaction") && js.includes("compaction row finalized:"));
   check("notice-row seam removed (superseded by T-147)",
     !js.includes("__appendNoticeRow") && !js.includes('e.role === "notice"'));
+  // T-149: the TUI prompt-footer status (context window, cost, goal chip),
+  // the goal dialog with its whitelisted actions, and the synthetic notice row
+  check("history replays synthetic rows as notice rows (T-149)",
+    js.includes('e.role === "synthetic"') && js.includes("addSyntheticRow("));
+  check("status strip segments are rendered from the atomic payload (T-149)",
+    js.includes("__setStatusStrip") && js.includes("status-context")
+    && js.includes("status-cost") && js.includes("status-goal"));
+  check("status strip hides while empty (chat.html:empty rule)",
+    html.includes('id="status"') && html.includes("#status:empty"));
+  check("goal dialog markup + Java action bridge exist (T-149)",
+    html.includes('id="goal-dialog"') && js.includes("__javaGoalAction")
+    && js.includes("__openGoalDialog"));
+  check("goal dialog content is textContent-built (server data, XSS)",
+    js.includes("goalObjectiveEl.textContent") && js.includes("goalReasonEl.textContent"));
+  check("synthetic rows dedupe by goal id and use textContent (T-149)",
+    js.includes("dataset.goalid") && js.includes("body.textContent = text")
+    && js.includes("SYNTHETIC_ICONS"));
   check("chat.html loads chat.js", html.includes("chat.js"));
   check("chat.html loads markdown-it", html.includes("markdown-it.min.js"));
   check("chat.html loads katex css+js", html.includes("katex.min.css") && html.includes("katex.min.js"));

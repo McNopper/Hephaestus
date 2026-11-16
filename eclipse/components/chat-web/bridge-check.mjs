@@ -253,6 +253,18 @@ const inboxEl = new El("div");
 const fileEl = new El("div");
 const formsEl = new El("div");
 const bodyEl = new El("body");
+// T-149: the status strip and goal dialog elements chat.html defines - chat.js
+// wires their click listeners at load time, so the shim must provide them like
+// the real page does (getElementById below resolves them).
+const statusEl = new El("div");
+const goalDialogEl = new El("div");
+const goalObjectiveEl = new El("p");
+const goalStateEl = new El("div");
+const goalReasonEl = new El("div");
+const goalPauseEl = new El("button");
+const goalResumeEl = new El("button");
+const goalClearEl = new El("button");
+const goalCloseEl = new El("button");
 const reports = [];
 const ctx = {
   console,
@@ -265,7 +277,16 @@ const ctx = {
     getElementById: (id) => (id === "chat" ? chatEl
       : id === "inbox" ? inboxEl
       : id === "file-complete" ? fileEl
-      : id === "forms" ? formsEl : null),
+      : id === "forms" ? formsEl
+      : id === "status" ? statusEl
+      : id === "goal-dialog" ? goalDialogEl
+      : id === "goal-dialog-objective" ? goalObjectiveEl
+      : id === "goal-dialog-state" ? goalStateEl
+      : id === "goal-dialog-reason" ? goalReasonEl
+      : id === "goal-pause" ? goalPauseEl
+      : id === "goal-resume" ? goalResumeEl
+      : id === "goal-clear" ? goalClearEl
+      : id === "goal-close" ? goalCloseEl : null),
     createElement: (tag) => new El(tag),
     createTextNode: (text) => ({ nodeType: 3, textContent: String(text), children: [] })
   },
@@ -1370,6 +1391,111 @@ check("the emptied form area is reported",
   reports.some(r => r.startsWith("form cards rendered (0 open)")));
 check("no JS errors while rendering forms",
   reports.filter(r => r.startsWith("JS ERROR")).length === formErrBefore);
+
+// ---------------- status strip, goal dialog, synthetic rows (T-149) ----------------
+// The TUI prompt footer's visible status: context window usage, session cost,
+// the goal chip + its dialog, and the synthetic notice row - executed with the
+// EXACT payloads ChatScripts produces (ChatScriptsTest pins the Java side).
+
+const strip1 = exec("window.__setStatusStrip(" + JSON.stringify(JSON.stringify({
+  context: "596.1K (7%)", cost: "$9.96", goalLabel: "goal",
+  goalStatus: "active", objective: "Ship T-149", reason: ""
+})) + ")");
+check("__setStatusStrip(JSON string) returns true", strip1 === true);
+check("status strip renders the context window usage",
+  textOf(statusEl).includes("596.1K (7%)"), textOf(statusEl));
+check("status strip renders the session cost",
+  textOf(statusEl).includes("$9.96"));
+check("status chip shows the goal label with the TUI glyph",
+  textOf(statusEl).includes("goal") && textOf(statusEl).includes("\u25CE"));
+check("status strip push is reported to Java",
+  reports.some(r => r.startsWith("status strip rendered:")));
+
+// an all-empty payload hides every segment -> the row itself (statusEl empty)
+exec("window.__setStatusStrip(" + JSON.stringify(JSON.stringify({
+  context: "", cost: "", goalLabel: "", goalStatus: "", objective: "", reason: ""
+})) + ")");
+check("an all-empty strip clears the status row", statusEl.children.length === 0,
+  "children=" + statusEl.children.length);
+
+// paused goal: the chip opens the dialog, which fills from the pushed payload
+exec("window.__setStatusStrip(" + JSON.stringify(JSON.stringify({
+  context: "1.2K (1%)", cost: "$0.10", goalLabel: "goal paused",
+  goalStatus: "paused", objective: "Ship T-149", reason: "Paused by the user"
+})) + ")");
+const goalOpened = exec("window.__openGoalDialog()");
+check("__openGoalDialog opens for a pushed strip", goalOpened === true
+  && goalDialogEl.hidden === false);
+check("goal dialog shows objective, status word and reason",
+  textOf(goalObjectiveEl) === "Ship T-149"
+  && textOf(goalStateEl).includes("Paused")
+  && textOf(goalReasonEl) === "Paused by the user",
+  [textOf(goalObjectiveEl), textOf(goalStateEl), textOf(goalReasonEl)].join(" | "));
+check("paused state offers resume and hides pause",
+  goalResumeEl.hidden === false && goalPauseEl.hidden === true);
+const goalActions = [];
+ctx.__javaGoalAction = (a) => goalActions.push(String(a));
+if (goalResumeEl._listeners && typeof goalResumeEl._listeners.click === "function") {
+  goalResumeEl._listeners.click();
+}
+check("resume bridges to Java with the whitelisted action name",
+  goalActions.length === 1 && goalActions[0] === "resume", JSON.stringify(goalActions));
+check("the dialog closes after an action", goalDialogEl.hidden === true);
+
+// live synthetic notice row (a goal set while the view is open)
+const syn1 = exec("window.__appendSynthetic(" + JSON.stringify(JSON.stringify({
+  source: "goal", text: "Goal: Ship T-149", goalId: "g-149"
+})) + ")");
+check("__appendSynthetic(JSON string) returns true", syn1 === true);
+const synNode = chatEl.querySelector(".msg.synthetic");
+check("synthetic row renders icon + description", !!synNode
+  && textOf(synNode).includes("Goal: Ship T-149")
+  && textOf(synNode).includes("\u25CE"),
+  synNode ? textOf(synNode) : "no node");
+check("synthetic row carries its dedupe goal id",
+  !!synNode && synNode.dataset.goalid === "g-149");
+check("synthetic row render is reported to Java",
+  reports.some(r => r.startsWith("synthetic row rendered:")));
+exec("window.__appendSynthetic(" + JSON.stringify(JSON.stringify({
+  source: "goal", text: "Goal: Ship T-149", goalId: "g-149"
+})) + ")");
+check("a repeated goal id does not duplicate the row",
+  chatEl.querySelectorAll(".msg.synthetic").length === 1,
+  "rows=" + chatEl.querySelectorAll(".msg.synthetic").length);
+
+// XSS: the row text is server data -> textContent only, never markup
+exec("window.__appendSynthetic(" + JSON.stringify(JSON.stringify({
+  source: "goal", text: "<img src=x onerror=\"alert(1)\">", goalId: "g-xss"
+})) + ")");
+const xssRow = chatEl.querySelectorAll(".msg.synthetic").pop();
+check("hostile synthetic text cannot inject markup (textContent only)",
+  !!xssRow && !xssRow.querySelector("img")
+  && textOf(xssRow).includes("<img src=x onerror="),
+  xssRow ? xssRow.innerHTML : "no node");
+
+// history replay: the synthetic row arrives through __setMessages, blank
+// descriptions are dropped (TUI rows.ts:392), and history dedupes against a
+// live row by goal id
+exec("window.__setMessages(" + JSON.stringify(JSON.stringify([
+  { role: "user", id: "u1", text: "hi", reasoning: "", meta: "" },
+  { role: "synthetic", id: "m1", text: "Goal: from history", source: "goal", goalId: "g-hist" },
+  { role: "synthetic", id: "m2", text: "", source: "goal", goalId: "g-blank" }
+])) + ")");
+const histSyn = chatEl.querySelectorAll(".msg.synthetic");
+check("history replay renders the synthetic notice row", histSyn.length === 1
+  && textOf(histSyn[0]).includes("Goal: from history"),
+  "rows=" + histSyn.length);
+check("a description-less synthetic row is dropped (TUI parity)",
+  histSyn.length === 1 && histSyn[0].dataset.goalid === "g-hist");
+check("the replayed row is NOT an assistant bubble",
+  chatEl.querySelectorAll(".msg.assistant").length === 0
+  && chatEl.querySelectorAll(".msg.user").length === 1);
+exec("window.__appendSynthetic(" + JSON.stringify(JSON.stringify({
+  source: "goal", text: "Goal: from history", goalId: "g-hist"
+})) + ")");
+check("a live append for a history-rendered goal id does not duplicate",
+  chatEl.querySelectorAll(".msg.synthetic").length === 1,
+  "rows=" + chatEl.querySelectorAll(".msg.synthetic").length);
 
 // ---------------- failures must be loud ----------------
 const errBefore = reports.length;

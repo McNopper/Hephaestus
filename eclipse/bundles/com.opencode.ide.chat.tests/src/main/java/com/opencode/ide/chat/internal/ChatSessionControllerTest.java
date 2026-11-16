@@ -30,6 +30,7 @@ import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionGoal;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.VcsInfo;
@@ -1609,6 +1610,339 @@ public class ChatSessionControllerTest {
     assertEquals("the POST itself still ran", List.of("ses_45"), connection.client.compactCalls);
   }
 
+  // ---------- status strip (T-149): the TUI prompt footer's visible status ----------
+
+  /**
+   * The TUI's context-usage math ported to {@link ChatSessionController#contextUsageLabel}: the
+   * LAST assistant with usage, all five token fields summed, percent of the matched model's {@code
+   * limit.context} - and every way the segment hides (no usage, unknown model -> value without
+   * percent, completed compaction as the newest event, zero-sum usage).
+   */
+  @Test
+  public void contextUsageLabelPortsTheTuiMath() {
+    Map<String, Long> limits = Map.of("prov/mod", 1_000_000L);
+
+    assertEquals(
+        "5 fields summed, percent of limit.context",
+        "61.6K (6%)",
+        ChatSessionController.contextUsageLabel(
+            List.of(
+                entry("u1", "user", "hi"),
+                assistantUsageEntry("a1", tokens(60000, 1000, 500, 100, 10))),
+            limits));
+
+    assertEquals(
+        "unknown model: value without percent (TUI util/session.ts)",
+        "61.6K",
+        ChatSessionController.contextUsageLabel(
+            List.of(assistantUsageEntry("a1", tokens(60000, 1000, 500, 100, 10))), Map.of()));
+
+    assertNull(
+        "no assistant usage yet hides the segment",
+        ChatSessionController.contextUsageLabel(List.of(entry("u1", "user", "hi")), limits));
+
+    assertEquals(
+        "a completed compaction moves the boundary - only steps after it count",
+        "100.0K (10%)",
+        ChatSessionController.contextUsageLabel(
+            List.of(
+                assistantUsageEntry("a1", tokens(900000, 0, 0, 0, 0)),
+                compactionEntry(
+                    "c1", new ChatEntry.Compaction("completed", "sum", null, null, false)),
+                assistantUsageEntry("a2", tokens(100000, 0, 0, 0, 0))),
+            limits));
+
+    assertNull(
+        "a completed compaction with no assistant step after it hides the segment",
+        ChatSessionController.contextUsageLabel(
+            List.of(
+                assistantUsageEntry("a1", tokens(900000, 0, 0, 0, 0)),
+                compactionEntry(
+                    "c1", new ChatEntry.Compaction("completed", "sum", null, null, false))),
+            limits));
+
+    assertNull(
+        "zero-sum usage hides the segment and does NOT fall through to older steps",
+        ChatSessionController.contextUsageLabel(
+            List.of(
+                assistantUsageEntry("a1", tokens(60000, 1000, 500, 100, 10)),
+                assistantUsageEntry("a2", tokens(0, 0, 0, 0, 0))),
+            limits));
+  }
+
+  /** The TUI footer's cost segment: USD format, hidden when nothing was spent. */
+  @Test
+  public void costLabelHidesZeroAndFormatsUsd() {
+    assertNull(ChatSessionController.costLabel(null));
+    assertNull(ChatSessionController.costLabel(0.0));
+    assertNull(ChatSessionController.costLabel(-1.0));
+    assertEquals("$9.96", ChatSessionController.costLabel(9.96));
+    assertEquals("$1,234.50", ChatSessionController.costLabel(1234.5));
+  }
+
+  /** Resume computes the strip from server truth: message list + session cost + goal RPC. */
+  @Test
+  public void resumePushesTheStatusStripWithContextCostAndGoal() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hi"),
+            assistantUsageEntry("a1", tokens(60000, 1000, 500, 100, 10)));
+    connection.client.models = List.of(modelWithContext("prov", "mod", 1_000_000L));
+    connection.client.sessionResult = sessionWithCost("ses_42", 9.96);
+    connection.client.goalResult =
+        new SessionGoal("g-1", "Ship it", "active", null, 1, 10, null, null);
+
+    controller.resume("ses_42");
+    drainBackground();
+
+    assertFalse(renderer.statusStrips.isEmpty());
+    assertEquals(
+        "context | cost | goal label | goal status",
+        "61.6K (6%)|$9.96|goal|active",
+        renderer.statusStrips.get(renderer.statusStrips.size() - 1));
+  }
+
+  /** New Session hides the strip (no session = no status), never a stale previous session. */
+  @Test
+  public void newSessionClearsTheStatusStrip() {
+    connection.client.history = List.of(assistantUsageEntry("a1", tokens(60000, 0, 0, 0, 0)));
+    connection.client.models = List.of(modelWithContext("prov", "mod", 1_000_000L));
+    connection.client.sessionResult = sessionWithCost("ses_42", 9.96);
+    controller.resume("ses_42");
+    drainBackground();
+    assertFalse(renderer.statusStrips.isEmpty());
+
+    controller.startNewSession();
+
+    assertEquals(
+        "the cleared strip renders as all-empty segments",
+        "null|null|null|null",
+        renderer.statusStrips.get(renderer.statusStrips.size() - 1));
+  }
+
+  /**
+   * {@code rpc.opencode.goal.changed} (session-scoped) drives the chip from the event payload and
+   * appends the server's synthetic notice row EXACTLY ONCE per goal id - pause/resume re-fires the
+   * same id and must not duplicate the row. A foreign session's event is ignored entirely.
+   */
+  @Test
+  public void goalChangedEventUpdatesChipAndAppendsNoticeOnce() {
+    connection.client.history = List.of(entry("u1", "user", "hi"));
+    controller.subscribe();
+    controller.resume("ses_42");
+    drainBackground();
+    int stripsAfterResume = renderer.statusStrips.size();
+
+    // the server writes the synthetic row with the goal state (probed: +18 ms after it)
+    connection.client.history =
+        List.of(entry("u1", "user", "hi"), noticeEntry("msg_g1", "goal", "g-1", "Goal: Ship it"));
+
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_42\",\"goal\":{\"id\":\"g-1\",\"objective\":\"Ship it\","
+                + "\"status\":\"active\"}}"));
+
+    assertEquals("chip push for this event", stripsAfterResume + 1, renderer.statusStrips.size());
+    assertTrue(
+        "goal segment from the event payload, got: "
+            + renderer.statusStrips.get(renderer.statusStrips.size() - 1),
+        renderer.statusStrips.get(renderer.statusStrips.size() - 1).endsWith("|goal|active"));
+    assertEquals(List.of("goal|Goal: Ship it|g-1"), renderer.synthetics);
+
+    // pause re-fires the SAME goal id: chip moves, row must not duplicate
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_42\",\"goal\":{\"id\":\"g-1\",\"objective\":\"Ship it\","
+                + "\"status\":\"paused\",\"reason\":\"Paused by the user\"}}"));
+    assertEquals(
+        "still exactly one notice row", List.of("goal|Goal: Ship it|g-1"), renderer.synthetics);
+    assertTrue(
+        renderer
+            .statusStrips
+            .get(renderer.statusStrips.size() - 1)
+            .endsWith("|goal paused|paused"));
+
+    // complete -> the TUI's third chip state: "goal met"
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_42\",\"goal\":{\"id\":\"g-1\",\"objective\":\"Ship it\","
+                + "\"status\":\"complete\",\"reason\":\"reviewer accepted\"}}"));
+    assertEquals(
+        "still exactly one notice row across all three states",
+        List.of("goal|Goal: Ship it|g-1"),
+        renderer.synthetics);
+    assertTrue(
+        "the completed chip reads 'goal met', got: "
+            + renderer.statusStrips.get(renderer.statusStrips.size() - 1),
+        renderer.statusStrips.get(renderer.statusStrips.size() - 1).endsWith("|goal met|complete"));
+
+    // another session's goal never touches this strip
+    int before = renderer.statusStrips.size();
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_OTHER\",\"goal\":{\"id\":\"g-9\",\"objective\":\"x\","
+                + "\"status\":\"active\"}}"));
+    assertEquals(before, renderer.statusStrips.size());
+    assertEquals(List.of("goal|Goal: Ship it|g-1"), renderer.synthetics);
+  }
+
+  /**
+   * The synthetic row lands just AFTER the goal state publishes its event (probed: +18 ms), so the
+   * first refetch can race the insert: one delayed retry (fake: recorded poll tick) picks it up,
+   * and a miss after the retry degrades to the next history render - never a lost row.
+   */
+  @Test
+  public void goalNoticeRetriesOnceWhenTheRowLosesTheRace() {
+    connection.client.history = List.of(entry("u1", "user", "hi"));
+    controller.subscribe();
+    controller.resume("ses_42");
+    drainBackground();
+    host.pollTicks.clear();
+
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_42\",\"goal\":{\"id\":\"g-2\",\"objective\":\"Do it\","
+                + "\"status\":\"active\"}}"));
+
+    assertTrue("row not served yet", renderer.synthetics.isEmpty());
+    assertEquals("exactly ONE retry armed", 1, host.pollTicks.size());
+
+    connection.client.history =
+        List.of(entry("u1", "user", "hi"), noticeEntry("msg_g2", "goal", "g-2", "Goal: Do it"));
+    host.pollTicks.remove(0).run();
+
+    assertEquals(List.of("goal|Goal: Do it|g-2"), renderer.synthetics);
+  }
+
+  /** A goal whose notice history already rendered (resume recorded the id) appends nothing. */
+  @Test
+  public void goalEventForAnAlreadyRenderedNoticeAppendsNothing() {
+    connection.client.history =
+        List.of(entry("u1", "user", "hi"), noticeEntry("msg_g1", "goal", "g-1", "Goal: Ship it"));
+    controller.subscribe();
+    controller.resume("ses_42");
+    drainBackground();
+    int stripsAfterResume = renderer.statusStrips.size();
+
+    connection.fire(
+        typedEvent(
+            "rpc.opencode.goal.changed",
+            "{\"sessionID\":\"ses_42\",\"goal\":{\"id\":\"g-1\",\"objective\":\"Ship it\","
+                + "\"status\":\"active\"}}"));
+
+    assertEquals("chip still updates", stripsAfterResume + 1, renderer.statusStrips.size());
+    assertTrue("the resume-rendered row is NOT appended again", renderer.synthetics.isEmpty());
+    assertTrue("and no retry is armed for it", host.pollTicks.isEmpty());
+  }
+
+  /** The goal dialog posts ONLY the whitelisted actions; anything else never reaches the wire. */
+  @Test
+  public void goalActionPostsOnlyTheWhitelistedActions() {
+    connection.client.history = List.of(entry("u1", "user", "hi"));
+    controller.resume("ses_42");
+    drainBackground();
+
+    controller.goalAction("pause");
+    controller.goalAction("resume");
+    controller.goalAction("clear");
+    controller.goalAction("run rm -rf /"); // rejected
+    controller.goalAction(""); // rejected
+    drainBackground();
+
+    assertEquals(
+        List.of("goal:pause", "goal:resume", "goal:clear"), connection.client.postSessionCommands);
+    assertTrue(
+        "rejections are logged, got: " + host.infos,
+        host.infos.stream().anyMatch(i -> i.contains("goal action rejected")));
+  }
+
+  /** A failed goal command surfaces as a notice instead of silently doing nothing. */
+  @Test
+  public void goalActionFailureSurfacesAsNotice() {
+    connection.client.history = List.of(entry("u1", "user", "hi"));
+    controller.resume("ses_42");
+    drainBackground();
+    connection.client.postSessionCommandFailure = new OpencodeException("server said no");
+
+    controller.goalAction("pause");
+    drainBackground();
+
+    assertTrue(
+        renderer.notices.stream().anyMatch(n -> n.contains("Goal pause failed: server said no")));
+  }
+
+  /**
+   * History replay renders a synthetic notice as the TUI's inline row (icon + description), never
+   * an assistant bubble, and a blank description is dropped exactly like the TUI drops it ({@code
+   * rows.ts:392}).
+   */
+  @Test
+  public void resumeRendersSyntheticNoticesAsInlineRows() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hi"),
+            noticeEntry("msg_n1", "goal", "g-1", "Goal: Ship it"),
+            noticeEntry("msg_n2", null, null, "  ")); // blank description: dropped
+
+    controller.resume("ses_42");
+    drainBackground();
+
+    List<Map<String, Object>> rows = renderer.histories.get(renderer.histories.size() - 1);
+    List<Map<String, Object>> syntheticRows = new ArrayList<>();
+    for (Map<String, Object> row : rows) {
+      if ("synthetic".equals(row.get("role"))) {
+        syntheticRows.add(row);
+      }
+    }
+    assertEquals("the blank-description notice is dropped", 1, syntheticRows.size());
+    Map<String, Object> row = syntheticRows.get(0);
+    assertEquals("Goal: Ship it", row.get("text"));
+    assertEquals("goal", row.get("source"));
+    assertEquals("g-1", row.get("goalId"));
+    assertEquals("msg_n1", row.get("id"));
+    // the injected objective prompt must NEVER surface as a bubble
+    assertTrue(
+        rows.stream()
+            .noneMatch(
+                r -> "assistant".equals(r.get("role")) && "Goal: Ship it".equals(r.get("text"))));
+  }
+
+  /**
+   * While a revert is pending the server still serves the to-be-reverted tail (probed 2026-11-16),
+   * so the strip hides the context segment instead of showing a number whose boundary lives in
+   * {@code session.revert} (which this code does not parse).
+   */
+  @Test
+  public void pendingRevertHidesTheContextSegment() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hi"),
+            assistantUsageEntry("a1", tokens(60000, 1000, 500, 100, 10)));
+    connection.client.models = List.of(modelWithContext("prov", "mod", 1_000_000L));
+    controller.resume("ses_42");
+    drainBackground();
+    String shown = renderer.statusStrips.get(renderer.statusStrips.size() - 1);
+    assertTrue("context visible before undo: " + shown, shown.startsWith("61.6K (6%)"));
+
+    connection.client.onRevert = () -> {}; // messages stay served during the pending revert
+    controller.undoLastTurn();
+    drainBackground();
+
+    String hidden = renderer.statusStrips.get(renderer.statusStrips.size() - 1);
+    assertTrue("context hidden while reverted: " + hidden, hidden.startsWith("null|"));
+
+    // redo clears the boundary: the segment comes back from the served list
+    controller.redoReverted();
+    drainBackground();
+    String restored = renderer.statusStrips.get(renderer.statusStrips.size() - 1);
+    assertTrue("context restored after redo: " + restored, restored.startsWith("61.6K (6%)"));
+  }
+
   // ---------- built-in commands: /init, /help, /thinking, /share (U-047) ----------
 
   @Test
@@ -2862,6 +3196,84 @@ public class ChatSessionControllerTest {
     return new ChatEntry(info, List.of(), null, null, compaction);
   }
 
+  /**
+   * A synthetic notice history row (T-149): role {@code synthetic} carrying the parsed notice
+   * payload - what GET /message yields for a goal-set marker (metadata.source/goalID +
+   * description). The injected objective prompt is NOT modeled here: the deserializer never makes
+   * it a part, so building it into parts would test the wrong contract.
+   */
+  private static ChatEntry noticeEntry(
+      String id, String source, String goalId, String description) {
+    ChatMessageInfo info =
+        new ChatMessageInfo(
+            id,
+            "ses_1",
+            "synthetic",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            0L);
+    return new ChatEntry(
+        info, List.of(), null, null, null, new ChatEntry.Notice(source, goalId, description));
+  }
+
+  /** An assistant history row carrying usage (T-149): the strip's context window math. */
+  private static ChatEntry assistantUsageEntry(String id, Session.Tokens tokens) {
+    ChatMessageInfo info =
+        new ChatMessageInfo(
+            id,
+            "ses_1",
+            "assistant",
+            null,
+            null,
+            null,
+            null,
+            null,
+            tokens,
+            "prov",
+            "mod",
+            null,
+            null,
+            1_700_000_000_000L);
+    return new ChatEntry(info, List.of(new ChatPart("text", "answer", null, null)));
+  }
+
+  /** A model with a context window (T-149): the strip's percent segment source. */
+  private static Model modelWithContext(String providerId, String modelId, long context) {
+    return new Model(
+        modelId,
+        modelId,
+        providerId,
+        null,
+        null,
+        null,
+        null,
+        null,
+        new Model.Limit(context, 0),
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  /** Token usage for a history row (T-149): input/output/reasoning + the two cache fields. */
+  private static Session.Tokens tokens(
+      long input, long output, long reasoning, long cacheRead, long cacheWrite) {
+    return new Session.Tokens(input, output, reasoning, new Session.Cache(cacheRead, cacheWrite));
+  }
+
+  private static Session sessionWithCost(String id, Double cost) {
+    return new Session(id, null, null, null, null, null, null, cost, null, null, null);
+  }
+
   private static final class RecordingRenderer implements ChatSessionController.Renderer {
     final List<String> users = new ArrayList<>();
     final List<String> assistants = new ArrayList<>();
@@ -2886,6 +3298,12 @@ public class ChatSessionControllerTest {
      * One entry per finalized compaction row (T-147): {@code status|label|text|cancelled|usage}.
      */
     final List<String> compactionFinishes = new ArrayList<>();
+
+    /** T-149: one entry per status-strip push: {@code context|cost|goalLabel|goalStatus}. */
+    final List<String> statusStrips = new ArrayList<>();
+
+    /** T-149: one entry per live synthetic notice row: {@code source|text|goalId}. */
+    final List<String> synthetics = new ArrayList<>();
 
     int clears;
 
@@ -2971,6 +3389,23 @@ public class ChatSessionControllerTest {
     @Override
     public void setReasoningVisible(boolean visible) {
       reasoningVisibilities.add(visible);
+    }
+
+    @Override
+    public void setStatusStrip(ChatSessionController.StatusStrip status) {
+      statusStrips.add(
+          status.context()
+              + "|"
+              + status.cost()
+              + "|"
+              + status.goalLabel()
+              + "|"
+              + status.goalStatus());
+    }
+
+    @Override
+    public void appendSynthetic(String source, String text, String goalId) {
+      synthetics.add(source + "|" + text + "|" + goalId);
     }
 
     @Override
@@ -3320,6 +3755,51 @@ public class ChatSessionControllerTest {
     @Override
     public void compactSession(String sessionId) throws OpencodeException {
       compactCalls.add(sessionId);
+    }
+
+    // ---------- T-149: status strip verbs ----------
+
+    /** What {@link #getSession} answers; null cost = "no cost segment". */
+    volatile Session sessionResult;
+
+    /** What {@link #getSessionGoal} answers (null = no goal / plugin-less server). */
+    volatile SessionGoal goalResult;
+
+    volatile OpencodeException goalFailure;
+
+    /** The model catalog for the context-percent lookup (empty = no percent). */
+    List<Model> models = List.of();
+
+    /** T-149: fire-and-forget goal actions recorded as {@code action}. */
+    final List<String> postSessionCommands = new ArrayList<>();
+
+    volatile OpencodeException postSessionCommandFailure;
+
+    @Override
+    public Session getSession(String sessionId) throws OpencodeException {
+      return sessionResult;
+    }
+
+    @Override
+    public SessionGoal getSessionGoal(String sessionId) throws OpencodeException {
+      if (goalFailure != null) {
+        throw goalFailure;
+      }
+      return goalResult;
+    }
+
+    @Override
+    public List<Model> getModels(String directory) throws OpencodeException {
+      return models;
+    }
+
+    @Override
+    public void postSessionCommand(String sessionId, String name, String text)
+        throws OpencodeException {
+      postSessionCommands.add(name + ":" + text);
+      if (postSessionCommandFailure != null) {
+        throw postSessionCommandFailure;
+      }
     }
 
     @Override

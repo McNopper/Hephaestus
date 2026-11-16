@@ -78,7 +78,10 @@ public class ChatScriptsTest {
                 "openai/gpt",
                 List.of(new ChatSessionController.ToolLine("read", "completed"))),
             ChatScripts.setMessages(List.of(Map.of("role", "user", "text", "hi"))),
-            ChatScripts.setInboxItems(List.of(new ChatSessionController.InboxEntry("m", "t"))));
+            ChatScripts.setInboxItems(List.of(new ChatSessionController.InboxEntry("m", "t"))),
+            ChatScripts.setStatusStrip(
+                new ChatSessionController.StatusStrip(null, null, null, null, null, null)),
+            ChatScripts.appendSynthetic("goal", "Goal: X", "g-1"));
     for (String script : scripts) {
       String argument = argumentOf(script);
       assertFalse("must not pass a JS object/array literal: " + script, argument.startsWith("{"));
@@ -90,6 +93,59 @@ public class ChatScriptsTest {
   @Test
   public void appendUserRoundTripsTheText() {
     assertEquals("hi", payloadOf(ChatScripts.appendUser("hi")).get("text"));
+  }
+
+  @Test
+  public void statusStripCarriesAllSixSegments() {
+    // T-149: the whole strip travels as ONE payload - context, cost, goal chip state
+    Map<String, Object> payload =
+        payloadOf(
+            ChatScripts.setStatusStrip(
+                new ChatSessionController.StatusStrip(
+                    "596.1K (7%)", "$9.96", "goal paused", "paused", "Ship it", "Paused by you")));
+    assertEquals("596.1K (7%)", payload.get("context"));
+    assertEquals("$9.96", payload.get("cost"));
+    assertEquals("goal paused", payload.get("goalLabel"));
+    assertEquals("paused", payload.get("goalStatus"));
+    assertEquals("Ship it", payload.get("objective"));
+    assertEquals("Paused by you", payload.get("reason"));
+  }
+
+  @Test
+  public void statusStripHidesEmptySegmentsAsEmptyStrings() {
+    Map<String, Object> payload =
+        payloadOf(
+            ChatScripts.setStatusStrip(
+                new ChatSessionController.StatusStrip(null, null, null, null, null, null)));
+    for (String key :
+        List.of("context", "cost", "goalLabel", "goalStatus", "objective", "reason")) {
+      assertEquals("segment must be empty (hidden), not null", "", payload.get(key));
+    }
+  }
+
+  @Test
+  public void appendSyntheticCarriesSourceTextAndGoalId() {
+    Map<String, Object> payload = payloadOf(ChatScripts.appendSynthetic("goal", "Goal: X", "g-1"));
+    assertEquals("goal", payload.get("source"));
+    assertEquals("Goal: X", payload.get("text"));
+    assertEquals("g-1", payload.get("goalId"));
+    // nulls degrade to empty strings (never JSON null - the page reads strings only)
+    Map<String, Object> blank = payloadOf(ChatScripts.appendSynthetic(null, null, null));
+    assertEquals("", blank.get("source"));
+    assertEquals("", blank.get("text"));
+    assertEquals("", blank.get("goalId"));
+  }
+
+  @Test
+  public void trickyPayloadsSurviveTheDoubleEncoding() {
+    String tricky = "say \"hi\"\n\tpath C:\\temp\\x  </script> \u00e9\u4e2d";
+    assertEquals(tricky, payloadOf(ChatScripts.appendSynthetic("goal", tricky, "g-1")).get("text"));
+    assertEquals(
+        tricky,
+        payloadOf(
+                ChatScripts.setStatusStrip(
+                    new ChatSessionController.StatusStrip(null, null, null, null, tricky, null)))
+            .get("objective"));
   }
 
   @Test

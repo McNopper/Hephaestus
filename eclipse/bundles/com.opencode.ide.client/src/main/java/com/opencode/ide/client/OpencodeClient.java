@@ -11,6 +11,7 @@ import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.IntegrationInfo;
 import com.opencode.ide.client.model.McpServerInfo;
 import com.opencode.ide.client.model.MigrationStatus;
+import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.OauthStart;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProjectSummary;
@@ -18,6 +19,7 @@ import com.opencode.ide.client.model.ProviderAuth;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.SavedPermission;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionGoal;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
@@ -169,6 +171,47 @@ public interface OpencodeClient {
    */
   default void compactSession(String sessionId) throws OpencodeException {
     throw new UnsupportedOperationException("compactSession");
+  }
+
+  /**
+   * {@code GET /api/session/{sid}} - ONE session (cost, tokens, model, revert) - T-149: the status
+   * strip's initial cost after resume. v2 serves the resource object under the {@code data}
+   * envelope.
+   */
+  default Session getSession(String sessionId) throws OpencodeException {
+    throw new UnsupportedOperationException("getSession");
+  }
+
+  /**
+   * {@code POST /api/rpc/opencode.goal/get} body {@code {"input":{"sessionID":sid}}} -> the {@code
+   * Goal.State} under {@code output}, or {@code null} - T-149. Tolerant by contract: a server
+   * WITHOUT the goal plugin answers an error and the chat simply shows no goal (the TUI does the
+   * same: {@code feature-plugins/prompt/goal.tsx:20-26}), so every failure resolves to {@code null}
+   * instead of throwing.
+   */
+  default SessionGoal getSessionGoal(String sessionId) throws OpencodeException {
+    throw new UnsupportedOperationException("getSessionGoal");
+  }
+
+  /**
+   * {@code POST /api/session/{sid}/command} body {@code {name, text}} - T-149: fire-and-forget
+   * variant for the goal dialog's pause/resume/clear. Deliberately NOT {@link #runCommand}: that
+   * verb polls for an assistant reply up to {@code PROMPT_TIMEOUT} (60 min) and a goal command
+   * answers 204 with no reply at all (probed 2026-11-16). The caller refreshes the goal from the
+   * {@code rpc.opencode.goal.changed} event / a re-fetch instead.
+   */
+  default void postSessionCommand(String sessionId, String name, String text)
+      throws OpencodeException {
+    throw new UnsupportedOperationException("postSessionCommand");
+  }
+
+  /**
+   * {@code GET /api/model} - the flat model catalog with {@code limit.context} - T-149: the
+   * context-window percent of the status strip matches the last assistant message's model against
+   * this list (the TUI's {@code util/session.ts:56-60}).
+   */
+  default List<Model> getModels(String directory) throws OpencodeException {
+    throw new UnsupportedOperationException("getModels");
   }
 
   /**

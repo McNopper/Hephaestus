@@ -39,6 +39,7 @@ import com.opencode.ide.client.model.ProviderAuth;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.client.model.SavedPermission;
 import com.opencode.ide.client.model.Session;
+import com.opencode.ide.client.model.SessionGoal;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
@@ -346,6 +347,69 @@ public final class HttpOpencodeClient implements OpencodeClient {
   @Override
   public void compactSession(String sessionId) throws OpencodeException {
     request("POST", "/session/" + sessionId + "/compact", "{}");
+  }
+
+  @Override
+  public Session getSession(String sessionId) throws OpencodeException {
+    String path = "/session/" + sessionId;
+    return parseBody("GET", path, request("GET", path, null), Session.class, true);
+  }
+
+  @Override
+  public SessionGoal getSessionGoal(String sessionId) throws OpencodeException {
+    // T-149: probe 2026-11-16 - POST /api/rpc/opencode.goal/get {input:{sessionID}} ->
+    // {output: Goal.State|null}. Tolerant by contract (interface javadoc): ANY failure -
+    // plugin-less server, transport error, malformed body - resolves to null, mirroring the
+    // TUI's catch-to-undefined in feature-plugins/prompt/goal.tsx:21-26.
+    String path = "/rpc/opencode.goal/get";
+    JsonObject input = new JsonObject();
+    input.addProperty("sessionID", sessionId);
+    JsonObject body = new JsonObject();
+    body.add("input", input);
+    try {
+      HttpResponse<String> response =
+          send("POST", path, body.toString(), ClientTuning.REQUEST_TIMEOUT);
+      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+        ClientLog.warning(
+            "opencode POST /api" + path + ": HTTP " + response.statusCode() + " (no goal)");
+        return null;
+      }
+      String text = response.body();
+      if (text == null || text.isBlank()) {
+        return null;
+      }
+      JsonElement root = JsonParser.parseString(text);
+      if (!root.isJsonObject()) {
+        return null;
+      }
+      JsonElement output = root.getAsJsonObject().get("output");
+      if (output == null || output.isJsonNull()) {
+        return null;
+      }
+      return GSON.fromJson(output, SessionGoal.class);
+    } catch (JsonParseException | IllegalStateException e) {
+      ClientLog.warning("opencode POST /api" + path + ": malformed goal payload (no goal)");
+      return null;
+    } catch (OpencodeException e) {
+      ClientLog.warning("opencode POST /api" + path + ": " + e.getMessage() + " (no goal)");
+      return null;
+    }
+  }
+
+  @Override
+  public void postSessionCommand(String sessionId, String name, String text)
+      throws OpencodeException {
+    // T-149: fire-and-forget (probe 2026-11-16: goal pause/resume/clear answer 204 with NO body
+    // and create no assistant reply - runCommand's awaitCommandReply would poll 60 min for it).
+    String path = "/session/" + sessionId + "/command";
+    request("POST", path, ChatRequests.commandBody(name, java.util.List.of(text)));
+  }
+
+  @Override
+  public List<Model> getModels(String directory) throws OpencodeException {
+    // T-149: the same /model list getProviders reads, WITHOUT the provider rebuild - the status
+    // strip only needs limit.context for the last assistant message's model.
+    return getList(withLocation("/model", directory), Model.class);
   }
 
   @Override

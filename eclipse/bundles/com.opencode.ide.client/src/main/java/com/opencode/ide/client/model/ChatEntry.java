@@ -14,7 +14,8 @@ public record ChatEntry(
     List<ChatPart> parts,
     String command,
     String shellOutput,
-    Compaction compaction) {
+    Compaction compaction,
+    Notice notice) {
 
   public ChatEntry {
     parts = (parts == null) ? List.of() : List.copyOf(parts);
@@ -25,13 +26,37 @@ public record ChatEntry(
    * kept for callers.
    */
   public ChatEntry(ChatMessageInfo info, List<ChatPart> parts) {
-    this(info, parts, null, null, null);
+    this(info, parts, null, null, null, null);
   }
 
   /** The shell-run shape ({@code compaction} null); kept for callers. */
   public ChatEntry(ChatMessageInfo info, List<ChatPart> parts, String command, String shellOutput) {
-    this(info, parts, command, shellOutput, null);
+    this(info, parts, command, shellOutput, null, null);
   }
+
+  /**
+   * The compaction shape ({@code notice} null); kept for callers (T-147's row builder and its
+   * fixtures).
+   */
+  public ChatEntry(
+      ChatMessageInfo info,
+      List<ChatPart> parts,
+      String command,
+      String shellOutput,
+      Compaction compaction) {
+    this(info, parts, command, shellOutput, compaction, null);
+  }
+
+  /**
+   * The notice payload (T-149): everything a {@code type=synthetic} message carries for the TUI's
+   * inline notice row ({@code routes/session/index.tsx} SessionNoticeMessage - icon + {@code
+   * description}): {@code source} from {@code metadata.source} ({@code goal} picks the &#9678;
+   * glyph), {@code goalId} from {@code metadata.goalID} (live-append dedupe), {@code description}
+   * the row's display text ({@code null}/blank rows are dropped, TUI {@code rows.ts:392}). The
+   * synthetic message's full {@code text} - the injected objective prompt - is NEVER a part: the
+   * TUI never renders it (same no-fabricated-text discipline as {@link Compaction}).
+   */
+  public record Notice(String source, String goalId, String description) {}
 
   /**
    * The compaction payload (T-147): everything a {@code type=compaction} message carries for the
@@ -81,12 +106,16 @@ public record ChatEntry(
 
   /**
    * @return the concatenated text of all {@code text} parts (rendered markdown); a compaction entry
-   *     returns its TUI content ({@link Compaction#content()}) - the parts list is empty by design,
-   *     the summary/error lives on the payload.
+   *     returns its TUI content ({@link Compaction#content()}), a notice entry its display {@code
+   *     description} - the parts list is empty by design on both, the payload carries the content
+   *     (the injected synthetic {@code text} is never a part, T-149).
    */
   public String text() {
     if (compaction != null) {
       return compaction.content();
+    }
+    if (notice != null) {
+      return notice.description() == null ? "" : notice.description();
     }
     StringBuilder sb = new StringBuilder();
     for (ChatPart part : parts) {
@@ -127,5 +156,14 @@ public record ChatEntry(
    */
   public boolean isCompaction() {
     return info != null && "compaction".equals(info.role());
+  }
+
+  /**
+   * Convenience: is this a synthetic notice row (T-149)? Role-based like {@link #isCompaction()} -
+   * a {@code synthetic} role always routes to the notice row, never to an assistant bubble (the
+   * T-149 defect: the injected objective prompt rendered in full).
+   */
+  public boolean isNotice() {
+    return info != null && "synthetic".equals(info.role());
   }
 }
