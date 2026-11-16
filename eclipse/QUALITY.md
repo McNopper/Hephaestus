@@ -17,7 +17,7 @@
 | Format | Spotless 3.10.4 + google-java-format 1.28.0 (`spotless:check`; GJF pinned — 1.37.0 changed the `JavaFormatterOptions.Style` API both spotless lines link against; `eclipse/.mvn/jvm.config` carries the JDK `--add-exports` GJF needs in-process) | every `verify`, every module | **yes** |
 | Architecture rules (package level) | ArchUnit over the reactor bytecode (`bundles/com.opencode.ide.arch.tests`; namespace, layer graph, Eclipse-free purity, bundle cycles) | every `verify` | **yes** |
 | Clean architecture + encoding | `releng/check-architecture.ps1` (exec check, repo convention: layers, no fixed paths, no mojibake) | every `validate`, once per reactor | **yes** |
-| Eclipse-free purity | per-bundle pwsh import scans: `ban-eclipse-imports` (client/git/fleet; `-DskipEclipseBan=true` skips) and `check-eclipse-free` (tools/tasks, not skippable) | every build | **yes** |
+| Eclipse-free purity | per-bundle pwsh import scans: `ban-eclipse-imports` (client/git; `-DskipEclipseBan=true` skips) and `check-eclipse-free` (tools/tasks, not skippable) | every build | **yes** |
 | Bug patterns | SpotBugs (`-Pquality`, effort Max / threshold High) | `verify -Pquality` | no — report-only for now |
 | Coverage | JaCoCo (`0.8.15`, report-only — no failing threshold) | every `verify`; HTML per module at `*/target/site/jacoco/index.html`; test-module execs carry the full-run instrumentation (production-bundle HTML aggregation: `-Pcoverage`, see the Coverage gate row below) | no — report lane |
 | Coverage gate (opt-in) | JaCoCo check rule (`-Pcoverage`, 55% line at bundle scope on production bundles, aggregate report at target/site/jacoco-aggregate) | on demand: `.\build.ps1 verify -Pcoverage` | yes, when the profile is on |
@@ -41,12 +41,12 @@ The dependency graph, verified against the bundles' `META-INF/MANIFEST.MF`
 enforced by `check-architecture.ps1` on every build:
 
 ```text
-board  → chat · fleet · core · tasks · git · client (+ {workbench, compare})  ← no ui edge
+board  → chat · core · tasks · git · client (+ {workbench, compare})  ← no ui edge
 chat   → core · client (+ {workbench})                                         ← no ui edge
 ui     → core · client · tools (+ {workbench})
 cdt    → core (+ {cdt.core})
 core   → client · mcp (+ {runtime, resources, equinox.security})
-fleet  → client · git · tasks · tools
+
 mcp    → client · tasks · tools
 tasks  → tools
 git    → client
@@ -57,7 +57,7 @@ tools  → gson
 Arrows only ever point from the presentation bundles down into the seam and
 Eclipse-free layers, never the reverse.
 
-- The **Eclipse-free layer** (`client`, `tools`, `tasks`, `git`, `fleet`)
+- The **Eclipse-free layer** (`client`, `tools`, `tasks`, `git`)
   never sees SWT/JFace/workbench types (the per-bundle import scans enforce
   this; client's single allowlist is the plain-JVM-safe JobManager runtime)
   and never depends on the presentation bundles.

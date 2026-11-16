@@ -37,7 +37,7 @@ reviewed decision**, not an accident:
 
 Every module sits in exactly one tier. **Tier 1** is plain Java, build-enforced
 Eclipse/OSGi-free (pwsh import scans in the bundle poms: `ban-eclipse-imports` in
-client/git/fleet — skippable with `-DskipEclipseBan=true` — and the non-skippable
+client/git — skippable with `-DskipEclipseBan=true` — and the non-skippable
 `check-eclipse-free` in tools/tasks) — usable
 as plain libraries (the mojo and the stdio launchers prove it). Client's one allowlisted
 platform dependency is the **JobManager runtime** (`org.eclipse.core.jobs` +
@@ -64,7 +64,7 @@ the `ToolProvider` SPI.
 | `com.opencode.ide.mcp` (+ tests) | tools, **tasks**, client, gson | the `eclipse-build` MCP endpoint (Streamable HTTP, 127.0.0.1, per-start token auth: registered `?token=` URL or `Bearer` header, 401 otherwise) + DS lifecycle only; service-driven activation (activates when core binds `McpInfo`) |
 | `com.opencode.ide.ui` (+ tests) | client, core, tools, gson, workbench | Server (multi-root, virtualized, MCP/skills/sessions with subagent nesting) + Providers + Repo + Session-details views (subagent + shell-task sections, revert/environment/import, view marking), perspective, connection preference page, saved-permissions/integrations (catalog + connect flows)/skill-attach surfaces, `ui.attention` event-stream notifications (IStartup); `ViewLoadSupport` |
 | `com.opencode.ide.chat` (+ tests) | client, core, workbench, gson | the Browser host for `components/chat-web` (`ChatPage` + SWT-free `ChatSessionController` + embedded web server); built-in slash commands, `@`-file fuzzy references and cross-restart continuity (`ChatViewSettings`); does NOT depend on ui |
-| `com.opencode.ide.board` (+ tests) | client, core, tasks, fleet, git, chat, gson, workbench | the PM surface: Board (flat + V-pipeline layouts, stage filter, blocked rendering, stage-journey trace + wave digest (U-026), cost overview, *Auto ▶* self-draining dispatch via `DispatchScheduler`/`AutoDispatch`/`StageReadiness`, dispatch settings, store git header + *Sync store*, repo adoption action) + Fleet views (U-040 tree: engine → wave → job → session → subagents → shell tasks via `FleetTree` + `SessionObserver`, server diff, permissions dialog, events dialog; *Take over* opens the worktree and marks the job taken over — `TakeoverRouter` still carries the v1 TUI steering path, but v2 removed `POST /tui/:action`, so `tuiAction` is always false and the fallback always wins), fleet-row graceful Shutdown + activation refresh/freshness stamp; SWT-free model unit-tested |
+| `com.opencode.ide.board` (+ tests) | client, core, tasks, git, chat, gson, workbench | the PM surface: Board (flat + V-pipeline layouts, stage filter, blocked rendering, stage-journey trace + wave digest (U-026), Needs-me/Bugs-only/stage/status filters, refresh, store git header + *Sync store*, new/reset/adopt project actions, archive action; SWT-free model (`BoardModel`, `TaskStoreWatcher`) unit-tested) + **intake governance**: the store's stage field drives the V-pipeline layout; the fleet-era surfaces (cost overview, launch/take-over/shutdown, Auto/Waves pumps, the Fleet tree) were removed in U-110 - the orchestration moved to the ticker-v schedule |
 | `com.opencode.ide.cdt` (+ tests) | core, CDT bundles | the CDT bridge (tier 3) |
 
 ### Tier 3 — C++-development specifics
@@ -81,12 +81,12 @@ client → gson, {jobs, equinox.common}      ← the JobManager runtime allowlis
 tools  → gson
 tasks  → tools, gson
 git    → client
-fleet  → client, git, tasks, tools, gson
+
 mcp    → tools, tasks, client, gson
 core   → client, mcp, {runtime, resources, equinox.security}
 ui     → client, core, tools, gson, {workbench}
 chat   → client, core, gson, {workbench}   ← no ui edge
-board  → client, core, tasks, fleet, git, chat, gson, {workbench, compare}   ← no ui edge
+board  → client, core, tasks, git, chat, gson, {workbench, compare}   ← no ui edge
 cdt    → core, {cdt.core, resources, ui, ui.ide}
 mojo   → tasks (plain jar), gson, maven-api (provided)
 ```
@@ -97,7 +97,7 @@ logic stays in `tools.cpp`/cdt behind the SPI. The task store's single root is r
 core seam — `com.opencode.ide.core.TasksRootResolution` (explicit Board override → workspace
 climb → open-project repo adoption → `tasksRoot` preference → historical guess; the order is
 unit-pinned by `TasksRootResolutionTest`) — and the core activator bridges that resolution into
-the endpoint (`opencode.tasks.root`), so Board, fleet and in-session `task_*` tools always see
+the endpoint (`opencode.tasks.root`), so Board and in-session `task_*` tools always see
 one store (B-016; doc currency per T-016).
 Agent backends (axis 4):  opencode HttpOpencodeClient (today) · the deferred `CodingAgent` port below
 
