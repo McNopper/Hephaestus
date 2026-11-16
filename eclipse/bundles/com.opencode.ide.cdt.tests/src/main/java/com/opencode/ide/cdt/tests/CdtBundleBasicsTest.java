@@ -59,16 +59,20 @@ public class CdtBundleBasicsTest {
   @Test
   public void projectContextComponentIsDelayedSoCdtNeverStartsBeforeTheInstanceArea()
       throws Exception {
-    try (java.io.InputStream in =
-        getClass().getResourceAsStream("/OSGI-INF/CdtProjectContext.xml")) {
-      assertNotNull("component descriptor must be on the bundle classpath", in);
-      String xml = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-      assertTrue(
-          "descriptor still declares the component",
-          xml.contains("com.opencode.ide.cdt.internal.CdtProjectContext"));
-      assertTrue(
-          "the component must NOT be immediate (T-146): " + xml,
-          !xml.contains("immediate=\"true\""));
+    // read the descriptor from the CDT BUNDLE itself (a bundle classloader's
+    // getResource only searches its own bundle - the entry lives in com.opencode.ide.cdt)
+    java.net.URL entry =
+        org.eclipse.core.runtime.Platform.getBundle("com.opencode.ide.cdt")
+            .getEntry("OSGI-INF/CdtProjectContext.xml");
+    assertNotNull("component descriptor must be an entry of the CDT bundle", entry);
+    String xml;
+    try (java.io.InputStream in = entry.openStream()) {
+      xml = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
     }
+    assertTrue(
+        "descriptor still declares the component",
+        xml.contains("com.opencode.ide.cdt.internal.CdtProjectContext"));
+    assertTrue(
+        "the component must NOT be immediate (T-146): " + xml, !xml.contains("immediate=\"true\""));
   }
 }
