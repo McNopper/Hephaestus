@@ -287,6 +287,32 @@ public class ChatSessionControllerTest {
     assertEquals("a.txt|--- a\n+++ b\n+changed", renderer.diffs.get(0));
   }
 
+  /** CP-06 AC2: the per-turn usage line renders ONLY when the turn reports figures. */
+  @Test
+  public void perTurnUsageLabelRendersOnlyWhenTheTurnReportsUsage() {
+    assertEquals("", ChatSessionController.turnUsageLabel(null, null));
+    assertEquals("", ChatSessionController.turnUsageLabel(0.0, new Session.Tokens(0, 0, 0, null)));
+    assertEquals("", ChatSessionController.turnUsageLabel(0.004, null));
+    assertEquals(
+        "1.2K tok",
+        ChatSessionController.turnUsageLabel(null, new Session.Tokens(1150, 40, 0, null)));
+    assertEquals(
+        "1.2K tok \u00b7 $1.25",
+        ChatSessionController.turnUsageLabel(1.25, new Session.Tokens(1150, 40, 0, null)));
+  }
+
+  /** CP-06 AC2: the suffix keeps the model label and vanishes with the figures (no regression). */
+  @Test
+  public void metaWithUsageKeepsTheModelLabelAndIsInvisibleWithoutUsage() {
+    assertEquals("prov/model", ChatSessionController.metaWithUsage("prov/model", null, null));
+    assertEquals(
+        "prov/model",
+        ChatSessionController.metaWithUsage("prov/model", 0.0, new Session.Tokens(0, 0, 0, null)));
+    assertEquals(
+        "prov/model \u00b7 $1.25", ChatSessionController.metaWithUsage("prov/model", 1.25, null));
+    assertEquals("$1.25", ChatSessionController.metaWithUsage("", 1.25, null));
+  }
+
   // ---------- in-chat session switcher (chat parity CP-05) ----------
 
   /**

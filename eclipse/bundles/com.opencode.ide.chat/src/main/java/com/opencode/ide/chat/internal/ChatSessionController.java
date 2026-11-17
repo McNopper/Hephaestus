@@ -992,7 +992,11 @@ public final class ChatSessionController {
         rows.add(row);
         continue;
       }
-      String meta = (entry.info() != null) ? entry.info().modelLabel() : "";
+      String meta =
+          metaWithUsage(
+              entry.info() != null ? entry.info().modelLabel() : "",
+              entry.info() == null ? null : entry.info().cost(),
+              entry.info() == null ? null : entry.info().tokens());
       row.put("role", entry.isUser() ? "user" : "assistant");
       row.put("id", entry.info() != null && entry.info().id() != null ? entry.info().id() : "");
       row.put("text", entry.text());
@@ -3070,11 +3074,48 @@ public final class ChatSessionController {
         });
   }
 
+  /**
+   * CP-06 (FR-CP-06 AC2): the turn's usage appended to its meta line - ONLY when the server
+   * reported figures for that turn (cost &gt; 0 or a non-zero token sum), so entries without usage
+   * render byte-identically. Wording: {@code prov/model · 1.2K tok · $0.004} over the chat's
+   * compact-number + the shared USD helper (identical rules as the status strip).
+   */
+  public static String metaWithUsage(String meta, Double cost, Session.Tokens tokens) {
+    String base = meta == null ? "" : meta;
+    String usage = turnUsageLabel(cost, tokens);
+    if (usage.isEmpty()) {
+      return base;
+    }
+    return base.isEmpty() ? usage : base + " \u00b7 " + usage;
+  }
+
+  /** {@code 1.2K tok · $0.004}; empty when the turn reported no usage at all. */
+  public static String turnUsageLabel(Double cost, Session.Tokens tokens) {
+    List<String> parts = new ArrayList<>();
+    if (tokens != null) {
+      long sum =
+          tokens.input()
+              + tokens.output()
+              + tokens.reasoning()
+              + (tokens.cache() == null ? 0 : tokens.cache().read() + tokens.cache().write());
+      if (sum > 0) {
+        parts.add(ContextUsage.compactNumber(sum) + " tok");
+      }
+    }
+    String usd = ContextUsage.costLabel(cost);
+    // a turn whose cost rounds to nothing shows no figure - "$0.00" would be noise, and the
+    // shared 2-decimal helper is the wording rule across surfaces (T-153's seam)
+    if (usd != null && !"$0.00".equals(usd)) {
+      parts.add(usd);
+    }
+    return String.join(" \u00b7 ", parts);
+  }
+
   private static String metaFor(ChatEntry reply) {
     if (reply == null || reply.info() == null) {
       return "";
     }
-    return reply.info().modelLabel();
+    return metaWithUsage(reply.info().modelLabel(), reply.info().cost(), reply.info().tokens());
   }
 
   /** Echo for a command submission: the typed text, or a reconstructed {@code /cmd args}. */

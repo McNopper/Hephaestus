@@ -67,7 +67,9 @@ public class HttpOpencodeClientU046ComponentTest extends StubHttpComponentTest {
                                   {"type":"env","names":["ANTHROPIC_KEY","ANTHROPIC_TOKEN"]}],
                        "connections":[]}]}
                     """;
-      case "/api/session/ses_1/generate" -> "{\"data\":{\"text\":\"hi\"}}";
+      case "/api/session/ses_1/generate" ->
+          "{\"data\":{\"text\":\"hi\",\"cost\":0.004,\"tokens\":{\"input\":11,\"output\":2,"
+              + "\"reasoning\":0,\"cache\":{\"read\":3,\"write\":1}}}}";
       // the view marker answers 2xx with NO content
       case "/api/session/ses_1/view" -> "";
       // v2.0.19 spec: the attach-skill POST answers 204 no-content
@@ -242,14 +244,34 @@ public class HttpOpencodeClientU046ComponentTest extends StubHttpComponentTest {
 
   // ---------- session generate / view ----------
 
+  /** CP-06 (FR-CP-06 AC2): the 2.2.7 response carries the turn's actuals next to the text. */
   @Test
-  public void generatePostsThePromptAndReturnsTheText() throws Exception {
-    String text = client.generateOnSession("ses_1", "say hi in one word");
+  public void generatePostsThePromptAndReturnsTextPlusTheTurnActuals() throws Exception {
+    com.opencode.ide.client.model.GenerateResult result =
+        client.generateOnSession("ses_1", "say hi in one word");
 
     assertEquals("POST", lastMethod.get());
     assertEquals("/api/session/ses_1/generate", lastPath.get());
     assertEquals("{\"prompt\":\"say hi in one word\"}", lastBody.get());
-    assertEquals("hi", text);
+    assertEquals("hi", result.text());
+    assertEquals(0.004, result.cost(), 0.000001);
+    assertEquals(11L, result.tokens().input());
+    assertEquals(3L, result.tokens().cache().read());
+    assertEquals("the actuals are reported", Boolean.TRUE, result.hasUsage());
+  }
+
+  /** A build older than 2.2.7 answers text only - no usage figures, no usage line downstream. */
+  @Test
+  public void generateToleratesAPayloadWithoutActuals() throws OpencodeException {
+    bodyOverride.set("{\"data\":{\"text\":\"hi\"}}");
+
+    com.opencode.ide.client.model.GenerateResult result =
+        client.generateOnSession("ses_1", "say hi");
+
+    assertEquals("hi", result.text());
+    assertEquals(null, result.cost());
+    assertEquals(null, result.tokens());
+    assertEquals("no actuals reported", Boolean.FALSE, result.hasUsage());
   }
 
   @Test

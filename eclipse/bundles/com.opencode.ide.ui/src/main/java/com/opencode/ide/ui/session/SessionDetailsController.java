@@ -487,8 +487,9 @@ public final class SessionDetailsController {
    */
   public LifecycleResult suggestTitle() {
     try {
-      String title =
-          titleSuggestion(clientSupplier.get().generateOnSession(sessionId(), TITLE_PROMPT));
+      com.opencode.ide.client.model.GenerateResult generated =
+          clientSupplier.get().generateOnSession(sessionId(), TITLE_PROMPT);
+      String title = titleSuggestion(generated == null ? null : generated.text());
       return title == null
           ? LifecycleResult.failure("no suggestion returned")
           : LifecycleResult.ok(title);

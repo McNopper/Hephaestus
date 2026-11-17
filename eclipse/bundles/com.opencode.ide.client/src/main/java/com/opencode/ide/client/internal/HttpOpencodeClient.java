@@ -26,6 +26,7 @@ import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.FileNode;
 import com.opencode.ide.client.model.FileStatus;
+import com.opencode.ide.client.model.GenerateResult;
 import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.IntegrationInfo;
 import com.opencode.ide.client.model.McpServerInfo;
@@ -1822,7 +1823,8 @@ public final class HttpOpencodeClient implements OpencodeClient {
   }
 
   @Override
-  public String generateOnSession(String sessionId, String prompt) throws OpencodeException {
+  public GenerateResult generateOnSession(String sessionId, String prompt)
+      throws OpencodeException {
     // one transient completion: unlike sendMessage nothing is queued or
     // polled - the POST blocks until the text is back, so it runs on the
     // command/prompt budget, not the per-call REST one
@@ -1832,10 +1834,24 @@ public final class HttpOpencodeClient implements OpencodeClient {
     HttpResponse<String> response =
         request("POST", path, body.toString(), ClientTuning.PROMPT_TIMEOUT);
     try {
-      // v2.0.19 live probe: {data:{text}}
+      // v2.0.19 live probe: {data:{text}}; since 2.2.7 the same payload carries the call's
+      // ACTUALS (tokens + cost, #62835 - adoption L265): CP-06's per-turn source. An older
+      // build answers text only - figures stay null and hasUsage() reports false.
       JsonObject envelope = JsonParser.parseString(response.body()).getAsJsonObject();
       JsonObject data = asObject(envelope, "data");
-      return data == null ? null : stringOf(data, "text");
+      if (data == null) {
+        return null;
+      }
+      String text = stringOf(data, "text");
+      Double cost =
+          data.has("cost") && data.get("cost").isJsonPrimitive()
+              ? data.get("cost").getAsDouble()
+              : null;
+      Session.Tokens tokens =
+          data.has("tokens") && data.get("tokens").isJsonObject()
+              ? GSON.fromJson(data.get("tokens"), Session.Tokens.class)
+              : null;
+      return new GenerateResult(text, cost, tokens);
     } catch (JsonParseException | IllegalStateException e) {
       throw new OpencodeException(
           "opencode POST /api"

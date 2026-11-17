@@ -7,6 +7,7 @@ import com.opencode.ide.client.model.ConfigInfo;
 import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.FileNode;
 import com.opencode.ide.client.model.FileStatus;
+import com.opencode.ide.client.model.GenerateResult;
 import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.IntegrationInfo;
 import com.opencode.ide.client.model.McpServerInfo;
@@ -987,7 +988,8 @@ public interface OpencodeClient {
    *
    * @return the completion text, or {@code null} when the answer carries none
    */
-  default String generateOnSession(String sessionId, String prompt) throws OpencodeException {
+  default GenerateResult generateOnSession(String sessionId, String prompt)
+      throws OpencodeException {
     throw new UnsupportedOperationException("generateOnSession");
   }
 

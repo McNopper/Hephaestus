@@ -1037,13 +1037,17 @@ public class SessionDetailsControllerTest {
     }
 
     @Override
-    public String generateOnSession(String sessionId, String prompt) throws OpencodeException {
+    public com.opencode.ide.client.model.GenerateResult generateOnSession(
+        String sessionId, String prompt) throws OpencodeException {
       if (generateFailure != null) {
         throw generateFailure;
       }
       generateSessionId = sessionId;
       generatePrompt = prompt;
-      return generateAnswer;
+      // CP-06: the 2.2.7 response also carries cost/tokens; this fake reports text only
+      return generateAnswer == null
+          ? null
+          : new com.opencode.ide.client.model.GenerateResult(generateAnswer, null, null);
     }
   }
 }
