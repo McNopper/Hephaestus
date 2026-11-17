@@ -157,7 +157,42 @@ Per stage:
    re-derives every pass (QA-002); (c) the sibling release-cadence
    evaluation READS the instances the sweep created or kept
    (docs/release-cadence-flow.md §6 — read-only across the seam, DR-9);
-   (d) close the record. The next tick repeats.
+   (d) RELEASE-CADENCE EVALUATION (owner requirement 2026-11-15, T-041;
+   wording = flow §4.1's STEP 6 EXTENSION, run once per pass AFTER the
+   recurrence mint in (b) so the fresh instance is visible, BEFORE the
+   record closes in (e)):
+
+      1. For each completed wave W (flow §1 carve-out applies): run the
+         evidence query (flow §3.4), verbatim four steps — (1)
+         `task_list(sprint=<W id>)` for the wave's members, completed iff
+         every member is `done`; (2) `task_get` W's acceptance instance
+         and every member; (3) scan `comments` + `artifacts` for `by` in
+         the owner set (`owner`, `owner-directive`, `owner-acceptance`);
+         (4) content floor: the matched text must STATE an outcome
+         (accept, approve, review verdict) — a question, a direction or a
+         drive-by note is not acceptance. Never history, never assignees,
+         never git authorship, never chat text; ambiguity → PENDING (R4,
+         the conservative asymmetry).
+      2. Owner-set evidence passing the floor → outcome `UNLOCKED
+         (evidence: <ticket id> + author + ts)`. Otherwise `PENDING
+         REVIEW`.
+      3. Record it (DS-002 write schedule — two writes, no state): ONE
+         line in the pass digest on EVERY evaluation — `release cadence:
+         wave <W id> <UNLOCKED (evidence <ref>) | pending review>` — plus
+         a `task_add_comment` on W's acceptance instance with the same
+         outcome at first determination and at every flip (the state lives
+         on a ticket, where comments and history work; the record itself
+         has no comment channel).
+      4. Do NOT run `release.ps1`. Do NOT block anything. Do NOT spawn.
+         Do NOT escalate a PENDING REVIEW as NEEDS-HUMAN — the open
+         instance already surfaces it to the owner on the Board.
+
+      The verbs on this path are the reads above plus the two recordings
+      — no execution verb exists here (the cut is C3's motion on the
+      owner's EXPLICIT GO, flow §4.2: the ticker never runs the script).
+      No ticker armed: the kickoff assistant is the fallback evaluator
+      with the same query, announced in chat (H7).
+   (e) close the record. The next tick repeats.
 
 An empty backlog costs one readiness query. That is a successful tick.
 
