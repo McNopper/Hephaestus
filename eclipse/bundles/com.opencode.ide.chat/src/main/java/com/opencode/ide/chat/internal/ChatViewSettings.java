@@ -19,6 +19,7 @@ public final class ChatViewSettings {
   private static final String KEY_LAST_MODEL = "lastModel";
   private static final String KEY_PINNED_SESSIONS = "pinnedSessions";
   private static final String KEY_RECENT_MODELS = "recentModels";
+  private static final String KEY_GOAL_TICKET = "goalTicketId";
 
   private ChatViewSettings() {}
 
@@ -86,6 +87,18 @@ public final class ChatViewSettings {
     put(
         KEY_RECENT_MODELS,
         ModelRecents.format(ModelRecents.recentWith(recentModels(), model, RECENT_LIMIT)));
+  }
+
+  // ---------- U-105: the governed /goal seam's remembered goal ticket ----------
+
+  /** The goal ticket the /goal verbs act on (the last captured one); {@code null} when none. */
+  public static String goalTicket() {
+    return get(KEY_GOAL_TICKET);
+  }
+
+  /** Remembers the active goal ticket; {@code null}/blank clears it (cleared or forgotten). */
+  public static void storeGoalTicket(String ticketId) {
+    put(KEY_GOAL_TICKET, ticketId);
   }
 
   private static String get(String key) {

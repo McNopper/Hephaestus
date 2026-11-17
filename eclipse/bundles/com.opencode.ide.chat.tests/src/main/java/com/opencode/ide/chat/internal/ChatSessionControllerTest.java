@@ -36,7 +36,10 @@ import com.opencode.ide.client.model.SessionGoal;
 import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.VcsInfo;
+import com.opencode.ide.tasks.Task;
+import com.opencode.ide.tasks.TaskStore;
 import java.net.http.HttpTimeoutException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -2481,6 +2484,45 @@ public class ChatSessionControllerTest {
     drainBackground();
     assertEquals("the prompt still went out", 1, connection.client.requests.size());
     assertEquals("steer this", connection.client.requests.get(0).text());
+  }
+
+  // ---------- U-105: the governed /goal seam (client-side intake) ----------
+
+  @Test
+  public void theGoalCommandIsInterceptedAndNeverReachesTheServer() throws Exception {
+    Path goalStoreRoot = Files.createTempDirectory("goal-seam");
+    controller.useGoalStore(new TaskStore(goalStoreRoot), "p");
+
+    controller.sendCommand(
+        new CommandComposer.CommandSelection(
+            CommandComposer.Kind.COMMAND,
+            new CommandInfo("goal", "keep working until an objective is met"),
+            List.of("Ship", "the", "thing"),
+            null));
+    drainBackground();
+
+    assertTrue(
+        "the typed /goal line echoes into the transcript",
+        renderer.users.get(renderer.users.size() - 1).contains("Ship the thing"));
+    assertEquals(
+        "the server command NEVER runs (the independence seam)",
+        0,
+        connection.client.requests.size());
+    assertTrue(
+        renderer.notices.get(renderer.notices.size() - 1).contains("goal captured as T-001"));
+
+    TaskStore check = new TaskStore(goalStoreRoot);
+    Task goal = check.get("p", "T-001");
+    assertEquals("requirements", goal.stage);
+    assertEquals("objective captured verbatim", "Ship the thing", goal.description);
+
+    // pause through the same seam - still zero server traffic
+    controller.sendCommand(
+        new CommandComposer.CommandSelection(
+            CommandComposer.Kind.COMMAND, new CommandInfo("goal", "x"), List.of("pause"), null));
+    drainBackground();
+    assertEquals("paused", check.get("p", "T-001").status);
+    assertEquals("still no server traffic", 0, connection.client.requests.size());
   }
 
   // ---------- U-014: permission dialog trigger + decision mapping ----------

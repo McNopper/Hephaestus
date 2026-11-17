@@ -46,7 +46,7 @@ enforced by `check-architecture.ps1` on every build:
 
 ```text
 board  → chat · core · tasks · git · client (+ {workbench, compare})  ← no ui edge
-chat   → core · client (+ {workbench})                                         ← no ui edge
+chat   → core · tasks · client (+ {workbench})                            ← no ui edge
 ui     → core · client · tools (+ {workbench})
 cdt    → core (+ {cdt.core})
 core   → client · mcp (+ {runtime, resources, equinox.security})

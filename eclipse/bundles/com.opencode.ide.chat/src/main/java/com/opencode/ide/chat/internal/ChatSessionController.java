@@ -1186,6 +1186,77 @@ public final class ChatSessionController {
   }
 
   /**
+   * U-105: the GOVERNED {@code /goal} seam - the composer's goal command is intercepted BEFORE
+   * {@code runCommandJob}, so the server's session self-review loop is never driven (the
+   * independence violation); the objective becomes a requirements TICKET (verbatim) and
+   * pause/resume/clear map to store semantics. Package-visible for tests via {@link #useGoalStore}.
+   * The T-149 status-strip dialog stays what it was - display parity with the TUI's SESSION-goal
+   * primitive (see {@link #goalAction}); the two surfaces are distinct: this one governs the STORE
+   * goal, that one mirrors the session goal.
+   */
+  void runGoalCommand(List<String> arguments) {
+    String first = arguments.isEmpty() ? "" : arguments.get(0).trim().toLowerCase(Locale.ROOT);
+    boolean isVerb = "pause".equals(first) || "resume".equals(first) || "clear".equals(first);
+    String objective = String.join(" ", arguments).trim();
+    if (!isVerb && objective.isEmpty()) {
+      renderer.notice(GoalIntake.USAGE);
+      return;
+    }
+    host.runInBackground(
+        "Goal " + (isVerb ? first : "intake"),
+        () -> {
+          try {
+            GoalIntake.Result result;
+            if (isVerb) {
+              result =
+                  GoalIntake.verb(goalStore(), goalProject(), ChatViewSettings.goalTicket(), first);
+            } else {
+              result = GoalIntake.capture(goalStore(), goalProject(), objective);
+            }
+            ChatViewSettings.storeGoalTicket(result.goalId()); // null clears (cleared goal)
+            String notice = result.notice();
+            host.runOnUi(() -> renderer.notice(notice));
+          } catch (RuntimeException e) {
+            String failure = e.getMessage();
+            host.runOnUi(() -> renderer.notice("⚠ goal command failed: " + failure));
+          }
+        });
+  }
+
+  /**
+   * Injects the store/project the governed /goal seam writes to (production leaves this null and
+   * the lazy path resolves the workspace store + configured project); hosts and tests use it to
+   * scope the seam to their own store.
+   */
+  public void useGoalStore(com.opencode.ide.tasks.TaskStore store, String project) {
+    this.goalStore = store;
+    this.goalProject = project;
+  }
+
+  private com.opencode.ide.tasks.TaskStore goalStore() {
+    com.opencode.ide.tasks.TaskStore store = goalStore;
+    if (store == null) {
+      store =
+          new com.opencode.ide.tasks.TaskStore(
+              com.opencode.ide.core.TasksRootResolution.resolveForWorkspace(null));
+      goalStore = store;
+    }
+    return store;
+  }
+
+  private String goalProject() {
+    String project = goalProject;
+    if (project == null) {
+      project = new com.opencode.ide.core.OpencodePreferences().getTasksProject();
+      goalProject = project;
+    }
+    return project;
+  }
+
+  private volatile com.opencode.ide.tasks.TaskStore goalStore;
+  private volatile String goalProject;
+
+  /**
    * T-149: one goal-dialog action ({@code pause}/{@code resume}/{@code clear}) - the TUI dialog's
    * own buttons ({@code feature-plugins/prompt/goal.tsx:109-117}). Runs fire-and-forget through
    * {@link com.opencode.ide.client.OpencodeClient#postSessionCommand} (a goal command answers 204
@@ -1578,6 +1649,13 @@ public final class ChatSessionController {
     }
     String command = selection.command().name();
     List<String> arguments = selection.arguments() == null ? List.of() : selection.arguments();
+    if ("goal".equals(command)) {
+      // U-105: the governed seam - /goal never reaches the server's session self-review loop;
+      // echo the typed line, then capture/act through the STORE (GoalIntake), and stop here
+      renderer.appendUser(echoText(selection, command, arguments));
+      runGoalCommand(arguments);
+      return;
+    }
     sending = true;
     streamedMids.clear();
     sendStartedAtMillis = System.currentTimeMillis();

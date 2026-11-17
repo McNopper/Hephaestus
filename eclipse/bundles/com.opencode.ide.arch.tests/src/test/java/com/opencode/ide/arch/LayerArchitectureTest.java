@@ -62,7 +62,13 @@ public class LayerArchitectureTest {
 
   static {
     GRAPH.put("board", List.of("chat", "core", "tasks", "git", "client"));
-    GRAPH.put("chat", List.of("core", "client"));
+    GRAPH.put(
+        "chat",
+        List.of(
+            "core", "client",
+            "tasks")); // U-105: the chat-first plane's governed /goal seam writes the store through
+    // TaskStore (presentation -> platform-free = the legal direction; raw-file
+    // writes were the anti-pattern)
     GRAPH.put("ui", List.of("core", "client", "tools"));
     GRAPH.put("cdt", List.of("core"));
     GRAPH.put("core", List.of("client", "mcp"));

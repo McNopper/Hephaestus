@@ -11,6 +11,12 @@
   the stage-pipeline skill), overridable store-side with
   `task_set_stage_agent` / `task_stage_agents` - no file edits; a ticket's
   `model` field pins the head.
+- **Goal intake (U-105):** `/goal <objective>` in the chat is captured
+  CLIENT-SIDE as a requirements ticket (objective verbatim as the definition
+  artifact; the raw server self-review loop is never driven); `/goal
+  pause|resume|clear` map to store semantics (paused ticket / back to the
+  pump / close-or-split with every basis chain kept valid); the goal is done
+  ONLY on the engine's verdict.
 - Historical content below the line is kept for the record only.
 
 ---

@@ -8,6 +8,7 @@ Bundle-Activator: com.opencode.ide.chat.internal.ChatActivator
 Bundle-ActivationPolicy: lazy
 Require-Bundle: com.opencode.ide.client;bundle-version="0.1.0",
  com.opencode.ide.core;bundle-version="0.1.0",
+ com.opencode.ide.tasks;bundle-version="0.1.0",
  org.eclipse.ui,
  org.eclipse.jface,
  org.eclipse.swt,
