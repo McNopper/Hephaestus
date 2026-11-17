@@ -6,6 +6,11 @@
 - **The replacement:** the linked stage pipeline - per-stage schedule tickers
   armed with .opencode/skills/stage-pipeline/ticker-setup.ps1, procedure in
   the stage-pipeline skill, store evidence in ticket U-111 (AE-6).
+- **Per-stage agents (U-104):** each V stage's workers spawn with their own
+  agent definition (`.opencode/agent/hephaestus-*.md`, the STAGE-AGENT MAP in
+  the stage-pipeline skill), overridable store-side with
+  `task_set_stage_agent` / `task_stage_agents` - no file edits; a ticket's
+  `model` field pins the head.
 - Historical content below the line is kept for the record only.
 
 ---

@@ -115,8 +115,10 @@ Per stage:
    only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
    rolling `ticker-v` sprint record in the same tick, then claim under the
    spawn cap (`task_claim`), then spawn ONE
-   background subagent per claimed ticket with the fulfillment brief
-   (below). Claims are machinery claims: the assignee is
+   background subagent per claimed ticket **with the stage's agent** (U-104,
+   STAGE-AGENT MAP below) and the fulfillment brief (below). A ticket that
+   carries a `model` pins the head (the per-ticket override wins). Claims are
+   machinery claims: the assignee is
    `ticker-v:<ticketId>` - the ticker's reserved claim namespace (DS-001);
    peer sessions claim under their own identities and never into it.
    Count before every spawn: ledger entries whose child job is live in the
@@ -128,6 +130,24 @@ Per stage:
    the stage. **A landed markdown doc must be
    lint-clean** (`releng/lint.ps1` over the touched files — CI's markdown
    gate runs on every push and a lint-broken doc turns CI red).
+
+   **STAGE-AGENT MAP** (U-104; every row overridable store-side via
+  `task_set_stage_agent` / readable with `task_stage_agents` — settable from
+  the chat/Board without file edits): requirements -> `hephaestus-requirements`,
+  system -> `hephaestus-system`, architecture -> `hephaestus-architecture`,
+  design -> `hephaestus-design`, implementation -> `hephaestus-implementation`,
+  test-implementation -> `hephaestus-test-implementation`,
+  test-design -> `hephaestus-test-design`,
+  test-architecture -> `hephaestus-test-architecture`,
+  test-system -> `hephaestus-test-system`,
+  test-requirements -> `hephaestus-test-requirements`.
+  Head precedence: the ticket's `model` (per-ticket pin) > the store's
+  `task_stage_agents` row (read it fresh at spawn time; missing row -> the
+  default below) > the agent definition's `model:` frontmatter (INJECTED by
+  the local setup, never committed — D-004) > the opencode default.
+  `DispatchPolicyStore`/stage-models is gone (U-110) — this map plus the
+  ticket's `model` are the whole per-stage dispatch config. Stageless tickets
+  spawn with the default worker agent (`executor`).
 6. CLOSE the pass — the order inside the close is fixed (DR-6/DR-9, the
    W-2 composition seam): (a) reopen the `ticker-v` sprint record with
    the digest (U-108 reopen semantics keep the record rolling); (b) the

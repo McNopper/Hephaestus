@@ -33,7 +33,7 @@
 | Recurring waves + auto-dispatch machinery (budgets, chat-triggerable) | ✅ machinery | U-021/U-022/P-003 |
 | **Live auto-dispatch acceptance run** | 👤 | U-037 (maintainer approval; spends real tokens) |
 | Clarification loop (NEEDS-HUMAN last) + reviewer auto-accept | ✅ | U-023/U-021 |
-| Stage model policy (per-stage model+variant) | 🔶 | U-072/U-073 (in-review) |
+| Per-stage dispatch config - stage -> agent map (`task_stage_agents` / `task_set_stage_agent`, settable from the chat without file edits) + one agent definition per V-stage (`.opencode/agent/hephaestus-*.md`) | ✅ **landed (U-104):** the ticker spawns with the STAGE-AGENT MAP; precedence ticket.`model` > store row > injected agent `model:` (local, never committed) > default; the fleet-era stage-models policy is gone (U-110) | U-104 (StageAgentsTest 4/4) |
 | STALE semantics decision (any write → STALE?) | ⛔ | D-003 (only genuinely open decision) |
 
 ## 3. Chat surface

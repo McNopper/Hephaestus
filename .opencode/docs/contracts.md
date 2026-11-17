@@ -100,7 +100,9 @@ retired — the automatic fleet pump lives in Eclipse (JobManager).
 Plus the H6 readiness/stage pack: `task_readiness` (per-ticket READY / WAIT_UPSTREAM /
 STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board, basis-chain gating
 per U-110), `task_set_blocked` (blocked escalation to the basis), `task_create` with
-`stage`/`epic`/`basis` (division + linking), `task_doctor` - the stage-flow surface the
+`stage`/`epic`/`basis` (division + linking), `task_stage_agents` /
+`task_set_stage_agent` (the per-stage dispatch agent map, U-104 - the ticker's
+STAGE-AGENT MAP, settable without file edits), `task_doctor` - the stage-flow surface the
 ticker pass builds on.
 
 ### Artifact kinds (the hand-off locator)

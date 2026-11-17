@@ -32,6 +32,8 @@ public class TaskToolsDispatchTest {
           "task_update",
           "task_set_blocked",
           "task_clear_blocked",
+          "task_stage_agents",
+          "task_set_stage_agent",
           "task_claim",
           "task_release",
           "task_add_comment",
@@ -99,13 +101,13 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void toolsListAdvertisesAllNineteenToolsWithSchemas() {
+  public void toolsListAdvertisesAllTwentyOneToolsWithSchemas() {
     JsonObject response =
         JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .getAsJsonObject();
     JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-    assertEquals(19, tools.size());
+    assertEquals(21, tools.size());
     for (int i = 0; i < tools.size(); i++) {
       JsonObject tool = tools.get(i).getAsJsonObject();
       assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());

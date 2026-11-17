@@ -1429,15 +1429,51 @@ public final class TaskStore {
   }
 
   /**
+   * U-104: the store-backed stage -&gt; dispatch agent override ({@code _meta.json}'s {@code
+   * stage_agents}); an empty map means every stage uses its default agent definition (the
+   * STAGE-AGENT MAP in the stage-pipeline skill). An unmodifiable copy - configure with {@link
+   * #setStageAgent} instead.
+   */
+  public Map<String, String> stageAgents(String project) {
+    return transaction(project, data -> java.util.Map.copyOf(data.stageAgents));
+  }
+
+  /**
+   * U-104: sets - or with a blank/null {@code agent} CLEARS - the dispatch agent for one V stage:
+   * the chat/Board-settable selection without file edits (the ticker's spawn step reads it). The
+   * map persists in {@code _meta.json} next to the sprint records.
+   *
+   * @throws Invalid when the stage is not a V stage - rejected loudly, never sanitized
+   *     (U-107/U-109)
+   */
+  public Map<String, String> setStageAgent(String project, String stage, String agent) {
+    if (stage == null || !VStages.isValid(stage)) {
+      throw new Invalid("stage must be one of " + VStages.STAGES + ", got '" + stage + "'");
+    }
+    return transaction(
+        project,
+        data -> {
+          if (agent == null || agent.isBlank()) {
+            data.stageAgents.remove(stage);
+          } else {
+            data.stageAgents.put(stage, agent.trim());
+          }
+          data.metaDirty = true;
+          return java.util.Map.copyOf(data.stageAgents);
+        });
+  }
+
+  /**
    * Persists the H6 invalidation markers: every ticket whose current {@link StageReadiness} verdict
-   * is STALE, and whose last history event is not already the matching marker, gets one appended -
-   * the action {@code "inputs changed: upstream <id> updated <ts>"} names the changed upstream and
-   * its updated_at, {@code by} is {@code "h6"} - plus an updated_at touch, so the ticket itself
-   * shows why a re-run is due. Idempotent: a second run without further upstream changes appends
-   * nothing (the marked ticket's fresh updated_at is no longer older than the upstream's; the
-   * last-event guard also catches same-millisecond races). One transaction over the whole project;
-   * the verdicts come from one snapshot, so cascading staleness (a marked ticket invalidating its
-   * own downstream) is picked up by the next run.
+   * is STALE gets one appended unless the exact action is already ANYWHERE in its history - the
+   * action {@code "inputs changed: upstream <id> updated <ts>"} names the changed upstream's INPUTS
+   * stamp ({@link Task#inputsEffectiveAt()}, D-003), {@code by} is {@code "h6"} - plus an
+   * updated_at touch that never moves the ticket's own inputs stamp (the marker is bookkeeping).
+   * Idempotent: the whole-history guard makes later ticks append nothing until the cause changes
+   * again, even when bookkeeping rows land in between (U-052's AC1). The archive pool rides the
+   * verdicts and the cause lookup (U-059). One transaction over the whole project; the verdicts
+   * come from one snapshot, so cascading staleness (a marked ticket invalidating its own
+   * downstream) is picked up by the next run.
    *
    * @return the number of tickets newly marked (0 when nothing is stale).
    */
@@ -1632,6 +1668,10 @@ public final class TaskStore {
             readSprints(doc, data);
             data.metaDirty = true;
           }
+          if (doc.has("stage_agents")) {
+            readStageAgents(doc, data);
+            data.metaDirty = true;
+          }
           return count;
         });
   }
@@ -1658,10 +1698,33 @@ public final class TaskStore {
     }
   }
 
+  /**
+   * {@code _meta.json}'s {@code stage_agents} map -> the in-memory dispatch override (U-104); an
+   * absent key leaves the map empty (every stage uses its default agent definition).
+   */
+  private static void readStageAgents(JsonObject doc, ProjectData data) {
+    JsonObject map =
+        doc.has("stage_agents") && doc.get("stage_agents").isJsonObject()
+            ? doc.getAsJsonObject("stage_agents")
+            : null;
+    if (map == null) {
+      return;
+    }
+    for (Map.Entry<String, JsonElement> e : map.entrySet()) {
+      if (e.getValue().isJsonPrimitive()) {
+        data.stageAgents.put(e.getKey(), e.getValue().getAsString());
+      }
+    }
+  }
+
   private static final class ProjectData {
     final Map<String, Task> tasks = new LinkedHashMap<>();
     final Map<String, Task.Sprint> sprints = new LinkedHashMap<>();
     final Map<String, Integer> seq = new LinkedHashMap<>();
+
+    /** U-104: stage -> dispatch agent override ({@code _meta.json}'s {@code stage_agents}). */
+    final Map<String, String> stageAgents = new LinkedHashMap<>();
+
     int counter;
     final Set<String> changed = new HashSet<>();
     boolean metaDirty;
@@ -1830,6 +1893,7 @@ public final class TaskStore {
         if (doc.has("sprints")) {
           readSprints(doc, data);
         }
+        readStageAgents(doc, data); // U-104; absent key leaves the map empty
       } catch (IOException | RuntimeException e) {
         LOG.log(
             Level.WARNING,
@@ -1905,6 +1969,9 @@ public final class TaskStore {
       JsonObject sprints = new JsonObject();
       data.sprints.forEach((id, s) -> sprints.add(id, s.toJson()));
       meta.add("sprints", sprints);
+      JsonObject stageAgents = new JsonObject();
+      data.stageAgents.forEach(stageAgents::addProperty);
+      meta.add("stage_agents", stageAgents);
       writeAtomic(data.dir.resolve("_meta.json"), GSON.toJson(meta));
     }
   }

@@ -180,6 +180,13 @@ public final class TaskToolProvider implements ToolProvider {
             store
                 .clearBlocked(reqStr(a, "project"), reqStr(a, "ticket_id"), optStr(a, "by", null))
                 .toJson());
+      case "task_stage_agents":
+        return json(PRETTY.toJsonTree(store.stageAgents(reqStr(a, "project"))));
+      case "task_set_stage_agent":
+        return json(
+            PRETTY.toJsonTree(
+                store.setStageAgent(
+                    reqStr(a, "project"), reqStr(a, "stage"), optStr(a, "agent", null))));
       case "task_claim":
         {
           Task claimed =
@@ -529,6 +536,29 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("project", strP());
                   obj.add("ticket_id", strP());
                   obj.add("by", strP());
+                })));
+    out.add(
+        new McpTool(
+            "task_stage_agents",
+            "The store-backed per-stage dispatch agent map (stage -> agent, U-104): what the ticker"
+                + " spawns each stage's workers with; an empty map means every stage uses its"
+                + " default agent definition (the STAGE-AGENT MAP).",
+            schema(
+                new String[] {"project"},
+                obj -> {
+                  obj.add("project", strP());
+                })));
+    out.add(
+        new McpTool(
+            "task_set_stage_agent",
+            "Set (or clear with a blank agent) the dispatch agent for one V stage - configurable"
+                + " from the chat/Board without file edits (U-104); rejects a non-V stage loudly.",
+            schema(
+                new String[] {"project", "stage"},
+                obj -> {
+                  obj.add("project", strP());
+                  obj.add("stage", strP());
+                  obj.add("agent", strP());
                 })));
     out.add(
         new McpTool(
