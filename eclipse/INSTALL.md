@@ -57,9 +57,8 @@ Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules
             -pl bundles/com.opencode.ide.chat -pl bundles/com.opencode.ide.chat.tests `
             -pl bundles/com.opencode.ide.cdt -pl bundles/com.opencode.ide.cdt.tests `
             -pl bundles/com.opencode.ide.git -pl bundles/com.opencode.ide.git.tests `
-            -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tools `
-            -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.tools.tests `
             -pl bundles/com.opencode.ide.tasks -pl bundles/com.opencode.ide.tasks.tests `
+            -pl bundles/com.opencode.ide.tools -pl bundles/com.opencode.ide.tools.tests `
             -pl bundles/com.opencode.ide.board -pl bundles/com.opencode.ide.board.tests `
             -pl bundles/com.opencode.ide.mcp -pl bundles/com.opencode.ide.mcp.tests clean verify
 ```
