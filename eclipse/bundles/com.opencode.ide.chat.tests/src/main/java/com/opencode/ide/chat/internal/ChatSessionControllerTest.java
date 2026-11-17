@@ -2403,6 +2403,49 @@ public class ChatSessionControllerTest {
         "bad bounds never throw", "text", FileReferenceToken.replaceToken("text", 9, 2, "x"));
   }
 
+  /**
+   * CP-10 (FR-CP-10): an {@code @} reference keeps its {@code #line}/{@code #start-end} suffix
+   * verbatim end to end - through a completion pick (the word is re-scanned forward from the caret,
+   * so a mid-token caret still replaces the whole reference), through the autocomplete query (which
+   * strips the suffix so an annotated reference still matches files), and out to the session (no
+   * rewrite on send).
+   */
+  @Test
+  public void fileReferenceKeepsItsLineSuffixVerbatimThroughAPick() {
+    // typed suffix, caret at the end of the path part: the suffix rides after the picked path
+    assertEquals(
+        "see @src/auth.ts#20-45 now",
+        FileReferenceToken.replaceToken("see @src/au#20-45 now", 4, 9, "src/auth.ts"));
+
+    // caret mid-token: the forward scan still covers the whole word, suffix carried
+    assertEquals(
+        "see @src/auth.ts#20 now",
+        FileReferenceToken.replaceToken("see @au#20 now", 4, 6, "src/auth.ts"));
+
+    // the autocomplete QUERY drops the suffix so an annotated reference still matches files
+    assertEquals("src/auth.ts", FileReferenceToken.queryOf("@src/auth.ts#20-45"));
+    assertEquals("src/auth.ts", FileReferenceToken.queryOf("@src/auth.ts"));
+    assertEquals("", FileReferenceToken.queryOf("@"));
+
+    // the suffix helper: present, token-relative (the # after the @), and null/absent safe
+    assertEquals("#20-45", FileReferenceToken.suffixOf("@src/auth.ts#20-45"));
+    assertEquals("#L10", FileReferenceToken.suffixOf("@a#L10"));
+    assertEquals("", FileReferenceToken.suffixOf("@a/b"));
+    assertEquals("", FileReferenceToken.suffixOf("@"));
+    assertEquals("", FileReferenceToken.suffixOf(null));
+
+    // ... and the send path does not rewrite it: the session receives the reference verbatim
+    controller.subscribe();
+    controller.send(
+        new ChatSessionController.OutgoingMessage(
+            "build", "prov", "m1", null, null, "see @src/auth.ts#20-45"));
+    assertEquals(1, connection.client.requests.size());
+    assertEquals(
+        "the suffix reaches the session verbatim",
+        "see @src/auth.ts#20-45",
+        connection.client.requests.get(0).text());
+  }
+
   // ---------- U-014: permission dialog trigger + decision mapping ----------
 
   @Test

@@ -37,19 +37,40 @@ public final class FileReferenceToken {
 
   /**
    * @return the search query of {@code token} - the text after the {@code @} ({@code ""} for a bare
-   *     {@code "@"}); {@code null} when {@code token} is not an {@code @} token
+   *     {@code "@"}) <b>without</b> its {@code #line}/{@code #start-end} suffix, so a reference the
+   *     user already annotated still matches files (CP-10 / FR-CP-10); {@code null} when {@code
+   *     token} is not an {@code @} token
    */
   public static String queryOf(String token) {
     if (token == null || token.isEmpty() || token.charAt(0) != '@') {
       return null;
     }
-    return token.substring(1);
+    String after = token.substring(1);
+    int hash = after.indexOf('#');
+    return hash < 0 ? after : after.substring(0, hash);
+  }
+
+  /**
+   * @param token an {@code @}-token (may be {@code null})
+   * @return the line/range suffix the SERVER resolves - everything from the first {@code #} after
+   *     the {@code @} ({@code "#20-45"}, {@code "#L10"}); {@code ""} when there is none. This is
+   *     the part FR-CP-10 requires to survive a completion pick verbatim.
+   */
+  public static String suffixOf(String token) {
+    if (token == null || token.length() < 2) {
+      return "";
+    }
+    int hash = token.indexOf('#', 1);
+    return hash < 0 ? "" : token.substring(hash);
   }
 
   /**
    * @return {@code text} with the {@code @} token that spans {@code [tokenStart, tokenEnd)}
-   *     replaced by {@code "@" + pickedPath + " "} (an existing single separator space right after
-   *     the token is consumed by the inserted one, so a mid-text pick does not double-space); a
+   *     replaced by {@code "@" + pickedPath + suffix + " "} where {@code suffix} is the word's own
+   *     {@code #line}/{@code #start-end} part <b>kept verbatim</b> (CP-10 / FR-CP-10 - the server
+   *     resolves ranges, as in the TUI); the word is re-scanned forward from {@code tokenEnd} to
+   *     its whitespace boundary, so a caret mid-token still replaces the whole reference. An
+   *     existing single separator space right after the word is consumed by the inserted one; a
    *     defensive copy that never throws on bad bounds (returns {@code text} unchanged then)
    */
   public static String replaceToken(String text, int tokenStart, int tokenEnd, String pickedPath) {
@@ -61,10 +82,16 @@ public final class FileReferenceToken {
         || tokenEnd > text.length()) {
       return text;
     }
-    String rest = text.substring(tokenEnd);
+    int fullEnd = tokenEnd;
+    while (fullEnd < text.length() && !Character.isWhitespace(text.charAt(fullEnd))) {
+      fullEnd++; // the word may continue past the caller's end (caret mid-token)
+    }
+    String word = text.substring(tokenStart, fullEnd);
+    String suffix = suffixOf(word);
+    String rest = text.substring(fullEnd);
     if (rest.startsWith(" ")) {
       rest = rest.substring(1); // the inserted space replaces the separator
     }
-    return text.substring(0, tokenStart) + "@" + pickedPath + " " + rest;
+    return text.substring(0, tokenStart) + "@" + pickedPath + suffix + " " + rest;
   }
 }

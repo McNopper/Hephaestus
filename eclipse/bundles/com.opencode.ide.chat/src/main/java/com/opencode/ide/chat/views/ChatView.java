@@ -1484,9 +1484,12 @@ public class ChatView extends ViewPart {
     while (end < text.length() && !Character.isWhitespace(text.charAt(end))) {
       end++;
     }
+    // CP-10 (FR-CP-10): the typed #line/#start-end suffix rides along with the pick, and the caret
+    // lands AFTER the whole reference (path + suffix), not inside the suffix
+    String suffix = FileReferenceToken.suffixOf(text.substring(start, end));
     input.setText(FileReferenceToken.replaceToken(text, start, end, path));
-    // caret right after the inserted "@path "
-    input.setSelection(Math.min(input.getText().length(), start + path.length() + 2));
+    input.setSelection(
+        Math.min(input.getText().length(), start + 1 + path.length() + suffix.length() + 1));
     input.setFocus();
     hideFileCompletions();
   }
