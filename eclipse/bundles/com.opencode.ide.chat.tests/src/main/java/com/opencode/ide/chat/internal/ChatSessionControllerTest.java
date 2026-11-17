@@ -2446,6 +2446,30 @@ public class ChatSessionControllerTest {
         connection.client.requests.get(0).text());
   }
 
+  /**
+   * CP-11 (FR-CP-11 AC2): a steered message appears in the transcript IMMEDIATELY - the echo
+   * happens before the delivery job runs (the user never waits for the turn), and the prompt still
+   * reaches the session (U-092's direct injection).
+   */
+  @Test
+  public void aSteeredMessageEchoesIntoTheTranscriptImmediately() {
+    controller.subscribe();
+    host.holdBackground = true; // the steer delivery stays in flight
+
+    controller.send(
+        new ChatSessionController.OutgoingMessage("build", "prov", "m1", null, null, "steer this"),
+        "steer");
+
+    assertEquals(
+        "the echo renders before the delivery completes",
+        "steer this",
+        renderer.users.get(renderer.users.size() - 1));
+
+    drainBackground();
+    assertEquals("the prompt still went out", 1, connection.client.requests.size());
+    assertEquals("steer this", connection.client.requests.get(0).text());
+  }
+
   // ---------- U-014: permission dialog trigger + decision mapping ----------
 
   @Test

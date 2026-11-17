@@ -127,10 +127,14 @@ public class ChatView extends ViewPart {
   /** Visible rows of the pending-message queue. */
   private static final int QUEUE_ROWS = 4;
 
-  /** The queue table's resting tooltip (row hover replaces it with the full prompt). */
+  /**
+   * The queue table's resting tooltip (row hover replaces it with the full prompt). Truth-in-UI
+   * (CP-11 / FR-CP-11): the SHIPPED delivery semantics are ENTER = steer the running turn,
+   * Alt+ENTER = park here; the wording predates U-092, which made ENTER steer instead.
+   */
   private static final String QUEUE_HELP =
       "Pending messages - sent automatically when the current reply finishes.\n"
-          + "ENTER while a reply streams queues the typed message here.";
+          + "Alt+ENTER parks a message here while a reply streams; ENTER steers instead.";
 
   private ChatPage page;
   private ChatSessionController controller;
@@ -689,7 +693,8 @@ public class ChatView extends ViewPart {
 
     input = new Text(inputRow, SWT.MULTI | SWT.WRAP | SWT.BORDER);
     input.setToolTipText(
-        "Prompt (ENTER sends - while a reply streams, ENTER queues the message; "
+        "Prompt (ENTER sends - while a reply streams, ENTER steers the running turn, "
+            + "Alt+ENTER parks the message in the queue; "
             + "Shift+ENTER newline, / commands, \uD83D\uDCCE attach files/images, "
             + "! shell command)");
     GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
@@ -1583,9 +1588,9 @@ public class ChatView extends ViewPart {
   }
 
   /**
-   * Routes one resolved submission: sent immediately when idle, queued while a reply is in flight
-   * (TUI parity - ENTER during generation types ahead; the pending list shows the queue and it
-   * auto-sends on completion).
+   * Routes one resolved submission: sent immediately when idle; while a reply is in flight ENTER
+   * STEERS the running turn (U-092 - delivery=steer reaches the live turn) and Alt+ENTER parks the
+   * message in the pending queue, which auto-sends on completion (T-005).
    */
   private void submitSelection(CommandComposer.CommandSelection selection) {
     if (selection == null || controller == null) {
