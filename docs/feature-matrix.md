@@ -96,7 +96,7 @@
 | fleet permissions tools (chat answers unattended asks) | ✅ | P-001 |
 | `fleet_job_activity` observability + artifact correction + session-title prefixes | ✅ | B-013/T-001/U-053/U-054/U-055 |
 | Resolution-first ticks (blocked first) | 🟡 | U-050 (production schedulers) |
-| `inputs changed:` markers | 🟡 | U-052 |
+| `inputs changed:` markers | ✅ **landed (U-052):** the production `task_readiness` tick records exactly one marker per STALE verdict, decided on the D-003 option-B `inputs_changed_at` stamp (structured writes only; comments never stale) | U-052 (InputsChangedStampTest 5/5) |
 | StageAwareAcceptance settle check (load-sensitive flake) | 🟡 | B-025 (stability watch) |
 
 ## 7. Quality gates (the final check, project-local)

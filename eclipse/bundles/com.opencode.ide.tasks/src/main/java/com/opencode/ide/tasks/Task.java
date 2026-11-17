@@ -132,6 +132,25 @@ public final class Task {
   public Instant createdAt;
   public Instant updatedAt;
 
+  /**
+   * D-003 option B: when the ticket's STRUCTURED inputs last changed - bumped only by writes to
+   * {@code status}/{@code stage}/{@code epic}/{@code role}, to the artifact list, and by the
+   * claim/plan status moves. Comments and bookkeeping never touch it (the W-006 incident: a
+   * bookkeeping write on an upstream must not stale the downstream's completed work). {@code null}
+   * on legacy rows - they fall back to {@link #updatedAt} via {@link #inputsEffectiveAt()} until
+   * their first structured write.
+   */
+  public Instant inputsChangedAt;
+
+  /**
+   * The timestamp STALE comparisons use (D-003 option B): the structured-input stamp when present,
+   * else {@link #updatedAt} - legacy rows keep their pre-stamp behavior until the first structured
+   * write, per side independently.
+   */
+  public Instant inputsEffectiveAt() {
+    return inputsChangedAt != null ? inputsChangedAt : updatedAt;
+  }
+
   /** Unknown frontmatter keys, preserved verbatim across rewrite round-trips. */
   public Map<String, String> extraFrontmatter = new LinkedHashMap<>();
 
@@ -223,6 +242,9 @@ public final class Task {
     o.add("todos", todosJson());
     o.addProperty("created_at", formatTs(createdAt));
     o.addProperty("updated_at", formatTs(updatedAt));
+    if (inputsChangedAt != null) {
+      o.addProperty("inputs_changed_at", formatTs(inputsChangedAt));
+    }
     o.add("history", historyJson());
     o.add("comments", commentsJson());
     if (!quarantinedLines.isEmpty()) {

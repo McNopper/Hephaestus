@@ -103,9 +103,9 @@ when all of the following hold:
   definitions (provider, model chain, sub-agent per stage; D-004-local
   models).
 - **U-105** — goal intake: session objectives become governed V-model work.
-- **U-052** — record `inputs changed:` markers from production readiness
+- **U-052** - record `inputs changed:` markers from production readiness
   (carries decided D-003, option B: only status/stage/artifact writes make
-  work STALE).
+  work STALE) - landed 2026-11-17, engine verdict pending.
 - **Pipeline continuation** - the ticker covers the architecture and test
   stages under the ONE armed schedule (`ticker-setup.ps1` - no per-stage
   arming); of the three children the review left READY, **A-002 (test-system) and A-003
@@ -196,8 +196,10 @@ divergences still open under another umbrella; the section disappears when
 E-006 closes (that is its second AC). **Where a row below contradicts
 `AGENTS.md`, the row is right.**
 
-- **U-052** — `inputs changed:` markers (epic E-006, carrying D-003 option
-  B): still library-level only — the docs say so and point at the ticket.
+- **U-052** - `inputs changed:` markers (epic E-006, carrying D-003 option
+  B): shipped 2026-11-17 - the `inputs_changed_at` stamp plus the production
+  readiness tick's idempotent marker (InputsChangedStampTest 5/5); the row
+  retires with E-006 on its own done.
   Auto-archive is tool-exposed as of U-060.
 - **U-059** - archive-aware production readiness (epic **U-112**, not
   E-006): same shape - readiness consults the archive only at library level

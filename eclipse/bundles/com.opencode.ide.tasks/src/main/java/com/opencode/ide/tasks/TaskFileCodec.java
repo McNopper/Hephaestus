@@ -220,6 +220,11 @@ public final class TaskFileCodec {
     fm(b, "acceptance_criteria", t.acceptanceCriteria);
     fm(b, "created_at", Task.formatTs(t.createdAt));
     fm(b, "updated_at", Task.formatTs(t.updatedAt));
+    // D-003 option B: written ONLY when the stamp exists - a legacy row keeps its exact old
+    // frontmatter (fm() renders null literally, which would break the canonical-form check)
+    if (t.inputsChangedAt != null) {
+      fm(b, "inputs_changed_at", Task.formatTs(t.inputsChangedAt));
+    }
     for (Map.Entry<String, String> e : t.extraFrontmatter.entrySet()) {
       b.append(e.getKey())
           .append(':')
@@ -339,6 +344,8 @@ public final class TaskFileCodec {
     String updated = scalarString(raw.remove("updated_at"));
     t.createdAt = parseInstant(created);
     t.updatedAt = parseInstant(updated != null ? updated : created);
+    // D-003 option B: absent on legacy rows (inputsEffectiveAt falls back to updated_at)
+    t.inputsChangedAt = parseInstant(scalarString(raw.remove("inputs_changed_at")));
     if (t.createdAt == null) {
       t.createdAt = Instant.now();
     }

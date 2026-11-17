@@ -210,7 +210,9 @@ public final class StageReadiness {
               + ") claims done but has no artifact;"
               + " record it with task_add_artifact on the upstream first");
     }
-    if (viaEpic != null && ranBefore(t) && isStrictlyAfter(viaEpic.updatedAt, t.updatedAt)) {
+    if (viaEpic != null
+        && ranBefore(t)
+        && isStrictlyAfter(viaEpic.inputsEffectiveAt(), t.inputsEffectiveAt())) {
       return new Readiness(
           Kind.STALE,
           "upstream "
@@ -218,11 +220,11 @@ public final class StageReadiness {
               + " ("
               + upstream
               + ", updated "
-              + Task.formatTs(viaEpic.updatedAt)
+              + Task.formatTs(viaEpic.inputsEffectiveAt())
               + ") changed after "
               + t.id
               + " (updated "
-              + Task.formatTs(t.updatedAt)
+              + Task.formatTs(t.inputsEffectiveAt())
               + "); re-run needed");
     }
     if (viaEpic != null) {
@@ -285,17 +287,17 @@ public final class StageReadiness {
               + " claims done but has no artifact; record it with task_add_artifact on the"
               + " basis first (U-081)");
     }
-    if (ranBefore(t) && isStrictlyAfter(basis.updatedAt, t.updatedAt)) {
+    if (ranBefore(t) && isStrictlyAfter(basis.inputsEffectiveAt(), t.inputsEffectiveAt())) {
       return new Readiness(
           Kind.STALE,
           "basis "
               + basis.id
               + " (updated "
-              + Task.formatTs(basis.updatedAt)
+              + Task.formatTs(basis.inputsEffectiveAt())
               + ") changed after "
               + t.id
               + " (updated "
-              + Task.formatTs(t.updatedAt)
+              + Task.formatTs(t.inputsEffectiveAt())
               + "); re-run needed");
     }
     return finishedOrBacklog(
@@ -329,7 +331,7 @@ public final class StageReadiness {
       if (!linkedByEpic(t, u)) {
         continue;
       }
-      if (best == null || (isStrictlyAfter(u.updatedAt, best.updatedAt))) {
+      if (best == null || isStrictlyAfter(u.inputsEffectiveAt(), best.inputsEffectiveAt())) {
         best = u;
       }
     }

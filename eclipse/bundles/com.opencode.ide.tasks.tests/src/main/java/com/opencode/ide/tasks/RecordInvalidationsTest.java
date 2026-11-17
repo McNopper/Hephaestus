@@ -111,7 +111,10 @@ public class RecordInvalidationsTest {
     String[] ids = stalePair();
     store.recordInvalidations("p");
     tick();
-    store.update("p", ids[0], Map.of("title", "anchor v2"));
+    // D-003 option B: "changed again" is a STRUCTURED write - a title-only update is bookkeeping
+    // and must NOT re-stale (pinned in InputsChangedStampTest); the artifact list is an input.
+    store.addArtifact(
+        "p", ids[0], "doc", "docs/architecture-product-v2.md", "stage product", "fixture");
 
     assertEquals(
         "the upstream moved past the first marker: stale again", 1, store.recordInvalidations("p"));

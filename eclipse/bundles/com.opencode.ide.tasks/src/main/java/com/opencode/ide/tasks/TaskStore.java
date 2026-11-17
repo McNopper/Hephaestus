@@ -271,6 +271,7 @@ public final class TaskStore {
           }
           t.createdAt = now();
           t.updatedAt = t.createdAt;
+          t.inputsChangedAt = t.createdAt; // D-003: a new ticket's inputs start at birth
           t.history("created", null);
           data.tasks.put(id, t);
           data.changed.add(id);
@@ -525,6 +526,14 @@ public final class TaskStore {
           }
           if (!applied.isEmpty()) {
             t.updatedAt = now();
+            // D-003 option B: only status/stage/epic/role writes are INPUT changes - they bump
+            // the inputs stamp; title/model/assignee/labels & co. stay bookkeeping (W-006)
+            if (applied.contains("status")
+                || applied.contains("stage")
+                || applied.contains("epic")
+                || applied.contains("role")) {
+              t.inputsChangedAt = t.updatedAt;
+            }
             t.history("updated:" + String.join(",", applied), null);
             data.changed.add(id);
           }
@@ -845,6 +854,7 @@ public final class TaskStore {
           t.status = "in-progress";
           t.assignee = who;
           t.updatedAt = now();
+          t.inputsChangedAt = t.updatedAt; // D-003: claim is a status move (design's list)
           t.history("claimed by " + who, by);
           data.changed.add(t.id);
           return t;
@@ -895,6 +905,7 @@ public final class TaskStore {
           Task t = require(data, project, id);
           t.artifacts.add(new Task.Artifact(kind, ref, note == null ? "" : note, by, now()));
           t.updatedAt = now();
+          t.inputsChangedAt = t.updatedAt; // D-003: artifact writes are input changes
           t.history("artifact:" + kind + ":" + ref, by);
           data.changed.add(id);
           return t;
@@ -920,6 +931,7 @@ public final class TaskStore {
           }
           Task.Artifact removed = t.artifacts.remove(index);
           t.updatedAt = now();
+          t.inputsChangedAt = t.updatedAt; // D-003: artifact writes are input changes (remove too)
           t.history("artifact removed:" + removed.kind() + ":" + removed.ref(), by);
           data.changed.add(id);
           return t;
@@ -1051,6 +1063,7 @@ public final class TaskStore {
               t.sprint = sid;
               t.status = "sprint-backlog";
               t.updatedAt = now();
+              t.inputsChangedAt = t.updatedAt; // D-003: planning is a status move
               t.history("planned into " + sid, null);
               data.changed.add(tid);
             }
@@ -1444,13 +1457,18 @@ public final class TaskStore {
             if (upstream == null) {
               continue;
             }
+            // D-003: the marker names the STRUCTURED-input stamp the STALE verdict read (the
+            // effective stamp keeps legacy rows' exact old string), and the guard scans the WHOLE
+            // history - an interleaved comment between ticks must not re-append the same marker
+            // (AC: exactly one per invalidation, no duplicates on later ticks).
             String action =
                 "inputs changed: upstream "
                     + upstream.id
                     + " updated "
-                    + Task.formatTs(upstream.updatedAt);
-            if (!t.history.isEmpty()
-                && action.equals(t.history.get(t.history.size() - 1).action())) {
+                    + Task.formatTs(upstream.inputsEffectiveAt());
+            boolean alreadyMarked =
+                t.history.stream().anyMatch(h -> h != null && action.equals(h.action()));
+            if (alreadyMarked) {
               continue;
             }
             t.updatedAt = now();
@@ -1470,6 +1488,11 @@ public final class TaskStore {
    * right now" reads top-down.
    */
   public List<Map<String, Object>> readiness(String project) {
+    // U-052 (D-003): the PRODUCTION readiness tick records the invalidation markers - the ticker's
+    // tick answers through this report (task_readiness), so a STALE verdict leaves its 'inputs
+    // changed:' history event here, idempotently (the recorder's whole-history guard + freshness
+    // make repeated polls append nothing new).
+    recordInvalidations(project);
     List<Task> tickets = list(project, null, null, null, null);
     Map<String, StageReadiness.Readiness> verdicts = StageReadiness.evaluate(tickets);
     tickets.sort(
@@ -2159,6 +2182,7 @@ public final class TaskStore {
     }
     t.createdAt = instantOrNull(o, "created_at");
     t.updatedAt = instantOrNull(o, "updated_at");
+    t.inputsChangedAt = instantOrNull(o, "inputs_changed_at"); // D-003; null on legacy imports
     if (t.createdAt == null) {
       t.createdAt = now();
     }

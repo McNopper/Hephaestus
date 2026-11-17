@@ -217,8 +217,13 @@ Readiness machinery (H6 dataflow): `task_readiness` reports, per ticket, whether
 stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no stage,
 or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
 all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
-run; STALE means an epic-chain upstream was updated after the downstream ran (any write
-to the upstream counts). The PM agent can use it to ask "what's
+run; STALE means an upstream (epic chain or basis) had a STRUCTURED input write after the
+downstream ran - status/stage/epic/role, the artifact list, the claim/plan status moves
+(D-003 option B: comments and bookkeeping never stale completed downstream work), decided
+per side on the `inputs_changed_at` stamp with a legacy fallback to `updated_at`. Each
+STALE verdict found by a production readiness tick leaves exactly one `inputs changed:`
+history marker on the downstream ticket (idempotent - later ticks append nothing until the
+input changes again; U-052). The PM agent can use it to ask "what's
 runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
 (*Auto ▶*: launches every runnable sprint ticket under a concurrency + cost-budget cap).
 
