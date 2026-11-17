@@ -165,14 +165,20 @@ places; this file only lists the one currently open question: none.
 
 ## Upstream-blocked (opencode v2)
 
-- `/share` — no server route; the chat shows the same honest notice as the
+- `/share` - no server route; the chat shows the same honest notice as the
   official TUI.
-- Attention QUESTION popup kind — no form-ask SSE event type; the chat
-  polls forms instead.
-- U-013 — session todos: no endpoint; parked until v2 provides one.
-- Interactive PTY host — `org.eclipse.tm.terminal` is absent from the
+- U-013 - session todos: no endpoint; parked until v2 provides one.
+- `/btw` side questions - no side-question verb exists in the live contract
+  (T-069 probe-first pass, 2026-11-17: zero `aside` hits anywhere in the 2.3.0
+  `/openapi.json`); parked until upstream exposes one - the chat's capability
+  map reports it as upstream-blocked, and no workaround was improvised (the
+  FR's IF/THEN makes the recording the outcome).
+- Interactive PTY host - `org.eclipse.tm.terminal` is absent from the
   2026-06 target platform and stdin has no REST route; needs a
   target-platform addition first (pairs with T-007/T-008).
+
+*(Resolved since the last pass: the Attention QUESTION popup kind - the live
+SSE event-type enum carries `form.created`, mapped by T-067.)*
 
 ## Coherence debt (known divergences)
 

@@ -28,6 +28,10 @@ import java.util.Map;
  *   <li>{@code not in the harness yet (T-0xx)} - an open child; the capability exists nowhere here,
  *       which is the only honest answer until it ships.
  * </ul>
+ *
+ * <p>Probe outcomes land here too: {@code /btw} became {@code upstream-blocked} when T-069's
+ * probe-first pass found no side-question verb anywhere in the live 2.3.0 contract (zero {@code
+ * aside} hits in {@code /openapi.json}).
  */
 public final class CapabilityMap {
 
@@ -47,7 +51,9 @@ public final class CapabilityMap {
     COMMANDS.put("/editor", "host tier - Eclipse editors (VISUAL/EDITOR for the prompt)");
     COMMANDS.put(
         "/compact", "chat - `/compact` built-in, same call as Session Details 'Compact context'");
-    COMMANDS.put("/btw", "not in the harness yet (T-069 - route-gated, probe-first)");
+    COMMANDS.put(
+        "/btw",
+        "upstream-blocked - no side-question verb in the live contract (T-069 probe, openapi 2.3.0: 0 'aside' hits)");
     COMMANDS.put("/init", "chat - `/init` built-in");
     COMMANDS.put("/help", "chat - `/help` built-in (this capability map)");
     COMMANDS.put("/thinking", "chat - `/thinking` built-in + the Reasoning toggle");

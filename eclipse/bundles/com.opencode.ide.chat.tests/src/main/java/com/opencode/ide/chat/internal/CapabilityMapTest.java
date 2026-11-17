@@ -74,6 +74,10 @@ public class CapabilityMapTest {
     assertTrue(CapabilityMap.covers("/share"));
     assertTrue(CapabilityMap.commands().get("/share").contains("upstream-blocked"));
     assertTrue(CapabilityMap.commands().get("/unshare").contains("upstream-blocked"));
+    // T-069's probe outcome is part of the map: no side-question verb exists upstream
+    assertTrue(
+        "/btw carries the probe result",
+        CapabilityMap.commands().get("/btw").contains("upstream-blocked"));
   }
 
   @Test
