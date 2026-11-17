@@ -78,8 +78,14 @@ when all of the following hold:
    (owner at the keyboard).
 7. **Arc closed** — U-111's engine verdict lands; the pipeline's acceptance
    chain (AE-6) is the release's process evidence.
-8. **Cut** — `eclipse/releng/release.ps1` (the v0.1.10 path), tag, bump to
+8. **Cut** - `eclipse/releng/release.ps1` (the v0.1.10 path), tag, bump to
    the next `-SNAPSHOT`.
+9. **Deploy** - `eclipse/deploy-dev.ps1` with Eclipse closed, immediately
+   after the cut (owner directive 2026-11-17: "this is the reason why i
+   asked before we make a release" - a release is not delivered until the
+   install carries it; v0.4.1 followed this: cut 16:0x, pushed, CI green,
+   deployed to `C:\eclipse-cpp`, verified by byte-checking the deployed
+   jars).
 
 ## Release path (ordered)
 
@@ -94,7 +100,7 @@ when all of the following hold:
 | - | store steady state (condition 1): run the opt-in `auto_archive` on the next wave close - U-060 is landed but has **never been run** (`_archive/` does not exist, 343 done tickets still in the working set) |
 | U-110 / U-111 | ✅ the stage-pipeline arc closed: engine verdicts landed (U-111 done) |
 | T-002 | the owner's live Eclipse verification pass (recurring, T-039 - non-blocking pattern) |
-| - | release cut via `eclipse/releng/release.ps1` (**human-only edge**, DENY-5: no machine actor runs it; owner runs e.g. `eclipse\releng\release.ps1 -ReleaseVersion 0.4.1` once the quality gate below is green on a clean tree) |
+| - | release cut via `eclipse/releng/release.ps1` (**human-only edge**, DENY-5: no machine actor runs it; owner runs e.g. `eclipse\releng\release.ps1 -ReleaseVersion 0.4.1` once the quality gate below is green on a clean tree) - then **deploy** via `eclipse/deploy-dev.ps1` (definition step 9, owner directive 2026-11-17) |
 
 ## Post-release backlog (adopt-and-govern)
 
