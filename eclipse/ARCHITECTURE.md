@@ -12,6 +12,14 @@ the repo `../ROADMAP.md`).
   maintainers.
 - **Related:** `README.md` (bundle map), `QUALITY.md` (the build-enforced rules),
   `components/chat-web/README.md` (the web bridge contract), `../ROADMAP.md`.
+- **Currency (de-fleet):** the fleet era ended with U-110 — this document and
+  `QUALITY.md` carry **no fleet references**: ban lists, the layer graph, the
+  board row and the gate scope were re-verified against the manifests (a grep
+  for `TaskFleet`, `FleetRunner`, `TakeoverRouter`, `DispatchScheduler`,
+  `FleetView` and `fleet` finds nothing stale in either file; the surviving
+  `FleetGit` / `StoreGitStatus` names are real classes in
+  `com.opencode.ide.git`). Verification pass: T-088 (findings F-12..F-16,
+  F-21..F-24).
 
 ## The four separation axes
 
