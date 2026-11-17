@@ -2569,6 +2569,9 @@ public final class ChatSessionController {
     help.append(
         "\nAnything else starting with / runs the project's custom commands"
             + " (.opencode/command/, offered by the picker as you type).");
+    // CP-14 (FR-CP-14): the capability map - every TUI command says where (or whether) the
+    // harness has it, so /help cannot drift from the requirements doc's inventories
+    help.append("\n\n").append(CapabilityMap.block());
     renderer.notice(help.toString());
   }
 

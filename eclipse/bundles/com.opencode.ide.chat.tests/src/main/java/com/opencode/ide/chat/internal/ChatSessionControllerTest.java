@@ -2159,9 +2159,22 @@ public class ChatSessionControllerTest {
           help.contains("/" + command.name() + " - " + command.description()));
     }
     // every recognized command is documented, and nothing else claims to be built-in
+    // (CP-14: the capability map rides AFTER the first blank line - it is not part of
+    // the registry block, so the registry invariant is checked on that block alone)
+    String registryBlock = help.split("\n\n", 2)[0];
     assertEquals(
         ChatSessionController.BUILT_IN_COMMANDS.size(),
-        help.split("\n").length - 2); // minus header and custom-commands footer
+        registryBlock.split("\n").length - 2); // minus header and custom-commands footer
+
+    // CP-14 (FR-CP-14): /help now also carries the TUI capability map, and every inventory
+    // command in it says where its capability lives
+    assertTrue(
+        "the capability map must ride along",
+        help.contains("Where TUI commands live in this harness:"));
+    for (String command : CapabilityMap.coveredCommands()) {
+      assertTrue(
+          "capability map misses " + command + ": " + help, help.contains("\n" + command + " - "));
+    }
   }
 
   @Test
