@@ -210,7 +210,25 @@ Per stage:
   `DispatchPolicyStore`/stage-models is gone (U-110) — this map plus the
   ticket's `model` are the whole per-stage dispatch config. Stageless tickets
   spawn with the default worker agent (`executor`).
-6. CLOSE the pass — the order inside the close is fixed (DR-6/DR-9, the
+**STAGELESS verdict lane (once per pass, after the stage loop, before step 6):**
+`in-review` tickets with NO stage are invisible to the loop above by
+construction - step 1 takes "only this stage's tickets" and readiness reports
+a no-stage ticket `NOT_APPLICABLE` - so step 3 never sees them (the T-174
+blindness: stageless tickets waited in `in-review` with no verdict lane at
+all). Treatment mirrors step 3 exactly: take `task_list(status=in-review)`
+and keep the rows with no `stage`; skip a ticket owned by one of your running
+subagents; skip a ticket whose `review` field is `human` (T-155 allows the
+field on stageless tickets - the OWNER's verdict, never the engine's); for
+the rest spawn ONE read-only reviewer subagent under the same cap + ledger
+accounting as any stage spawn: PASS → `task_update` done; FAIL →
+`task_set_blocked` with the reviewer's reasons (a stageless ticket has no
+basis edge - the blocker surfaces to the Product Owner on the next pass's
+step 2); UNCLEAR → the doubt stays as a comment on the `in-review` ticket
+(the AGENTS unstaged rule - there is no stage visit to count a retry
+round-trip against). Verdicts only: stageless tickets never divide (step 4
+needs a stage's division map), are never kicked off (step 5 needs a stage's
+agent), and this lane never claims one.
+6. CLOSE the pass - the order inside the close is fixed (DR-6/DR-9, the
    W-2 composition seam): (a) reopen the `ticker-v` sprint record with
    the digest (U-108 reopen semantics keep the record rolling); (b) the
    WAVE-COMPLETION RECURRENCE sweep (T-039; design C-1/W-2; wording:

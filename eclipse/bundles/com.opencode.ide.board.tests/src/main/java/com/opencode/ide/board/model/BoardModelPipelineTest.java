@@ -252,7 +252,8 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
     BoardSnapshot snapshot = model.refresh();
 
     assertEquals(1, snapshot.total());
-    assertEquals("req work", snapshot.column("sprint-backlog").get(0).title());
+    // T-175: the staged create tags the name - the Board shows the tagged title
+    assertEquals("[requirements] req work", snapshot.column("sprint-backlog").get(0).title());
   }
 
   @Test

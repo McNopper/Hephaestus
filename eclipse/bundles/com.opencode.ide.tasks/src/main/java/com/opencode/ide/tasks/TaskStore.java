@@ -281,7 +281,10 @@ public final class TaskStore {
           String id = nextId(data, spec.idPrefix() == null ? "T" : spec.idPrefix());
           Task t = new Task();
           t.id = id;
-          t.title = spec.title();
+          // T-175 (owner directive 2026-11-17): the store encodes the stage in the NAME - a
+          // staged ticket's title carries its `[stage] ` tag from birth, so every creation path
+          // (division, pairing, goal intake, import, chat) inherits it without knowing.
+          t.title = encodeStageTag(spec.title(), stage);
           t.description = spec.description() == null ? "" : spec.description();
           t.type = spec.type() == null ? "task" : spec.type();
           t.role = spec.role() == null ? "developer" : spec.role();
@@ -418,7 +421,8 @@ public final class TaskStore {
           for (Map.Entry<String, Object> e : changes.entrySet()) {
             switch (e.getKey()) {
               case "title" -> {
-                t.title = string(e.getValue());
+                // T-175: the tag follows the CURRENT stage - a rename re-states it, never drops it
+                t.title = encodeStageTag(string(e.getValue()), t.stage);
                 applied.add(e.getKey());
               }
               case "description" -> {
@@ -448,6 +452,8 @@ public final class TaskStore {
                       "stage must be one of " + VStages.STAGES + " (or null), got '" + stage + "'");
                 }
                 t.stage = stage;
+                // T-175: the name tag follows the move (and is stripped when the stage clears)
+                t.title = encodeStageTag(t.title, stage);
                 applied.add(e.getKey());
               }
               case "model" -> {
@@ -632,6 +638,46 @@ public final class TaskStore {
             + " escalation to the origin or by division; got stage '"
             + stage
             + "'");
+  }
+
+  /**
+   * T-175 (owner directive 2026-11-17): the store encodes the stage in the ticket NAME - a staged
+   * ticket's title carries a leading {@code [<stage>]} tag so the stage is visible wherever the
+   * name shows (chat listings, board, comments) without opening the frontmatter. Every write point
+   * routes through this: create (birth tag), title update (a rename cannot drop the tag), stage
+   * update (the tag follows a Board owner-override move; clearing the stage strips it). Idempotent
+   * (a known tag is stripped before re-adding - never doubled), tag-exclusive (only {@link VStages}
+   * tags are recognized - a caller's own {@code [WIP] ...} bracket survives to the right of the
+   * stage tag), and never empties a title (a name that is nothing but its tag stays when there is
+   * no stage to restate). Stageless tickets never carry a V-stage tag. Existing tickets are NOT
+   * rewritten here - they gain/lose the tag on their next title/stage write (the directive is "for
+   * the future").
+   */
+  public static String encodeStageTag(String title, String stage) {
+    if (title == null) {
+      return null;
+    }
+    String base = stripStageTag(title);
+    if (stage == null || stage.isBlank()) {
+      return base.isEmpty() ? title : base;
+    }
+    if (base.isEmpty()) {
+      return "[" + stage + "]";
+    }
+    return "[" + stage + "] " + base;
+  }
+
+  /** Removes a leading {@code [<VStages>]} tag (with or without trailing text); others stay. */
+  private static String stripStageTag(String title) {
+    for (String s : VStages.STAGES) {
+      if (title.startsWith("[" + s + "] ")) {
+        return title.substring(s.length() + 3);
+      }
+      if (title.equals("[" + s + "]")) {
+        return "";
+      }
+    }
+    return title;
   }
 
   /** B-007 FR-009/010: originator retries per stage visit before doubt escalates to a human. */

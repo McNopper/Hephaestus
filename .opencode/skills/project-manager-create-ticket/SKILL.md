@@ -29,7 +29,7 @@ breaks. This skill keeps every ticket claimable and verifiable.
 
 | Field | How to fill it |
 |---|---|
-| `title` | One line, active verb, states the outcome (e.g. "Add Vulkan swapchain resize"). |
+| `title` | One line, active verb, states the outcome (e.g. "Add Vulkan swapchain resize"). **Don't hand-write the stage tag** - for staged tickets the store prefixes the title with the `[stage]` tag itself at every title/stage write (T-175), so passing the tag in `title` is redundant (it would be re-derived, never doubled). |
 | `description` | The what + why; enough context that a worker needs no further lookup. |
 | `type` | `story` (user value), `task` (internal), `bug`, `spike` (research). |
 | `role` | The **discipline that owns it** — see the role map below. This decides who claims it. **Set it explicitly:** `task_create` defaults a missing `role` to `developer`, which mis-routes non-developer work. |

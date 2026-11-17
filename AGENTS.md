@@ -210,6 +210,14 @@ blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
 stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (epic inherited, basis = the completing ticket); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
 ```
 
+**The stage is encoded in the name (owner directive 2026-11-17, T-175).** A staged ticket's
+`title` carries a leading `[stage]` tag (`[implementation] Encode the stage in the ticket
+name`), so the lane is visible wherever the name shows - chat listings, the Board, comments -
+without opening the frontmatter. The **store owns the tag** at every write point (create, title
+update, stage override): it is re-derived, never doubled, follows a stage move, is stripped when
+the stage clears, and never appears on a stageless ticket. **Don't hand-write it** when filing;
+existing tickets pick it up on their next title/stage write.
+
 **Write discipline.** Store writes go through the `task_*` tools (or the engine API),
 never through scripts or bulk hand edits: the engine keeps the invariants (a done ticket
 is never blocked, every change leaves a history event, every ticket file stays

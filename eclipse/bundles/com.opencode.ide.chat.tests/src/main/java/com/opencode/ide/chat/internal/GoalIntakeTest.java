@@ -68,8 +68,8 @@ public class GoalIntakeTest {
     assertEquals("requirements", goal.stage);
     assertEquals("objective verbatim as the definition artifact", objective, goal.description);
     assertEquals(
-        "the first line is the title (frontmatter titles are one line)",
-        "Ship the whole thing",
+        "the first line is the title, tagged with the stage by the store (T-175)",
+        "[requirements] Ship the whole thing",
         goal.title);
     assertTrue("discovery label", goal.labels.contains(GoalIntake.GOAL_LABEL));
     assertEquals("born into the pump, not dispatched from here", "product-backlog", goal.status);

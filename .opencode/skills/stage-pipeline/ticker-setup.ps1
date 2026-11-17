@@ -118,6 +118,16 @@ function Get-TickerSchedule {
 # update, so Q-001 resolves to retire-and-recreate - a re-arm always
 # refreshes interval + prompt (DS-006) and never duplicates (INV-1/INV-2).
 $tickers = @(Get-TickerSchedule)
+# The enumeration is eventually-consistent on the live service: a transient EMPTY read on a
+# repo that has armed before made this script conclude "first arm" - it created a SECOND
+# steward and deleted nothing (observed 2026-11-17: two ticker-v schedules, INV-1 violated).
+# Retry the lookup before concluding "no schedules yet"; a genuine first arm just pays this
+# bounded delay. The post-create INV-1 check below (retried until exactly one) is the backstop
+# if this read stays empty while a schedule actually exists.
+for ($i = 0; $i -lt 10 -and $tickers.Count -eq 0; $i++) {
+    Start-Sleep -Milliseconds 300
+    $tickers = @(Get-TickerSchedule)
+}
 $repoSessions = Invoke-Api -Method "GET" -Path "/api/session$suffix"
 $sessionList = @($repoSessions); if ($repoSessions.data) { $sessionList = @($repoSessions.data) }
 $newest = $tickers | Sort-Object { $_.time.updated } -Descending | Select-Object -First 1
@@ -160,7 +170,14 @@ $prompt =
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +
     "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +
     "artifact, set in-review - never done; a landed markdown doc must be lint-clean " +
-    "(releng/lint.ps1 over the touched files). After the last stage, close the pass " +
+    "(releng/lint.ps1 over the touched files). Once for the whole pass BEFORE the close: " +
+    "STAGELESS in-review tickets (no stage - the per-stage scan reports them " +
+    "NOT_APPLICABLE and never sees them) get the same engine verdict step, skipping " +
+    "tickets owned by your running subagents and tickets with review:human (the owner's " +
+    "verdict): one read-only reviewer each under the cap - PASS: task_update done; " +
+    "FAIL: task_set_blocked with the reasons (no basis edge: it surfaces to the PO); " +
+    "UNCLEAR: the doubt stays as a comment on the in-review ticket. Verdicts only - " +
+    "stageless tickets are never divided, claimed or kicked off. After the last stage, close the pass " +
     "with a digest. An empty V is a successful pass. " +
     "SUPERSESSION: this prompt is the current parameterization; it supersedes any earlier tick prompt still visible in this session's history."
 $body = @{
@@ -182,14 +199,15 @@ try {
 $scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
 if (-not $scheduleId) { throw "schedule creation returned no id" }
 # assert exactly one schedule and one steward afterwards (C8 step 3, INV-1/INV-2);
-# the enumeration lags the POST by a moment on the live service, so re-read with a
-# bounded retry before declaring the invariant violated (false negatives here made
-# a successful arm look like a failure - U-075-era fix, same semantics: end state
-# MUST be exactly one schedule bound to this steward)
+# the enumeration lags the POST by a moment on the live service, so re-read until it
+# settles on EXACTLY ONE (retrying past 0 alone was not enough: a stale duplicate or a
+# lagging delete also transiently misreports - false negatives here made a successful arm
+# look like a failure AND let a real duplicate pass, U-075/T-174-era fixes; same semantics:
+# the end state MUST be exactly one schedule bound to this steward)
 $final = @()
-for ($i = 0; $i -lt 10 -and $final.Count -eq 0; $i++) {
+for ($i = 0; $i -lt 20 -and $final.Count -ne 1; $i++) {
     $final = @(Get-TickerSchedule)
-    if ($final.Count -eq 0) { Start-Sleep -Milliseconds 300 }
+    if ($final.Count -ne 1) { Start-Sleep -Milliseconds 500 }
 }
 if ($final.Count -ne 1) { throw "arming invariant violated: $($final.Count) ticker-v schedules exist after arming (INV-1: exactly one)" }
 if ($final[0].sessionID -ne $sessionId) { throw "arming invariant violated: ticker-v schedule bound to $($final[0].sessionID), not the steward $sessionId (INV-2)" }
