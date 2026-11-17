@@ -57,7 +57,10 @@ Per stage:
    Agents resolve what agents can resolve; the rest surfaces to the Product
    Owner.
 3. IN-REVIEW → VERDICT: for each of this stage's tickets sitting in
-   `in-review` (and not owned by one of your running subagents), spawn ONE
+   `in-review` (and not owned by one of your running subagents) UNLESS the
+   ticket's `review` field is `human` (T-155: first/last-stage tickets
+   reserved for the OWNER's verdict - the engine never verdicts them;
+   `review: ai` or absent keeps this engine path), spawn ONE
    reviewer subagent (the `reviewer` agent, read-only) to give the engine
    verdict: PASS → `done`; FAIL → `blocked` with the reviewer's reasons
    (which escalates to the basis); UNCLEAR → one retry round-trip to the

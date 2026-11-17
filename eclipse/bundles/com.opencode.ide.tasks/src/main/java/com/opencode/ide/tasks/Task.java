@@ -133,6 +133,14 @@ public final class Task {
   public Instant updatedAt;
 
   /**
+   * T-155: who must verdict this ticket - {@code human} (the OWNER's verdict is required; only
+   * allowed on the first stage, the last stage, or a stageless ticket, owner rule 2026-11-17) or
+   * {@code ai} (the engine review pass). {@code null} = ai = today's behavior - every existing
+   * ticket stays valid. Validated at the verbs (create/update), never sanitized.
+   */
+  public String review;
+
+  /**
    * D-003 option B: when the ticket's STRUCTURED inputs last changed - bumped only by writes to
    * {@code status}/{@code stage}/{@code epic}/{@code role}, to the artifact list, and by the
    * claim/plan status moves. Comments and bookkeeping never touch it (the W-006 incident: a
@@ -222,6 +230,7 @@ public final class Task {
     o.addProperty("status", status);
     o.addProperty("blocked", isBlocked());
     o.addProperty("resume_to", resumeTo);
+    o.addProperty("review", review);
     o.addProperty("blocker", blocker);
     o.addProperty("sprint", sprint);
     o.addProperty("story_points", storyPoints);

@@ -95,7 +95,8 @@ public final class TaskToolProvider implements ToolProvider {
                   orDefault(optStr(a, "id_prefix", null), "T"),
                   a.has("blocked") && !a.get("blocked").isJsonNull() ? reqBool(a, "blocked") : null,
                   optStr(a, "blocker", null),
-                  optStr(a, "basis", null));
+                  optStr(a, "basis", null),
+                  optStr(a, "review", null));
           String project = reqStr(a, "project");
           Task created = store.create(project, spec, optStr(a, "stage", null));
           String model = optStr(a, "model", null);
@@ -154,6 +155,7 @@ public final class TaskToolProvider implements ToolProvider {
                   "acceptance_criteria",
                   "labels",
                   "epic",
+                  "review",
                   "sprint")) {
             JsonElement v = a.get(field);
             if (v == null) {
@@ -463,6 +465,12 @@ public final class TaskToolProvider implements ToolProvider {
                           "U-110: the BASIS work product this ticket derives from - the id of the"
                               + " upstream ticket whose completion spawned it (the derivation edge"
                               + " of the linked stage pipeline); omit for entry-stage tickets."));
+                  obj.add(
+                      "review",
+                      strP(
+                          "human | ai - who must verdict this ticket: human = the OWNER's verdict"
+                              + " (first/last stage only), ai/absent = the engine review pass"
+                              + " (T-155)."));
                 })));
     out.add(
         new McpTool(
@@ -513,6 +521,12 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("labels", arrP());
                   obj.add("epic", strP());
                   obj.add("sprint", strP());
+                  obj.add(
+                      "review",
+                      strP(
+                          "human | ai - who must verdict this ticket (T-155); explicit null"
+                              + " clears back to the ai/engine default; human only on the"
+                              + " first/last stage."));
                 })));
     out.add(
         new McpTool(

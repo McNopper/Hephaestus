@@ -353,7 +353,11 @@ Concretely, the chat agent — the PO's **kickoff assistant** — can:
   (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run
   costs — small well-specified tickets deserve cheap models;
 - **escalation surface**: tickers and workers surface NEEDS-HUMAN via
-  `task_set_blocked`; clearing it resumes the flow. For unattended runs, prefer
+  `task_set_blocked`; clearing it resumes the flow. A ticket may also carry
+  **`review: human`** (first/last stage only, owner rule 2026-11-17; settable
+  via `task_create`/`task_update`): the engine's review step skips it and the
+  owner's comment is the verdict - `review: ai` (or absent) keeps today's
+  engine verdict. For unattended runs, prefer
   making risky actions `deny` in the opencode permission config instead of `ask` —
   an unanswered ask holds the run until answered.
 

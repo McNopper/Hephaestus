@@ -98,7 +98,43 @@ public final class TaskStore {
       String idPrefix,
       Boolean blocked,
       String blocker,
-      String basis) {
+      String basis,
+      String review) {
+
+    /**
+     * Pre-T-155 13-arg shape (no review field). Kept so existing call sites keep their signature;
+     * new code uses the canonical 14-arg form.
+     */
+    public CreateSpec(
+        String title,
+        String description,
+        String type,
+        String role,
+        String priority,
+        Integer storyPoints,
+        List<String> acceptanceCriteria,
+        List<String> labels,
+        String epic,
+        String idPrefix,
+        Boolean blocked,
+        String blocker,
+        String basis) {
+      this(
+          title,
+          description,
+          type,
+          role,
+          priority,
+          storyPoints,
+          acceptanceCriteria,
+          labels,
+          epic,
+          idPrefix,
+          blocked,
+          blocker,
+          basis,
+          null);
+    }
 
     /**
      * Legacy 10-arg shape (pre B-026/U-110): no blocked state and no basis link at birth. Kept so
@@ -264,6 +300,12 @@ public final class TaskStore {
                 "basis ticket " + spec.basis() + " not found in project " + project + " (U-110)");
           }
           t.basis = spec.basis();
+          // T-155: review: human|ai - validated LOUDLY at the mint point, and `human`
+          // only on the first/last stage (or stageless) per the owner rule of 2026-11-17
+          t.review = normalizeReview(spec.review());
+          if ("human".equals(t.review)) {
+            requireHumanReviewStageAllowed(stage);
+          }
           if (bornBlocked) {
             // B-026/U-067: blocked is a STATE entered at birth - the status moves to
             // blocked and resume_to remembers product-backlog for the one door out.
@@ -412,6 +454,12 @@ public final class TaskStore {
                 t.model = string(e.getValue());
                 applied.add(e.getKey());
               }
+              case "review" -> {
+                // T-155: normalized/validated loudly here; the stage constraint is
+                // checked after the loop (the stage is immutable through this verb)
+                t.review = normalizeReview(string(e.getValue()));
+                applied.add(e.getKey());
+              }
               case "status" -> {
                 String status = string(e.getValue());
                 if (status == null || !Task.VALID_STATUSES.contains(status)) {
@@ -524,6 +572,9 @@ public final class TaskStore {
                     + "') without a recorded artifact: record the stage's product (or its"
                     + " rationale) with task_add_artifact first");
           }
+          if ("human".equals(t.review)) {
+            requireHumanReviewStageAllowed(t.stage);
+          }
           if (!applied.isEmpty()) {
             t.updatedAt = now();
             // D-003 option B: only status/stage/epic/role writes are INPUT changes - they bump
@@ -539,6 +590,48 @@ public final class TaskStore {
           }
           return t;
         });
+  }
+
+  /**
+   * T-155: normalizes/validates the review field AT THE VERB - {@code human}/{@code ai}, blank
+   * becomes {@code null} (= the ai/engine default); anything else is rejected loudly, never
+   * sanitized (U-107/U-109 pattern).
+   */
+  private static String normalizeReview(String review) {
+    if (review == null || review.isBlank()) {
+      return null;
+    }
+    String v = review.trim();
+    if (!"human".equals(v) && !"ai".equals(v)) {
+      throw new Invalid(
+          "review must be 'human' or 'ai' (absent = ai = engine verdict), got '" + review + "'");
+    }
+    return v;
+  }
+
+  /**
+   * T-155/AC3 (owner rule 2026-11-17): {@code review: human} may live only on the FIRST stage, the
+   * LAST stage, or a stageless ticket - a mid-V ticket never parks waiting for a human: there the
+   * agent escalates back to the origin or the work passes on (division).
+   */
+  private static void requireHumanReviewStageAllowed(String stage) {
+    if (stage == null || stage.isEmpty()) {
+      return;
+    }
+    String first = VStages.STAGES.get(0);
+    String last = VStages.STAGES.get(VStages.STAGES.size() - 1);
+    if (first.equals(stage) || last.equals(stage)) {
+      return;
+    }
+    throw new Invalid(
+        "review: human is only allowed on the first stage ('"
+            + first
+            + "'), the last stage ('"
+            + last
+            + "') or a stageless ticket (owner rule 2026-11-17) - mid-V tickets move by"
+            + " escalation to the origin or by division; got stage '"
+            + stage
+            + "'");
   }
 
   /** B-007 FR-009/010: originator retries per stage visit before doubt escalates to a human. */

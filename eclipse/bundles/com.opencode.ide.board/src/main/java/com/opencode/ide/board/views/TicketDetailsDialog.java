@@ -146,6 +146,9 @@ final class TicketDetailsDialog extends Dialog {
     if (task.isBlocked()) {
       sb.append("  •  BLOCKED: ").append(safe(task.blocker));
     }
+    if ("human".equals(task.review)) {
+      sb.append("  •  HUMAN REVIEW (owner verdict)");
+    }
     return sb.toString();
   }
 

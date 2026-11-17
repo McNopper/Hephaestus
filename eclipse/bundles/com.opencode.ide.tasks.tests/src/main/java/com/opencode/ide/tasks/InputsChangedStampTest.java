@@ -227,31 +227,26 @@ public class InputsChangedStampTest {
    */
   @Test
   public void archivedUpstreamStalenessStillLandsItsMarker() throws Exception {
-    Task parent = store.create("p", TaskStore.CreateSpec.of("anchor"), "architecture");
-    Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
-    store.update("p", child.id, Map.of("epic", parent.id));
-    tick();
-    store.addArtifact("p", parent.id, "doc", "docs/arch.md", "stage product", "fixture");
-    store.update("p", parent.id, Map.of("status", "done"));
-    store.archive("p", parent.id, "wave close"); // archived AFTER its structured product
+    String[] ids = stalePair();
+    store.archive("p", ids[0], "wave close"); // archived AFTER its structured product
 
     List<Map<String, Object>> rows = store.readiness("p"); // the production tick
     Map<String, Object> childRow = null;
     for (Map<String, Object> r : rows) {
-      if (child.id.equals(r.get("id"))) {
+      if (ids[1].equals(r.get("id"))) {
         childRow = r;
       }
     }
     assertNotNull("the child has a row", childRow);
     assertEquals("STALE against the archived upstream: " + childRow, "STALE", childRow.get("kind"));
-    assertEquals("the marker names the archived cause", 1, markers(store.get("p", child.id)));
+    assertEquals("the marker names the archived cause", 1, markers(store.get("p", ids[1])));
 
-    int sizeAfter = store.get("p", child.id).history.size();
+    int sizeAfter = store.get("p", ids[1]).history.size();
     store.readiness("p");
     assertEquals(
         "idempotent through the archive path too",
         sizeAfter,
-        store.get("p", child.id).history.size());
+        store.get("p", ids[1]).history.size());
   }
 
   @Test

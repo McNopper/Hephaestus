@@ -7,7 +7,6 @@ import static org.junit.Assert.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -52,19 +51,10 @@ public class ReleaseCadenceContractTest {
     return text.replaceAll("\\s+", " ");
   }
 
-  /** The repo root carries both carriages; found by walking up from any run directory in it. */
+  /** The repo root carries both carriages; one shared walk-up (TestRepoRoot), no local copy. */
   private static Path repoRoot() {
-    Path dir = Paths.get("").toAbsolutePath();
-    for (int i = 0; i < 8 && dir != null; i++) {
-      if (Files.exists(dir.resolve(".opencode/skills/stage-pipeline/SKILL.md"))
-          && Files.exists(dir.resolve("docs/release-cadence-flow.md"))) {
-        return dir;
-      }
-      dir = dir.getParent();
-    }
-    throw new AssertionError(
-        "repo root (SKILL.md + release-cadence-flow.md) not found walking up from "
-            + Paths.get("").toAbsolutePath());
+    return TestRepoRoot.find(
+        ".opencode/skills/stage-pipeline/SKILL.md", "docs/release-cadence-flow.md");
   }
 
   /** The step-6(d) block: from the evaluation's start to the close step that follows it. */

@@ -215,6 +215,11 @@ public final class TaskFileCodec {
     fm(b, "basis", t.basis);
     fm(b, "assignee", t.assignee);
     fm(b, "resume_to", t.resumeTo);
+    // T-155: written ONLY when set - a legacy ticket keeps its exact old frontmatter
+    // (fm() renders null literally; the sync mojo's canonical-form check compares bytes)
+    if (t.review != null) {
+      fm(b, "review", t.review);
+    }
     fm(b, "blocker", t.blocker);
     fm(b, "labels", t.labels);
     fm(b, "acceptance_criteria", t.acceptanceCriteria);
@@ -328,6 +333,7 @@ public final class TaskFileCodec {
     // status + resume_to only - the flag key disappears from the file).
     Boolean legacyBlocked = scalarBool(raw.remove("blocked"));
     t.resumeTo = scalarString(raw.remove("resume_to"));
+    t.review = scalarString(raw.remove("review")); // T-155: absent = null = ai (engine verdict)
     if (legacyBlocked != null && legacyBlocked && !"blocked".equals(t.status)) {
       t.resumeTo = t.status;
       t.status = "blocked";
