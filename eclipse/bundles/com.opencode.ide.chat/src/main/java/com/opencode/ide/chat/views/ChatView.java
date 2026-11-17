@@ -443,6 +443,14 @@ public class ChatView extends ViewPart {
             controller.goalAction(action);
           }
         });
+    // CP-04: a changed-files chip opens the in-chat diff - the controller reads
+    // the reply's own session.diff and pushes the patch back through __showDiff
+    page.setShowDiffHandler(
+        (messageId, path) -> {
+          if (controller != null) {
+            controller.showDiff(messageId, path);
+          }
+        });
     page.setFilePickHandler(this::pickFileCompletion);
     composer = new CommandComposer(connection);
     ChatLog.info(

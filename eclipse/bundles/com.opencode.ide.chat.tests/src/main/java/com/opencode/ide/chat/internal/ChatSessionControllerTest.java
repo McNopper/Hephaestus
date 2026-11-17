@@ -25,6 +25,7 @@ import com.opencode.ide.client.model.ChatMessageInfo;
 import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.CommandInfo;
 import com.opencode.ide.client.model.ConfigInfo;
+import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.OpencodeEvent;
@@ -229,6 +230,61 @@ public class ChatSessionControllerTest {
 
     assertEquals("plain", renderer.users.get(renderer.users.size() - 1));
     assertTrue("no attachment views for a plain prompt", renderer.attachments.isEmpty());
+  }
+
+  /**
+   * CP-04 AC1 (FR-CP-04): after the turn settles, the chat gets the files THAT turn changed - read
+   * from the reply's own message-scoped {@code session.diff}, keyed by the reply's id.
+   */
+  @Test
+  public void afterEachTurnTheChatSurfacesTheChangedFilesFromSessionDiff() {
+    controller.subscribe();
+    connection.client.reply = entry("msg_turn1", "assistant", "done");
+    connection.client.sessionDiffs =
+        List.of(
+            new FileDiff("a.txt", "1", "2", "--- a\n+++ b"), new FileDiff("b.js", "1", "2", "+x"));
+
+    controller.send(
+        new ChatSessionController.OutgoingMessage("build", "prov", "m1", null, null, "go"));
+
+    assertEquals(1, connection.client.diffCalls.size());
+    assertTrue(
+        "the diff is scoped to the reply message, not the whole session",
+        connection.client.diffCalls.get(0).endsWith(":msg_turn1"));
+    assertEquals(1, renderer.changedFiles.size());
+    assertTrue(renderer.changedFiles.get(0), renderer.changedFiles.get(0).endsWith("|a.txt,b.js"));
+  }
+
+  /** CP-04: a turn that changed nothing gets no row - the honest empty, never a placeholder. */
+  @Test
+  public void noChangedFilesRowWhenTheTurnChangedNothing() {
+    controller.subscribe();
+    connection.client.reply = entry("msg_turn2", "assistant", "done");
+    connection.client.sessionDiffs = List.of();
+
+    controller.send(
+        new ChatSessionController.OutgoingMessage("build", "prov", "m1", null, null, "quiet"));
+
+    assertEquals(1, connection.client.diffCalls.size());
+    assertTrue("no changed files -> no row", renderer.changedFiles.isEmpty());
+  }
+
+  /**
+   * CP-04 AC2: the in-chat diff surface opens from the row with data from {@code session.diff}
+   * (message-scoped) - the controller reads the client verb only, so no git-CLI side read enters
+   * the path (AC3).
+   */
+  @Test
+  public void showDiffReadsSessionDiffAndHandsThePatchToTheRenderer() {
+    connection.client.sessionDiffs =
+        List.of(new FileDiff("a.txt", "1", "2", "--- a\n+++ b\n+changed"));
+
+    controller.showDiff("msg_turn3", "a.txt");
+
+    assertEquals(1, connection.client.diffCalls.size());
+    assertTrue(connection.client.diffCalls.get(0).endsWith(":msg_turn3"));
+    assertEquals(1, renderer.diffs.size());
+    assertEquals("a.txt|--- a\n+++ b\n+changed", renderer.diffs.get(0));
   }
 
   // ---------- inline shell mode (chat parity CP-02) ----------
@@ -3340,6 +3396,12 @@ public class ChatSessionControllerTest {
     /** T-071 (CP-01): one entry per echo that carried attachments - {@code name|kind,...}. */
     final List<String> attachments = new ArrayList<>();
 
+    /** CP-04: one entry per changed-files row - {@code <messageId>|<path,path,...>}. */
+    final List<String> changedFiles = new ArrayList<>();
+
+    /** CP-04: one entry per opened diff surface - {@code <path>|<content>}. */
+    final List<String> diffs = new ArrayList<>();
+
     /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
     final List<String> shells = new ArrayList<>();
 
@@ -3381,6 +3443,18 @@ public class ChatSessionControllerTest {
         }
         attachments.add(joined.toString());
       }
+    }
+
+    /** CP-04 AC1 oracle: the per-turn changed-files row. */
+    @Override
+    public void appendChangedFiles(String messageId, List<String> paths) {
+      changedFiles.add(messageId + "|" + String.join(",", paths));
+    }
+
+    /** CP-04 AC2 oracle: the in-chat diff surface for one file. */
+    @Override
+    public void showDiff(String path, String content) {
+      diffs.add(path + "|" + content);
     }
 
     @Override
@@ -3769,6 +3843,17 @@ public class ChatSessionControllerTest {
     ShellResult shellResult;
 
     OpencodeException shellFailure;
+
+    /** CP-04: {@code <sessionId>:<messageId>} diff reads + the payload the fake answers with. */
+    final List<String> diffCalls = new ArrayList<>();
+
+    List<FileDiff> sessionDiffs = List.of();
+
+    @Override
+    public List<FileDiff> getSessionDiff(String sessionId, String messageId) {
+      diffCalls.add(sessionId + ":" + messageId);
+      return sessionDiffs;
+    }
 
     @Override
     public ShellResult runShell(String sessionId, String agent, String command)

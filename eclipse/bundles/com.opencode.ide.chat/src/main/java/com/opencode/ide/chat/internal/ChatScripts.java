@@ -178,6 +178,29 @@ public final class ChatScripts {
     return call("__appendShell", payload);
   }
 
+  /**
+   * {@code window.__appendChangedFiles("{...}")} - chat parity CP-04: the row of files this turn
+   * changed (one chip per path; the page opens the diff through {@code __javaShowDiff}). Paths are
+   * rendered as textContent chips, never markup.
+   */
+  public static String appendChangedFiles(String messageId, List<String> paths) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("mid", nullToEmpty(messageId));
+    payload.put("files", paths == null ? List.of() : paths);
+    return call("__appendChangedFiles", payload);
+  }
+
+  /**
+   * {@code window.__showDiff("{...}")} - chat parity CP-04: the in-chat diff surface for one file -
+   * the patch arrives as plain text and is drawn with textContent (the renderer's XSS discipline).
+   */
+  public static String showDiff(String path, String content) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("path", nullToEmpty(path));
+    payload.put("content", nullToEmpty(content));
+    return call("__showDiff", payload);
+  }
+
   /** {@code window.__setTheme("light"|"dark")}. */
   public static String setTheme(String theme) {
     return "window.__setTheme(" + GSON.toJson(nullToEmpty(theme)) + ")";

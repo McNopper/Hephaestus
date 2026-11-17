@@ -12,6 +12,7 @@ import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatPart;
 import com.opencode.ide.client.model.ContextUsage;
+import com.opencode.ide.client.model.FileDiff;
 import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.OpencodeEvent;
 import com.opencode.ide.client.model.ProviderList;
@@ -145,6 +146,16 @@ public final class ChatSessionController {
      * renderers (and existing test fakes) without the strip stay compiling.
      */
     default void appendShell(String command, String output, String status) {}
+
+    /**
+     * CP-04 (FR-CP-04): the files THIS turn changed - one chip per path, clickable to open the
+     * in-chat diff. Data is the reply's own {@code session.diff} scope (message-scoped), so the row
+     * is per-turn; no row when nothing changed.
+     */
+    default void appendChangedFiles(String messageId, List<String> paths) {}
+
+    /** CP-04: the in-chat diff surface - one file's patch as plain text (textContent render). */
+    default void showDiff(String path, String content) {}
 
     /**
      * T-147: opens the live compaction row (the TUI's divider header with a spinner) - called when
@@ -1405,6 +1416,7 @@ public final class ChatSessionController {
       settleReply(reply);
       historyHasUserMessage = true; // the prompt is recorded server-side now
       host.runOnUi(this::fireUndoRedoChanged);
+      surfaceTurnDiff(sid, reply); // CP-04: the files this turn changed
     } catch (OpencodeException e) {
       if (sid != null && isPromptTimeout(e)) {
         handedOff = recoverFromPromptTimeout(sid, "Send");
@@ -1424,6 +1436,64 @@ public final class ChatSessionController {
       // run raised surfaces, an answered one leaves
       refreshForms();
     }
+  }
+
+  /**
+   * CP-04 (FR-CP-04): after a turn settles, surface the files THIS turn changed - the reply's own
+   * {@code GET /session/:id/diff} (message-scoped, so the row is per-turn), never a git-CLI side
+   * read (the exceptions table stays as documented). No changed files -> no row; an unavailable
+   * read degrades to a log line, never a broken transcript.
+   */
+  private void surfaceTurnDiff(String sessionId, ChatEntry reply) {
+    String messageId = reply == null || reply.info() == null ? null : reply.info().id();
+    if (sessionId == null || messageId == null || messageId.isBlank()) {
+      return;
+    }
+    try {
+      List<String> paths =
+          connection.getClient().getSessionDiff(sessionId, messageId).stream()
+              .map(FileDiff::path)
+              .filter(path -> path != null && !path.isBlank())
+              .distinct()
+              .toList();
+      if (paths.isEmpty()) {
+        return;
+      }
+      host.runOnUi(() -> renderer.appendChangedFiles(messageId, paths));
+    } catch (Exception e) {
+      host.info("turn diff unavailable: " + e.getMessage());
+    }
+  }
+
+  /**
+   * CP-04: opens the in-chat diff surface for one changed file - data from the SAME {@code
+   * session.diff} read (message-scoped), fetched on demand when the row's chip is clicked; the
+   * renderer receives plain text and draws it with textContent (no markup path).
+   */
+  public void showDiff(String messageId, String path) {
+    if (messageId == null || messageId.isBlank() || path == null || path.isBlank()) {
+      return;
+    }
+    host.runInBackground(
+        "Loading turn diff",
+        () -> {
+          try {
+            List<FileDiff> diffs =
+                connection.getClient().getSessionDiff(ensureSession(), messageId);
+            String content = "";
+            for (FileDiff diff : diffs) {
+              if (diff != null && path.equals(diff.path())) {
+                content = diff.content() == null ? "" : diff.content();
+                break;
+              }
+            }
+            String body = content;
+            host.runOnUi(() -> renderer.showDiff(path, body));
+          } catch (Exception e) {
+            String failure = e.getMessage();
+            host.runOnUi(() -> renderer.notice("Diff unavailable: " + failure));
+          }
+        });
   }
 
   /**

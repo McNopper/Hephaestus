@@ -871,6 +871,59 @@ window.__appendShell = guard("__appendShell", function (json) {
   return true;
 });
 
+// ---- per-turn changed files + in-chat diff (chat parity CP-04) ----------
+// After each turn the row lists the files THAT turn changed (session.diff
+// scoped to the reply message); a chip opens the diff for one file. Every
+// element is createElement/textContent - a path or patch can never inject
+// markup (the same discipline as shell output and attachment chips).
+function addChangedFiles(mid, files) {
+  if (!Array.isArray(files) || files.length === 0) return null;
+  const wrap = document.createElement("div"); wrap.className = "msg changed";
+  const bubble = document.createElement("div"); bubble.className = "bubble shell-bubble";
+  const label = document.createElement("div"); label.className = "shell-cmd";
+  label.textContent = "changed in this turn:";
+  bubble.appendChild(label);
+  const list = document.createElement("div"); list.className = "changed-files";
+  files.forEach(f => {
+    const path = typeof f === "string" ? f : String(f);
+    if (!path) return;
+    const chip = document.createElement("button");
+    chip.type = "button"; chip.className = "changed-file"; chip.textContent = path;
+    chip.addEventListener("click", () => {
+      if (typeof window.__javaShowDiff === "function") window.__javaShowDiff(mid, path);
+    });
+    list.appendChild(chip);
+  });
+  bubble.appendChild(list);
+  wrap.appendChild(bubble); chatEl.appendChild(wrap); scrollBottom();
+  report("changed-files row rendered: " + files.length + " file(s)");
+  return wrap;
+}
+
+window.__appendChangedFiles = guard("__appendChangedFiles", function (json) {
+  const p = payload(json);
+  addChangedFiles(typeof p.mid === "string" ? p.mid : "",
+    Array.isArray(p.files) ? p.files : []);
+  return true;
+});
+
+window.__showDiff = guard("__showDiff", function (json) {
+  const p = payload(json);
+  const wrap = document.createElement("div"); wrap.className = "msg diff-surface";
+  const bubble = document.createElement("div"); bubble.className = "bubble shell-bubble";
+  const head = document.createElement("div"); head.className = "shell-cmd";
+  head.textContent = "diff: " + (typeof p.path === "string" ? p.path : "");
+  bubble.appendChild(head);
+  if (typeof p.content === "string" && p.content.length > 0) {
+    const pre = document.createElement("pre"); pre.className = "shell-out";
+    pre.textContent = p.content.replace(/\s+$/, "");
+    bubble.appendChild(pre);
+  }
+  wrap.appendChild(bubble); chatEl.appendChild(wrap); scrollBottom();
+  report("diff surface rendered: " + head.textContent);
+  return true;
+});
+
 window.__startAssistant = guard("__startAssistant", function (json) {
   hideWaiting(); // the reply has arrived - hand over to the real bubble
   const p = payload(json);

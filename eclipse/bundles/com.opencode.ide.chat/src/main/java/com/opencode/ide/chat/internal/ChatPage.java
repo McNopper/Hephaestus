@@ -45,6 +45,7 @@ public final class ChatPage implements ChatSessionController.Renderer {
   private final BrowserFunction formReplyFunction;
   private final BrowserFunction formCancelFunction;
   private final BrowserFunction goalActionFunction;
+  private final BrowserFunction showDiffFunction;
   private boolean pageReady;
 
   /** Whether reasoning progress is visible; re-applied on page reload (user toggle). */
@@ -94,6 +95,12 @@ public final class ChatPage implements ChatSessionController.Renderer {
    * one of {@code pause}/{@code resume}/{@code clear}); registered by the owning view.
    */
   private volatile Consumer<String> goalActionHandler;
+
+  /**
+   * CP-04: opens the in-chat diff for one changed file ({@code __javaShowDiff(messageId, path)}) -
+   * registered by the owning view, which hands it to the controller.
+   */
+  private volatile java.util.function.BiConsumer<String, String> showDiffHandler;
 
   private final List<String> pendingJs = new ArrayList<>();
 
@@ -235,6 +242,24 @@ public final class ChatPage implements ChatSessionController.Renderer {
             return null;
           }
         };
+    // JS -> Java diff-open bridge (CP-04): a changed-files chip calls
+    // __javaShowDiff(messageId, path) - the view hands it to the controller, which reads the
+    // reply's own session.diff and pushes the patch back through __showDiff.
+    this.showDiffFunction =
+        new BrowserFunction(browser, "__javaShowDiff") {
+          @Override
+          public Object function(Object[] arguments) {
+            if (arguments.length > 1
+                && arguments[0] instanceof String messageId
+                && arguments[1] instanceof String path) {
+              java.util.function.BiConsumer<String, String> handler = showDiffHandler;
+              if (handler != null && !messageId.isBlank() && !path.isBlank()) {
+                handler.accept(messageId, path); // Browser calls run on the UI thread
+              }
+            }
+            return null;
+          }
+        };
     this.openExternalFunction = installLinkHandling();
     browser.setLayoutData(new GridData(GridData.FILL, GridData.FILL, true, true));
   }
@@ -305,6 +330,7 @@ public final class ChatPage implements ChatSessionController.Renderer {
       inboxActionFunction.dispose();
       fileQueryFunction.dispose();
       filePickFunction.dispose();
+      showDiffFunction.dispose();
       formReplyFunction.dispose();
       formCancelFunction.dispose();
       goalActionFunction.dispose();
@@ -373,6 +399,14 @@ public final class ChatPage implements ChatSessionController.Renderer {
     this.goalActionHandler = handler;
   }
 
+  /**
+   * Registers the handler for the CP-04 diff chips ({@code __javaShowDiff(messageId, path)}); the
+   * view routes it to the controller, which reads {@code session.diff} for that message.
+   */
+  public void setShowDiffHandler(java.util.function.BiConsumer<String, String> handler) {
+    this.showDiffHandler = handler;
+  }
+
   // ---------- rendering (ChatSessionController.Renderer) ----------
 
   @Override
@@ -433,6 +467,16 @@ public final class ChatPage implements ChatSessionController.Renderer {
   @Override
   public void appendShell(String command, String output, String status) {
     executeJs(ChatScripts.appendShell(command, output, status));
+  }
+
+  @Override
+  public void appendChangedFiles(String messageId, List<String> paths) {
+    executeJs(ChatScripts.appendChangedFiles(messageId, paths));
+  }
+
+  @Override
+  public void showDiff(String path, String content) {
+    executeJs(ChatScripts.showDiff(path, content));
   }
 
   @Override
