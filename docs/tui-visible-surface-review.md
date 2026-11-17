@@ -93,11 +93,11 @@ in-chat rows are §1's, listed where the same data now exists in both places).
 | Goal chips `goal` / `goal paused` / `goal met` | `[TUI] goal.tsx:50-91` | two surfaces coexist **by design (D1)**: the strip chip = opencode *session* `/goal` (T-149; intercept `goal=goal` ⇄ `goal=goal paused`); the composer placeholder **`Goal: <text>`** = the store *sprint* goal (T-141, `ChatView.java:1386`) | ✓ aligned-by-design; **wording rule**: the chip never prefixes "Goal:" (it carries `◎` + chip words only), the placeholder always prefixes `Goal:` — the two may never share a label shape |
 | `N subagents · M shells` (footer, click = picker) | `[TUI] footer.tsx:23-36,73-94` | Session Details sections **`Subagents`** / **`Shell tasks`** (`SessionDetailsView`, U-041) + the Fleet tree | ~ **wording decision (recorded)**: keep the harness-explicit `Shell tasks` in tabs (it is a Fleet/tree noun, clearer for Eclipse users); the future in-chat counts row (G3) MUST use the TUI wording `N subagents · M shells` verbatim |
 | `/status` dialog: MCP server list with status colors | `[TUI] component/dialog-status.tsx:6-50` | Server view + *MCP servers…* dialog (tab) | ~ host-tier (§6); no line-by-line label audit — deferred behind the Server view's own parity, not a wording defect today |
-| `usage.show`: budgets, spent/left per model | `[TUI] component/usage.tsx` | **absent** | ✗ → G4 derived ticket (route live since 2.1.0) |
-| Model options: price, modalities, context window, reasoning | `[TUI] component/model-options.tsx:49` | Providers column ✓; chat combo names-only | ~ → G5 derived ticket |
+| `usage.show`: budgets, spent/left per model | `[TUI] component/usage.tsx` | **Landed (T-152)** — Providers view **`Budget` / `Spent` / `Left`** columns in the TUI's wording (`$100` / `$0` / `$100 left` / `Limit reached`) plus the dialog description in the view header (`Usage: Workspace: Default · $0 used of $100 · $100 left · Resets Nov 30`), the TUI scope line (`Only you · All models`) as cell tooltip; a model no budget covers renders an EMPTY cell, a refused/absent route renders `Usage limits unavailable` — never a fabricated number | ✓ landed (T-152) — intercept channel `providers` (fires when the stacked tab is first shown); verb contract-tested over the live-probed shape |
+| Model options: price, modalities, context window, reasoning | `[TUI] component/model-options.tsx:49` | Providers column ✓; chat combo detail **Landed (T-153)** — a label beside the model combo showing `Free · 1,048,576 tokens` (`price · context · Reasoning`), live intercept `model-detail=…` | ✓ landed (T-153); input modalities stay out of the G5 floor, the `Reasoning` badge follows the TUI rule (only when effort variants exist) |
 
 Derived fix legs (basis T-150): the **Context block** — **landed (T-151)**; **G4 usage-limits**
-(**T-152**) and **G5 model detail** (**T-153**) remain registered and pending. The two-goal
+(**T-152**) and **G5 model detail** (**T-153**) — **both landed 2026-11-17**. The two-goal
 distinction and the `Shell tasks` wording rule above are documentation decisions — no code change
 needed to satisfy them.
 
@@ -116,8 +116,8 @@ needed to satisfy them.
 | Dialog | TUI source | Eclipse mapping |
 |---|---|---|
 | **Status** (`/status`, `<leader>s`): MCP server list with per-server status colors | `[TUI] component/dialog-status.tsx:6-50` | **Server view** (tab) — MCP management exists; host tier |
-| **Usage limits** (`usage.show`): budgets, spent/left per model | `[TUI] component/usage.tsx`, `util/usage-limits.ts` | **Absent** — route exists since 2.1.0 `GET /api/experimental/usage/limits` `[ADOPT L294]`; route-gated candidate (G4) |
-| **Model options**: price, input modalities, **context window**, reasoning support | `[TUI] component/model-options.tsx:49` | **Partial** — the chat's model combo shows names only (`ChatView.java:422-450`); candidate (G5) |
+| **Usage limits** (`usage.show`): budgets, spent/left per model | `[TUI] component/usage.tsx`, `util/usage-limits.ts` | **Landed (T-152)** — Providers view `Budget`/`Spent`/`Left` columns over `GET /api/experimental/usage/limits` (probed live 2026-11-17: 200 with token, 401 without); the TUI port lives in `UsageLimits` (`formatDollars`, `formatReset`, `limitScope`, `modelUsage`) so the wording cannot drift |
+| **Model options**: price, input modalities, **context window**, reasoning support | `[TUI] component/model-options.tsx:49` | **Landed (T-153)** — the chat selector's detail label beside the model combo (`ModelDetail.line` over the `/model` catalog, formatted through the shared `ContextUsage` helpers); input modalities remain out of scope |
 | **Goal dialog** (see §2) | `[TUI] goal.tsx:102-171` | **Landed (T-149)** — in-page dialog (objective/status/reason + whitelisted pause/resume/clear over the fire-and-forget verb), bridge-check-executed; the open-dialog visual rides the owner's manual test |
 
 ### 7. Mini mode footer
@@ -146,11 +146,11 @@ T-149 (no unprobed call):
 
 | ID | Gap | Size | Ticket |
 |---|---|---|---|
-| **G1** | **Status strip in the chat** (bottom of the page, directly above the host input row — the chat's composer boundary): context usage `68.9K (7%)`, session cost `$9.96`, goal chip `◎ …` with the goal dialog (objective/status/reason + pause/resume/clear via the fire-and-forget verb), live from `rpc.opencode.goal.changed` + `session.usage.updated`, computed per §3 semantics — **plus** synthetic goal messages as TUI notice rows instead of full-text bubbles | M | **T-149 — landed (805a254), in-review; owner visual test pending on the dialog** |
+| **G1** | **Status strip in the chat** (bottom of the page, directly above the host input row — the chat's composer boundary): context usage `68.9K (7%)`, session cost `$9.96`, goal chip `◎ …` with the goal dialog (objective/status/reason + pause/resume/clear via the fire-and-forget verb), live from `rpc.opencode.goal.changed` + `session.usage.updated`, computed per §3 semantics — **plus** synthetic goal messages as TUI notice rows instead of full-text bubbles | M | **T-149 — landed (805a254), done**: live-accepted (intercept `goal dialog opened: status=complete` on the owner's click, `status strip rendered: goal=goal ctx=291.1K (28%) cost=$9.96` on every load) |
 | **G2** | Assistant footer parity: agent name + duration on the message meta line (model label already there) | S | candidate child |
 | **G3** | Footer live counts: `N subagents · M shells` for the bound session's family | M | candidate child (data: `getSessions`/shell list) |
-| **G4** | Usage-limits surface (`usage.show` parity) — probe-first against `GET /api/experimental/usage/limits` (live since 2.1.0 `[ADOPT L294]`) | M | candidate child (route-gated) |
-| **G5** | Model combo detail (price / context window / reasoning badge) — `model-options.tsx` parity | S | candidate child |
+| **G4** | Usage-limits surface (`usage.show` parity) — probe-first against `GET /api/experimental/usage/limits` (live since 2.1.0 `[ADOPT L294]`) | M | **T-152 — landed 2026-11-17**: Providers view `Budget`/`Spent`/`Left` + `Usage:` description; probe re-run live (200 with token / 401 without), contract test 5/5, UsageLimitsTest 22/22 + UsageRowsTest 7/7; deployed, the `providers` intercept fires when the tab is shown |
+| **G5** | Model combo detail (price / context window / reasoning badge) — `model-options.tsx` parity | S | **T-153 — landed 2026-11-17, live-accepted**: detail label beside the model combo, intercept `model-detail=… detail=Free · 1,048,576 tokens`; ModelDetailTest 6/6 over the shared `ContextUsage` formatters |
 | G6 | `tok/s` per message, turn-usage tables, mini footer | — | **out of floor**: TUI ships them behind config/debug gates; revisit only if upstream defaults change |
 
 **Explicitly not gaps here** (recorded to keep division honest): sidebar Context block, location

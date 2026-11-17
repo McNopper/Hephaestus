@@ -20,6 +20,12 @@ public final class ModelComparator implements Comparator<ModelRow> {
   private int column = 0;
   private boolean ascending = true;
 
+  /**
+   * The usage cells by model key (T-152), fed by the view on every load so the Budget/Spent/Left
+   * columns sort numerically. Empty while no limits were loaded: those columns then sort last.
+   */
+  private volatile java.util.Map<String, UsageRows.Row> usage = java.util.Map.of();
+
   /** Same column: flip the direction; new column: ascending. */
   public void applySort(int clicked) {
     if (clicked == column) {
@@ -30,6 +36,11 @@ public final class ModelComparator implements Comparator<ModelRow> {
     }
   }
 
+  /** Feeds the usage cells the Budget/Spent/Left columns sort by (T-152). */
+  public void setUsage(java.util.Map<String, UsageRows.Row> usage) {
+    this.usage = usage == null ? java.util.Map.of() : usage;
+  }
+
   /** Whether the current direction is ascending. */
   public boolean isAscending() {
     return ascending;
@@ -38,6 +49,9 @@ public final class ModelComparator implements Comparator<ModelRow> {
   /** Compares two rows by the current column and direction. */
   @Override
   public int compare(ModelRow x, ModelRow y) {
+    if (isUsageColumn(column)) {
+      return compareUsage(x, y, column);
+    }
     int cmp;
     switch (column) {
       case 0:
@@ -65,12 +79,42 @@ public final class ModelComparator implements Comparator<ModelRow> {
         cmp = 0;
     }
     if (cmp == 0) {
-      cmp = TEXT.compare(x.providerName(), y.providerName());
-      if (cmp == 0) {
-        cmp = TEXT.compare(modelName(x), modelName(y));
-      }
+      cmp = tieBreak(x, y);
     }
     return ascending ? cmp : -cmp;
+  }
+
+  private static boolean isUsageColumn(int column) {
+    return column == UsageRows.BUDGET || column == UsageRows.SPENT || column == UsageRows.LEFT;
+  }
+
+  /**
+   * A usage column (T-152): numeric compare of the cell's underlying value, ties breaking like
+   * every other column, and models no budget covers LAST in <b>both</b> directions - they carry no
+   * number, so they must not pretend to a position the flip would hand them.
+   */
+  private int compareUsage(ModelRow x, ModelRow y, int column) {
+    Double own = UsageRows.sortValue(usage, x, column);
+    Double other = UsageRows.sortValue(usage, y, column);
+    if (own == null) {
+      if (other == null) {
+        return ascending ? tieBreak(x, y) : -tieBreak(x, y);
+      }
+      return 1;
+    }
+    if (other == null) {
+      return -1;
+    }
+    int cmp = Double.compare(own, other);
+    if (cmp == 0) {
+      cmp = tieBreak(x, y);
+    }
+    return ascending ? cmp : -cmp;
+  }
+
+  private static int tieBreak(ModelRow x, ModelRow y) {
+    int cmp = TEXT.compare(x.providerName(), y.providerName());
+    return cmp != 0 ? cmp : TEXT.compare(modelName(x), modelName(y));
   }
 
   private static String modelName(ModelRow r) {

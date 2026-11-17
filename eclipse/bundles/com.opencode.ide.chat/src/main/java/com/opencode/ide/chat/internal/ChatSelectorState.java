@@ -1,6 +1,7 @@
 package com.opencode.ide.chat.internal;
 
 import com.opencode.ide.client.model.Agent;
+import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.ProviderList;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +14,10 @@ public final class ChatSelectorState {
   private List<String> agents = List.of();
   private final List<String> models = new ArrayList<>(List.of(""));
   private final Map<String, List<String>> variants = new LinkedHashMap<>();
+
+  /** The catalog records behind the combo entries (T-153): the selector's per-model detail. */
+  private final Map<String, Model> catalog = new LinkedHashMap<>();
+
   private String requestedAgent;
   private String requestedModel;
   private String agent;
@@ -37,6 +42,7 @@ public final class ChatSelectorState {
     models.clear();
     models.add("");
     variants.clear();
+    catalog.clear();
     if (providers != null && providers.providers() != null) {
       for (var provider : providers.providers()) {
         if (provider == null || provider.id() == null || provider.models() == null) {
@@ -49,6 +55,7 @@ public final class ChatSelectorState {
               models.add(id);
             }
             variants.put(id, entry.variantNames());
+            catalog.put(id, entry);
           }
         }
       }
@@ -135,5 +142,14 @@ public final class ChatSelectorState {
 
   public List<String> variants() {
     return variants.getOrDefault(model, List.of());
+  }
+
+  /**
+   * The catalog record behind a combo entry (T-153) - {@code null} when the id is not in the
+   * catalog (the server default placeholder, or a model that vanished), which the detail line
+   * renders as "no detail" rather than a guess.
+   */
+  public Model detail(String modelId) {
+    return modelId == null ? null : catalog.get(modelId);
   }
 }

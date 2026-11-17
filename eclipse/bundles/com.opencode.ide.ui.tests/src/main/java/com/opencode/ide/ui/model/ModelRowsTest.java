@@ -37,7 +37,7 @@ public class ModelRowsTest {
     for (Model m : models) {
       map.put(m.id(), m);
     }
-    return new Provider(id, name, null, null, null, null, map);
+    return new Provider(id, name, null, null, null, null, null, map);
   }
 
   // ---------- toRows ----------
@@ -93,7 +93,8 @@ public class ModelRowsTest {
     assertEquals(List.of(), ModelRows.toRows(null));
     assertEquals(List.of(), ModelRows.toRows(new ProviderList(null, null)));
 
-    Provider empty = new Provider("empty", "Empty", null, null, null, null, null); // no models map
+    Provider empty =
+        new Provider("empty", "Empty", null, null, null, null, null, null); // no models map
     Provider withModels = provider("p", "P", model("m1", "M1", null, null, null));
     List<ModelRow> rows =
         ModelRows.toRows(

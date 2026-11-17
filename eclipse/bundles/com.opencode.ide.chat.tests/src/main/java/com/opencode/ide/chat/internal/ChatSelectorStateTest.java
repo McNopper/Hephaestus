@@ -2,6 +2,7 @@ package com.opencode.ide.chat.internal;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -40,6 +41,31 @@ public class ChatSelectorStateTest {
     assertEquals("a display name selects nothing", "build", state.agent());
     state.selectAgent("plan");
     assertEquals("plan", state.agent());
+  }
+
+  @Test
+  public void detailIsTheCatalogRecordBehindTheComboEntry() {
+    ChatSelectorState state = new ChatSelectorState();
+    state.load(agents, providers, new String[] {"p", "m1"}, null);
+
+    assertEquals("p/m1", state.model());
+    assertEquals("the catalog record, not a copy", "m1", state.detail("p/m1").id());
+    assertEquals("m2", state.detail("p/m2").id());
+    assertNull("an id outside the catalog renders no detail", state.detail("p/unknown"));
+    assertNull("the default placeholder has no record", state.detail(""));
+    assertNull(state.detail(null));
+  }
+
+  @Test
+  public void aReloadDropsRecordsOfModelsThatLeftTheCatalog() {
+    ChatSelectorState state = new ChatSelectorState();
+    state.load(agents, providers, new String[] {"p", "m1"}, null);
+    assertNotNull(state.detail("p/m1"));
+
+    state.load(agents, new ProviderList(List.of(), null), null, null);
+
+    assertNull(
+        "stale detail must not survive a catalog that no longer carries it", state.detail("p/m1"));
   }
 
   @Test

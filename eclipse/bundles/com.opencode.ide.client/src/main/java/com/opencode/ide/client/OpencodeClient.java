@@ -24,6 +24,7 @@ import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.SkillInfo;
+import com.opencode.ide.client.model.UsageLimits;
 import com.opencode.ide.client.model.VcsInfo;
 import java.nio.file.Path;
 import java.util.List;
@@ -370,6 +371,18 @@ public interface OpencodeClient {
    */
   default java.util.List<ChatEntry> getSessionContext(String sessionId) throws OpencodeException {
     throw new UnsupportedOperationException("getSessionContext");
+  }
+
+  /**
+   * {@code GET /api/experimental/usage/limits} - the workspace budgets behind the TUI's {@code
+   * usage.show} dialog (T-152, gap G4; live since 2.1.0). T-152 probe 2026-11-17 (local 2.3.0):
+   * authenticated like every other {@code /api} route (401 without a token), answers {@code
+   * {location, data:{workspace, budgets:[...]}}} under the v2 envelope. Throws on failure - the
+   * caller degrades honestly ("unavailable", no numbers), which is the contract the Providers view
+   * renders.
+   */
+  default UsageLimits getUsageLimits() throws OpencodeException {
+    throw new UnsupportedOperationException("getUsageLimits");
   }
 
   /**

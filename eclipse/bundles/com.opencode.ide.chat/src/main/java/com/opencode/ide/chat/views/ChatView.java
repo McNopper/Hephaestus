@@ -16,6 +16,7 @@ import com.opencode.ide.client.OpencodeEventListener;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.CommandInfo;
+import com.opencode.ide.client.model.ModelDetail;
 import com.opencode.ide.client.model.ProviderList;
 import com.opencode.ide.core.OpencodeConnection;
 import com.opencode.ide.core.OpencodePreferences;
@@ -153,6 +154,12 @@ public class ChatView extends ViewPart {
   private final ChatSelectorState selectors = new ChatSelectorState();
   private Combo modelCombo;
   private Combo variantCombo;
+
+  /**
+   * The selected model's DETAIL line next to the model combo (T-153, gap G5): price, context window
+   * and the Reasoning badge, in the TUI model-options wording.
+   */
+  private org.eclipse.swt.widgets.Label modelDetailLabel;
 
   /** Deliberate-pick guards: un-armed selector drift (wheel/pointer traffic) reverts. */
   private SelectorGuard agentGuard;
@@ -447,9 +454,9 @@ public class ChatView extends ViewPart {
 
     // row 1: agent + model selectors
     Composite selectorRow = new Composite(outer, SWT.NONE);
-    // one row: agent | model | variant  (the variant belongs directly after the
-    // model it applies to, as in opencode)
-    GridLayout selectorLayout = new GridLayout(3, false);
+    // one row: agent | model | variant | model-detail (the variant belongs directly after the
+    // model it applies to, as in opencode; the detail follows both, T-153)
+    GridLayout selectorLayout = new GridLayout(4, false);
     selectorLayout.marginWidth = 0;
     selectorLayout.marginHeight = 0;
     selectorRow.setLayout(selectorLayout);
@@ -471,6 +478,7 @@ public class ChatView extends ViewPart {
               rememberSelectedModel();
               ChatViewSettings.storeLastModel(selectors.model()); // U-039: last deliberate pick
               fillVariants();
+              renderModelDetail(); // T-153: the facts follow the picked model
             });
     variantCombo = new Combo(selectorRow, SWT.DROP_DOWN | SWT.READ_ONLY);
     variantCombo.setToolTipText("Reasoning effort (model variant) - as in opencode");
@@ -483,6 +491,13 @@ public class ChatView extends ViewPart {
             text -> {
               // read at send time; nothing to commit
             });
+
+    // T-153 (gap G5): the selected model's facts beside its name - the TUI model-options
+    // detail (price · context window · Reasoning), rendered from the /model catalog only
+    modelDetailLabel = new org.eclipse.swt.widgets.Label(selectorRow, SWT.NONE);
+    modelDetailLabel.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+    modelDetailLabel.setToolTipText(
+        "Model detail from the /model catalog: price per 1M tokens, context window, reasoning");
 
     // row 1.5: slash-command proposals (inline above the input; excluded
     // from the layout until a "/" trigger shows it)
@@ -950,6 +965,28 @@ public class ChatView extends ViewPart {
     if (modelGuard != null) {
       modelGuard.reset(modelCombo.getText());
     }
+    renderModelDetail();
+  }
+
+  /**
+   * Renders the selected model's DETAIL line beside the combo (T-153, gap G5): the TUI
+   * model-options facts ({@code $2.00 / $10.00 per 1M · 1,048,576 tokens · Reasoning}) computed
+   * from the already-consumed {@code /model} catalog - no extra network verb. A selection the
+   * catalog does not know empties the label rather than showing a fact it was never given.
+   *
+   * <p>The intercept line is the desktop-safe acceptance channel (no clicks, no screenshots).
+   */
+  private void renderModelDetail() {
+    if (modelDetailLabel == null || modelDetailLabel.isDisposed()) {
+      return;
+    }
+    String detail = ModelDetail.line(selectors.detail(selectors.model()));
+    modelDetailLabel.setText(detail);
+    modelDetailLabel.setToolTipText(
+        detail.isEmpty() ? "Model detail from the /model catalog (nothing known yet)" : detail);
+    modelDetailLabel.getParent().layout(true);
+    com.opencode.ide.core.intercept.ViewIntercept.recordTruncated(
+        "model-detail", "model=" + selectors.model() + " detail=" + detail, 300);
   }
 
   /**

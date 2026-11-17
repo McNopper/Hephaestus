@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.opencode.ide.client.model.Model;
 import com.opencode.ide.client.model.Model.Limit;
+import com.opencode.ide.client.model.UsageLimits;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -152,5 +153,67 @@ public class ModelComparatorTest {
 
     assertEquals(nullProvider, sorted.get(0));
     assertEquals(named, sorted.get(1));
+  }
+
+  // ---------- usage columns (T-152) ----------
+
+  private static java.util.Map<String, UsageRows.Row> usageOf(
+      ModelRow row, double limit, double spent, double left) {
+    return java.util.Map.of(
+        UsageRows.key(row),
+        new UsageRows.Row(
+            UsageLimits.formatDollars(limit),
+            UsageLimits.formatDollars(spent),
+            UsageLimits.leftLabel(new UsageLimits.ModelUsage(left, false, 0L, java.util.List.of())),
+            "Only you · All models",
+            limit,
+            spent,
+            left));
+  }
+
+  @Test
+  public void usageColumnsSortNumericallyWithUncoveredModelsLast() {
+    ModelRow big = row("p", "big", null, null, 0L, false);
+    ModelRow small = row("p", "small", null, null, 0L, false);
+    ModelRow bare = row("p", "bare", null, null, 0L, false); // no budget covers it
+
+    java.util.Map<String, UsageRows.Row> usage = new java.util.HashMap<>();
+    usage.putAll(usageOf(big, 100, 0, 100));
+    usage.putAll(usageOf(small, 10, 5, 5));
+    comparator.setUsage(usage);
+
+    comparator.applySort(UsageRows.LEFT);
+    assertEquals(
+        List.of("small", "big", "bare"), ids(sort(big, small, bare))); // 5 < 100, bare last
+
+    comparator.applySort(UsageRows.LEFT); // flip
+    assertEquals(List.of("big", "small", "bare"), ids(sort(big, small, bare))); // bare stays last
+  }
+
+  @Test
+  public void budgetColumnSortsByTheLimitValue() {
+    ModelRow hundred = row("p", "hundred", null, null, 0L, false);
+    ModelRow ten = row("p", "ten", null, null, 0L, false);
+
+    java.util.Map<String, UsageRows.Row> usage = new java.util.HashMap<>();
+    usage.putAll(usageOf(hundred, 100, 0, 100));
+    usage.putAll(usageOf(ten, 10, 0, 10));
+    comparator.setUsage(usage);
+
+    comparator.applySort(UsageRows.BUDGET);
+    assertEquals(List.of("ten", "hundred"), ids(sort(hundred, ten)));
+  }
+
+  @Test
+  public void usageColumnsFallBackToTheStandardTieBreakWithoutUsage() {
+    ModelRow b = row("Beta", "x", "A", null, 0L, false);
+    ModelRow a = row("Alpha", "y", "Z", null, 0L, false);
+
+    comparator.setUsage(java.util.Map.of()); // no limits loaded
+    comparator.applySort(UsageRows.SPENT);
+
+    assertEquals(List.of("y", "x"), ids(sort(b, a))); // Alpha before Beta, as on any column
+    comparator.applySort(UsageRows.SPENT); // flip still works
+    assertEquals(List.of("x", "y"), ids(sort(b, a)));
   }
 }

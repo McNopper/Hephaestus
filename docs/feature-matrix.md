@@ -43,7 +43,10 @@
 | Streaming chat (progressive markdown, inline Stop, tool parts) | ✅ **gate-verified; live pass pending (T-002)** | U-003 |
 | v2 parity: permission asks, forms, questions, undo/redo, fork at any message | ✅ | T-004/U-010/U-011/U-014/U-044 |
 | Chat TUI parity: compaction divider row (full summary streamed + usage suffix, live and across reload) | ✅ | T-145/T-147 (ViewIntercept live pass) |
-| Chat TUI parity: status strip — context window usage, session cost, goal chip + dialog (pause/resume/clear) | 🔶 **gate-verified; live pass pending deploy** | T-148/T-149 |
+| Chat TUI parity: status strip — context window usage, session cost, goal chip + dialog (pause/resume/clear) | ✅ **live-accepted + deployed (v0.4.0)** | T-148/T-149 (intercept `status strip rendered …`, `goal dialog opened: status=complete`) |
+| Chat TUI parity: Session Details **Context** block (`1,234 tokens` / `57% used` / `$9.96 spent`) over the shared `ContextUsage` seam | ✅ | T-151 (intercept `session-details … context=…`) |
+| Chat TUI parity: Providers **Usage limits** — `Budget` / `Spent` / `Left` per model + `Usage: Workspace: … · Resets …` description (`usage.show`) | 🔶 **built + deployed; live line lands when the Providers tab is shown** | T-152 (gate green, verb contract-tested 5/5, wording 29 tests) |
+| Chat TUI parity: model combo **detail** — `price · context window · Reasoning` beside the selector | ✅ **live-accepted + deployed** | T-153 (intercept `model-detail=… detail=Free · 1,048,576 tokens`) |
 | @ file references, queued composer (steer/queue), Alt+Enter inbox | ✅ | U-012/T-005 |
 | **Steer a running turn (Enter injects; Alt+Enter queues) + `Steer…` menu on any session incl. subagents** | ✅ | U-092 (v0.1.8; live-probed) |
 | Background sessions (Ctrl+B, list, bring back) | ✅ | U-042/T-005; 🔶 keybinding U-064 |

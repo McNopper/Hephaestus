@@ -59,7 +59,8 @@ public class SessionLifecycleControllerTest {
             "llm-1", null, "acme", null, "LLM 1", null, null, null, null, null, null, null, null,
             null);
     Provider provider =
-        new Provider("acme", "ACME", "api", List.of(), null, Map.of(), Map.of("llm-1", model));
+        new Provider(
+            "acme", "ACME", null, "api", List.of(), null, Map.of(), Map.of("llm-1", model));
     return new ProviderList(List.of(provider), null);
   }
 

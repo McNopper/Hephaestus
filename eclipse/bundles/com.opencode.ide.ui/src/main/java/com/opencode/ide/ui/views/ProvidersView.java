@@ -4,7 +4,9 @@ import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.model.HealthStatus;
 import com.opencode.ide.client.model.OauthStart;
+import com.opencode.ide.client.model.Provider;
 import com.opencode.ide.client.model.ProviderList;
+import com.opencode.ide.client.model.UsageLimits;
 import com.opencode.ide.core.ConnectionsManager;
 import com.opencode.ide.core.ManagedConnection;
 import com.opencode.ide.core.OpencodeConnection;
@@ -19,7 +21,9 @@ import com.opencode.ide.ui.model.ModelFilter;
 import com.opencode.ide.ui.model.ModelRow;
 import com.opencode.ide.ui.model.ModelRows;
 import com.opencode.ide.ui.model.ProviderAuthState;
+import com.opencode.ide.ui.model.UsageRows;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.eclipse.core.commands.Parameterization;
@@ -59,6 +63,13 @@ import org.eclipse.ui.part.ViewPart;
  * either works. A text filter and a "server" indicator (which server these providers came from) are
  * provided.
  *
+ * <p><b>Usage columns (T-152, gap G4):</b> Budget / Spent / Left show what the workspace's {@code
+ * GET /api/experimental/usage/limits} budgets leave on each model, in the TUI {@code usage.show}
+ * dialog's wording ({@code $100} / {@code $0} / {@code $100 left}), with its scope line ({@code
+ * Only you · All models}) as the cell tooltip. Models no budget covers show nothing - and when the
+ * route is absent or refuses, the view says {@code Usage limits unavailable} instead of a number it
+ * was never given (see {@link UsageRows}).
+ *
  * <p>The table is {@code SWT.VIRTUAL} with an {@link ILazyContentProvider}: rows are materialized
  * on demand from the element array. Filtering and sorting operate on the source array (no
  * per-element {@code ViewerFilter} callbacks), and the data comes from the primary connection's
@@ -80,8 +91,20 @@ public class ProvidersView extends ViewPart implements Refreshable {
   /** Auth states by provider id from the last load (empty while unknown). */
   private volatile Map<String, ProviderAuthState> authStates = Map.of();
 
+  /**
+   * The Usage cells by model key from the last load (T-152); empty when no limits were loaded or no
+   * budget covers any model - the columns then read as empty, never as a made-up number.
+   */
+  private volatile Map<String, UsageRows.Row> usageRows = Map.of();
+
   private record ProvidersLoad(
-      List<ModelRow> rows, String server, String healthTag, Map<String, ProviderAuthState> auths) {}
+      List<ModelRow> rows,
+      String server,
+      String healthTag,
+      Map<String, ProviderAuthState> auths,
+      UsageLimits usage,
+      String usageError,
+      Map<String, String> integrations) {}
 
   @Override
   public void createPartControl(Composite parent) {
@@ -139,6 +162,29 @@ public class ProvidersView extends ViewPart implements Refreshable {
     createColumn(layout, "Capabilities", 1, r -> ModelRows.capabilities(r.model()), 4);
     createColumn(layout, "Context", 1, r -> ModelRows.context(r.model()), 5);
     createColumn(layout, "Default", 1, r -> r.defaultModel() ? "yes" : "", 6);
+    // T-152 (gap G4): the usage.show dialog's three facts per model, in its wording; the
+    // tooltip carries the TUI's scope line (Only you · All models)
+    createColumn(
+        layout,
+        "Budget",
+        1,
+        r -> UsageRows.cell(usageRows, r, UsageRows.BUDGET),
+        UsageRows.BUDGET,
+        r -> UsageRows.scope(usageRows, r));
+    createColumn(
+        layout,
+        "Spent",
+        1,
+        r -> UsageRows.cell(usageRows, r, UsageRows.SPENT),
+        UsageRows.SPENT,
+        r -> UsageRows.scope(usageRows, r));
+    createColumn(
+        layout,
+        "Left",
+        1,
+        r -> UsageRows.cell(usageRows, r, UsageRows.LEFT),
+        UsageRows.LEFT,
+        r -> UsageRows.scope(usageRows, r));
 
     viewer.getTable().setSortColumn(viewer.getTable().getColumn(0));
     viewer.getTable().setSortDirection(comparator.isAscending() ? SWT.UP : SWT.DOWN);
@@ -354,11 +400,50 @@ public class ProvidersView extends ViewPart implements Refreshable {
               ProviderAuthState.load(
                   client,
                   OpencodeConnection.getInstance().getWorkingDirectory()); // lenient: never throws
+          // T-152: the workspace budgets, LENIENT on purpose - an older build without the
+          // experimental route (or a refused token) degrades to the view's "unavailable"
+          // line instead of failing the providers load or reporting a number it cannot back
+          UsageLimits usage = null;
+          String usageError = null;
+          try {
+            usage = client.getUsageLimits();
+          } catch (Exception e) {
+            usageError = ViewLoadSupport.message(e);
+          }
           String server = OpencodeConnection.getInstance().getConnectConfig().baseUrl().toString();
-          return new ProvidersLoad(ModelRows.toRows(list), server, healthTag, auths);
+          return new ProvidersLoad(
+              ModelRows.toRows(list),
+              server,
+              healthTag,
+              auths,
+              usage,
+              usageError,
+              integrations(list));
         },
-        result -> showRows(result.rows(), result.server(), result.healthTag(), result.auths()),
+        result ->
+            showRows(
+                result.rows(),
+                result.server(),
+                result.healthTag(),
+                result.auths(),
+                result.usage(),
+                result.usageError(),
+                result.integrations()),
         this::showError);
+  }
+
+  /** providerId -&gt; {@code integrationID}, the field the TUI's console gating reads. */
+  private static Map<String, String> integrations(ProviderList list) {
+    if (list == null || list.providers() == null) {
+      return Map.of();
+    }
+    Map<String, String> out = new HashMap<>();
+    for (Provider provider : list.providers()) {
+      if (provider != null && provider.id() != null && provider.integrationID() != null) {
+        out.put(provider.id(), provider.integrationID());
+      }
+    }
+    return out;
   }
 
   private static OpencodeClient primaryClient(ConnectionsManager manager) throws OpencodeException {
@@ -375,15 +460,55 @@ public class ProvidersView extends ViewPart implements Refreshable {
   }
 
   private void showRows(
-      List<ModelRow> rows, String server, String healthTag, Map<String, ProviderAuthState> auths) {
+      List<ModelRow> rows,
+      String server,
+      String healthTag,
+      Map<String, ProviderAuthState> auths,
+      UsageLimits usage,
+      String usageError,
+      Map<String, String> integrations) {
     if (viewer.getControl().isDisposed()) {
       return;
     }
     source = rows.toArray(new ModelRow[0]);
     authStates = auths == null ? Map.of() : auths;
+    usageRows = UsageRows.build(usage, rows, integrations);
+    comparator.setUsage(usageRows);
+    String usageLine = usageLine(usage);
     applyFilterAndSort();
     setContentDescription(
-        "Server: " + server + "  •  " + healthTag + "  •  " + rows.size() + " models");
+        "Server: "
+            + server
+            + "  •  "
+            + healthTag
+            + "  •  "
+            + rows.size()
+            + " models"
+            + "  •  "
+            + usageLine);
+    // T-152 acceptance evidence: what the usage surface actually rendered (the intercept is
+    // the desktop-safe verification channel - no clicks, no screenshots)
+    com.opencode.ide.core.intercept.ViewIntercept.recordTruncated(
+        "providers",
+        "usage-limits="
+            + usageLine
+            + " cells="
+            + usageRows.size()
+            + "/"
+            + rows.size()
+            + (usageError == null ? "" : " error=" + usageError),
+        400);
+  }
+
+  /**
+   * The view's usage segment: the TUI dialog's description when limits loaded ({@code Usage:
+   * Workspace: Default · $0 used of $100 · $100 left · Resets Nov 30}), an honest {@code Usage
+   * limits unavailable} when the route failed or is absent - never a number the server did not
+   * give.
+   */
+  private static String usageLine(UsageLimits usage) {
+    String summary = UsageLimits.summary(usage);
+    return summary == null ? "Usage limits unavailable" : "Usage: " + summary;
   }
 
   /** Provider cell: the provider name plus {@code " · auth"} while its auth data shows a method. */
@@ -435,6 +560,20 @@ public class ProvidersView extends ViewPart implements Refreshable {
       int weight,
       java.util.function.Function<ModelRow, String> value,
       int index) {
+    createColumn(layout, title, weight, value, index, null);
+  }
+
+  /**
+   * A column with an optional per-cell tooltip (the Usage columns carry the TUI's scope line
+   * there); {@code tooltip} returning null/empty hides it.
+   */
+  private void createColumn(
+      TableColumnLayout layout,
+      String title,
+      int weight,
+      java.util.function.Function<ModelRow, String> value,
+      int index,
+      java.util.function.Function<ModelRow, String> tooltip) {
     TableViewerColumn column = new TableViewerColumn(viewer, SWT.NONE);
     column.getColumn().setText(title);
     column.setLabelProvider(
@@ -442,6 +581,15 @@ public class ProvidersView extends ViewPart implements Refreshable {
           @Override
           public String getText(Object element) {
             return value.apply((ModelRow) element);
+          }
+
+          @Override
+          public String getToolTipText(Object element) {
+            if (tooltip == null) {
+              return null;
+            }
+            String text = tooltip.apply((ModelRow) element);
+            return text == null || text.isEmpty() ? null : text;
           }
 
           @Override

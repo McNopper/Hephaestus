@@ -44,6 +44,7 @@ import com.opencode.ide.client.model.SessionStatus;
 import com.opencode.ide.client.model.ShellExecutable;
 import com.opencode.ide.client.model.ShellResult;
 import com.opencode.ide.client.model.SkillInfo;
+import com.opencode.ide.client.model.UsageLimits;
 import com.opencode.ide.client.model.VcsInfo;
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -166,13 +167,16 @@ public final class HttpOpencodeClient implements OpencodeClient {
           JsonObject p = entry.getAsJsonObject();
           String id = p.has("id") ? p.get("id").getAsString() : null;
           String name = p.has("name") ? p.get("name").getAsString() : id;
+          String integrationId =
+              p.has("integrationID") ? p.get("integrationID").getAsString() : null;
           Map<String, Model> models = new java.util.LinkedHashMap<>();
           for (Model m : allModels) {
             if (id != null && id.equals(m.providerID())) {
               models.put(m.id(), m);
             }
           }
-          providers.add(new Provider(id, name, null, List.of(), null, Map.of(), models));
+          providers.add(
+              new Provider(id, name, integrationId, null, List.of(), null, Map.of(), models));
         }
       }
     } catch (JsonParseException e) {
@@ -628,6 +632,17 @@ public final class HttpOpencodeClient implements OpencodeClient {
         new ArrayList<>(getList("/session/" + sessionId + "/context", ChatEntry.class));
     context.sort(java.util.Comparator.comparingLong(HttpOpencodeClient::createdAt));
     return List.copyOf(context);
+  }
+
+  @Override
+  public UsageLimits getUsageLimits() throws OpencodeException {
+    // T-152 probe 2026-11-17 (2.3.0): GET /api/experimental/usage/limits answers
+    // {location:{...}, data:{workspace, budgets:[...]}} - a resource OBJECT under the v2
+    // envelope, so parseBody unwraps it like every other resource route. Auth rides the normal
+    // /api token (401 without it). Failure THROWS: the view renders "unavailable" rather than a
+    // number it cannot stand behind.
+    String path = "/experimental/usage/limits";
+    return parseBody("GET", path, request("GET", path, null), UsageLimits.class, true);
   }
 
   @Override

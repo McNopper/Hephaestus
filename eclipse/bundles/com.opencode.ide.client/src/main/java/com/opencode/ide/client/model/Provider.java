@@ -8,10 +8,17 @@ import java.util.Map;
  *
  * <p>Note: {@code models} is a map keyed by model id in the server schema, not an array. Mirrors
  * the {@code Provider} type in the opencode OpenAPI schema.
+ *
+ * @param integrationID the integration that SERVES this provider (live {@code GET /api/provider}
+ *     field, T-152) - how the TUI's {@code servedByConsole} tells OpenCode-Console-billed models
+ *     from a provider the workspace's budgets cannot touch ({@link UsageLimits#servedByConsole}).
+ *     {@code null} on builds that do not report it, and then no all-coverage budget applies, which
+ *     is the honest reading.
  */
 public record Provider(
     String id,
     String name,
+    String integrationID,
     String source,
     List<String> env,
     String key,

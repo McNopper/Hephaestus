@@ -111,7 +111,12 @@ public final class ContextUsage {
 
   /** The sidebar dialect line 1: {@code 1,234 tokens}; {@code null} hides. */
   public static String tokensLine(Usage usage) {
-    return usage == null ? null : String.format(Locale.ROOT, "%,d tokens", usage.tokens());
+    return usage == null ? null : tokensLabel(usage.tokens());
+  }
+
+  /** The tokens wording shared by every surface: {@code 1,234 tokens} (T-153 reuses it). */
+  public static String tokensLabel(long tokens) {
+    return String.format(Locale.ROOT, "%,d tokens", tokens);
   }
 
   /** The sidebar dialect line 2: {@code 57% used}; {@code null} hides. */
@@ -124,7 +129,12 @@ public final class ContextUsage {
     if (cost == null || cost <= 0) {
       return null;
     }
-    return String.format(Locale.ROOT, "$%,.2f", cost);
+    return usdLabel(cost);
+  }
+
+  /** The one USD formatter every surface formats through ({@code $9.96}, {@code $0.00}). */
+  public static String usdLabel(double value) {
+    return String.format(Locale.ROOT, "$%,.2f", value);
   }
 
   /** The sidebar dialect line 3: {@code $9.96 spent}; {@code null} hides. */

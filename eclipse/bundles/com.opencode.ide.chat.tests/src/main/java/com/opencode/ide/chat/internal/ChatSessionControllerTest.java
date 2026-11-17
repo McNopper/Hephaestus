@@ -2926,7 +2926,8 @@ public class ChatSessionControllerTest {
     Model model =
         new Model(
             "m1", "m1", "prov", null, null, null, null, null, null, null, null, null, null, null);
-    Provider provider = new Provider("prov", "Prov", null, null, null, null, Map.of("m1", model));
+    Provider provider =
+        new Provider("prov", "Prov", null, null, null, null, null, Map.of("m1", model));
     connection.client.agents = List.of(agent);
     connection.client.providers = new ProviderList(List.of(provider), Map.of());
 
