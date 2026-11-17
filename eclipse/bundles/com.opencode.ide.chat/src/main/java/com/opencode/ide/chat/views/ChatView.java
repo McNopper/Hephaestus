@@ -136,6 +136,11 @@ public class ChatView extends ViewPart {
   private ChatSessionController controller;
   private CommandComposer composer;
   private Text input;
+
+  /** CP-08 (FR-CP-08): the composer's ArrowUp/ArrowDown recall; the stash round-trips the draft. */
+  private final com.opencode.ide.chat.internal.PromptHistory promptHistory =
+      new com.opencode.ide.chat.internal.PromptHistory();
+
   private Composite inputRow;
   private Button sendButton;
   private Button stopButton;
@@ -726,6 +731,12 @@ public class ChatView extends ViewPart {
                 && pickerHasMatches()) {
               e.doit = false;
               movePickerSelection(e.keyCode == SWT.ARROW_DOWN ? 1 : -1);
+            } else if (e.keyCode == SWT.ARROW_UP || e.keyCode == SWT.ARROW_DOWN) {
+              // CP-08 (FR-CP-08): prompt-history recall when neither dropdown owns the arrows -
+              // ArrowUp walks back over sent prompts, ArrowDown forward, and the stash
+              // round-trips an in-progress draft instead of dropping it (AC2)
+              e.doit = false;
+              recallPrompt(e.keyCode == SWT.ARROW_UP);
             } else if (com.opencode.ide.chat.BackgroundKeys.isBackgroundKey(
                 e.stateMask, e.keyCode)) {
               e.doit = false;
@@ -1501,6 +1512,18 @@ public class ChatView extends ViewPart {
 
   // ---------- sending / pending queue ----------
 
+  /**
+   * CP-08 (FR-CP-08): ArrowUp/ArrowDown recall in the composer - the text is replaced by the
+   * recalled prompt and the caret moves to its end so editing continues naturally; the history's
+   * own stash restores an in-progress draft on the way forward (AC2).
+   */
+  private void recallPrompt(boolean backwards) {
+    String current = input.getText();
+    String recalled = backwards ? promptHistory.up(current) : promptHistory.down(current);
+    input.setText(recalled);
+    input.setSelection(recalled.length());
+  }
+
   private void send() {
     String text = input.getText().trim();
     if (text.isEmpty() && attachedFiles.isEmpty()) {
@@ -1527,6 +1550,7 @@ public class ChatView extends ViewPart {
       controller.runInlineShell(shellCommand);
       return;
     }
+    promptHistory.record(text); // CP-08: this view's recall list (sent and queued alike)
     submitSelection(composer.resolve(text));
   }
 
