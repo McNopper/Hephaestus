@@ -16,6 +16,7 @@ public final class ChatViewSettings {
   private static final String SECTION = "chatView";
   private static final String KEY_LAST_SESSION = "lastSessionId";
   private static final String KEY_LAST_MODEL = "lastModel";
+  private static final String KEY_PINNED_SESSIONS = "pinnedSessions";
 
   private ChatViewSettings() {}
 
@@ -44,6 +45,28 @@ public final class ChatViewSettings {
   /** Stores (non-blank) or clears ({@code null}/blank) the last selected model. */
   public static void storeLastModel(String model) {
     put(KEY_LAST_MODEL, model);
+  }
+
+  // ---------- CP-05 (FR-CP-05): the in-chat switcher's pinned sessions ----------
+
+  /**
+   * The pinned session ids (CP-05 AC2): a host-side set - the live v2 API has no pin verb or field
+   * (probed 2026-11-17), so the chat persists its own marker here.
+   */
+  public static java.util.Set<String> pinnedSessions() {
+    return SessionPins.parse(get(KEY_PINNED_SESSIONS));
+  }
+
+  /** Whether the session is pinned ({@code null} never is). */
+  public static boolean isPinned(String sessionId) {
+    return SessionPins.contains(pinnedSessions(), sessionId);
+  }
+
+  /** Pins/unpins the id and persists the set; returns the new set. */
+  public static java.util.Set<String> setPinned(String sessionId, boolean pinned) {
+    java.util.Set<String> next = SessionPins.with(pinnedSessions(), sessionId, pinned);
+    put(KEY_PINNED_SESSIONS, SessionPins.format(next));
+    return next;
   }
 
   private static String get(String key) {

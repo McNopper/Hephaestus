@@ -462,9 +462,10 @@ public class ChatView extends ViewPart {
 
     // row 1: agent + model selectors
     Composite selectorRow = new Composite(outer, SWT.NONE);
-    // one row: agent | model | variant | model-detail (the variant belongs directly after the
-    // model it applies to, as in opencode; the detail follows both, T-153)
-    GridLayout selectorLayout = new GridLayout(4, false);
+    // one row: agent | model | variant | model-detail | sessions (the variant belongs directly
+    // after the model it applies to, as in opencode; the detail follows both, T-153; the session
+    // switcher is CP-05)
+    GridLayout selectorLayout = new GridLayout(5, false);
     selectorLayout.marginWidth = 0;
     selectorLayout.marginHeight = 0;
     selectorRow.setLayout(selectorLayout);
@@ -506,6 +507,13 @@ public class ChatView extends ViewPart {
     modelDetailLabel.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
     modelDetailLabel.setToolTipText(
         "Model detail from the /model catalog: price per 1M tokens, context window, reasoning");
+
+    // CP-05 (FR-CP-05): the in-chat session switcher - recent sessions, rebind in place,
+    // pin + delete for the bound session; one button opens it, no view per switch
+    Button sessionsButton = new Button(selectorRow, SWT.PUSH);
+    sessionsButton.setText("Sessions\u2026");
+    sessionsButton.setToolTipText("Switch session in place, pin or delete it (CP-05)");
+    sessionsButton.addListener(SWT.Selection, e -> openSessionSwitcher());
 
     // row 1.5: slash-command proposals (inline above the input; excluded
     // from the layout until a "/" trigger shows it)
@@ -963,6 +971,48 @@ public class ChatView extends ViewPart {
     if (variantGuard != null && !variantCombo.isDisposed()) {
       variantGuard.reset(variantCombo.getText());
     }
+  }
+
+  /**
+   * CP-05 (FR-CP-05): the in-chat session switcher - recent sessions arrive from the controller's
+   * background load, the dialog opens on the UI thread. Switch rebinds the OPEN chat in place
+   * ({@code resume}), pin flips the host-side marker (the live v2 API has no pin verb - probed
+   * 2026-11-17), delete runs through the controller, which unbinds a bound session itself.
+   */
+  private void openSessionSwitcher() {
+    ChatSessionController ctrl = controller;
+    if (ctrl == null) {
+      return;
+    }
+    ctrl.loadRecentSessions(
+        sessions -> {
+          com.opencode.ide.chat.session.SessionsDialog dialog =
+              new com.opencode.ide.chat.session.SessionsDialog(
+                  getViewSite().getShell(),
+                  sessions,
+                  ctrl.sessionId(),
+                  ChatViewSettings.pinnedSessions(),
+                  new com.opencode.ide.chat.session.SessionsDialog.Handler() {
+                    @Override
+                    public void switchTo(String sessionId) {
+                      ctrl.resume(sessionId);
+                    }
+
+                    @Override
+                    public void togglePin(String sessionId) {
+                      ChatViewSettings.setPinned(sessionId, !ChatViewSettings.isPinned(sessionId));
+                    }
+
+                    @Override
+                    public void delete(String sessionId) {
+                      ctrl.deleteSession(sessionId);
+                    }
+                  });
+          dialog.open();
+        },
+        error ->
+            org.eclipse.jface.dialogs.MessageDialog.openError(
+                getViewSite().getShell(), "Switch session", error.getMessage()));
   }
 
   private void renderModelSelection() {

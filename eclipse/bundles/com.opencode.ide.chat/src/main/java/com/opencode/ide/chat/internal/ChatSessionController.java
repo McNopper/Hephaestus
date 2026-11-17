@@ -24,6 +24,7 @@ import com.opencode.ide.client.model.VcsInfo;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -815,6 +816,67 @@ public final class ChatSessionController {
     renderer.notice("Fresh session - your next message starts a new conversation.");
     fireUndoRedoChanged();
     host.sessionChanged(null); // U-039: an abandoned session is not restored on restart
+  }
+
+  /**
+   * CP-05 (FR-CP-05): the location's recent sessions for the in-chat switcher - newest first by the
+   * server's update stamp, capped at {@link #SWITCHER_LIMIT}; read-only, the dialog decides what to
+   * do with them.
+   */
+  public List<Session> recentSessions() throws OpencodeException {
+    List<Session> sessions = connection.getClient().getSessions();
+    List<Session> sorted = new ArrayList<>(sessions == null ? List.of() : sessions);
+    sorted.removeIf(candidate -> candidate == null || candidate.id() == null);
+    sorted.sort(
+        Comparator.comparingLong(
+                (Session candidate) -> candidate.time() == null ? 0L : candidate.time().updated())
+            .reversed());
+    return sorted.size() > SWITCHER_LIMIT
+        ? new ArrayList<>(sorted.subList(0, SWITCHER_LIMIT))
+        : sorted;
+  }
+
+  /** How many sessions the in-chat switcher offers (newest first). */
+  public static final int SWITCHER_LIMIT = 20;
+
+  /**
+   * CP-05 AC2: deletes one session through the client verb. Deleting the BOUND session unbinds the
+   * chat in place ({@link #startNewSession()} - never a transcript left bound to a dead session); a
+   * refused delete surfaces as a notice, never a half-done state.
+   */
+  public void deleteSession(String sid) {
+    if (sid == null || sid.isBlank()) {
+      return;
+    }
+    boolean bound = sid.equals(sessionId);
+    try {
+      connection.getClient().deleteSession(sid);
+      host.info("session deleted: " + sid);
+      if (bound) {
+        startNewSession();
+      }
+    } catch (OpencodeException e) {
+      renderer.notice("⚠ Cannot delete session: " + e.getMessage());
+    }
+  }
+
+  /**
+   * CP-05: loads the switcher's recent sessions off the UI thread and delivers them back on it -
+   * the same shape as {@code loadSelectorData}, so the dialog never blocks a paint.
+   */
+  public void loadRecentSessions(
+      java.util.function.Consumer<List<Session>> onLoaded,
+      java.util.function.Consumer<OpencodeException> onError) {
+    host.runInBackground(
+        "Loading sessions for the switcher",
+        () -> {
+          try {
+            List<Session> sessions = recentSessions();
+            host.runOnUi(() -> onLoaded.accept(sessions));
+          } catch (OpencodeException e) {
+            host.runOnUi(() -> onError.accept(e));
+          }
+        });
   }
 
   /** Resumes {@code sid}: loads its history into the transcript. */

@@ -287,6 +287,73 @@ public class ChatSessionControllerTest {
     assertEquals("a.txt|--- a\n+++ b\n+changed", renderer.diffs.get(0));
   }
 
+  // ---------- in-chat session switcher (chat parity CP-05) ----------
+
+  /**
+   * CP-05 AC1: the switcher's data - recent sessions newest-first by the server's update stamp and
+   * capped (the dialog shows what the FR calls the location's RECENT sessions, not the whole log).
+   */
+  @Test
+  public void recentSessionsAreSortedNewestFirstAndCapped() throws OpencodeException {
+    List<Session> sessions = new ArrayList<>();
+    for (int i = 0; i < 25; i++) {
+      sessions.add(
+          new Session(
+              "ses_" + i,
+              null,
+              "t" + i,
+              null,
+              null,
+              null,
+              new Session.Time(0, i, 0),
+              null,
+              null,
+              null,
+              null));
+    }
+    connection.client.sessions = sessions;
+
+    List<Session> recent = controller.recentSessions();
+
+    assertEquals(ChatSessionController.SWITCHER_LIMIT, recent.size());
+    assertEquals("newest first", "ses_24", recent.get(0).id());
+  }
+
+  /** CP-05 AC1: the load runs off the UI thread and is delivered back on it (no paint blocking). */
+  @Test
+  public void loadRecentSessionsDeliversOnTheUiThread() {
+    connection.client.sessions =
+        List.of(new Session("ses_9", null, "n", null, null, null, null, null, null, null, null));
+    List<List<Session>> delivered = new ArrayList<>();
+
+    controller.loadRecentSessions(
+        delivered::add,
+        error -> {
+          throw new AssertionError(error);
+        });
+
+    assertEquals(1, delivered.size());
+    assertEquals("ses_9", delivered.get(0).get(0).id());
+  }
+
+  /**
+   * CP-05 AC2: delete goes through the client verb, and deleting the BOUND session unbinds the chat
+   * in place (startNewSession) - never a transcript left bound to a dead session; deleting another
+   * one keeps the binding.
+   */
+  @Test
+  public void deleteSessionCallsTheVerbAndOnlyUnbindsTheBoundSession() {
+    controller.resume("ses_other"); // binds ses_other
+
+    controller.deleteSession("ses_third"); // a different session
+    assertEquals(List.of("ses_third"), connection.client.deleteCalls);
+    assertEquals("deleting another session keeps the binding", "ses_other", controller.sessionId());
+
+    controller.deleteSession("ses_other"); // the bound one
+    assertEquals(java.util.Arrays.asList("ses_third", "ses_other"), connection.client.deleteCalls);
+    assertNull("the bound session is unbound on delete", controller.sessionId());
+  }
+
   // ---------- inline shell mode (chat parity CP-02) ----------
 
   /**
@@ -3797,9 +3864,28 @@ public class ChatSessionControllerTest {
       return null;
     }
 
+    /** CP-05: the switcher's recent sessions ({@code null} keeps the old unsupported default). */
+    List<Session> sessions;
+
+    /** CP-05: recorded {@code deleteSession} calls. */
+    final List<String> deleteCalls = new ArrayList<>();
+
+    OpencodeException deleteFailure;
+
     @Override
     public List<Session> getSessions() {
-      throw new UnsupportedOperationException();
+      if (sessions == null) {
+        throw new UnsupportedOperationException();
+      }
+      return sessions;
+    }
+
+    @Override
+    public void deleteSession(String sessionId) throws OpencodeException {
+      deleteCalls.add(sessionId);
+      if (deleteFailure != null) {
+        throw deleteFailure;
+      }
     }
 
     @Override
