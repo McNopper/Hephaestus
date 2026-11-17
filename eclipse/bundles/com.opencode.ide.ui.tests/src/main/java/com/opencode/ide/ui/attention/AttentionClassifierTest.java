@@ -47,6 +47,59 @@ public class AttentionClassifierTest {
         .formatted(type, sessionId);
   }
 
+  // ---------- question forms (CP-12 / FR-CP-12) ----------
+
+  /**
+   * CP-12 (FR-CP-12): {@code form.created} raises the QUESTION attention kind - the event type the
+   * FR's precondition ("IF the event stream grows a form-ask type") waited for, confirmed in the
+   * live SSE enum (openapi 2.3.0, probed 2026-11-17).
+   */
+  @Test
+  public void formCreatedRaisesTheQuestionKind() {
+    AttentionEvent raised = classifier.apply(event(sessionEvent("form.created", "ses_q1")));
+
+    assertNotNull(raised);
+    assertEquals(AttentionKind.QUESTION, raised.kind());
+    assertEquals("ses_q1", raised.sessionId());
+    assertEquals("Session ses_q1 asked a question", raised.message());
+  }
+
+  /**
+   * The payload's own hint wins over the generic sentence (the popup informs, never fabricates).
+   */
+  @Test
+  public void formCreatedPrefersTheFormsOwnHintWhenThePayloadCarriesOne() {
+    AttentionEvent withTitle =
+        classifier.apply(
+            event(
+                "{\"type\":\"form.created\",\"properties\":{\"sessionID\":\"ses_q2\","
+                    + "\"title\":\"Deploy to prod?\"}}"));
+    assertNotNull(withTitle);
+    assertEquals("Deploy to prod?", withTitle.message());
+
+    AttentionEvent withPrompt =
+        classifier.apply(
+            event(
+                "{\"type\":\"form.created\",\"properties\":{\"sessionID\":\"ses_q3\","
+                    + "\"prompt\":\"Which environment?\"}}"));
+    assertNotNull(withPrompt);
+    assertEquals("Which environment?", withPrompt.message());
+  }
+
+  /** No session id = nothing actionable (the same rule permission.asked applies). */
+  @Test
+  public void formCreatedWithoutASessionIdIsIgnored() {
+    assertNull(
+        classifier.apply(event("{\"type\":\"form.created\",\"properties\":{\"formID\":\"f_1\"}}")));
+  }
+
+  /** An answered or cancelled form is NOT a new question - those types stay unmapped by design. */
+  @Test
+  public void answeredAndCancelledFormsRaiseNothing() {
+    assertNull(classifier.apply(event(sessionEvent("form.replied", "ses_q4"))));
+    assertNull(classifier.apply(event(sessionEvent("form.cancelled", "ses_q5"))));
+  }
+
   // ---------- permission asks ----------
 
   @Test

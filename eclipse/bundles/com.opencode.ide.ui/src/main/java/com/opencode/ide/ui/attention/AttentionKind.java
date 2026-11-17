@@ -15,7 +15,10 @@ public enum AttentionKind {
   /** A session raised a permission request ({@code permission.asked}). */
   PERMISSION_ASK("opencode permission request"),
 
-  /** The agent asked a form question (enum reserved; not yet mapped). */
+  /**
+   * The agent asked a form question ({@code form.created} - mapped by CP-12; the SSE event-type
+   * enum carrying it was confirmed live against openapi 2.3.0 on 2026-11-17).
+   */
   QUESTION("opencode question"),
 
   /**

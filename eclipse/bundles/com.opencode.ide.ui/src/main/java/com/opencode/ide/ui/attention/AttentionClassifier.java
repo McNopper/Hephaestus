@@ -29,8 +29,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *       is no separate {@code session.error} event on the wire.
  *   <li>{@code session.deleted} → busy set entry dropped silently (a deleted session is gone, not
  *       finished — notifying would be noise).
- *   <li>{@link AttentionKind#QUESTION}: enum supported, NOT mapped — see {@link AttentionKind}
- *       javadoc. TODO(U-047): wire once a form-ask SSE event type is confirmed on the wire.
+ *   <li>{@code form.created} -&gt; {@link AttentionKind#QUESTION} (CP-12): the form-ask event type
+ *       FR-CP-12's precondition awaited, confirmed in the live SSE event-type enum (openapi 2.3.0,
+ *       probed 2026-11-17: {@code form.created}/{@code form.replied}/{@code form.cancelled}) and
+ *       mapped without a busy gate. {@code form.replied}/{@code form.cancelled} stay unmapped by
+ *       design - an answered or cancelled form is not a new question.
  * </ul>
  *
  * <p>Stateful but thread-safe: the busy set is a concurrent set (events arrive on the SSE reader
@@ -57,6 +60,7 @@ public final class AttentionClassifier {
     }
     return switch (event.type()) {
       case PermissionEvents.ASKED -> permissionAsk(event);
+      case "form.created" -> question(event); // CP-12: the form-ask event type (live-enum probed)
       case "session.status" -> status(event);
       case "session.idle", "session.execution.succeeded" ->
           completedIfBusy(sessionId(event), "finished");
@@ -98,6 +102,32 @@ public final class AttentionClassifier {
       return null;
     }
     return new AttentionEvent(AttentionKind.PERMISSION_ASK, request.display(), request.sessionId());
+  }
+
+  /**
+   * {@code form.created} (CP-12 / FR-CP-12): the agent asked a question through a form - the
+   * QUESTION attention kind, raised WITHOUT the busy gate (unlike a turn end, a question is noise
+   * only if nobody hears it). The precondition the FR stated ("IF the event stream grows a form-ask
+   * type") is satisfied: the SSE event-type enum in the live openapi 2.3.0 (probed 2026-11-17)
+   * lists {@code form.created}/{@code form.replied}/{@code form.cancelled}. The message prefers the
+   * payload's own hint ({@code title} then {@code prompt} then {@code form.title}) and falls back
+   * to a generic sentence - the popup must inform, never fabricate. {@code form.replied}/{@code
+   * form.cancelled} stay unmapped by design: an answered or cancelled form is not a NEW question.
+   */
+  private AttentionEvent question(OpencodeEvent event) {
+    String sid = sessionId(event);
+    if (sid == null) {
+      return null;
+    }
+    String hint = event.string("title");
+    if (hint == null) {
+      hint = event.string("prompt");
+    }
+    if (hint == null) {
+      hint = event.at("form.title");
+    }
+    String message = hint == null || hint.isBlank() ? "Session " + sid + " asked a question" : hint;
+    return new AttentionEvent(AttentionKind.QUESTION, message, sid);
   }
 
   /**
