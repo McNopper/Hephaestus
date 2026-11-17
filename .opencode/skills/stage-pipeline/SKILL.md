@@ -171,10 +171,15 @@ product define done.
 1. Read the ticket and its basis artifacts.
 2. Do the work in your declared file lane only.
 3. Record the stage product: `task_add_artifact` (kind doc/file with the
-   product path — or publish to the artifacts store when enabled).
-4. Set the ticket `in-review`. NEVER set `done`: the verdict is the engine's
-   review pass + quality gate, never your self-assessment.
-5. If blocked, `task_set_blocked` with the reason naming what you need. Do
+   product path - or publish to the artifacts store when enabled).
+4. Write the fulfillment comment: `task_add_comment` with `by` = your own
+   identity - the completion report naming your stage skill. It is your
+   identity evidence for the flip and lands BEFORE it: the canonical write
+   order is artifact → fulfillment comment → `in-review`.
+5. Set the ticket `in-review` - a bare flip and your LAST write. NEVER set
+   `done`: the verdict is the engine's review pass + quality gate, never your
+   self-assessment.
+6. If blocked, `task_set_blocked` with the reason naming what you need. Do
    not improvise around a blocker.
 
 ## Boundaries (non-negotiable)
