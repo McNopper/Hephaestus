@@ -1550,10 +1550,9 @@ public final class ChatSessionController {
               message.text(),
               message.files());
       ChatEntry reply = connection.getClient().sendMessage(request, null, delivery);
-      settleReply(reply);
+      settleReply(reply); // CP-04: settleReply surfaces the changed-files row (every path)
       historyHasUserMessage = true; // the prompt is recorded server-side now
       host.runOnUi(this::fireUndoRedoChanged);
-      surfaceTurnDiff(sid, reply); // CP-04: the files this turn changed
     } catch (OpencodeException e) {
       if (sid != null && isPromptTimeout(e)) {
         handedOff = recoverFromPromptTimeout(sid, "Send");
@@ -1579,7 +1578,9 @@ public final class ChatSessionController {
    * CP-04 (FR-CP-04): after a turn settles, surface the files THIS turn changed - the reply's own
    * {@code GET /session/:id/diff} (message-scoped, so the row is per-turn), never a git-CLI side
    * read (the exceptions table stays as documented). No changed files -> no row; an unavailable
-   * read degrades to a log line, never a broken transcript.
+   * read degrades to a log line, never a broken transcript. Called from the shared settle point
+   * ({@link #settleReply}) so prompt turns, slash-command turns and timeout-recovered replies all
+   * get the row.
    */
   private void surfaceTurnDiff(String sessionId, ChatEntry reply) {
     String messageId = reply == null || reply.info() == null ? null : reply.info().id();
@@ -2318,6 +2319,11 @@ public final class ChatSessionController {
     // turn just billed) recompute from server truth. Nested job: settleReply already runs on a
     // background thread, and refreshStatus marshals its own.
     refreshStatus(null);
+    // CP-04 (FR-CP-04 "WHEN a turn completes edits" - no path carve-out): the changed-files row
+    // belongs to EVERY settle path - prompt (runSendJob), slash command (runCommandJob) and the
+    // timeout-recovered reply (finalizeLateReply) alike - so it lives at the shared settle point,
+    // right after the reply rendered. One call, one row per settled turn.
+    surfaceTurnDiff(sessionId, reply);
   }
 
   /**

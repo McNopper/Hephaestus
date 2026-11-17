@@ -4,7 +4,7 @@
 
 - **Kind:** doc / live inventory; **read by:** the maintainer and any agent planning the next wave; **written by:** the orchestrator, **v2 after rubberduck review** (findings applied, see notes inline).
 - **Goal:** see at a glance what the harness already *does*, what is built but unaccepted, and what is still missing — in service of "the harness gets stable and usable".
-- **Source of truth:** the task store (live counts via `task_board`, project `hephaestus`; capture 2026-11-17: 290 done / 5 in-review / 57 open / 0 blocked) plus AGENTS.md and the shipped code; the store wins where they disagree. This file carries the *shape* — shipped / unaccepted / missing — and never a count that can rot.
+- **Source of truth:** the task store (live counts via `task_board`, project `hephaestus`; capture 2026-11-17 evening: 343 done / 21 in-review / 34 open / 1 blocked - ticker halted on owner directive, verdicts resume next armed pass) plus AGENTS.md and the shipped code; the store wins where they disagree. This file carries the *shape* - shipped / unaccepted / missing - and never a count that can rot.
 - **Legend:** ✅ shipped + verified · 🔶 built, acceptance pending (in-review) · 🟡 backlog · ⛔ blocked (ticket or decision) · 🅿️ parked / non-goal · 👤 maintainer action (approval / live pass)
 
 ## 1. V-model engine & task store
@@ -14,15 +14,18 @@
 | Task store (file-based blackboard, one md per ticket) | ✅ | E-001; `tasks` MCP serves all agents |
 | V-stage field (immutable ownership) + basis/epic links + readiness (READY/WAIT_UPSTREAM/STALE/BLOCKED/RUNNING) | ✅ | V-001; H6 readiness; U-110 store contract |
 | V-enforcement: stage artifacts, top-down coverage injection, DONE as gate verdict | ✅ | U-078..U-082 (v0.1.4); done-time guard (U-110) |
+| Stageless verdict lane (in-review tickets with no stage get the step-3 engine verdict, both carriages: SKILL + tick prompt) | ✅ built, verdict pending | T-174 (StagelessVerdictContractTest 2/2) |
+| Stage encoded in the ticket name (`[stage]` title tag, store-owned at every title/stage write) | ✅ built, verdict pending | T-175 (StageInTitleTest 10/10) |
+| `review: human \| ai` verdict-kind field (first/last-stage-only human review, engine skips `human`) | ✅ built, verdict pending | T-155 (ReviewFieldTest 6/6 + skill contract 2/2) |
 | ~~Stage pass-through: `task_pass_stage` + `pass-declare:` pump path~~ | ✗ retired (U-110) | superseded by the linked stage pipeline (stationary tickets, division on completion) |
 | ~~Horizontal loop `task_report_horizontal`~~ | ✗ retired (U-110) | superseded by blocked escalation to the basis |
-| Blocked as a status (schema + resumeTo + surfaces) | 🔶 | U-067/U-068/U-069 (in-review) |
+| Blocked as a status (schema + resumeTo + surfaces) | ✅ | U-067/U-068/U-069 (done) |
 | Five V-chains walked to test-requirements | ✅ | T-026 (v0.1.9) |
-| `task_traceability` | 🔶 | U-070 in-review; **D-001 decided** (three signals) |
-| Archive-aware readiness + auto_archive | 🟡 | U-059/U-060 |
-| Wave digest (record + board render) | 🟡 | U-061/U-062 |
-| Store glitches (wave timestamps, malformed id, artifactless done rows) | 🟡 | T-028/T-029 |
-| planSprint meta counter quirk | 🟡 | U-094 |
+| `task_traceability` | ✅ | U-070 done; **D-001 decided** (three signals) |
+| Archive-aware readiness + auto_archive | ✅ | U-059/U-060 (done; archive pool feeds all three production readiness sites) |
+| Wave digest (record + board render) | ✅ | U-061/U-062 (done) |
+| Store glitches (wave timestamps, malformed id, artifactless done rows) | ✅ | T-028/T-029 (done) |
+| planSprint meta counter quirk | ✅ | U-094 (done) |
 
 ## 2. PM workflow & waves
 
@@ -115,6 +118,7 @@
 | PIT mutation (mojo, 255/263 = 97%) | ✅ | U-089/U-091 |
 | Error Prone (plain-javac modules) | ✅ | U-089 (zero findings) |
 | Markdownlint + PSScriptAnalyzer | ✅ | U-086 |
+| Build guard: concurrent-build cap + commit-headroom floor in `build.ps1` | ✅ built, verdict pending | T-177 (owner directive 2026-11-17; four live proofs: solo / contention-refusal / floor-refusal / skip bypass) |
 | **chat-web Node checks (renderer/bridge/mermaid)** | ✅ | QUALITY row (found by review) |
 | osv `--licenses` inventory + policy | ✅ | `-Licenses` |
 | Linux CI leg | 🔶 | landed + blocking (T-020); ubuntu leg under re-diagnosis (T-027) |
@@ -156,16 +160,16 @@
 | Sandboxing, remote fleets, M4 port, cpp extraction, multi-level rollup, cpp stdio pack | 🅿️ parked / non-goals |
 | Pre-curation history rewrite | 🅿️ forward-only rule accepted |
 
-## 11. Stability & usability assessment (post-rubberduck)
+## 11. Stability & usability assessment (post-rubberduck, re-checked 2026-11-17)
 
 **Stable where measured:** engine, store, fleet, gates carry gate-grade evidence (28/28, arch rules, PIT 97%, probed pins, three identical-surface upstream rounds).
 
-**The rough edges that gate "usable" (re-ordered after review):**
+**The original rough-edge list is drained** - all five tickets closed: B-024 (chat send stability) ✅, the 13-ticket in-review drain ✅ (that wave landed; the store then ran to 343 done), T-002 + U-009 live pass ✅ (2026-11-15/16, interception evidence), U-037 acceptance run ✅ (real tokens spent, waves cut), U-075/U-096 daily-feel items ✅ (report + parked follow-up T-156).
 
-1. 🔶 **B-024** (high): long healthy turns must not fail the chat send — a stability bug *built, unaccepted*.
-2. 🔶 **The in-review drain**: 12 of 13 in-review tickets = the U-064..U-077 UX wave + B-024 (U-075 never left backlog) — acceptance costs no human time (reviewer auto-accept exists).
-3. 👤 **T-002 (high) + ⛔ U-009**: the daily-driver UI has **never had its live in-Eclipse verification pass**; three ✅ rows above are gate-asserted, not observed. Blocked on a live Eclipse restart.
-4. 👤 **U-037**: the autonomy loop's acceptance run has never spent a real token.
-5. **U-075** (responsiveness question, unmeasured) + **U-096** (collected questions) — the daily-feel items.
+**What actually gates "usable" today (2026-11-17):**
 
-**Single most valuable next move:** drain the 13-ticket in-review wave (ships B-024 + the blocked-state schema), then schedule the T-002 live pass.
+1. **The live acceptance loop (owner at the keyboard)** - six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173) plus T-040 stay in-progress/blocked until a live Eclipse run supplies the evidence; T-040 additionally waits on T-176 (the `eclipse-build` endpoint never starts in a deployed Eclipse). Non-blocking per T-039.
+2. **The in-review drain** - 21 tickets sit `in-review` awaiting the engine verdict; the ticker was halted on owner directive 2026-11-17, so verdicts resume only with the next armed pass (`ticker-setup.ps1`) or an owner-directed review.
+3. **The patched release cut** - v0.4.1 mechanics are human-only (release.ps1, DENY-5): the tree, gates and docs are prepared; the owner runs the cut when ready.
+
+**Single most valuable next move:** arm the ticker (or run a directed review) to drain the 21 in-review verdicts, then cut the patched release.

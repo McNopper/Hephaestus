@@ -185,6 +185,18 @@
                padding: 8px; margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere;
                font-family: Consolas, "Courier New", monospace; font-size: 12px; }
   .shell-status { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  /* per-turn changed files + in-chat diff surface (chat parity CP-04): the row
+     after a settled turn lists the files THAT turn changed (session.diff scoped
+     to the reply); each path chip opens the diff for that file. Same strip
+     conventions as the CP-02 shell row above */
+  .msg.changed .bubble, .msg.diff-surface .bubble { background: var(--bubble-ai-bg);
+                border: 1px solid var(--border); flex: 1; }
+  .changed-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .changed-file { font: inherit; font-family: Consolas, "Courier New", monospace;
+                  font-size: 11px; padding: 1px 8px; cursor: pointer;
+                  color: var(--fg); background: var(--bg);
+                  border: 1px solid var(--border); border-radius: 9px; }
+  .changed-file:hover, .changed-file:focus-visible { border-color: var(--fg); }
   /* copy button on every code fence (theme-aware, no external assets) */
   .copy-btn { position: absolute; top: 4px; right: 4px; padding: 1px 8px;
               font: inherit; font-size: 11px; cursor: pointer;

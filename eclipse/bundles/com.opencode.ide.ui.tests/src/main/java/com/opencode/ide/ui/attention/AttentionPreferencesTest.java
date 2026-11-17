@@ -78,6 +78,45 @@ public class AttentionPreferencesTest {
     assertTrue(prefs.shouldRender(event));
   }
 
+  /**
+   * CP-12 / FR-CP-12 surface gate: "WHEN a question form arrives while notifications are enabled,
+   * THEN raise". The gate itself must ADMIT the QUESTION kind - silent while disabled (the opt-in
+   * default), rendered once enabled. Discrimination: an implementation whose {@code shouldRender}
+   * filters QUESTION out fails here while every classifier-level oracle stays green.
+   */
+  @Test
+  public void questionKindPassesTheSurfaceGateWhenEnabled() {
+    AttentionEvent question =
+        new AttentionEvent(AttentionKind.QUESTION, "Session ses_q1 asked a question", "ses_q1");
+
+    assertFalse("opt-in default keeps questions silent", prefs.shouldRender(question));
+
+    prefs.setEnabled(true);
+    assertTrue(
+        "FR-CP-12: a question form arriving while enabled raises the surface",
+        prefs.shouldRender(question));
+    assertFalse("a null event stays silent even when enabled", prefs.shouldRender(null));
+  }
+
+  /**
+   * The gate's contract is kind-agnostic ({@code event != null && isEnabled()}): every {@link
+   * AttentionKind} - QUESTION among them - renders while enabled and stays silent while disabled.
+   * This pins the whole enum against a kind filter introduced at the surface gate, not just the
+   * kinds the classifier happens to raise today.
+   */
+  @Test
+  public void surfaceGateIsKindAgnosticForEveryAttentionKind() {
+    for (AttentionKind kind : AttentionKind.values()) {
+      AttentionEvent event = new AttentionEvent(kind, "gate probe", "ses_1");
+
+      prefs.setEnabled(false);
+      assertFalse(kind + " must stay silent while disabled", prefs.shouldRender(event));
+
+      prefs.setEnabled(true);
+      assertTrue(kind + " must render while enabled", prefs.shouldRender(event));
+    }
+  }
+
   @Test
   public void shouldPlaySoundRequiresEnabledAndSoundFlag() {
     prefs.setSoundEnabled(true);

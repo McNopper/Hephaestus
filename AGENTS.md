@@ -415,8 +415,15 @@ columns over the linked ticket graph). It is a Maven/Tycho reactor — **Maven p
   **Quality gate** (`eclipse/QUALITY.md`): every `verify` runs Checkstyle
   (clean-code lint, enforced) and, once per reactor, the clean-architecture exec check
   (dependency direction + no fixed paths + no mojibake, enforced); `verify -Pquality` adds
-  SpotBugs (report-only) and PMD-CPD duplication checks — the release gate is
+  SpotBugs (report-only) and PMD-CPD duplication checks - the release gate is
   `.\build.ps1 clean verify -Pquality`.
+  **Build guard** (owner directive 2026-11-17, T-177 / `eclipse/QUALITY.md`):
+  every `build.ps1` invocation takes an exclusive build slot (`BUILD_GUARD_MAX`,
+  default 1 concurrent reactor build) and a commit-headroom floor
+  (`BUILD_GUARD_MIN_MB`, default 6144; skipped on CI) before mvnw runs, waits
+  bounded (`BUILD_GUARD_WAIT_SEC`, default 1800) then fails fast naming every
+  holder; `BUILD_GUARD_SKIP=1` bypasses. Locks live in
+  `<git-common-dir>/build-guard/` - a crashed build cannot wedge the lane.
 - **Deploy:** `.\deploy-dev.ps1` (`ECLIPSE_HOME` / `-EclipseRoot`, default `C:\eclipse-cpp`; close Eclipse first — the bundle jars are locked while it runs).
 - **Docs:** `eclipse/README.md`, `eclipse/ARCHITECTURE.md`, and the root `ROADMAP.md`.
 

@@ -273,6 +273,53 @@ public class ChatSessionControllerTest {
   }
 
   /**
+   * CP-04 AC1 on the COMMAND settle path (sendCommand -> runCommandJob): a slash-command turn
+   * settles like a prompt turn, so FR-CP-04 ("WHEN a turn completes edits", no path carve-out)
+   * surfaces the same per-turn changed-files row here - the row lives at the shared settle point,
+   * not in the prompt-only job.
+   */
+  @Test
+  public void commandTurnAlsoSurfacesTheChangedFilesFromSessionDiff() {
+    controller.subscribe();
+    connection.client.reply = entry("msg_cmd1", "assistant", "done");
+    connection.client.sessionDiffs =
+        List.of(
+            new FileDiff("a.txt", "1", "2", "--- a\n+++ b"), new FileDiff("b.js", "1", "2", "+x"));
+
+    controller.sendCommand(commandSelection("/build now", "build", List.of("now")));
+
+    assertEquals(1, connection.client.diffCalls.size());
+    assertTrue(
+        "the diff is scoped to the command's reply message",
+        connection.client.diffCalls.get(0).endsWith(":msg_cmd1"));
+    assertEquals(1, renderer.changedFiles.size());
+    assertTrue(renderer.changedFiles.get(0), renderer.changedFiles.get(0).endsWith("|a.txt,b.js"));
+    assertFalse(controller.isSending());
+  }
+
+  /**
+   * CP-04 AC1 on the TIMEOUT-RECOVERED settle path (finalizeLateReply): a reply that outlived the
+   * POST budget and settles from history surfaces the row too - the same shared settle point.
+   */
+  @Test
+  public void timeoutRecoveredReplyAlsoSurfacesTheChangedFiles() {
+    connection.client.sendFailure = promptTimeout();
+    connection.client.history =
+        List.of(entry("u1", "user", "hi"), entry("msg_late", "assistant", "late done"));
+    connection.client.sessionDiffs = List.of(new FileDiff("late.txt", "1", "2", "+late"));
+
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+
+    assertEquals(1, connection.client.diffCalls.size());
+    assertTrue(
+        "the diff is scoped to the recovered reply's message",
+        connection.client.diffCalls.get(0).endsWith(":msg_late"));
+    assertEquals(1, renderer.changedFiles.size());
+    assertTrue(renderer.changedFiles.get(0), renderer.changedFiles.get(0).endsWith("|late.txt"));
+  }
+
+  /**
    * CP-04 AC2: the in-chat diff surface opens from the row with data from {@code session.diff}
    * (message-scoped) - the controller reads the client verb only, so no git-CLI side read enters
    * the path (AC3).
@@ -314,6 +361,67 @@ public class ChatSessionControllerTest {
     assertEquals(
         "prov/model \u00b7 $1.25", ChatSessionController.metaWithUsage("prov/model", 1.25, null));
     assertEquals("$1.25", ChatSessionController.metaWithUsage("", 1.25, null));
+  }
+
+  /**
+   * CP-06 AC2 - C3's HISTORY site, a DRIVE-LEVEL oracle: a resumed history whose assistant row
+   * carries cost AND tokens renders a meta line with the usage suffix appended to the model label.
+   * The two tests above pin turnUsageLabel/metaWithUsage as pure helpers on literals; this one pins
+   * the history row BUILD composing them, so an implementation calling the helpers at only the live
+   * site fails this row assertion.
+   */
+  @Test
+  public void historyRenderComposesTheTurnUsageIntoTheAssistantRowsMeta() {
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hi"),
+            assistantUsageEntry("a1", 1.25, tokens(60000, 1000, 500, 100, 10)));
+
+    controller.resume("ses_42");
+
+    assertEquals(1, renderer.histories.size());
+    List<Map<String, Object>> rows = renderer.histories.get(0);
+    assertEquals("user rows stay usage-less", "prov/mod", rows.get(0).get("meta"));
+    assertEquals(
+        "the rendered assistant row carries the composed usage suffix",
+        "prov/mod \u00b7 61.6K tok \u00b7 $1.25",
+        rows.get(1).get("meta"));
+  }
+
+  /**
+   * CP-06 AC2 - C3's LIVE/FINAL site, a DRIVE-LEVEL oracle: a settled reply carrying cost AND
+   * tokens renders the final meta through the settle path (metaFor) with the usage suffix. The two
+   * drive-level oracles together decide C3's "applied at BOTH meta sites" - a partial wiring
+   * (helpers correct, called at only one site) fails exactly one of them.
+   */
+  @Test
+  public void finalRenderComposesTheTurnUsageIntoTheSettledReplysMeta() {
+    connection.client.reply =
+        new ChatEntry(
+            new ChatMessageInfo(
+                "msg_u",
+                "ses_1",
+                "assistant",
+                null,
+                null,
+                null,
+                null,
+                1.25,
+                tokens(1150, 40, 0, 0, 0),
+                "prov",
+                "mod",
+                null,
+                null,
+                1_700_000_000_000L),
+            List.of(new ChatPart("text", "done", null, null)));
+
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, "prov", "m1", null, null, "hi"));
+
+    assertTrue(
+        "the settled final render must carry the composed usage suffix, got: "
+            + renderer.assistants,
+        renderer.assistants.contains("final:msg_u:done||prov/mod \u00b7 1.2K tok \u00b7 $1.25|"));
   }
 
   // ---------- in-chat session switcher (chat parity CP-05) ----------
@@ -3549,6 +3657,11 @@ public class ChatSessionControllerTest {
 
   /** An assistant history row carrying usage (T-149): the strip's context window math. */
   private static ChatEntry assistantUsageEntry(String id, Session.Tokens tokens) {
+    return assistantUsageEntry(id, null, tokens);
+  }
+
+  /** The CP-06 variant: the same row ALSO carrying the turn's cost - the meta's USD figure. */
+  private static ChatEntry assistantUsageEntry(String id, Double cost, Session.Tokens tokens) {
     ChatMessageInfo info =
         new ChatMessageInfo(
             id,
@@ -3558,7 +3671,7 @@ public class ChatSessionControllerTest {
             null,
             null,
             null,
-            null,
+            cost,
             tokens,
             "prov",
             "mod",

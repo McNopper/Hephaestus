@@ -85,38 +85,36 @@ when all of the following hold:
 
 | Ticket | Why it gates the release |
 |---|---|
-| U-109 | store id correctness: close the composed malformed-id bypass |
-| U-059 | archive-aware production readiness — safe with U-060 alone (the archiver never archives an upstream a live ticket needs), required once archives are in real use |
-| T-007 | build perf phase 1: target-platform diet, dev profile, stable qualifier (also unblocks the PTY-host adoption) |
-| T-008 | build perf phase 2: hybrid test lane + coverage manifest |
+| U-109 | ✅ done: store id correctness - the composed malformed-id bypass is closed |
+| U-059 | ✅ done: archive-aware production readiness (all three production sites + `staleCause` pass the archive pool; per-host tests green) |
+| T-007 | ✅ built, in-review: build perf phase 1 (target-platform diet, dev/gate profiles, jgit qualifier) - verdict pending |
+| T-008 | ⬜ build perf phase 2: hybrid test lane + coverage manifest (released back to sprint-backlog 2026-11-17; **not started** - if the cut proceeds without it, record the deferral) |
 | T-027 | ✅ resolved: CI runs `verify.yml` on push (owner directive 2026-11-14, `61b9434`) |
-| — | store steady state (condition 1): run the opt-in `auto_archive` on the next wave close — U-060 is landed but has **never been run** (`_archive/` does not exist, 290 done tickets still in the working set) |
+| T-177 | ✅ built, in-review: build guard - concurrent-build cap + commit-headroom floor in `build.ps1` (owner directive 2026-11-17, landed so the gate and the cut can run without starving the machine) |
+| - | store steady state (condition 1): run the opt-in `auto_archive` on the next wave close - U-060 is landed but has **never been run** (`_archive/` does not exist, 343 done tickets still in the working set) |
 | U-110 / U-111 | ✅ the stage-pipeline arc closed: engine verdicts landed (U-111 done) |
-| T-002 | the owner's live Eclipse verification pass (recurring, T-039) |
-| — | release cut via `eclipse/releng/release.ps1` |
+| T-002 | the owner's live Eclipse verification pass (recurring, T-039 - non-blocking pattern) |
+| - | release cut via `eclipse/releng/release.ps1` (**human-only edge**, DENY-5: no machine actor runs it; owner runs e.g. `eclipse\releng\release.ps1 -ReleaseVersion 0.4.1` once the quality gate below is green on a clean tree) |
 
 ## Post-release backlog (adopt-and-govern)
 
-- **U-102** — adopt upstream `fs.watch` for store watching; remove
-  TaskStoreWatcher if covered.
-- **U-104** — stage launch configuration via native opencode agent
-  definitions (provider, model chain, sub-agent per stage; D-004-local
-  models).
-- **U-105** — goal intake: session objectives become governed V-model work.
-- **U-052** - record `inputs changed:` markers from production readiness
-  (carries decided D-003, option B: only status/stage/artifact writes make
-  work STALE) - landed 2026-11-17, engine verdict pending.
-- **Pipeline continuation** - the ticker covers the architecture and test
-  stages under the ONE armed schedule (`ticker-setup.ps1` - no per-stage
-  arming); of the three children the review left READY, **A-002 (test-system) and A-003
-  (architecture) are done** - only **A-004** (test-architecture, READY on
-  its done basis A-001) is still queued.
-- **U-075** — TUI-vs-Eclipse responsiveness, measured spike, report-only.
-- **Launched shells in the server browser** — keep the Server view's
+Landed 2026-11-17 and **awaiting the engine's verdict** (store `in-review`, staged: verdict by the stage's review step; the stageless ones by the new stageless lane of T-174):
+
+- **U-102** - `fs.watch` probe-first verdict: the store is blind to the whole `fs.*` family, `TaskStoreWatcher` stays the single notification path.
+- **U-104** - per-stage dispatch: ten `hephaestus-*` stage agent definitions + `task_stage_agents` / `task_set_stage_agent` (the store-settable STAGE-AGENT MAP).
+- **U-105** - governed `/goal`: client-side intake to a requirements ticket, store-mapped pause/resume/clear, engine-only completion.
+- **U-052** - `inputs changed:` markers (D-003 option B) - stamp + idempotent production-tick marker.
+- **U-075** - TUI-vs-Eclipse responsiveness spike (report-only; interactive half parked as T-156).
+
+Still open in this lane:
+
+- **Pipeline continuation** - the ONE schedule ran the whole V and **halted on owner directive 2026-11-17** ("stop the ticker, implement here without subagents to become stable"): schedule deleted, durable disable in `.harness/ticker-state.json`, steward replied `HALTED`. Re-arming is `ticker-setup.ps1` (owner's call). Six stageless verdicts were owed when it stopped (T-091, U-052, U-075, U-102, U-104, U-105 - recorded as deferred-with-reason on T-177) but **all six sit in `in-review` with artifacts**, so the T-174 stageless lane drains them on the next armed pass. A-002/A-003/A-004: **done**.
+- **T-176** - `eclipse-build` MCP endpoint never starts in a deployed Eclipse (minted from T-040's failed live pass; unblocks T-040's owner-only blocker clear).
+- **Launched shells in the server browser** - keep the Server view's
   visibility of a session's launched shells first-class (owner requirement
   2026-11-16: "i also see the launched shells in the server browser"). Today
   that visibility rides the session activity/status plus Session Details'
-  *Shell tasks* (U-041) and the chat's inline `!` strips (CP-02) — the Fleet
+  *Shell tasks* (U-041) and the chat's inline `!` strips (CP-02) - the Fleet
   tree that nested shells under sessions went away in U-110; add a dedicated
   shell row in the Server view if the activity feed is not enough. Wording
   per T-150 §4b (`Shell tasks` in tabs, `shells` only in the TUI-counts row).
@@ -126,21 +124,13 @@ when all of the following hold:
 The store is the status source; these are the lanes the open tickets cluster
 into, so "what is still to do" is readable here without re-counting tickets:
 
-- **Chat TUI parity** — CP-04…CP-14 implementations `T-059…T-070` with their
-  paired unit tests `T-071…T-082` (CP-01/T-057 and CP-02/T-058 landed
-  earlier); *TUI parity is the floor* (Standing rules).
-- **Acceptance-run / autonomy spectrum** — `T-132` (DS-006 prompt
-  supersession), `T-134` (amended attribution), `T-136` (recurrence mint),
-  `T-138` (release cadence) plus their test pairs `T-133`/`T-135`/`T-137`/
-  `T-139` and the criteria tickets `T-108`, `T-124`, `T-126`, `T-128`,
-  `T-131`.
-- **Build perf** — `T-007` / `T-008` (release-gated; also unblocks the
-  interactive PTY host).
-- **Docs de-fleet & coherence** — `T-087…T-092`, `T-037`, umbrella `E-006`.
-- **Gaps still to ticket** — G2 (assistant footer parity), G3 (`N subagents ·
-  M shells` live counts) from `docs/tui-visible-surface-review.md`.
-- **Awaiting a verdict** (store `in-review`): `T-100`, `T-125`, `T-136`,
-  `U-009`.
+- **Chat TUI parity** — ✅ implementation lane closed: `T-059…T-070` (CP-04…CP-14) all **done** with their paired unit tests `T-071…T-082` (CP-01/T-057 and CP-02/T-058 landed earlier); their criteria tickets `T-170` / `T-172` (CP-03 `/btw`, CP-13 PTY probes) are built and `in-review`. *TUI parity is the floor* (Standing rules).
+- **Acceptance-run / autonomy spectrum** — ✅ closed: `T-132`/`T-134`/`T-136`/`T-138` done with their test pairs `T-133`/`T-135`/`T-137`/`T-139` and the criteria tickets `T-108`, `T-124`, `T-126`, `T-128`, `T-131` - all nine FAIL round-trips reworked and re-verdicted PASS 2026-11-17.
+- **Build perf** — `T-007` built/in-review (phase 1); `T-008` (phase 2) back in sprint-backlog (also unblocks the interactive PTY host).
+- **Docs de-fleet & coherence** — `T-087…T-092` done except `T-091` (verdict deferred with the ticker halt), `T-037` closed (rework PASS), umbrella `E-006` waits on **U-052's** verdict + the Coherence section removal (its AC2).
+- **Gaps still to ticket** — G2 (assistant footer parity), G3 (subagent/shell live counts) from `docs/tui-visible-surface-review.md`.
+- **Owner-gated** — T-040 (blocked; owner clears after T-176 lands + deploy), T-156 (interactive instrumentation), U-098 (paused), U-013 (paused), the six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173).
+- **Awaiting a verdict** (store `in-review`, 21): `T-007`, `T-091`, `T-155`, `T-157`, `T-158`, `T-159`, `T-160`, `T-163`, `T-164`, `T-166`, `T-168`, `T-169`, `T-170`, `T-172`, `T-175`, `T-177`, `U-052`, `U-075`, `U-102`, `U-104`, `U-105` - verdicts resume with the next armed pass or an owner-directed review.
 
 ## Decisions
 
