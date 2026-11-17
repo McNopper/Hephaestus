@@ -29,7 +29,6 @@ $forbidden = @{
     'com.opencode.ide.tools'  = @('com.opencode.ide.ui', 'com.opencode.ide.chat', 'com.opencode.ide.board')
     'com.opencode.ide.tasks'  = @('com.opencode.ide.ui', 'com.opencode.ide.chat', 'com.opencode.ide.board')
     'com.opencode.ide.git'    = @('com.opencode.ide.ui', 'com.opencode.ide.chat', 'com.opencode.ide.board')
-    'com.opencode.ide.fleet'  = @('com.opencode.ide.ui', 'com.opencode.ide.chat', 'com.opencode.ide.board')
     'com.opencode.ide.core'   = @('com.opencode.ide.ui', 'com.opencode.ide.chat', 'com.opencode.ide.board')
     'com.opencode.ide.chat'   = @('com.opencode.ide.ui', 'com.opencode.ide.board')
     'com.opencode.ide.ui'     = @('com.opencode.ide.chat', 'com.opencode.ide.board')
