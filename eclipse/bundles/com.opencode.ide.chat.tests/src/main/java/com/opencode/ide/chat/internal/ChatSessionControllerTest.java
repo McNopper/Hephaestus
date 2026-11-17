@@ -11,6 +11,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.opencode.ide.chat.ChatPermissionDecision;
 import com.opencode.ide.chat.ChatPermissionDialogGate;
+import com.opencode.ide.client.ChatAttachment;
 import com.opencode.ide.client.ChatRequest;
 import com.opencode.ide.client.McpServerConfig;
 import com.opencode.ide.client.OpencodeClient;
@@ -196,7 +197,57 @@ public class ChatSessionControllerTest {
     assertFalse(controller.isSending());
   }
 
+  /**
+   * T-071 / FR-CP-01 AC2 (transcript oracle): a prompt sent WITH attachments echoes into the
+   * transcript carrying its attachment views - one {@code name|kind} per file, so the renderer
+   * draws the compact rows above the prompt text inside the user bubble.
+   */
+  @Test
+  public void promptWithAttachmentsEchoesIntoTheTranscriptWithAttachmentViews() {
+    controller.send(
+        new ChatSessionController.OutgoingMessage(
+            null,
+            null,
+            null,
+            null,
+            null,
+            "look at these",
+            List.of(
+                ChatAttachment.of(java.nio.file.Path.of("C:\\tmp\\pic.png")),
+                new ChatAttachment("file:///tmp/notes.txt", "notes.txt"))));
+
+    assertEquals("look at these", renderer.users.get(renderer.users.size() - 1));
+    assertEquals(
+        "pic.png|image,notes.txt|file", renderer.attachments.get(renderer.attachments.size() - 1));
+  }
+
+  /** T-071 AC3 (no-regression oracle): a plain prompt still echoes text-only. */
+  @Test
+  public void promptWithoutAttachmentsEchoesTextOnly() {
+    controller.send(
+        new ChatSessionController.OutgoingMessage(null, null, null, null, null, "plain"));
+
+    assertEquals("plain", renderer.users.get(renderer.users.size() - 1));
+    assertTrue("no attachment views for a plain prompt", renderer.attachments.isEmpty());
+  }
+
   // ---------- inline shell mode (chat parity CP-02) ----------
+
+  /**
+   * T-072 AC3 (denial oracle, NFR-SEC-001): a permission DENIAL reaches the chat as a non-executed
+   * status from the SERVER - the strip shows the status with no output, and the chat added no
+   * bypass around the ask row (the ask row's own delivery of {@code permission: shell} is asserted
+   * in ChatPermissionsTest).
+   */
+  @Test
+  public void inlineShellDeniedByTheServerRendersADeniedStripWithNoOutput() {
+    connection.client.shellResult = new ShellResult(null, null, "rm -rf build", "denied", null);
+
+    controller.runInlineShell("rm -rf build");
+
+    assertEquals(1, renderer.shells.size());
+    assertEquals("rm -rf build|null|denied", renderer.shells.get(0));
+  }
 
   @Test
   public void inlineShellCommandParsesTheComposerLine() {
@@ -3286,6 +3337,9 @@ public class ChatSessionControllerTest {
     final List<List<ChatSessionController.FormCard>> forms = new ArrayList<>();
     final List<Boolean> reasoningVisibilities = new ArrayList<>();
 
+    /** T-071 (CP-01): one entry per echo that carried attachments - {@code name|kind,...}. */
+    final List<String> attachments = new ArrayList<>();
+
     /** One entry per inline shell strip (chat parity CP-02): {@code command|output|status}. */
     final List<String> shells = new ArrayList<>();
 
@@ -3311,6 +3365,22 @@ public class ChatSessionControllerTest {
     @Override
     public void appendUser(String text) {
       users.add(text);
+    }
+
+    /** T-071 AC2 oracle: the attachment-aware echo - records the views AND the text. */
+    @Override
+    public void appendUser(String text, List<ChatSessionController.AttachmentView> files) {
+      users.add(text);
+      if (files != null && !files.isEmpty()) {
+        StringBuilder joined = new StringBuilder();
+        for (ChatSessionController.AttachmentView file : files) {
+          if (joined.length() > 0) {
+            joined.append(',');
+          }
+          joined.append(file.name()).append('|').append(file.kind());
+        }
+        attachments.add(joined.toString());
+      }
     }
 
     @Override

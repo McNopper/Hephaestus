@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonParser;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -32,6 +33,43 @@ public class ChatRequestsTest {
     assertFalse("agent/model/system are no longer prompt fields", obj.has("agent"));
     assertFalse(obj.has("model"));
     assertFalse(obj.has("parts"));
+  }
+
+  /**
+   * T-071 / FR-CP-01 AC1 (sent-payload oracle): attachments ride the prompt body's {@code files}
+   * field - one {@code {uri, name}} per attachment, the v2 {@code PromptInput.FileAttachment} shape
+   * the server reads itself.
+   */
+  @Test
+  public void promptBodyCarriesEveryAttachmentAsUriAndName() {
+    ChatRequest withFiles =
+        request("build", "opencode", "llm-1", "see these")
+            .withFiles(
+                List.of(
+                    new ChatAttachment("file:///c:/tmp/pic.png", "pic.png"),
+                    new ChatAttachment("file:///c:/tmp/notes.txt", "notes.txt")));
+    var obj = JsonParser.parseString(ChatRequests.promptBody(withFiles)).getAsJsonObject();
+
+    assertTrue("the files field is present when attachments are pending", obj.has("files"));
+    var files = obj.getAsJsonArray("files");
+    assertEquals(2, files.size());
+    assertEquals("file:///c:/tmp/pic.png", files.get(0).getAsJsonObject().get("uri").getAsString());
+    assertEquals("pic.png", files.get(0).getAsJsonObject().get("name").getAsString());
+    assertEquals("notes.txt", files.get(1).getAsJsonObject().get("name").getAsString());
+    assertEquals("see these", obj.get("text").getAsString());
+  }
+
+  /**
+   * T-071 AC3 (no-regression oracle): a plain prompt keeps the historical shape - no {@code files}
+   * key at all, so a server that never saw attachments sees no difference.
+   */
+  @Test
+  public void plainPromptCarriesNoFilesField() {
+    var obj =
+        JsonParser.parseString(ChatRequests.promptBody(request(null, null, null, "hi")))
+            .getAsJsonObject();
+
+    assertFalse("no attachments = no files key", obj.has("files"));
   }
 
   @Test

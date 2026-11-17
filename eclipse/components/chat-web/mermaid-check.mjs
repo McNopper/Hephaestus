@@ -124,6 +124,46 @@ async function main() {
   check("fancy mermaid surface renders (subgraphs + cylinders, U-101)", fancyOk && fancySvg,
     "svg=" + fancySvg);
 
+  // 1c) T-053: the three U-101 AC2 cases the review verified only with an ad-hoc
+  //     probe (sequenceDiagram notes, <br/> labels, participant aliases carrying
+  //     a space and a slash) - persisted as permanent members so the shipped
+  //     regression set matches what that AC actually names.
+  const T053 = [
+    ["sequence diagram with notes (T-053)",
+      "```mermaid\nsequenceDiagram\n"
+      + "    participant A as Build agent\n"
+      + "    participant B as CI runner\n"
+      + "    A->>B: run the gate\n"
+      + "    Note over A: looks green\n"
+      + "    Note over A,B: both agree\n"
+      + "    B-->>A: ok\n"
+      + "```"],
+    ["br labels in nodes and edges (T-053)",
+      "```mermaid\nflowchart LR\n"
+      + "    A[\"first line<br/>second line\"] --> B{\"choice<br/>point\"}\n"
+      + "    B -->|\"yes<br/>and no\"| C[done]\n"
+      + "```"],
+    ["participant aliases with a space and a slash (T-053)",
+      "```mermaid\nsequenceDiagram\n"
+      + "    participant OPS as Ops Team\n"
+      + "    participant CD as build/verify\n"
+      + "    OPS->>CD: deploy\n"
+      + "    CD-->>OPS: done\n"
+      + "```"],
+  ];
+  for (let i = 0; i < T053.length; i++) {
+    const [name, src] = T053[i];
+    await page.evaluate(msgs => window.__setMessages(JSON.stringify(msgs)), [
+      { role: "assistant", id: "msg_t053_" + i, text: src, reasoning: "", meta: "" },
+    ]);
+    const present = await page.waitForFunction(() => {
+      const m = document.querySelector(".mermaid");
+      return m && (m.querySelector("svg") || m.classList.contains("error"));
+    }, { timeout: 15000 }).then(() => true).catch(() => false);
+    const svg = await page.evaluate(() => !!document.querySelector(".mermaid svg"));
+    check(name, present && svg, "svg=" + svg);
+  }
+
   // 2) diagnostics: no MISSING / FAILED markers on the happy path
   const reports = await page.evaluate(() => window.__reports.join("\n"));
   check("mermaid api was found (fallback chain works)", !/api: MISSING/.test(reports));
