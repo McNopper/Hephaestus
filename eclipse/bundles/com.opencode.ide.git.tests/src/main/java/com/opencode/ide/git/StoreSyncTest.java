@@ -7,8 +7,10 @@ import static org.junit.Assert.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
@@ -17,11 +19,25 @@ import org.junit.Test;
  */
 public class StoreSyncTest {
 
+  private static GitTestRepos.Fixture fixture;
+
   private Path base;
+
+  @BeforeClass
+  public static void createRepoTemplates() throws Exception {
+    Assume.assumeTrue("git not available", GitTestRepos.gitAvailable());
+    fixture = GitTestRepos.Fixture.create("opencode-store-sync");
+  }
+
+  @AfterClass
+  public static void removeRepoTemplates() {
+    if (fixture != null) {
+      fixture.close();
+    }
+  }
 
   @Before
   public void setUp() throws Exception {
-    Assume.assumeTrue("git not available", gitAvailable());
     base = Files.createTempDirectory("opencode-store-sync").toAbsolutePath().normalize();
   }
 
@@ -119,15 +135,15 @@ public class StoreSyncTest {
   }
 
   private Path newRepo(String name) throws Exception {
-    return GitTestRepos.newRepo(base, name);
+    return fixture.copyPlainRepo(base.resolve(name));
   }
 
   private Path sharedOrigin() throws Exception {
-    return GitTestRepos.sharedOrigin(base);
+    return fixture.copyOrigin(base.resolve("origin.git"));
   }
 
   private Path cloneOf(String name, Path origin) throws Exception {
-    return GitTestRepos.cloneOf(base, name, origin);
+    return fixture.copyClone(base.resolve(name), origin);
   }
 
   private static void write(Path repo, String file, String content) throws Exception {
@@ -144,10 +160,6 @@ public class StoreSyncTest {
 
   private static void git(Path dir, String... args) throws Exception {
     GitTestRepos.git(dir, args);
-  }
-
-  private static boolean gitAvailable() {
-    return GitTestRepos.gitAvailable();
   }
 
   private static void deleteRecursively(Path root) {

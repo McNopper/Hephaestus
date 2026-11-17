@@ -12,27 +12,37 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /** End-to-end tests against a real git repo in a temp dir. Skipped when git is not available. */
 public class GitWorktreeManagerTest {
 
+  private static GitTestRepos.Fixture fixture;
+
   private Path repo;
   private GitWorktreeManager manager;
 
+  @BeforeClass
+  public static void createRepoTemplate() throws Exception {
+    Assume.assumeTrue("git not available", GitTestRepos.gitAvailable());
+    fixture = GitTestRepos.Fixture.create("opencode-git-test", "file.txt", "line1\nline2\n");
+  }
+
+  @AfterClass
+  public static void removeRepoTemplate() {
+    if (fixture != null) {
+      fixture.close();
+    }
+  }
+
   @Before
   public void setUp() throws Exception {
-    Assume.assumeTrue("git not available", gitAvailable());
-    repo = Files.createTempDirectory("opencode-git-test").toAbsolutePath().normalize();
-    git("init");
-    git("config", "user.email", "a@b.c");
-    git("config", "user.name", "Test");
-    Files.writeString(repo.resolve("file.txt"), "line1\nline2\n", StandardCharsets.UTF_8);
-    git("add", ".");
-    git("commit", "-m", "initial");
-    git("branch", "-M", "main");
+    Path work = Files.createTempDirectory("opencode-git-test").toAbsolutePath().normalize();
+    repo = fixture.copyPlainRepo(work);
     manager = new GitWorktreeManager();
   }
 
@@ -513,10 +523,6 @@ public class GitWorktreeManagerTest {
       git(args);
     } catch (Exception ignored) {
     }
-  }
-
-  private static boolean gitAvailable() {
-    return GitTestRepos.gitAvailable();
   }
 
   private static void deleteRecursively(Path root) {

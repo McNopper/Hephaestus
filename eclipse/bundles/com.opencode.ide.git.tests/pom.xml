@@ -14,4 +14,23 @@
   <artifactId>com.opencode.ide.git.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
 
+  <build>
+    <plugins>
+      <!-- T-007 hardening: the forked test JVM runs with the system gitconfig
+           disabled (GIT_CONFIG_NOSYSTEM), so fixture AND production git calls
+           under test never depend on machine-level git configuration (hooks,
+           init.defaultBranch, signing, ...) - one mechanism, applied at the
+           layer every test-spawned git process inherits from. -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-surefire-plugin</artifactId>
+        <configuration>
+          <environmentVariables>
+            <GIT_CONFIG_NOSYSTEM>1</GIT_CONFIG_NOSYSTEM>
+          </environmentVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

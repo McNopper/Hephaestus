@@ -19,7 +19,6 @@
   </properties>
 
   <modules>
-    <module>releng/opencode-eclipse.target</module>
     <module>bundles/com.opencode.ide.core</module>
     <module>bundles/com.opencode.ide.core.tests</module>
     <module>bundles/com.opencode.ide.client</module>
@@ -41,9 +40,7 @@
     <module>bundles/com.opencode.ide.mcp</module>
     <module>bundles/com.opencode.ide.mcp.tests</module>
     <module>mojo/opencode-tasks</module>
-<module>bundles/com.opencode.ide.arch.tests</module>
-    <module>features/com.opencode.ide.feature</module>
-    <module>releng/com.opencode.ide.repository</module>
+    <module>bundles/com.opencode.ide.arch.tests</module>
   </modules>
 
   <build>
@@ -205,8 +202,28 @@
           <groupId>org.eclipse.tycho</groupId>
           <artifactId>tycho-packaging-plugin</artifactId>
           <version>${tycho.version}</version>
+          <dependencies>
+            <!-- T-007 stable qualifier: `.qualifier` resolves to the last COMMIT
+                 time touching the module (not the build wall clock), so two
+                 builds of the same commit produce identical bundle/feature
+                 versions and versions stop churning per build. -->
+            <dependency>
+              <groupId>org.eclipse.tycho</groupId>
+              <artifactId>tycho-buildtimestamp-jgit</artifactId>
+              <version>${tycho.version}</version>
+            </dependency>
+          </dependencies>
           <configuration>
             <strictBinIncludes>false</strictBinIncludes>
+            <timestampProvider>jgit</timestampProvider>
+            <!-- Fleet worktrees are UNCOMMITTED by design (the engine commits at
+                 merge-back) and verify runs there constantly: 'ignore' keeps the
+                 qualifier pinned to HEAD regardless of working-tree dirt.
+                 'error' (jgit default) would fail every in-flight fleet build;
+                 'warning' would fall back to the build clock - the per-build
+                 churn this ticket exists to remove. Releases are cut from
+                 committed state (releng/release.ps1). -->
+            <jgit.dirtyWorkingTree>ignore</jgit.dirtyWorkingTree>
           </configuration>
         </plugin>
         <plugin>
@@ -399,6 +416,66 @@
                 <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
                 <arg>-Xplugin:ErrorProne</arg>
               </compilerArgs>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- T-007 build-speed profiles (gate vs dev).
+
+         GATE = every build except `-Ddev`: plain `verify`, `verify -Pquality`,
+         `verify -Pcoverage`, CI, release - all keep the full module list (the
+         three releng/feature/repository modules below) and the three target
+         environments from the base build. The gate profile adds nothing but
+         those modules; the environments stay owned by the base POM, so the
+         gate is bit-for-bit the pre-T-007 build. Activation is a NEGATED
+         property (`!dev`), not activeByDefault: any -P-profile (quality,
+         coverage, ...) must not deactivate it.
+
+         DEV = `-Ddev`: the inner loop. The gate profile drops out (its three
+         modules leave the reactor - target, feature and repository are the
+         slow p2 assembly steps) and the dev profile narrows the target
+         platform to the local win32 environment. Maven profile injection
+         can only ADD modules (lists union), which is exactly why the module
+         subtraction lives in this additive gate profile instead: dev is the
+         default-shaped reactor minus the gate's three. Documented interface
+         is `-Ddev` (property activation); passing bare `-Pdev` activates the
+         dev environment override but leaves the gate modules in - slow but
+         harmless, never use it for a gate run. -->
+    <profile>
+      <id>gate</id>
+      <activation>
+        <property>
+          <name>!dev</name>
+        </property>
+      </activation>
+      <modules>
+        <module>releng/opencode-eclipse.target</module>
+        <module>features/com.opencode.ide.feature</module>
+        <module>releng/com.opencode.ide.repository</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>dev</id>
+      <activation>
+        <property>
+          <name>dev</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.eclipse.tycho</groupId>
+            <artifactId>target-platform-configuration</artifactId>
+            <version>${tycho.version}</version>
+            <configuration>
+              <environments>
+                <environment>
+                  <os>win32</os><ws>win32</ws><arch>x86_64</arch>
+                </environment>
+              </environments>
             </configuration>
           </plugin>
         </plugins>
