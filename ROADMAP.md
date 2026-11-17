@@ -168,7 +168,13 @@ places; this file only lists the one currently open question: none.
 
 - `/share` - no server route; the chat shows the same honest notice as the
   official TUI.
-- U-013 - session todos: no endpoint; parked until v2 provides one.
+- U-013 - session todos: no endpoint; parked until v2 provides one. Re-probed
+  against the live 2.3.0 contract (2026-11-17): still ZERO todo routes or
+  operationIds, the event enum carries no todo type, `GET /session/{id}/context`
+  returns compaction messages only (schema: `data: Session.Message.Info[]`,
+  live-verified), and the contract's single `todo` is the
+  `Config.experimental.todo` boolean flag of #56947 - no data source to render
+  from; ticket paused in-store as the explicit park.
 - `/btw` side questions - no side-question verb exists in the live contract
   (T-069 probe-first pass, 2026-11-17: zero `aside` hits anywhere in the 2.3.0
   `/openapi.json`); parked until upstream exposes one - the chat's capability
@@ -244,7 +250,14 @@ E-006 closes (that is its second AC). **Where a row below contradicts
   work carries a human review: cut it via `eclipse/releng/release.ps1`
   (tag per D-002, bump to the next `-SNAPSHOT`). Waves that complete
   without a human review end at commit + push — no version, no tag; the
-  release stays pending until a review unlocks it. The wave, not the
+  release stays pending until a review unlocks it, and pending is an
+  **absence, not a datum** (`docs/autonomy-spectrum-design.md` DS-4): no
+  store field, no timer, no machine state, no retry — nothing to clean
+  up, nothing to time out. The release path is human-only by structure:
+  no machine actor's surface contains `eclipse/releng/release.ps1` (the
+  denied release edge — T-041 as structure, not policy), so no dial
+  setting, no component and no script path inside the machine can cut a
+  release. The wave, not the
   calendar, is the release cadence — and the human review, not the wave
   alone, is the release trigger. The recurring live-in-Eclipse acceptance
   hardens the work without gating it (T-039): engine verdicts are
