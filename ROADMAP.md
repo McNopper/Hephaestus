@@ -173,9 +173,16 @@ places; this file only lists the one currently open question: none.
   `/openapi.json`); parked until upstream exposes one - the chat's capability
   map reports it as upstream-blocked, and no workaround was improvised (the
   FR's IF/THEN makes the recording the outcome).
-- Interactive PTY host - `org.eclipse.tm.terminal` is absent from the
-  2026-06 target platform and stdin has no REST route; needs a
-  target-platform addition first (pairs with T-007/T-008).
+- Interactive PTY host - stdin is **metadata-only over REST** (live 2.3.0 probe
+  2026-11-17: `PUT /api/pty/{ptyID}` body = `title`/resize fields), and
+  interactive input rides the ticket-gated stream `GET /api/pty/{ptyID}/connect`
+  (query `cursor`/`ticket`) + `POST /api/pty/{ptyID}/connect-token` (`x-
+  opencode-ticket`) - a flow the REST-only client cannot reach: blocked on a
+  **client-side WebSocket transport piece plus a live frame-protocol probe**
+  (T-070 records the evidence), NOT on the terminal widget - the earlier claim
+  that `org.eclipse.tm.terminal` was absent is stale: `org.eclipse.terminal
+  .feature.feature.group` is declared in `eclipse/releng/opencode-eclipse.target`.
+  (pairs with T-007/T-008 for the pane work)
 
 *(Resolved since the last pass: the Attention QUESTION popup kind - the live
 SSE event-type enum carries `form.created`, mapped by T-067.)*
