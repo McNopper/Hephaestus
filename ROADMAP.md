@@ -139,8 +139,7 @@ into, so "what is still to do" is readable here without re-counting tickets:
 - **Gaps still to ticket** — G2 (assistant footer parity), G3 (`N subagents ·
   M shells` live counts) from `docs/tui-visible-surface-review.md`.
 - **Awaiting a verdict** (store `in-review`): `T-100`, `T-125`, `T-136`,
-  `U-009`, `T-152` (its Providers-view intercept line fires when that tab is
-  first shown).
+  `U-009`.
 
 ## Decisions
 
