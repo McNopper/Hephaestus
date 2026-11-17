@@ -186,4 +186,30 @@ public class BoardModelTest {
     assertEquals("5", row.pointsLabel());
     assertNull(TicketRow.from(null));
   }
+
+  /**
+   * U-059: the BOARD host consults the archive pool - an archived upstream keeps its child READY.
+   */
+  @Test
+  public void archivedUpstreamKeepsItsSprintChildReadyOnTheBoard() {
+    Task parent = store.create("p", TaskStore.CreateSpec.of("chain head"), "requirements");
+    store.addArtifact(
+        "p", parent.id, "doc", "docs/requirements-product.md", "stage product", "fixture");
+    store.update("p", parent.id, Map.of("status", "done"));
+    store.archive("p", parent.id, "wave close");
+    // the child is touched last: the archived upstream is fresh evidence, never a stale input
+    Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "system");
+    store.update("p", child.id, Map.of("epic", parent.id));
+    store.planSprint("p", "S-01", List.of(child.id), "ship the board");
+
+    BoardModel model = new BoardModel(root, "p");
+    model.setSprint("S-01");
+    BoardSnapshot snapshot = model.refresh();
+
+    assertNotNull("the child carries a verdict", snapshot.readinessOf(child.id));
+    assertEquals(
+        "READY through the archived upstream",
+        com.opencode.ide.tasks.StageReadiness.Kind.READY,
+        snapshot.readinessOf(child.id).kind());
+  }
 }

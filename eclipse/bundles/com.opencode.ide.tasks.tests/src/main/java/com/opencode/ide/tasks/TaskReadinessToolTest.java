@@ -185,4 +185,38 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
         "[\"project\"]",
         readiness.getAsJsonObject("inputSchema").getAsJsonArray("required").toString());
   }
+
+  /**
+   * U-059: the TOOL host consults the archive pool - an archived upstream keeps its child READY.
+   */
+  @Test
+  public void archivedUpstreamKeepsItsLiveChildReadyThroughTheTool() throws Exception {
+    TaskStore store = new TaskStore(root);
+    Task parent = store.create("p", TaskStore.CreateSpec.of("chain head"), "requirements");
+    store.addArtifact(
+        "p", parent.id, "doc", "docs/requirements-product.md", "stage product", "fixture");
+    store.update("p", parent.id, Map.of("status", "done"));
+    store.archive("p", parent.id, "wave close");
+    // the child is touched last: the archived upstream is fresh evidence, never a stale input
+    Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "system");
+    store.update("p", child.id, Map.of("epic", parent.id));
+
+    assertFalse(
+        "control: without the archive pool the archived parent is invisible"
+            + " (library-pinned in ArchiveReadinessTest)",
+        StageReadiness.evaluate(store.list("p", null, null, null, null)).get(child.id).kind()
+            == StageReadiness.Kind.READY);
+
+    JsonArray rows = callArray("task_readiness", "{\"project\":\"p\"}");
+    JsonObject row = null;
+    for (int i = 0; i < rows.size(); i++) {
+      JsonObject candidate = rows.get(i).getAsJsonObject();
+      if (child.id.equals(candidate.get("id").getAsString())) {
+        row = candidate;
+      }
+    }
+    org.junit.Assert.assertNotNull("the child has a row", row);
+    assertEquals(
+        "READY through the archived upstream: " + row, "READY", row.get("kind").getAsString());
+  }
 }

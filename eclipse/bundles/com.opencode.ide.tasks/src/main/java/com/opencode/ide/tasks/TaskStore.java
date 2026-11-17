@@ -1442,18 +1442,22 @@ public final class TaskStore {
    * @return the number of tickets newly marked (0 when nothing is stale).
    */
   public int recordInvalidations(String project) {
+    // U-059: the archive pool rides the production verdicts - an archived upstream can still
+    // satisfy AND still stale its live downstream (read-only view; an absent archive = empty)
+    List<Task> archivePool = archived(project);
     return transaction(
         project,
         data -> {
           List<Task> tickets = new ArrayList<>(data.tasks.values());
-          Map<String, StageReadiness.Readiness> verdicts = StageReadiness.evaluate(tickets);
+          Map<String, StageReadiness.Readiness> verdicts =
+              StageReadiness.evaluate(tickets, archivePool);
           int marked = 0;
           for (Task t : tickets) {
             StageReadiness.Readiness verdict = verdicts.get(t.id);
             if (verdict == null || verdict.kind() != StageReadiness.Kind.STALE) {
               continue;
             }
-            Task upstream = StageReadiness.staleCause(t, tickets);
+            Task upstream = StageReadiness.staleCause(t, tickets, archivePool);
             if (upstream == null) {
               continue;
             }
@@ -1494,7 +1498,9 @@ public final class TaskStore {
     // make repeated polls append nothing new).
     recordInvalidations(project);
     List<Task> tickets = list(project, null, null, null, null);
-    Map<String, StageReadiness.Readiness> verdicts = StageReadiness.evaluate(tickets);
+    // U-059: production readiness consults the archive pool (an archived upstream still decides)
+    Map<String, StageReadiness.Readiness> verdicts =
+        StageReadiness.evaluate(tickets, archived(project));
     tickets.sort(
         Comparator.comparing((Task t) -> READINESS_SEVERITY.indexOf(verdicts.get(t.id).kind()))
             .thenComparing(t -> t.id));

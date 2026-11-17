@@ -1,6 +1,7 @@
 package com.opencode.ide.tasks;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,12 +85,22 @@ public final class StageReadiness {
    * verdict owns the precedence chain and the staleness comparison); the store's invalidation
    * recorder uses this to name the upstream in the marker it appends.
    */
-  static Task staleCause(Task t, List<Task> tickets) {
+  /**
+   * The ticket whose change caused {@code t}'s staleness - looked up over the LIVE tickets plus the
+   * archive pool (U-059): an archived upstream is still the cause its live downstream must re-run
+   * for, and the marker must name it.
+   */
+  static Task staleCause(Task t, List<Task> live, List<Task> archived) {
+    List<Task> pool = live;
+    if (archived != null && !archived.isEmpty()) {
+      pool = new ArrayList<>(live);
+      pool.addAll(archived);
+    }
     if (t.basis != null) {
-      return find(t.basis, tickets);
+      return find(t.basis, pool);
     }
     String upstream = upstreamStage(t.stage);
-    return upstream == null ? null : satisfiedViaEpicChain(t, upstream, tickets);
+    return upstream == null ? null : satisfiedViaEpicChain(t, upstream, pool);
   }
 
   /**

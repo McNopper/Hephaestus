@@ -220,7 +220,7 @@ public final class BoardModel {
         sprintTasks.addAll(tasks);
       }
       Map<String, com.opencode.ide.tasks.StageReadiness.Readiness> readiness =
-          com.opencode.ide.tasks.StageReadiness.evaluate(sprintTasks);
+          com.opencode.ide.tasks.StageReadiness.evaluate(sprintTasks, store.archived(project));
       // U-026: per-ticket stage journeys parsed from the SAME store
       // read (the tasks above carry their history) - O(history size),
       // no extra I/O (NFR-PERF-001), a read-only projection (FR-007)
@@ -502,10 +502,10 @@ public final class BoardModel {
   }
 
   /**
-   * Every ticket of the project as full {@link Task}s — the snapshot basis {@link
-   * com.opencode.ide.tasks.StageReadiness#evaluate(List)} expects (upstream evidence may live in
-   * any ticket of the project). Tolerant of a missing/unreadable store: an empty list instead of an
-   * exception.
+   * Every ticket of the project as full {@link Task}s - the snapshot basis {@link
+   * com.opencode.ide.tasks.StageReadiness#evaluate(List, List)} expects (upstream evidence may live
+   * in any ticket of the project, live or archived - the archive pool rides alongside). Tolerant of
+   * a missing/unreadable store: an empty list instead of an exception.
    */
   public List<Task> projectTasks() {
     if (!Files.isDirectory(projectDir())) {
