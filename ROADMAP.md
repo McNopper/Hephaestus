@@ -69,10 +69,11 @@ when all of the following hold:
    keep it true through the cut).
 4. **Quality gate green** — `cd eclipse; .\build.ps1 clean verify
    -Pquality` on the release commit.
-5. **CI decided** — the CI system is disabled by owner directive
-   (2026-11-14: `verify.yml` → `verify.yml.disabled`, T-027 resolved); the
-   local `clean verify -Pquality` gate is the green-light authority.
-   Re-enabling is the owner's rename-back decision.
+5. **CI decided** — GitHub Actions runs `.github/workflows/verify.yml` on
+   every push/PR (restored by owner directive 2026-11-14, commit `61b9434`,
+   closing T-027) and mirrors the local `releng/pre-push.ps1` steps; the
+   local `clean verify -Pquality` gate stays the green-light authority for
+   a cut.
 6. **Live pass** — T-002, the standing end-of-arc Eclipse verification
    (owner at the keyboard).
 7. **Arc closed** — U-111's engine verdict lands; the pipeline's acceptance
@@ -88,9 +89,10 @@ when all of the following hold:
 | U-059 | archive-aware production readiness — safe with U-060 alone (the archiver never archives an upstream a live ticket needs), required once archives are in real use |
 | T-007 | build perf phase 1: target-platform diet, dev profile, stable qualifier (also unblocks the PTY-host adoption) |
 | T-008 | build perf phase 2: hybrid test lane + coverage manifest |
-| T-027 | ✅ resolved by owner directive: CI disabled (`verify.yml.disabled`) |
-| U-110 / U-111 | the stage-pipeline arc closes: the goal ticket's engine verdict |
-| T-002 | the owner's live Eclipse verification pass |
+| T-027 | ✅ resolved: CI runs `verify.yml` on push (owner directive 2026-11-14, `61b9434`) |
+| — | store steady state (condition 1): run the opt-in `auto_archive` on the next wave close — U-060 is landed but has **never been run** (`_archive/` does not exist, 290 done tickets still in the working set) |
+| U-110 / U-111 | ✅ the stage-pipeline arc closed: engine verdicts landed (U-111 done) |
+| T-002 | the owner's live Eclipse verification pass (recurring, T-039) |
 | — | release cut via `eclipse/releng/release.ps1` |
 
 ## Post-release backlog (adopt-and-govern)
@@ -104,9 +106,10 @@ when all of the following hold:
 - **U-052** — record `inputs changed:` markers from production readiness
   (carries decided D-003, option B: only status/stage/artifact writes make
   work STALE).
-- **Pipeline continuation** — arm the architecture and test tickers; the
-  READY children (A-003 architecture, A-002 test-system, A-004
-  test-architecture) flow on their own stages' ticks.
+- **Pipeline continuation** — arm the architecture and test tickers; of the
+  three children the review left READY, **A-002 (test-system) and A-003
+  (architecture) are done** — only **A-004** (test-architecture, READY on
+  its done basis A-001) is still queued.
 - **U-075** — TUI-vs-Eclipse responsiveness, measured spike, report-only.
 - **Launched shells in the server browser** — keep the Server view's
   visibility of a session's launched shells first-class (owner requirement
@@ -116,6 +119,28 @@ when all of the following hold:
   tree that nested shells under sessions went away in U-110; add a dedicated
   shell row in the Server view if the activity feed is not enough. Wording
   per T-150 §4b (`Shell tasks` in tabs, `shells` only in the TUI-counts row).
+
+## Active product lanes (pointers into the store)
+
+The store is the status source; these are the lanes the open tickets cluster
+into, so "what is still to do" is readable here without re-counting tickets:
+
+- **Chat TUI parity** — CP-04…CP-14 implementations `T-059…T-070` with their
+  paired unit tests `T-071…T-082` (CP-01/T-057 and CP-02/T-058 landed
+  earlier); *TUI parity is the floor* (Standing rules).
+- **Acceptance-run / autonomy spectrum** — `T-132` (DS-006 prompt
+  supersession), `T-134` (amended attribution), `T-136` (recurrence mint),
+  `T-138` (release cadence) plus their test pairs `T-133`/`T-135`/`T-137`/
+  `T-139` and the criteria tickets `T-108`, `T-124`, `T-126`, `T-128`,
+  `T-131`.
+- **Build perf** — `T-007` / `T-008` (release-gated; also unblocks the
+  interactive PTY host).
+- **Docs de-fleet & coherence** — `T-087…T-092`, `T-037`, umbrella `E-006`.
+- **Gaps still to ticket** — G2 (assistant footer parity), G3 (`N subagents ·
+  M shells` live counts) from `docs/tui-visible-surface-review.md`.
+- **Awaiting a verdict** (store `in-review`): `T-100`, `T-125`, `T-136`,
+  `U-009`, `T-152` (its Providers-view intercept line fires when that tab is
+  first shown).
 
 ## Decisions
 
@@ -152,13 +177,19 @@ places; this file only lists the one currently open question: none.
 
 ## Coherence debt (known divergences)
 
-Every open E-006 child is exactly one row here; the section disappears when
-E-006 closes. **Where a row below contradicts `AGENTS.md`, the row is
-right.**
+Every **open `E-006` child** is a row here (checked 2026-11-17: `U-052` is
+the only child left open — its other 49 children are done) plus the
+divergences still open under another umbrella; the section disappears when
+E-006 closes (that is its second AC). **Where a row below contradicts
+`AGENTS.md`, the row is right.**
 
-- Archive-aware readiness (U-059) and `inputs changed:` markers (U-052,
-  carrying D-003 option B) are still library-level only — the docs say so
-  and point at the tickets. Auto-archive is tool-exposed as of U-060.
+- **U-052** — `inputs changed:` markers (epic E-006, carrying D-003 option
+  B): still library-level only — the docs say so and point at the ticket.
+  Auto-archive is tool-exposed as of U-060.
+- **U-059** — archive-aware production readiness (epic **U-112**, not
+  E-006): same shape — readiness consults the archive only at library level
+  today; becomes required the moment archives are in real use (release
+  condition 1).
 
 ## Standing rules
 

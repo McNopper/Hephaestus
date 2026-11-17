@@ -54,16 +54,19 @@ Project management is a concrete, Scrum-like **ticket/sprint** workflow over the
 MCP tools by the Eclipse harness's `eclipse-build` endpoint and the stdio
 `tasks-tools` launcher (opencode prefixes them with the server name — `tasks_task_*`
 in TUI sessions, `eclipse-build_task_*` in Eclipse; the tool/wire names stay `task_*`);
-C++ and graphics are first-class **tools** (an agent and an
-MCP server), not a separate lifecycle.
+C++ tooling is a first-class **tool lane** — the token-authed `eclipse-build`
+MCP endpoint serves the `cmake_*`/`ctest_run`/`debug_batch` pack over `cpp/`,
+not a separate lifecycle (the specialized `cpp-tools` agent and the graphics MCP
+server left the repo in the 2026-10-15 curation, see AGENTS.md).
 
 Three ideas hold it together:
 
 - **Domains in names, not folders.** opencode discovers every `SKILL.md` under
   `.opencode/skills/*/`. Naming convention `<domain>-<descriptor>`
-  (`software-`, `test-software-`, `project-manager-`, `cpp-`, `graphics-`, `code-`,
-  `research-`); coordination agents are
-  unprefixed.
+  (`software-`, `test-software-`, `project-manager-`, plus the cross-cutting
+  `stage-pipeline`); coordination agents are
+  unprefixed. Specialized `cpp-`/`graphics-`/`code-`/`research-` skills are
+  setup-supplied, not in this repo (2026-10-15 curation).
 - **A concrete PM, not a metaphor.** The `project-manager` agent runs Scrum over tickets in the
   task store. Tickets carry a `role` (discipline), and workers **self-claim** by role
   (`task_claim`). Multiple independent **projects** coexist as subdirectories of the
@@ -93,8 +96,8 @@ repository, two ways to use it:
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
 | ~~**Fleet**~~ — removed in U-110; per-stage tickers + goal-driven subagents replaced it | ✗ | ✗ (Board mirrors the store; no fleet view) |
 | **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
-| Graphics MCP (screenshot, RenderDoc, render comparison) | ✅ | ✅ |
-| `cpp-tools` agent driving CMake/clang tooling | ✅ (bash-driven) | ✅ |
+| Graphics MCP (screenshot, RenderDoc, render comparison) — **not shipped in this repo**; user-supplied `mcp.graphics` since the 2026-10-15 curation (AGENTS.md) | ✅ | ✅ |
+| `cpp-tools` agent driving CMake/clang tooling — **agent moved out of the repo** 2026-10-15 (user-supplied methodology) | ✅ (bash-driven) | ✅ |
 | Structured C++ tool pack as MCP tools (`cmake_*`, `ctest_run`, `debug_batch`, …) | ❌ lives in Eclipse's `eclipse-build` endpoint | ✅ (per-start token auth) |
 | Chat UI (markdown/KaTeX/mermaid, Stop, pending queue, late-reply recovery) | — the TUI *is* your chat | ✅ chat view |
 | Server/Providers/Repo/Session views, live busy-session icons, CDT markers | ❌ | ✅ |
@@ -125,13 +128,13 @@ The harness works **with and without the fleet**.
 
 | Path | What it is |
 |---|---|
-| `opencode.json` (repo root) | project config - your `model` (set locally; none is committed), `AGENTS.md`, and the `tasks` + `fleet` (stdio launchers; `fleet` ships **disabled**) + `graphics` MCP servers. |
+| `opencode.json` (repo root) | project config - your `model` (set locally; none is committed), `AGENTS.md`, and the `tasks` stdio launcher (the `fleet` launcher went away with U-110; the graphics MCP is setup-supplied, not shipped here). |
 | `AGENTS.md` (repo root) | opencode-first workflow conventions and routing. |
 | `.opencode/skills/*/SKILL.md` | the skill library, flat by domain. |
 | `.opencode/agent/*.md` | lean custom agents (coordination + domain). |
 | `.opencode/docs/` | `domains.md`, `contracts.md`. |
 | `.harness/tasks/` | the **task store** — one Markdown file per ticket per project (`<project>/T-NNN.md` + `_meta.json` sidecar), version-controlled. |
-| `mcp/graphics/` | the graphics MCP server (captures, comparisons). |
+| `mcp/` | graphics MCP server **moved out of the repo** (2026-10-15 curation → user-supplied `mcp.graphics`); the directory carries nothing tracked |
 | `cpp/` | standalone AI-first C++23 build skeleton (its own `AGENTS.md`). |
 | `eclipse/` | the Eclipse plugin — the agentic IDE harness (chat, Server view incl. **MCP servers + Skills**, Providers view with logos, the **PM Board**, the token-authed `eclipse-build` MCP endpoint serving the C++ **and** `task_*` tool packs, the `opencode-tasks` Maven plugin (`:sync`/`:plan` over the task store), the `tasks-tools.ps1` stdio launcher; Maven/Tycho reactor). |
 
@@ -142,10 +145,8 @@ The harness works **with and without the fleet**.
 | `software-` (definition) | `software-requirements`, `software-system`, `software-architecture`, `software-design`, `software-implementation` |
 | `test-software-` (verification) | `test-software-implementation`, `-design`, `-architecture`, `-system`, `-requirements` |
 | `project-manager-` (project management) | `project-manager-operating-model`, `project-manager-orchestrate-execution`, `project-manager-route-request`, `project-manager-audit-traceability`, `project-manager-estimate-costs`, `project-manager-gather-intelligence`, `project-manager-create-ticket`, `project-manager-doc-about` |
-| `cpp-` (C++ utility) | `cpp-tools` (methodology; the `cpp-tools` agent runs the commands) |
-| `graphics-` (graphics utility) | `graphics-render-comparison` (the heavy lifting is the `mcp.graphics` tools) |
-| `code-` (code analysis) | `code-dependency` (package/namespace dependency map → Mermaid block diagram), `code-licenses` (third-party license audit → compatibility table + remediation), `code-repo-map` (probe-don't-read orientation map: layout, build/test entry points, module one-liners) |
-| `research-` (live research utility) | `research-artificial-analysis-models` (Artificial Analysis model leaderboard → filtered, cost-sorted Markdown table) |
+| `stage-pipeline` (cross-cutting) | `stage-pipeline` (the linked-stage ticker procedure; armed by `ticker-setup.ps1`) |
+| `code-`, `research-`, `cpp-`, `graphics-` | **setup-supplied, not in this repo** (2026-10-15 curation): they live in the installation's own skill library — `.opencode/skills` carries the 19 in-repo skills above |
 
 Verification maps by composition level: `test-software-implementation` ↔ `software-implementation`
 (unit), `test-software-design` ↔ `software-design` (component), `test-software-architecture`

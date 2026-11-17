@@ -25,8 +25,9 @@ several projects live side by side in one store.
 ### 0. Get the files and the tooling
 
 Copy the pieces per **"Reuse as a template"** in the README (skills, agents,
-`opencode.json`, `AGENTS.md`, the `tasks` launcher, optionally
-`mcp/graphics` and `cpp/`). Install the toolchain per `new-machine-setup.md`
+`opencode.json`, `AGENTS.md`, the `tasks` launcher, optionally `cpp/`
+and — since the 2026-10-15 curation — a graphics MCP server of your own
+(`mcp.graphics` is no longer shipped in this repo)). Install the toolchain per `new-machine-setup.md`
 (JDK 21, Node, PowerShell 7, git; Eclipse CDT only if you want the IDE
 harness). Build the tool jars once so the `tasks`/`fleet` stdio launchers
 resolve (README "Install & Use", step 4).

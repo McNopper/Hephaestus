@@ -4,7 +4,7 @@
 
 - **Kind:** doc / live inventory; **read by:** the maintainer and any agent planning the next wave; **written by:** the orchestrator, **v2 after rubberduck review** (findings applied, see notes inline).
 - **Goal:** see at a glance what the harness already *does*, what is built but unaccepted, and what is still missing — in service of "the harness gets stable and usable".
-- **Source of truth:** the task store (170 done / 13 in-review / 22 backlog / **1 blocked** at capture) plus AGENTS.md and the v0.1.9 codebase; the store wins where they disagree. Counts verified by the rubberduck pass.
+- **Source of truth:** the task store (live counts via `task_board`, project `hephaestus`; capture 2026-11-17: 290 done / 5 in-review / 57 open / 0 blocked) plus AGENTS.md and the shipped code; the store wins where they disagree. This file carries the *shape* — shipped / unaccepted / missing — and never a count that can rot.
 - **Legend:** ✅ shipped + verified · 🔶 built, acceptance pending (in-review) · 🟡 backlog · ⛔ blocked (ticket or decision) · 🅿️ parked / non-goal · 👤 maintainer action (approval / live pass)
 
 ## 1. V-model engine & task store
