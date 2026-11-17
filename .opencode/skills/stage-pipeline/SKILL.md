@@ -47,6 +47,49 @@ resolve when the surface recovers. Re-check the liveness sweep at step 5.
 The preamble only releases claims; it never writes stage business state,
 and the stage loop's order below is untouched.
 
+**Kickoff horizon read (DS-2 / C-C3-1, `docs/autonomy-spectrum-design.md` §2.3 —
+the pump's one dial touchpoint, run before the stage loop):** resolve the
+run's position once per pass: from a staged ticket of the run, walk the
+`epic` link to the epic-less ancestor, the
+stageless GOAL root (a staged ticket with no epic ancestor has no position -
+fall through); `task_get` (E2) the root and parse its dial record's
+`goal horizon` line - and ONLY that line (DD-03): the review-cadence dial
+has no pump edge, no step below takes a dial parameter, and the five steps
+stay `docs/design-stage-pipeline.md` §4 verbatim under both horizon modes
+(QA-3, pump invariance).
+Record absent, unparseable, no epic-root ancestor, or the read failing →
+fall through silently to the doctrine defaults (C-C5-1:
+`run-to-Product-Goal`, the T-041 floor unchanged - `AGENTS.md`): the tick
+proceeds, and the pump NEVER asks the owner - it holds no edge back to
+intake (DENY-1). Re-read at every pass; no session caches a run position
+(DD-02), so a mid-run re-position by the owner is obeyed at the next pass
+with no restart machinery (advisory data, QA-1). Edges used here: E2 (the
+store read) and E4 (this skill), nothing else (autonomy-spectrum design
+§2.3, §8).
+
+**Horizon enforcement at the schedule lane (C-C3-3,
+`docs/autonomy-spectrum-design.md` §2.3; E6 - arm at kickoff via
+`ticker-setup.ps1`, disarm at a time-boxed horizon; not a store edge):**
+
+- `run-to-Product-Goal` (or a record falling through to it) → the `ticker-v`
+  schedule keeps recurring; the run stops only at NEEDS-HUMAN escalations
+  (step 2) or the GOAL root reporting done by engine verdict.
+- `time-boxed(end)` reached - at the kickoff read or observed later in the
+  pass - → no NEW READY launches from that point on; the current boundary
+  still finishes cleanly: claimed background workers already spawned run to
+  their engine verdicts (in-flight tickets are never abandoned mid-flight
+  because a clock ran out, AD-4), engine verdicts land, and step 6 closes
+  the record with a digest line naming the horizon end. Then the steward
+  disarms as the pass's last act - the durable disable this skill documents
+  (`.harness/ticker-state.json` `enabled: false` + delete the `ticker-v`
+  schedules) - so the watchdog cannot re-arm a horizon-ended run; the digest
+  records the ACTUAL disarm time - a late disarm is visible, never silent.
+  A missed disarm (steward session died first) → the next pass disarms;
+  precision is schedule-tick-granular (AD-4's recorded trade-off).
+- The disarm is a deliberate stop, NEVER an escalation: no
+  `task_set_blocked`, no NEEDS-HUMAN for a clock
+  (`docs/autonomy-spectrum-system.md` §Interfaces 5).
+
 Per stage:
 
 1. SCAN — `task_readiness` for the project; take only this stage's tickets.
@@ -89,6 +132,22 @@ Per stage:
    every successful wave/release produces a fresh test-requirements
    acceptance ticket (the T-002 pattern systematized) — it hardens
    acceptance and never gates; no verdict, wave or release waits on it.
+   The recurrence entry is division-map DATA (C-C5-3, E4 — the tick
+   algorithm stays unchanged while it fires) and it lands the same
+   ticket shape at either firing: this child instance and the
+   wave-close sweep in step 6(b). The ticket
+   (`docs/autonomy-spectrum-design.md` DS-3) is an ordinary staged
+   `test-requirements` ticket created through the division/link verbs at
+   the boundary — the write goes through the store, the E3-observable —
+   and it is a derivation LEAF by construction: nothing's `basis` or
+   readiness references it (no ticket ever takes it as its `basis`), so
+   no component waits on it; it walks its own `in-review → done` on the
+   ordinary verdict lane (step 3) and never gates the wave that spawned
+   it (docs/live-in-eclipse-recurrence-flow.md I4/I5). Idempotency heals
+   like any division — the consumed [AR-D §2.2 C-M2-3] heal discipline:
+   at the next boundary the firing actor re-reads existing derivations
+   and creates only the missing ticket — one per successful wave/release
+   (DS-3, autonomy-spectrum design §5 W-3 step 2).
    The LIVE-CHECK PAIRING extension (design C-1/W-1; wording:
    docs/live-in-eclipse-recurrence-flow.md §5.1) operationalizes the rule
    once per done definition ticket D, immediately after D's ordinary

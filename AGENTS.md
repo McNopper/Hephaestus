@@ -164,7 +164,19 @@ constant feedback — maximum human involvement, a tight loop. The owner sets
 each run's position at goal intake (U-105) with two dials: the **goal
 horizon** (time-boxed vs run-to-Product-Goal) and the **review cadence**
 (releases only on human review — T-041; recurring acceptance hardens without
-gating — T-039; NEEDS-HUMAN as the escalation threshold). Worked example
+gating — T-039; NEEDS-HUMAN as the escalation threshold). The boundary
+shape (`docs/autonomy-spectrum-design.md` DS-4): without a human review that
+accepts, the release stays **pending — an absence, not a datum** — no store
+field, no timer, no machine state, no retry; the wave ends at commit + push
+and nothing else happens. The release is human-only by structure:
+`eclipse/releng/release.ps1` exists in no machine actor's surface (the
+denied release edge, DENY-5), no dial value is ever a release input
+(DENY-2 — intake's record is invisible to the gates), and the C1/C3/C4
+no-edge rule keeps intake, pump and gates apart — every interaction among
+them is store-mediated (`docs/autonomy-spectrum-architecture.md`, E1–E6
+plus the seven denials). A GOAL root with no dial record falls through to
+the safe end at the kickoff read — `run-to-Product-Goal` with the T-041
+floor — never a question back to the owner, never a stall. Worked example
 (2026-11-14): an unattended ticker-v run drove the wave end-to-end, and the
 owner's review and acceptance cut release `v0.2.0`.
 

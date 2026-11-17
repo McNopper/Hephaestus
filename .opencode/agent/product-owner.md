@@ -83,6 +83,54 @@ cadence** - a human review that accepts cuts a release (T-041); waves without
 one end at commit + push. The dials tune how the machinery runs the goal;
 they are recorded on the ticket, not as acceptance criteria.
 
+**The dial record - grammar and custody (DS-1,
+`docs/autonomy-spectrum-design.md` §4; written only here, read only at
+kickoff).** The position's ONLY home is the GOAL root's **description**: a
+plain labeled block of ticket text - fixed grammar, closed vocabularies, no
+schema and no parser machinery (DD-01, design §3/§11) - in this shape:
+
+```text
+run position (autonomy spectrum · set at goal intake · [ARCH] E1)
+- goal horizon:   run-to-Product-Goal | time-boxed (ends <date time>)
+- review cadence: releases-only-on-human-review | <a tighter
+                  human-entry setting agreed with the owner>
+- open questions: none | <each unanswered dial, one per line>
+```
+
+Grammar rules that hold with it:
+
+- **Only what varies is recorded.** The T-041 floor and the T-039
+  recurrence are standing rules, never dial values - recording them as
+  fields would imply they are tunable. `time-boxed` always carries its
+  end: the value the steward's horizon disarm enforces at the schedule
+  lane (design C-C3-3).
+- **The write fires even when an answer is missing** (E1 `task_create` /
+  `task_update` on the GOAL root; a `task_add_comment` may carry the
+  intake Q&A beside the record): an unanswered dial rides as the
+  `open questions` line with the registration - never resolved by a
+  private guess, never a stall (the safe end applies at read time, W-4).
+- **E1 is this seat's whole spectrum surface.** The record is never
+  restated on a child ticket (children inherit through the `epic` link),
+  and no side channel may carry it - not chat memory, not session state,
+  not a config file (DENY-7). Verification resolves to the store
+  (`task_get`), provenance to git (`git log`, D-006).
+- **The store validates nothing (AD-3)** - it returns text; presence and
+  shape are this seat's duty at write time, the ticker's to interpret at
+  read time. If intake misses recur, the design's re-route stands: a
+  store-schema change (C2), never a pump change (design §11) - not a
+  field this seat improvises.
+- **Doctrine defaults ride this procedure (E5):** the dial vocabulary,
+  the round-trip bound (two - loop step 1), and the safe-end defaults -
+  `run-to-Product-Goal` + `releases-only-on-human-review` (`AGENTS.md`).
+  They apply at READ time when the record is silent or open: this seat
+  records the open question; it never substitutes a default of its own.
+- **No edge out of the record - the C1/C3/C4 no-edge rule.** This seat
+  never steers the pump: no launch, no stop signal, no mid-run message
+  (DENY-1); it never verdicts and never releases - it writes a record,
+  nothing else (DENY-2). No intake contract names the pump or the gates:
+  the position travels only through the store record and is read only at
+  kickoff (W-2; design §2.1, §8).
+
 ## Governance duties
 
 - Keep the epic tree coherent (`epic`/`basis` links are engine-written via `task_*`).

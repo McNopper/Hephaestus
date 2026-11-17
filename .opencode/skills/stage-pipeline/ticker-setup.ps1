@@ -7,6 +7,15 @@
 # prompt, DS-006 supersession clause), never duplicated - the name-lookup
 # guard per docs/unified-ticker-design.md §2 C8.
 #
+# Autonomy-spectrum schedule lane (E6; docs/autonomy-spectrum-design.md
+# C-C3-3): this script is the ARM touchpoint (arm at kickoff, W-2 step 1).
+# The DISARM touchpoint - a time-boxed horizon end - is the steward's
+# pass-final act, contract-landed in the stage-pipeline skill (kickoff
+# horizon read + horizon enforcement) and executed via the durable disable
+# (.harness/ticker-state.json enabled:false + schedule delete) so the
+# watchdog cannot re-arm a horizon-ended run. This script stays arm-only;
+# no dial value is read or stored here (pump invariance, QA-3).
+#
 # Requirements:
 #   - the running opencode service (url + password from service.json, same
 #     pattern the Eclipse host uses), or -BaseUrl/-Token overrides
