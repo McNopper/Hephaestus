@@ -188,7 +188,10 @@ public final class TaskStore {
   // Operations (pm MCP server parity)
   // ------------------------------------------------------------------
 
-  /** Creates a task (status=product-backlog) with a freshly minted id. */
+  /**
+   * Creates a task (born product-backlog - or born blocked when blocked=true, U-067) with a freshly
+   * minted id.
+   */
   public Task create(String project, CreateSpec spec) {
     return create(project, spec, null);
   }
@@ -1921,10 +1924,26 @@ public final class TaskStore {
     }
   }
 
+  /**
+   * Mints the next id as {@code <prefix>-NNN}.
+   *
+   * <p><b>U-109:</b> the FILTERED value is what actually reaches the file name, so the filtered
+   * value is what gets validated - here, at the single mint point, not only upstream at the raw
+   * guard (U-107). Before this, {@code W-!} filtered to {@code W-} and minted {@code W--001}, and
+   * {@code !!} filtered to empty and SILENTLY fell back to {@code T}. <b>Decision (U-109): loud
+   * error, never the silent fallback</b> - a caller that passed garbage is told, instead of being
+   * quietly re-minted under an unrelated prefix; {@code null} still means the default {@code T}
+   * (that is the documented default, not garbage).
+   */
   private static String nextId(ProjectData data, String prefixRaw) {
     String prefix = prefixRaw == null ? "T" : prefixRaw.replaceAll("[^A-Za-z0-9_-]", "");
-    if (prefix.isEmpty()) {
-      prefix = "T";
+    if (prefix.isEmpty() || prefix.endsWith("-")) {
+      throw new Invalid(
+          "id_prefix must not be blank or end in '-' (it is minted as <prefix>-NNN; got '"
+              + prefixRaw
+              + "' which filters to '"
+              + prefix
+              + "')");
     }
     int n = data.seq.getOrDefault(prefix, 0) + 1;
     // guard: if the candidate file was hand-deleted while seq was lost, bump past it

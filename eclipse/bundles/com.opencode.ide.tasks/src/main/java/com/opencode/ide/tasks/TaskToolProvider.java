@@ -422,7 +422,9 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_create",
-            "Create a task (ticket) in a project (status=product-backlog).",
+            "Create a task (ticket) in a project - born in product-backlog, or blocked when"
+                + " blocked=true (U-067: the status moves to blocked and resume_to remembers"
+                + " product-backlog).",
             schema(
                 new String[] {"project", "title"},
                 obj -> {
