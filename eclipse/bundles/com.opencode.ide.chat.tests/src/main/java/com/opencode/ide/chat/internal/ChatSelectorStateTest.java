@@ -150,6 +150,25 @@ public class ChatSelectorStateTest {
     assertEquals("p/m2", state.model());
   }
 
+  /** CP-09 (FR-CP-09): persisted recents list first, most-recent-first; unknown ones ignored. */
+  @Test
+  public void persistedRecentsListFirstInTheComboAndUnknownOnesAreIgnored() {
+    ChatSelectorState state = new ChatSelectorState();
+    state.load(agents, providers, new String[] {"p", "m1"}, null, List.of("p/m2", "p/gone"));
+
+    List<String> models = state.models();
+    assertEquals("the server default stays first", "", models.get(0));
+    assertEquals("the most recent catalog model follows", "p/m2", models.get(1));
+    assertTrue("the preferred model is still in the list", models.contains("p/m1"));
+    assertFalse("a vanished recent is ignored", models.contains("p/gone"));
+    assertEquals("the selection rules are unchanged", "p/m1", state.model());
+
+    // the four-argument load keeps working (no recents) - every existing caller's shape
+    ChatSelectorState legacy = new ChatSelectorState();
+    legacy.load(agents, providers, null, null);
+    assertEquals("", legacy.models().get(0));
+  }
+
   private static void selectCommand(ChatSelectorState state) {
     state.selectAgent("plan");
     state.selectModel("p/custom/model");

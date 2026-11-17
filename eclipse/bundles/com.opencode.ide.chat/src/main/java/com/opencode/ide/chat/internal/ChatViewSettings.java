@@ -1,5 +1,6 @@
 package com.opencode.ide.chat.internal;
 
+import java.util.List;
 import org.eclipse.jface.dialogs.IDialogSettings;
 
 /**
@@ -17,6 +18,7 @@ public final class ChatViewSettings {
   private static final String KEY_LAST_SESSION = "lastSessionId";
   private static final String KEY_LAST_MODEL = "lastModel";
   private static final String KEY_PINNED_SESSIONS = "pinnedSessions";
+  private static final String KEY_RECENT_MODELS = "recentModels";
 
   private ChatViewSettings() {}
 
@@ -67,6 +69,23 @@ public final class ChatViewSettings {
     java.util.Set<String> next = SessionPins.with(pinnedSessions(), sessionId, pinned);
     put(KEY_PINNED_SESSIONS, SessionPins.format(next));
     return next;
+  }
+
+  // ---------- CP-09 (FR-CP-09): the model selector's recent models ----------
+
+  /** How many recent models the selector remembers (FR-CP-09: "the last N used"). */
+  public static final int RECENT_LIMIT = ModelRecents.LIMIT;
+
+  /** The persisted recents, most-recent first; empty when none are stored. */
+  public static List<String> recentModels() {
+    return ModelRecents.parse(get(KEY_RECENT_MODELS));
+  }
+
+  /** Records a deliberately used model (it moves to the front, list trimmed) and persists. */
+  public static void recordModelUsed(String model) {
+    put(
+        KEY_RECENT_MODELS,
+        ModelRecents.format(ModelRecents.recentWith(recentModels(), model, RECENT_LIMIT)));
   }
 
   private static String get(String key) {

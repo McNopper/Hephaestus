@@ -25,6 +25,20 @@ public final class ChatSelectorState {
 
   public void load(
       List<Agent> availableAgents, ProviderList providers, String[] preferred, String[] fallback) {
+    load(availableAgents, providers, preferred, fallback, List.of());
+  }
+
+  /**
+   * CP-09 (FR-CP-09): the same load with the persisted recents - a recent model that still exists
+   * in the catalog lists FIRST (most-recent-first), ahead of the catalog's own order; vanished or
+   * unknown recents are ignored, and the empty server-default entry keeps its leading slot.
+   */
+  public void load(
+      List<Agent> availableAgents,
+      ProviderList providers,
+      String[] preferred,
+      String[] fallback,
+      List<String> recentModels) {
     // v2: the wire value is the agent ID ("build"); `name` is a display
     // label ("Build") the server REJECTS with AgentNotFoundError when posted
     agents =
@@ -58,6 +72,33 @@ public final class ChatSelectorState {
             catalog.put(id, entry);
           }
         }
+      }
+    }
+    // CP-09 (FR-CP-09): persisted recents list first (still in the catalog), most-recent-first;
+    // the server-default "" entry keeps its leading slot so every selection rule below is
+    // unchanged - only the ORDER the combo shows moves
+    if (recentModels != null && !recentModels.isEmpty() && models.size() > 1) {
+      List<String> recents = new ArrayList<>();
+      for (String recent : recentModels) {
+        if (recent != null
+            && !recent.isBlank()
+            && models.contains(recent)
+            && !recents.contains(recent)) {
+          recents.add(recent);
+        }
+      }
+      if (!recents.isEmpty()) {
+        List<String> ordered = new ArrayList<>();
+        ordered.add(models.get(0)); // "" - the server-default entry
+        ordered.addAll(recents);
+        for (int i = 1; i < models.size(); i++) {
+          String id = models.get(i);
+          if (!recents.contains(id)) {
+            ordered.add(id);
+          }
+        }
+        models.clear();
+        models.addAll(ordered);
       }
     }
     String defaultModel = combined(preferred);

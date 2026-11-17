@@ -491,6 +491,7 @@ public class ChatView extends ViewPart {
               selectors.selectModel(selectedModel());
               rememberSelectedModel();
               ChatViewSettings.storeLastModel(selectors.model()); // U-039: last deliberate pick
+              ChatViewSettings.recordModelUsed(selectors.model()); // CP-09: the recents list
               fillVariants();
               renderModelDetail(); // T-153: the facts follow the picked model
             });
@@ -953,7 +954,8 @@ public class ChatView extends ViewPart {
       return;
     }
     OpencodePreferences prefs = new OpencodePreferences();
-    selectors.load(agents, providers, prefs.getDefaultModelParts(), fallback);
+    selectors.load(
+        agents, providers, prefs.getDefaultModelParts(), fallback, ChatViewSettings.recentModels());
     agentCombo.setItems(selectors.agents().toArray(String[]::new));
     agentCombo.select(
         selectors.agent() == null ? -1 : selectors.agents().indexOf(selectors.agent()));
