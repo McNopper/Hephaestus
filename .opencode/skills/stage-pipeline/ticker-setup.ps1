@@ -172,8 +172,16 @@ try {
 }
 $scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
 if (-not $scheduleId) { throw "schedule creation returned no id" }
-# assert exactly one schedule and one steward afterwards (C8 step 3, INV-1/INV-2)
-$final = @(Get-TickerSchedule)
+# assert exactly one schedule and one steward afterwards (C8 step 3, INV-1/INV-2);
+# the enumeration lags the POST by a moment on the live service, so re-read with a
+# bounded retry before declaring the invariant violated (false negatives here made
+# a successful arm look like a failure - U-075-era fix, same semantics: end state
+# MUST be exactly one schedule bound to this steward)
+$final = @()
+for ($i = 0; $i -lt 10 -and $final.Count -eq 0; $i++) {
+    $final = @(Get-TickerSchedule)
+    if ($final.Count -eq 0) { Start-Sleep -Milliseconds 300 }
+}
 if ($final.Count -ne 1) { throw "arming invariant violated: $($final.Count) ticker-v schedules exist after arming (INV-1: exactly one)" }
 if ($final[0].sessionID -ne $sessionId) { throw "arming invariant violated: ticker-v schedule bound to $($final[0].sessionID), not the steward $sessionId (INV-2)" }
 $sessionsAfter = Invoke-Api -Method "GET" -Path "/api/session$suffix"
