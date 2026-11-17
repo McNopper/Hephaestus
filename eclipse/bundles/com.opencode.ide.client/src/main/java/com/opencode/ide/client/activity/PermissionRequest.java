@@ -21,6 +21,8 @@ import java.util.List;
  *     may be {@code null}
  * @param status {@link Status#PENDING pending} when raised, {@link Status#ANSWERED answered} when
  *     replied (by us or anyone else)
+ * @param input the tool's input from {@code metadata.input} (CP-07 / #51062): the raw string, or
+ *     the compact JSON of a structured input - {@code null} when the event carried none
  */
 public record PermissionRequest(
     String sessionId,
@@ -28,7 +30,22 @@ public record PermissionRequest(
     String permission,
     List<String> patterns,
     String title,
-    Status status) {
+    Status status,
+    String input) {
+
+  /**
+   * The pre-CP-07 six-argument shape (no tool input) - keeps every existing construction site and
+   * call shape valid while the ask row gains the input line.
+   */
+  public PermissionRequest(
+      String sessionId,
+      String permissionId,
+      String permission,
+      List<String> patterns,
+      String title,
+      Status status) {
+    this(sessionId, permissionId, permission, patterns, title, status, null);
+  }
 
   /** Lifecycle of a permission request (derived from the event type). */
   public enum Status {
@@ -39,6 +56,17 @@ public record PermissionRequest(
   /** Compact constructor: null-safe, immutable patterns. */
   public PermissionRequest {
     patterns = patterns == null ? List.of() : List.copyOf(patterns);
+  }
+
+  /**
+   * CP-07: the input line for the ask row - truncated with an ellipsis when huge (the row must
+   * inform a decision, not flood it); {@code null} when the event carried no input.
+   */
+  public String inputDisplay() {
+    if (input == null || input.isBlank()) {
+      return null;
+    }
+    return input.length() > 400 ? input.substring(0, 400) + "\u2026" : input;
   }
 
   /**

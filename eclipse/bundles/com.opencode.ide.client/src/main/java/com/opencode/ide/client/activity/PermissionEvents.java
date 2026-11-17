@@ -71,7 +71,33 @@ public final class PermissionEvents {
         nonBlankString(event, "action"),
         strings(event, "resources"),
         metadataTitle(event),
-        PermissionRequest.Status.PENDING);
+        PermissionRequest.Status.PENDING,
+        metadataInput(event));
+  }
+
+  /**
+   * CP-07 (FR-CP-07): the tool's input from {@code metadata.input} (#51062) - a string value is
+   * taken as-is, any other shape is kept as its compact JSON, so the ask row can show WHAT the
+   * agent wants to do before the human decides. Absent/malformed metadata yields {@code null}.
+   */
+  private static String metadataInput(OpencodeEvent event) {
+    JsonObject properties = event.properties();
+    if (properties == null || !properties.has("metadata")) {
+      return null;
+    }
+    JsonElement metadata = properties.get("metadata");
+    if (metadata == null || !metadata.isJsonObject()) {
+      return null;
+    }
+    JsonElement input = metadata.getAsJsonObject().get("input");
+    if (input == null || input.isJsonNull()) {
+      return null;
+    }
+    if (input.isJsonPrimitive()) {
+      String text = input.getAsString();
+      return text.isBlank() ? null : text;
+    }
+    return input.toString();
   }
 
   private static PermissionRequest parseReplied(OpencodeEvent event) {

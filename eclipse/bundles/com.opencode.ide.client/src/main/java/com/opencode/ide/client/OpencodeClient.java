@@ -967,6 +967,18 @@ public interface OpencodeClient {
   }
 
   /**
+   * {@code PATCH /api/permission/saved/{id}} (2.1, operationId {@code permission.saved.update},
+   * ADOPT L302) - change a remembered rule's action or resource. The server answers <b>409</b> when
+   * the project already has a rule with that pair, so a conflict surfaces as an error and never as
+   * a silent success (live-openapi-probed 2026-11-17: body {@code {action, resource}}, response
+   * {@code {data: PermissionSaved.Info}}). CP-07 AC2.
+   */
+  default SavedPermission updateSavedPermission(String id, String action, String resource)
+      throws OpencodeException {
+    throw new UnsupportedOperationException("updateSavedPermission");
+  }
+
+  /**
    * {@code GET /api/integration} - the typed integration catalog. v2.0.19 live probe: {@code
    * {location, data:[{id, name, methods:[{type:"key" |"env", names:[...]}], connections:[]}]}}
    * ({@code connections} not modelled - empty in probes). Default throws so test fakes stay

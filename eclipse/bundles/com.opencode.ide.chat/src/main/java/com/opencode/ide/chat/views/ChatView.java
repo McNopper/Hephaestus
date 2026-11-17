@@ -1754,7 +1754,9 @@ public class ChatView extends ViewPart {
     }
     currentAsk = request;
     askClient = client;
-    askLabel.setText(request.display() == null ? request.permission() : request.display());
+    String askBase = request.display() == null ? request.permission() : request.display();
+    String toolInput = request.inputDisplay(); // CP-07: metadata.input informs the decision
+    askLabel.setText(toolInput == null ? askBase : askBase + "\n\u203A " + toolInput);
     setAskRowVisible(true);
     // U-014 AC3: one transcript notice per ask - the session is WAITING
     // on the user, visible even if the banner scrolls out of sight
@@ -1803,6 +1805,26 @@ public class ChatView extends ViewPart {
     }
   }
 
+  /**
+   * CP-07 AC3: after an "always" answer, re-read the remembered rules and report whether one of the
+   * request's patterns actually persisted - the server-proposed pattern VERIFIED, or an honest "not
+   * visible yet" / "check failed". Never a claim of persistence we did not observe.
+   */
+  private static String verifySavedRule(
+      com.opencode.ide.client.OpencodeClient client,
+      com.opencode.ide.client.activity.PermissionRequest request) {
+    try {
+      for (com.opencode.ide.client.model.SavedPermission rule : client.listSavedPermissions()) {
+        if (rule != null && rule.matches(request.patterns())) {
+          return "saved rule verified: " + rule.resource();
+        }
+      }
+      return "the rule is not visible in the saved list yet.";
+    } catch (Exception e) {
+      return "rule check failed: " + e.getMessage();
+    }
+  }
+
   private void setAskRowVisible(boolean visible) {
     ((GridData) askRowComposite.getLayoutData()).exclude = !visible;
     askRowComposite.setVisible(visible);
@@ -1834,15 +1856,26 @@ public class ChatView extends ViewPart {
         () -> {
           String message;
           try {
-            message =
+            boolean accepted =
                 answerClient.respondToPermission(
-                        request.sessionId(),
-                        request.permissionId(),
-                        decision.response(),
-                        decision.remember(),
-                        feedback)
-                    ? "Permission answered '" + decision.response() + "'."
-                    : "\u26A0 Permission answer was not accepted.";
+                    request.sessionId(),
+                    request.permissionId(),
+                    decision.response(),
+                    decision.remember(),
+                    feedback);
+            if (!accepted) {
+              message = "\u26A0 Permission answer was not accepted.";
+            } else if (decision.remember()) {
+              // CP-07 AC3: an "always" answer must leave a persisted rule - check the saved
+              // list and report what the server actually kept
+              message =
+                  "Permission answered '"
+                      + decision.response()
+                      + "' - "
+                      + verifySavedRule(answerClient, request);
+            } else {
+              message = "Permission answered '" + decision.response() + "'.";
+            }
           } catch (Exception e) {
             message = "\u26A0 Permission answer failed: " + e.getMessage();
           }

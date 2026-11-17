@@ -1768,7 +1768,10 @@ public final class HttpOpencodeClient implements OpencodeClient {
     List<SavedPermission> out = new ArrayList<>();
     for (JsonElement element : dataOf(response.body())) {
       if (element.isJsonObject()) {
-        out.add(new SavedPermission(stringOf(element.getAsJsonObject(), "id")));
+        JsonObject rule = element.getAsJsonObject();
+        out.add(
+            new SavedPermission(
+                stringOf(rule, "id"), stringOf(rule, "action"), stringOf(rule, "resource")));
       }
     }
     return List.copyOf(out);
@@ -1777,6 +1780,31 @@ public final class HttpOpencodeClient implements OpencodeClient {
   @Override
   public void deleteSavedPermission(String id) throws OpencodeException {
     request("DELETE", "/permission/saved/" + URLEncoder.encode(id, StandardCharsets.UTF_8), null);
+  }
+
+  @Override
+  public SavedPermission updateSavedPermission(String id, String action, String resource)
+      throws OpencodeException {
+    // CP-07 AC2 (live openapi probe 2026-11-17): PATCH /api/permission/saved/{id} with the
+    // {action, resource} body; 200 {data: PermissionSaved.Info}; 409 when the pair already
+    // exists - request() throws on every non-2xx, so a conflict is loud (never a silent success).
+    JsonObject body = new JsonObject();
+    body.addProperty("action", action);
+    body.addProperty("resource", resource);
+    String path = "/permission/saved/" + URLEncoder.encode(id, StandardCharsets.UTF_8);
+    HttpResponse<String> response = request("PATCH", path, body.toString());
+    try {
+      JsonObject envelope = JsonParser.parseString(response.body()).getAsJsonObject();
+      JsonObject data = asObject(envelope, "data");
+      return new SavedPermission(data == null ? null : stringOf(data, "id"), action, resource);
+    } catch (JsonParseException | IllegalStateException e) {
+      throw new OpencodeException(
+          "opencode PATCH /api"
+              + path
+              + " failed: malformed response body: "
+              + truncate(response.body(), 300),
+          e);
+    }
   }
 
   @Override

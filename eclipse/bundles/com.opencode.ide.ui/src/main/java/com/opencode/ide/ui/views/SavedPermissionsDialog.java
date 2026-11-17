@@ -54,6 +54,7 @@ public final class SavedPermissionsDialog extends Dialog {
 
   @Override
   protected void createButtonsForButtonBar(Composite parent) {
+    createButton(parent, EDIT, "Edit\u2026", false);
     createButton(parent, REMOVE, "Remove", false);
     createButton(parent, Window.OK, "Close", true);
   }
@@ -64,25 +65,35 @@ public final class SavedPermissionsDialog extends Dialog {
       close();
       return;
     }
-    if (buttonId != REMOVE) {
+    if (buttonId != REMOVE && buttonId != EDIT) {
       return;
     }
     TableItem[] selection = table.getSelection();
-    if (selection.length == 0) {
+    SavedPermission rule = selection.length == 0 ? null : selectedRule(selection[0]);
+    if (rule == null) {
       feedback.setText("select a rule first");
       return;
     }
-    String id = selection[0].getText(0);
+    if (buttonId == EDIT) {
+      edit(rule); // CP-07 AC2: the saved-permission EDIT route
+      return;
+    }
     if (!MessageDialog.openConfirm(
         getShell(),
         "Remove saved permission",
         "Forget the remembered rule "
-            + id
+            + rule.id()
             + "?\nThe agent will ask again the next time this permission comes up.")) {
       return;
     }
-    remove(id);
+    remove(rule.id());
   }
+
+  /** The EDIT button id (CP-07 AC2 - the saved-permission EDIT route). */
+  private static final int EDIT = 1002;
+
+  /** The records behind the rows (the table shows id + action + resource; Edit prefills them). */
+  private List<SavedPermission> current = List.of();
 
   /**
    * Loads the rule list off the UI thread; failures surface on the feedback line, never a broken
@@ -91,10 +102,7 @@ public final class SavedPermissionsDialog extends Dialog {
   private void reload() {
     ViewLoadSupport.load(
         "Loading saved permissions",
-        () -> {
-          List<SavedPermission> saved = client.listSavedPermissions();
-          return SavedPermissionRows.ids(saved);
-        },
+        client::listSavedPermissions,
         this::showRows,
         error -> {
           if (!table.isDisposed()) {
@@ -106,17 +114,69 @@ public final class SavedPermissionsDialog extends Dialog {
         });
   }
 
-  /** Renders one row per rule id, or the empty-state sentence when none is remembered. */
-  private void showRows(List<String> ids) {
+  /** Renders one row per rule (id + action + resource), or the empty-state sentence. */
+  private void showRows(List<SavedPermission> rules) {
     if (table.isDisposed()) {
       return;
     }
     table.removeAll();
-    for (String id : ids == null ? List.<String>of() : ids) {
+    current = rules == null ? List.of() : rules;
+    for (SavedPermission rule : current) {
       TableItem item = new TableItem(table, SWT.NONE);
-      item.setText(0, id);
+      item.setText(0, describe(rule));
     }
-    feedback.setText(ids == null || ids.isEmpty() ? SavedPermissionRows.EMPTY_TEXT : "");
+    feedback.setText(current.isEmpty() ? SavedPermissionRows.EMPTY_TEXT : "");
+  }
+
+  /** The record behind a selected row (row order == {@link #current} order). */
+  private SavedPermission selectedRule(TableItem item) {
+    int index = table.indexOf(item);
+    return index >= 0 && index < current.size() ? current.get(index) : null;
+  }
+
+  /** {@code perm_saved_1 · allow · /src/*} - enough to recognise the rule being edited. */
+  private static String describe(SavedPermission rule) {
+    return (rule.id() == null ? "" : rule.id())
+        + "  \u00b7  "
+        + (rule.action() == null ? "" : rule.action())
+        + " \u00b7 "
+        + (rule.resource() == null ? "" : rule.resource());
+  }
+
+  /**
+   * CP-07 AC2: the EDIT route - {@code PATCH /permission/saved/{id}} with the entered action and
+   * resource, run off the UI thread like every other write here; a conflict (409) surfaces on the
+   * feedback line through the load error path.
+   */
+  private void edit(SavedPermission rule) {
+    String action = prompt("Edit saved permission", "Action (e.g. allow):", rule.action());
+    if (action == null) {
+      return;
+    }
+    String resource = prompt("Edit saved permission", "Resource / pattern:", rule.resource());
+    if (resource == null) {
+      return;
+    }
+    ViewLoadSupport.load(
+        "Updating saved permission",
+        () -> {
+          client.updateSavedPermission(rule.id(), action, resource);
+          return client.listSavedPermissions();
+        },
+        this::showRows,
+        error -> {
+          if (!feedback.isDisposed()) {
+            feedback.setText("edit failed: " + ViewLoadSupport.message(error));
+          }
+        });
+  }
+
+  /** One value prompt; {@code null} = cancelled (a cancel is never a write). */
+  private String prompt(String title, String message, String initial) {
+    org.eclipse.jface.dialogs.InputDialog dialog =
+        new org.eclipse.jface.dialogs.InputDialog(getShell(), title, message, initial, null);
+    int result = dialog.open();
+    return result == Window.OK ? dialog.getValue() : null;
   }
 
   /** Deletes one rule off the UI thread, then refreshes the list from the server. */
@@ -125,7 +185,7 @@ public final class SavedPermissionsDialog extends Dialog {
         "Removing saved permission",
         () -> {
           client.deleteSavedPermission(id);
-          return SavedPermissionRows.ids(client.listSavedPermissions());
+          return client.listSavedPermissions();
         },
         this::showRows,
         error -> {

@@ -44,6 +44,45 @@ public class PermissionEventsTest {
     assertTrue(request.pending());
   }
 
+  /**
+   * CP-07 (FR-CP-07): {@code metadata.input} reaches the request, so the ask row can show WHAT the
+   * agent wants to do - a structured input arrives as its compact JSON, a string as-is, and an
+   * event without input keeps {@code null} (no line rendered).
+   */
+  @Test
+  public void askedEventParsesTheMetadataInputForTheAskRow() {
+    PermissionRequest structured =
+        PermissionEvents.parse(
+            event(
+                """
+                {"id":"evt_9","created":9,"type":"permission.asked","data":{
+                  "id":"per_9","sessionID":"ses_1","action":"shell",
+                  "resources":["git push"],
+                  "metadata":{"command":"git push","input":{"command":"git push","cwd":"/repo"}}}}"""));
+    assertNotNull(structured);
+    assertEquals("{\"command\":\"git push\",\"cwd\":\"/repo\"}", structured.inputDisplay());
+
+    PermissionRequest plain =
+        PermissionEvents.parse(
+            event(
+                """
+                {"id":"evt_10","created":10,"type":"permission.asked","data":{
+                  "id":"per_10","sessionID":"ses_1","action":"edit",
+                  "resources":["/src/a.txt"],"metadata":{"input":"/src/a.txt"}}}"""));
+    assertNotNull(plain);
+    assertEquals("/src/a.txt", plain.inputDisplay());
+
+    PermissionRequest withoutInput =
+        PermissionEvents.parse(
+            event(
+                """
+                {"id":"evt_11","created":11,"type":"permission.asked","data":{
+                  "id":"per_11","sessionID":"ses_1","action":"shell",
+                  "resources":["git status"],"metadata":{"command":"git status"}}}"""));
+    assertNotNull(withoutInput);
+    assertNull(withoutInput.inputDisplay());
+  }
+
   @Test
   public void askedWithoutToolSourceStillHasAnActionableRequestId() {
     PermissionRequest request =
