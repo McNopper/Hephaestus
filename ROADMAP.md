@@ -207,10 +207,13 @@ E-006 closes (that is its second AC). **Where a row below contradicts
   readiness tick's idempotent marker (InputsChangedStampTest 5/5); the row
   retires with E-006 on its own done.
   Auto-archive is tool-exposed as of U-060.
-- **U-059** - archive-aware production readiness (epic **U-112**, not
-  E-006): same shape - readiness consults the archive only at library level
-  today; becomes required the moment archives are in real use (release
-  condition 1).
+- **U-059** - archive-aware production readiness: **RESOLVED 2026-11-17** (row kept
+  only until the section disappears with E-006) - all three production
+  `StageReadiness.evaluate` sites plus the `staleCause` lookup now pass the
+  archive pool (per-host tests: tool 10/10, recorder 6/6, board 9/9), so
+  readiness consults the archive in PRODUCTION, not only at library level;
+  the remaining release condition (archives in real use, condition 1) is a
+  release-checklist item, not a divergence.
 - **T-037 residue** - superseded *per-stage-schedule* wording inside done
   V-walk artifacts (`acceptance-run-system.md` "one steward session per
   stage", `acceptance-run-architecture.md` "one schedule per stage",
