@@ -267,16 +267,16 @@ reviews its own work through the Board and the store.
   permission queue, U-021/U-022 autonomous acceptance + recurring waves, the auto-dispatch
   policy, graceful shutdown with checkpointing) was removed in U-110 (b81ec6f) — its
   orchestration role moved to the ticker-v schedule and the spawned workers/reviewers.
-  policy); distributed-fleet store sync; graceful shutdown with checkpointing.
 - **IDE surfaces:** native chat view (markdown, KaTeX math, syntax highlighting, mermaid,
-  streaming, abort, tool parts, copy-code, `/command` picker, `@`-file references, question
-  forms + in-chat permissions, cross-restart continuity); Server/Providers/Repo views (MCP
-  servers + Skills sections, saved permissions, integration connect flows, working sets,
-  fuzzy file search); Session Details (lifecycle, two-phase truth, environment replace,
-  import preview, attach skill, suggest title, subagents + shell consoles); Background view
-  - attention notifications; the six-column PM Board with V-pipeline layout, cost overview,
-- attention notifications; the six-column PM Board with the V-pipeline layout, the wave
-  digest, sync/store/project/group-by controls; CDT ProjectContext + diagnostic markers.
+  streaming, abort, tool parts, copy-code, `/command` picker, `@`-file references with
+  line/range suffixes, prompt-history recall, status strip (context, cost, goal), the
+  `Sessions…` switcher, question forms + in-chat permissions, cross-restart continuity);
+  Server/Providers/Repo views (MCP servers + Skills sections, saved permissions, integration
+  connect flows, working sets, fuzzy file search); Session Details (lifecycle, two-phase
+  truth, environment replace, import preview, attach skill, suggest title, subagents +
+  shell consoles); Background view - attention notifications; the six-column PM Board with
+  V-pipeline layout, wave digest, sync/store/project/group-by controls; CDT ProjectContext +
+  diagnostic markers.
 - **Verification posture:** the entire stack is unit/component-tested headless and the
   reactor is the gate; the live in-Eclipse UI pass over the deployed jars is the rolling
   verification step.
