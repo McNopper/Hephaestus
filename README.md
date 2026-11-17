@@ -94,7 +94,7 @@ repository, two ways to use it:
 |---|---|---|
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
 | **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
-| ~~**Fleet**~~ — removed in U-110; per-stage tickers + goal-driven subagents replaced it | ✗ | ✗ (Board mirrors the store; no fleet view) |
+| ~~**Fleet**~~ — removed in U-110; the ticker-v schedule + goal-driven subagents replaced it | ✗ | ✗ (Board mirrors the store; no fleet view) |
 | **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) — **not shipped in this repo**; user-supplied `mcp.graphics` since the 2026-10-15 curation (AGENTS.md) | ✅ | ✅ |
 | `cpp-tools` agent driving CMake/clang tooling — **agent moved out of the repo** 2026-10-15 (user-supplied methodology) | ✅ (bash-driven) | ✅ |
@@ -282,9 +282,10 @@ resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-lo
    from.
 6. Run `opencode` from this repo. Skills, agents, and `AGENTS.md` auto-load; the
    `tasks` stdio launcher and the `graphics` MCP server start from `opencode.json`.
-7. Unattended execution: arm the stage tickers with
-   **`.opencode/skills/stage-pipeline/ticker-setup.ps1`** (one schedule per
-   V-stage; the `stage-pipeline` skill is the procedure) — each tick resolves
+7. Unattended execution: arm the ticker with
+   **`.opencode/skills/stage-pipeline/ticker-setup.ps1`** (ONE steward session +
+   ONE schedule - `ticker-v` - whose every tick walks all V stages in canonical
+   order; the `stage-pipeline` skill is the procedure) - each tick resolves
    blocked tickets, divides done ones into linked downstream tickets and kicks
    off READY ones via goal-driven subagents. The whole engine works without
    Eclipse.

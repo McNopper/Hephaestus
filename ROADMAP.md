@@ -34,7 +34,7 @@ objective into one ticket, division expands it into the derivation tree.
 One repository. Intelligence lives in `.opencode/` (agents, skills) and MCP
 servers; the Eclipse plugin (`eclipse/`) is the harness: it hosts, services,
 and observes agents working through the linked stage pipeline — stationary
-tickets, per-stage tickers, store-mediated coordination. The maintainer uses
+tickets, the unified ticker-v schedule, store-mediated coordination. The maintainer uses
 Eclipse as PM + reviewer; agents self-organize via the task store. **Prime
 rule: never build in the plugin what Hephaestus or upstream opencode already
 provides.** For a simple project the plain opencode TUI suffices — this
@@ -106,9 +106,10 @@ when all of the following hold:
 - **U-052** — record `inputs changed:` markers from production readiness
   (carries decided D-003, option B: only status/stage/artifact writes make
   work STALE).
-- **Pipeline continuation** — arm the architecture and test tickers; of the
-  three children the review left READY, **A-002 (test-system) and A-003
-  (architecture) are done** — only **A-004** (test-architecture, READY on
+- **Pipeline continuation** - the ticker covers the architecture and test
+  stages under the ONE armed schedule (`ticker-setup.ps1` - no per-stage
+  arming); of the three children the review left READY, **A-002 (test-system) and A-003
+  (architecture) are done** - only **A-004** (test-architecture, READY on
   its done basis A-001) is still queued.
 - **U-075** — TUI-vs-Eclipse responsiveness, measured spike, report-only.
 - **Launched shells in the server browser** — keep the Server view's
@@ -198,10 +199,19 @@ E-006 closes (that is its second AC). **Where a row below contradicts
 - **U-052** — `inputs changed:` markers (epic E-006, carrying D-003 option
   B): still library-level only — the docs say so and point at the ticket.
   Auto-archive is tool-exposed as of U-060.
-- **U-059** — archive-aware production readiness (epic **U-112**, not
-  E-006): same shape — readiness consults the archive only at library level
+- **U-059** - archive-aware production readiness (epic **U-112**, not
+  E-006): same shape - readiness consults the archive only at library level
   today; becomes required the moment archives are in real use (release
   condition 1).
+- **T-037 residue** - superseded *per-stage-schedule* wording inside done
+  V-walk artifacts (`acceptance-run-system.md` "one steward session per
+  stage", `acceptance-run-architecture.md` "one schedule per stage",
+  `autonomy-spectrum-architecture.md` "one schedule per stage",
+  `requirements-stage-pipeline.md` "one steward session per stage", and the
+  `.tests.md` rows that pin them): those artifacts' paired verdicts cite the
+  wording, so they are corrected by their own epics on a re-walk; the
+  supersession authority is `docs/unified-ticker-architecture.md` (the
+  ten→one row) plus AGENTS.md/README.md, which T-037 aligned 2026-11-17.
 
 ## Standing rules
 

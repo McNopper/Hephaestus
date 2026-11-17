@@ -123,8 +123,9 @@ next tick (the tick boundary is the only synchronization point). Design:
 (AE-6 comment — requirements T-031 → linked system child A-001, engine
 verdicts throughout).
 
-**Ticker strategy (resolution-first, U-110):** every stage ticker's tick
-resolves BLOCKED ITEMS FIRST — a blocked ticket escalates to its **basis**
+**Ticker strategy (resolution-first, U-110):** the ticker's pass - one
+`ticker-v` schedule walking every stage in canonical order - resolves BLOCKED
+ITEMS FIRST per stage: a blocked ticket escalates to its **basis**
 (the upstream link: `task_set_blocked` on the basis with the reason; NEEDS-HUMAN
 if the basis is blocked or the round-trip repeats) — then processes done
 tickets (division: create + link the downstream tickets), and only then kicks
@@ -333,15 +334,16 @@ write/edit/patch/bash and owns registration (evaluation:
 Concretely, the chat agent — the PO's **kickoff assistant** — can:
 
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
-- **arm and disarm the stage tickers** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
-  (one steward session + one `experimental.schedules` schedule per stage — W1,
-  adopted; the tick prompt is thin glue over the `stage-pipeline` skill), or flip
-  the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);
+- **arm and disarm the ticker** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
+  (ONE steward session + ONE `experimental.schedules` schedule - `ticker-v` - W1,
+  adopted; each tick walks all stages in canonical V order under the global
+  spawn cap, and the tick prompt is thin glue over the `stage-pipeline` skill),
+  or flip the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);
 - **file intake tickets** (goal intake, U-105 flow): the PO posts
   **requirements and bugs** in chat - requirements become GOAL/requirements
   tickets (process rules land in the governing docs), bugs become
-  `type: bug` tickets; on completion the stage tickers divide it into the
-  linked derivation chain;
+  `type: bug` tickets; on completion the ticker's division step divides it
+  into the linked derivation chain;
 - **model selection is a cost lever on the ticket**: the optional `model` field
   (`provider/model[#variant]`, via `task_create`/`task_update`) decides what a run
   costs — small well-specified tickets deserve cheap models;

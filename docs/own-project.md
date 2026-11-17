@@ -86,8 +86,9 @@ Use the `project-manager-create-ticket` skill (or the Board's New Ticket):
 
 1. **Direct:** `task_claim(role=...)` in a chat session, do the work,
    `task_add_artifact` + move to `in-review`.
-2. **Stage tickers (unattended):** arm one schedule per V-stage with
-   `.opencode/skills/stage-pipeline/ticker-setup.ps1`; each tick resolves
+2. **The ticker (unattended):** arm the ONE schedule with
+   `.opencode/skills/stage-pipeline/ticker-setup.ps1` (one steward session, one
+   `ticker-v` schedule walking every stage in canonical order); each tick resolves
    blocked items first, divides done tickets into linked downstream tickets
    and kicks off READY tickets via goal-driven subagents under the spawn
    cap. The procedure lives in the `stage-pipeline` skill; live evidence in

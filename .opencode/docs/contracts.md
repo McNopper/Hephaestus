@@ -101,7 +101,7 @@ Plus the H6 readiness/stage pack: `task_readiness` (per-ticket READY / WAIT_UPST
 STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board, basis-chain gating
 per U-110), `task_set_blocked` (blocked escalation to the basis), `task_create` with
 `stage`/`epic`/`basis` (division + linking), `task_doctor` - the stage-flow surface the
-stage tickers build on.
+ticker pass builds on.
 
 ### Artifact kinds (the hand-off locator)
 

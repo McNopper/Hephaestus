@@ -9,9 +9,16 @@
   ticket); the sections marked OPEN get their final values during the chunks.
 - **Read by:** every agent implementing a U-110 chunk; the maintainer.
 - **Related:** `docs/opencode-v2-adoption.md` (the experimental-surface policy
-  this design applies — W1 and W12 are adopted by it), `docs/fleet-redundancy-review-2026-11.md`
+  this design applies - W1 and W12 are adopted by it), `docs/fleet-redundancy-review-2026-11.md`
   (the research that showed the execution primitives are native), ticket
   `.harness/tasks/hephaestus/U-110.md` (the full decision trail).
+- **Currency (ten→one supersession, T-037):** parts of this draft predate the
+  owner's ten→one unification (2026-11-14). Where this draft still says
+  *per-stage schedule tickers* / *one steward session per stage*, the LIVE model
+  is **ONE steward session + ONE `ticker-v` schedule** walking every stage in
+  canonical order (AGENTS.md's arming bullet; `.opencode/skills/stage-pipeline/ticker-setup.ps1`);
+  `docs/unified-ticker-architecture.md` records the supersession row. §4's
+  rolling-record and interval bullets were corrected in place by T-037.
 
 ## Scope decision (owner, 2026-11-14)
 
@@ -145,14 +152,17 @@ Therefore:
   3. *Close:* `task_close_sprint` — unfinished tickets return to the stage
      backlog (existing semantics); the wave digest is recorded (U-061);
      completed work's downstream links grow the next stage's READY set.
-- **Rolling sprint record per stage:** each ticker reuses one named record
-  (`ticker-<stage>`, e.g. `ticker-design`), reopened at kickoff (U-108's
+- **Rolling sprint record (unified ten→one):** the ONE ticker reuses a single
+  named record (`ticker-v`), reopened at kickoff (U-108's
   reopen semantics) and closed at the tick boundary. This keeps the sprint
   namespace compact (no per-tick id explosion) while history, goal and digest
   stay per-tick. The auto-minted `S-xx` records remain for human-run waves.
-- **Interval and cap (decided with chunk 3's bootstrap):** default **15
-  minutes per stage** (`ticker-setup.ps1 -IntervalMinutes`), per stage via
-  the schedule's `when`; stages with an empty READY backlog cost one thin
+  The per-stage `ticker-<stage>` records this design originally specified are
+  SUPERSEDED with the ten→one unification (`docs/unified-ticker-architecture.md`).
+- **Interval and cap (decided with chunk 3's bootstrap; cadence owner-set
+  2026-11-16):** default **5 minutes for the single schedule**
+  (`ticker-setup.ps1 -IntervalMinutes` - ONE `when` covers the whole canonical
+  walk, not one interval per stage); stages with an empty READY backlog cost one thin
   readiness query per tick. **Spawn cap:** default **4** concurrent
   subagents (`-Cap`), owner-adjustable on the Board panel (chunk 5).
 
