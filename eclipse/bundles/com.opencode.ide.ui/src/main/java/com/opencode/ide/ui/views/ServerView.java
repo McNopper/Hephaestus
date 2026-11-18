@@ -165,6 +165,12 @@ public class ServerView extends ViewPart implements Refreshable {
     /** The location scope {@link #mcpServers} was listed with - actions must reuse it (B-023). */
     final String mcpDirectory;
 
+    /** T-179 lazy terminal inventory: sessionId -> rows; fetched once on session-row expansion. */
+    final Map<String, List<com.opencode.ide.ui.model.SessionTerminals.Row>> terminals =
+        new HashMap<>();
+
+    volatile boolean terminalsLoaded;
+
     final CategoryNode agentsCategory;
     final CategoryNode sessionsCategory;
     final CategoryNode questionsCategory;
@@ -325,10 +331,28 @@ public class ServerView extends ViewPart implements Refreshable {
     layout.setColumnData(nameCol.getColumn(), new ColumnWeightData(2, 140, true));
     layout.setColumnData(detailCol.getColumn(), new ColumnWeightData(3, 220, true));
 
+    // T-179 AC4: expand-to-poll - the terminal inventory loads the first time a
+    // session row expands (one server-wide GET /api/shell) and never on a timer
+    viewer.addTreeListener(
+        new org.eclipse.jface.viewers.ITreeViewerListener() {
+          @Override
+          public void treeExpanded(org.eclipse.jface.viewers.TreeExpansionEvent event) {
+            if (event.getElement() instanceof Session session) {
+              maybeLoadTerminals(session);
+            }
+          }
+
+          @Override
+          public void treeCollapsed(org.eclipse.jface.viewers.TreeExpansionEvent event) {
+            // nothing to do
+          }
+        });
+
     // double-click: a question row -> the asking session's live output; a
-    // session nested under its agent -> live output (SessionDetailsView,
-    // auto-refreshing); a session in the Sessions category -> resume it in
-    // a chat window (unchanged)
+    // terminal row -> its Eclipse console (T-179 AC3: click-through only, no
+    // output rendered in the browser); a session nested under its agent ->
+    // live output (SessionDetailsView, auto-refreshing); a session in the
+    // Sessions category -> resume it in a chat window (unchanged)
     viewer.addDoubleClickListener(
         e -> {
           Object selection = e.getSelection();
@@ -339,6 +363,12 @@ public class ServerView extends ViewPart implements Refreshable {
           if (first instanceof PendingQuestions.Row question && question.sessionId() != null) {
             // U-096: the question leads to the session that waits for its answer
             openSessionDetails(question.sessionId());
+            return;
+          }
+          if (first instanceof com.opencode.ide.ui.model.SessionTerminals.Row terminalRow
+              && terminalRow.shellId() != null) {
+            // T-179 AC3: a terminal opens its Eclipse console, never a transcript here
+            openTerminalInConsole(terminalRow);
             return;
           }
           if (!selectedTarget().openSession()) {
@@ -953,6 +983,82 @@ public class ServerView extends ViewPart implements Refreshable {
   }
 
   /** Opens the session details view for one session (secondary id = session id). */
+  // ---------- T-179: server-browser terminal inventory (lazy, event-refreshed) ----------
+
+  /** The owning server node holding this terminal row in its lazy cache, or {@code null}. */
+  private static ServerNode terminalOwner(
+      List<ServerNode> roots, com.opencode.ide.ui.model.SessionTerminals.Row row) {
+    for (ServerNode node : roots) {
+      for (List<com.opencode.ide.ui.model.SessionTerminals.Row> rows : node.terminals.values()) {
+        if (rows.contains(row)) {
+          return node;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Expand-to-poll (T-179 AC4): the first expansion of a session row fetches the server's shell
+   * tasks ONCE (one GET /api/shell for every session of that server); later expansions are no-ops
+   * and a failed fetch clears the flag so the next expand retries. No timers, no loops.
+   */
+  private void maybeLoadTerminals(Session session) {
+    ServerNode owner = ownerOf(session);
+    if (owner == null || owner.client == null || owner.terminalsLoaded) {
+      return;
+    }
+    owner.terminalsLoaded = true;
+    reloadTerminals(owner, session);
+  }
+
+  /** Re-fetches for every node whose inventory is live (a session.shell.* event just arrived). */
+  private void refreshLoadedTerminals() {
+    for (ServerNode node : roots) {
+      if (node.client != null && node.terminalsLoaded) {
+        reloadTerminals(node, null);
+      }
+    }
+  }
+
+  private void reloadTerminals(ServerNode owner, Session focus) {
+    final OpencodeClient client = owner.client;
+    com.opencode.ide.ui.internal.ViewLoadSupport.load(
+        "Loading terminals",
+        () -> com.opencode.ide.ui.model.SessionTerminals.load(client),
+        rows -> {
+          owner.terminals.clear();
+          owner.terminals.putAll(rows);
+          if (focus != null && viewer != null && !viewer.getControl().isDisposed()) {
+            viewer.refresh(focus);
+          } else {
+            scheduleRefresh();
+          }
+        },
+        t -> owner.terminalsLoaded = false); // failed: the next expand retries
+  }
+
+  /**
+   * T-179 AC3: a terminal row opens its shell task in the standard Eclipse console ({@link
+   * com.opencode.ide.ui.console.ShellTasksConsole}, the U-041 seam) - output never renders inside
+   * the browser.
+   */
+  private void openTerminalInConsole(com.opencode.ide.ui.model.SessionTerminals.Row row) {
+    ServerNode owner = terminalOwner(roots, row);
+    if (owner == null || owner.client == null) {
+      setContentDescription("Terminal " + row.shellId() + " is not reachable on this server");
+      return;
+    }
+    final OpencodeClient client = owner.client;
+    com.opencode.ide.ui.internal.ViewLoadSupport.load(
+        "Loading terminal output",
+        () -> client.shellTaskOutput(row.shellId()),
+        output ->
+            com.opencode.ide.ui.console.ShellTasksConsole.open(
+                row.shellId(), row.command(), output == null ? "" : output),
+        t -> setContentDescription("Terminal output failed: " + t.getMessage()));
+  }
+
   private void openSessionDetails(String sessionId) {
     if (!selectedTarget().openSession()) {
       return;
@@ -1656,6 +1762,12 @@ public class ServerView extends ViewPart implements Refreshable {
           scheduleRefresh();
         }
       }
+      case "session.shell.started", "session.shell.ended" -> {
+        // T-179 AC4: the terminal inventory updates from the events already
+        // flowing through the SSE stream - no polling loop
+        refreshLoadedTerminals();
+        scheduleRefresh();
+      }
       case "session.text.started",
           "session.reasoning.started",
           "session.tool.called",
@@ -2019,6 +2131,9 @@ public class ServerView extends ViewPart implements Refreshable {
           + sessionScopeSuffix(nested.session())
           + questionMarker(nested.session());
     }
+    if (element instanceof com.opencode.ide.ui.model.SessionTerminals.Row terminalRow) {
+      return terminalRow.label();
+    }
     if (element instanceof Session s) {
       return ServerLabels.sessionName(s, isWorking(ownerOf(s), s))
           + sessionScopeSuffix(s)
@@ -2104,6 +2219,11 @@ public class ServerView extends ViewPart implements Refreshable {
   String detail(Object element) {
     if (element instanceof PendingQuestions.Row question) {
       return question.attribution();
+    }
+    if (element instanceof com.opencode.ide.ui.model.SessionTerminals.Row terminalRow) {
+      return terminalRow.running()
+          ? "running · " + terminalRow.shellId()
+          : terminalRow.status() + " · " + terminalRow.shellId();
     }
     if (element instanceof AgentSessionNode nested) {
       element = nested.session(); // same rendering as the Sessions category rows
@@ -2290,9 +2410,14 @@ public class ServerView extends ViewPart implements Refreshable {
       }
       if (parent instanceof Session session) {
         ServerNode owner = ownerOf(session);
-        return owner != null
-            ? ServerLabels.childrenOf(owner.sessions, session.id()).toArray()
-            : new Object[0];
+        if (owner == null) {
+          return new Object[0];
+        }
+        // T-179: subagents first (U-041), then the lazy terminal inventory
+        List<Object> sessionChildren =
+            new ArrayList<>(ServerLabels.childrenOf(owner.sessions, session.id()));
+        sessionChildren.addAll(owner.terminals.getOrDefault(session.id(), List.of()));
+        return sessionChildren.toArray();
       }
       return new Object[0];
     }
@@ -2322,6 +2447,28 @@ public class ServerView extends ViewPart implements Refreshable {
           }
         }
         return nested.agent();
+      }
+      if (element instanceof com.opencode.ide.ui.model.SessionTerminals.Row terminalRow) {
+        // T-179: the terminal hangs under the session it is bound to
+        // (metadata.sessionID), so the tree can restore expansion state
+        ServerNode owner = terminalOwner(roots, terminalRow);
+        if (owner != null) {
+          for (String sessionId : owner.terminals.keySet()) {
+            if (owner.terminals.get(sessionId).contains(terminalRow)) {
+              Session ownerSession = null;
+              for (Session candidate : owner.sessions) {
+                if (sessionId.equals(candidate.id())) {
+                  ownerSession = candidate;
+                  break;
+                }
+              }
+              if (ownerSession != null) {
+                return ownerSession;
+              }
+            }
+          }
+        }
+        return null;
       }
       if (element instanceof Agent agent) {
         // identity-first lookup: two servers can define structurally
