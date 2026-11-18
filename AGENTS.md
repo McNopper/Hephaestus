@@ -306,6 +306,16 @@ steers dispatch (stage → role → skill) and the prompt the fleet gives the wo
   `done` without one (a rationale recorded as a doc artifact counts) and `task_doctor`
   lints legacy done/in-review definition tickets that carry none ("the architecture was
   not done") — the API cannot reach bare `done` for a staged definition ticket.
+- **A requirement that travels the V carries AT LEAST TEN tickets — one per stage**
+  (owner rule 2026-11-18): `requirements` → `system` → `architecture` → `design` →
+  `implementation` down the left leg — a stage with nothing to change still gets its
+  small confirmation ticket ("no changes required") — then `test-implementation` →
+  `test-design` → `test-architecture` → `test-system` → `test-requirements` back up
+  the right leg, every `test-*` ticket checking its horizontal partner through its
+  basis link. Requirements split further as needed (one architecture → several designs
+  → many implementations), joined together again on the right leg — ten is the floor,
+  not the cap. The analysis and the decisions live in the stage tickets, never in the
+  requirement; the requirement holds the need.
 - **Top-down coverage is automatic:** the ticker's dispatch prompt injects the governing
   UPSTREAM DEFINITIONS — the ticket's basis chain + artifact refs (U-110: the chain
   carries content, not just IDs) — a `done` upstream with no artifact yields a GOVERNING
