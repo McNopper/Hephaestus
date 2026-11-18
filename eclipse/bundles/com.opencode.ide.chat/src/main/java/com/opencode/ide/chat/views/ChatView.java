@@ -1,5 +1,6 @@
 package com.opencode.ide.chat.views;
 
+import com.opencode.ide.chat.internal.ActiveSession;
 import com.opencode.ide.chat.internal.ChatLog;
 import com.opencode.ide.chat.internal.ChatPage;
 import com.opencode.ide.chat.internal.ChatSelectorState;
@@ -1215,15 +1216,20 @@ public class ChatView extends ViewPart {
     controller.resume(secondary); // already URL-decoded by the workbench
   }
 
-  // ---------- U-039: continuity across restarts ----------
+  // ---------- U-039: continuity across restarts (T-180: shared ground truth first) ----------
 
   /**
-   * Restores the last conversation after a restart (primary view only - a secondary-id view resumes
-   * ITS session, a fresh window is an explicit new chat): the stored model is preselected right
-   * away (an explicit pick survives the async catalog load by design), and the stored session is
-   * probed on a background job once the connection answers - an existing session resumes through
-   * the normal path (plus a small "Restored session …" notice), a vanished one degrades silently:
-   * the stored id is cleared and the view stays fresh.
+   * Restores the conversation after a restart (primary view only - a secondary-id view resumes ITS
+   * session, a fresh window is an explicit new chat): the stored model is preselected right away
+   * (an explicit pick survives the async catalog load by design), and the session is resolved on a
+   * background job once the connection answers.
+   *
+   * <p><b>T-180 resolution order — one ground of truth:</b> first the MOST RECENTLY ACTIVE session
+   * of this project directory ({@link ActiveSession#mostRecent} over the scoped list — whichever
+   * client wrote it, so the thread the human is driving from the TUI is what Eclipse opens); then
+   * the remembered {@code lastSessionId} (U-039, degraded to fallback); then nothing (fresh view).
+   * A remembered id is probed exactly as before and cleared when it vanished; the active-session
+   * candidate needs no probe (it came from the live list).
    */
   private void restorePreviousSession() {
     if (getViewSite().getSecondaryId() != null) {
@@ -1234,25 +1240,38 @@ public class ChatView extends ViewPart {
       int slash = model.indexOf('/');
       preselectModel(model.substring(0, slash), model.substring(slash + 1));
     }
-    String sid = ChatViewSettings.lastSessionId();
-    if (sid == null || sid.isBlank()) {
-      return;
-    }
+    String remembered = ChatViewSettings.lastSessionId();
     host.runInBackground(
-        "Restoring last chat session " + sid,
+        "Resolving the project's active chat session",
         () -> {
-          boolean exists;
+          String active = null;
           try {
-            connection.getClient().getMessages(sid); // probe (blocks until connected)
-            exists = true;
+            active =
+                ActiveSession.mostRecent(
+                    connection.getClient().getSessions(connection.workingDirectory()));
           } catch (OpencodeException e) {
-            exists = false;
+            // not connected yet: the remembered fallback gets its own probe below
           }
-          if (!exists) {
-            ChatViewSettings.storeLastSession(null); // stale: never restore it again
-            ChatLog.info("restore: session " + sid + " no longer exists - starting fresh");
+          String candidate = active != null ? active : remembered;
+          if (candidate == null || candidate.isBlank()) {
             return;
           }
+          if (active == null) {
+            boolean exists;
+            try {
+              connection.getClient().getMessages(candidate); // probe (blocks until connected)
+              exists = true;
+            } catch (OpencodeException e) {
+              exists = false;
+            }
+            if (!exists) {
+              ChatViewSettings.storeLastSession(null); // stale: never restore it again
+              ChatLog.info("restore: session " + candidate + " no longer exists - starting fresh");
+              return;
+            }
+          }
+          final String sid = candidate;
+          final boolean fromActive = active != null;
           Display.getDefault()
               .asyncExec(
                   () -> {
@@ -1261,7 +1280,12 @@ public class ChatView extends ViewPart {
                     }
                     controller.resume(sid);
                     if (page != null) {
-                      page.notice("Restored session " + sid + " (your last chat).");
+                      page.notice(
+                          fromActive
+                              ? "Resumed session "
+                                  + sid
+                                  + " — the most recent conversation in this project."
+                              : "Restored session " + sid + " (your last chat).");
                     }
                   });
         });

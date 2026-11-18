@@ -55,7 +55,7 @@
 | **Steer a running turn (Enter injects; Alt+Enter queues) + `Steer…` menu on any session incl. subagents** | ✅ | U-092 (v0.1.8; live-probed) |
 | Background sessions (Ctrl+B, list, bring back) | ✅ | U-042/T-005; 🔶 keybinding U-064 |
 | Model selector commit discipline | ✅ | U-008 |
-| Session continuity across restarts | ✅ | U-039 |
+| Session continuity across restarts — opens on the **project's most recently active session** (one ground of truth, whichever client wrote it), remembered id as fallback | ✅ | U-039, T-180 |
 | **Progress-aware reply budget (long healthy turns must not fail)** | 🔶 | **B-024 (high, in-review)** |
 | Queue as a proper table | 🔶 | U-071 |
 | Mid-turn settle at tool-call boundary | ✅ | T-010 |
