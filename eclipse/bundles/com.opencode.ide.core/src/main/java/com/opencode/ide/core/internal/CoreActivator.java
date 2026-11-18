@@ -220,6 +220,7 @@ public class CoreActivator extends Plugin {
           "opencode.tasks.root", TasksRootResolution.resolveForWorkspace("").toString());
       // T-176 second stage: only after a CORRECT root exists, hand off to the
       // endpoint bundle (its component reads the property at activation)
+      logInfo("tasks root bridged: " + System.getProperty("opencode.tasks.root"));
       startEclipseBuildBundle();
     } catch (RuntimeException | LinkageError e) {
       logWarning(
@@ -247,15 +248,51 @@ public class CoreActivator extends Plugin {
     }
     try {
       org.osgi.framework.Bundle mcp = Platform.getBundle("com.opencode.ide.mcp");
-      if (mcp != null) {
-        mcp.start(); // idempotent per OSGi: a STARTED bundle is a no-op
+      if (mcp == null) {
+        MCP_BUNDLE_STARTED.set(false); // retry on a later bridge
+        logInfo("eclipse-build hand-off: mcp bundle not found in the platform");
+        return;
       }
+      logInfo(
+          "eclipse-build hand-off: starting com.opencode.ide.mcp (state " + mcp.getState() + ")");
+      mcp.start(); // idempotent per OSGi: a STARTED bundle is a no-op
+      logInfo("eclipse-build hand-off: com.opencode.ide.mcp now state " + mcp.getState());
+      final org.osgi.framework.Bundle observed = mcp;
+      Thread probe =
+          new Thread(
+              () -> {
+                try {
+                  Thread.sleep(2500);
+                } catch (InterruptedException ie) {
+                  Thread.currentThread().interrupt();
+                  return;
+                }
+                logInfo(
+                    "eclipse-build hand-off: mcp state after 2.5s = "
+                        + observed.getState()
+                        + ", context="
+                        + (observed.getBundleContext() != null));
+              },
+              "mcp-state-probe");
+      probe.setDaemon(true);
+      probe.start();
     } catch (Exception e) {
       MCP_BUNDLE_STARTED.set(false); // allow a later bridge retry
       logWarning(
           "cannot start the eclipse-build endpoint bundle (com.opencode.ide.mcp): "
               + e.getMessage());
     }
+  }
+
+  private static void logInfo(String message) {
+    CoreActivator a = instance;
+    if (a != null) {
+      a.getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
+    }
+  }
+
+  static void logInfoShared(String message) {
+    logInfo(message);
   }
 
   public static void logError(String message, Throwable cause) {

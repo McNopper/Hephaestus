@@ -71,6 +71,8 @@ public class McpServiceComponent implements McpInfo {
    * reflectively).
    */
   public void deactivate() {
+    LOG.info(
+        "eclipse-build endpoint stopping (was port " + McpState.port + ") - DS/bundle lifecycle");
     McpState.setPort(-1);
     McpState.setToken(null);
     McpHttpServer current = server;

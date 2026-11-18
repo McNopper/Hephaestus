@@ -664,6 +664,31 @@ public class HttpOpencodeClientComponentTest {
   }
 
   /**
+   * T-176: registerMcp was the management action B-023 missed - an UNSCOPED PUT lands under the
+   * server's default location and is invisible to every repo-scoped listing (observed live
+   * 2026-11-18). Registration must emit the same bracket scope as the list/management calls.
+   */
+  @Test
+  public void mcpRegistrationCarriesTheLocationScope() throws Exception {
+    String dir = "C:\\Development\\GitHub\\Hephaestus";
+    McpServerConfig cfg = McpServerConfig.enabled("http://127.0.0.1:54329/mcp?token=x");
+
+    client.registerMcp("eclipse-build", cfg, dir);
+    assertEquals("/api/experimental/mcp/eclipse-build", lastPath.get());
+    assertEquals("PUT", lastMethod.get());
+    String query = queriesByPath.get("/api/experimental/mcp/eclipse-build");
+    assertTrue(
+        "registration must scope like the list call: " + query,
+        query != null
+            && query.startsWith("location%5Bdirectory%5D=")
+            && query.contains("Hephaestus"));
+
+    // null directory = legacy unscoped call (test fakes and defaults keep working)
+    client.registerMcp("tools", cfg);
+    assertNull(queriesByPath.get("/api/experimental/mcp/tools"));
+  }
+
+  /**
    * REGRESSION (B-023: the dialog's buttons acted on a different instance than the one shown): v2
    * resolves an UNSCOPED management call to the home location, while the dialog's list is
    * repo-scoped. Connect/ disconnect/remove must therefore emit the same {@code

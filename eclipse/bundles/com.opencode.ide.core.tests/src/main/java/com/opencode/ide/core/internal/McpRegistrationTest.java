@@ -33,6 +33,7 @@ public class McpRegistrationTest {
   private static final class FakeOpencodeClient implements OpencodeClient {
     final List<String> names = new ArrayList<>();
     final List<McpServerConfig> configs = new ArrayList<>();
+    final List<String> directories = new ArrayList<>();
     int failuresRemaining;
 
     FakeOpencodeClient(int failuresRemaining) {
@@ -41,12 +42,19 @@ public class McpRegistrationTest {
 
     @Override
     public void registerMcp(String name, McpServerConfig config) throws OpencodeException {
+      registerMcp(name, config, null);
+    }
+
+    @Override
+    public void registerMcp(String name, McpServerConfig config, String directory)
+        throws OpencodeException {
       if (failuresRemaining > 0) {
         failuresRemaining--;
         throw new OpencodeException("simulated registration failure");
       }
       names.add(name);
       configs.add(config);
+      directories.add(directory);
     }
 
     @Override
@@ -128,6 +136,28 @@ public class McpRegistrationTest {
     assertTrue("registration must be enabled", Boolean.TRUE.equals(config.enabled()));
     assertEquals(McpServerConfig.enabled(URL), config);
     assertTrue(log.messages.isEmpty());
+  }
+
+  /**
+   * T-176: the directory joins the dedup key - scoped registration passes the scope through, a
+   * repeat of the same triple is a no-op, and a connection whose working directory CHANGED
+   * re-registers under the new scope instead of being skipped as a duplicate.
+   */
+  @Test
+  public void scopedRegistrationPassesTheDirectoryAndDedupsPerScope() {
+    FakeOpencodeClient client = new FakeOpencodeClient(0);
+    McpRegistration registration = new McpRegistration(new RecordingLog());
+
+    registration.registerIfNeeded(client, URL, "C:\\repo");
+    assertEquals(1, client.names.size());
+    assertEquals("C:\\repo", client.directories.get(0));
+
+    registration.registerIfNeeded(client, URL, "C:\\repo");
+    assertEquals("same triple is a no-op", 1, client.names.size());
+
+    registration.registerIfNeeded(client, URL, "C:\\other");
+    assertEquals("scope change re-registers", 2, client.names.size());
+    assertEquals("C:\\other", client.directories.get(1));
   }
 
   @Test

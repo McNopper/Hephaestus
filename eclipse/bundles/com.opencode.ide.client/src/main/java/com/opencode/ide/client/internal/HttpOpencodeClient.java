@@ -802,10 +802,19 @@ public final class HttpOpencodeClient implements OpencodeClient {
 
   @Override
   public void registerMcp(String name, McpServerConfig config) throws OpencodeException {
-    // v2: PUT /api/experimental/mcp/:server (v1 POSTed the name in the body)
+    registerMcp(name, config, null);
+  }
+
+  @Override
+  public void registerMcp(String name, McpServerConfig config, String directory)
+      throws OpencodeException {
+    // v2: PUT /api/experimental/mcp/:server (v1 POSTed the name in the body).
+    // T-176: scope it like every other MCP management call - unscoped PUTs land
+    // under the server's default location and vanish from repo-scoped listings.
     request(
         "PUT",
-        "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8),
+        withLocation(
+            "/experimental/mcp/" + URLEncoder.encode(name, StandardCharsets.UTF_8), directory),
         McpRequests.registerBody(name, config));
   }
 
