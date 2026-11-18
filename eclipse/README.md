@@ -292,7 +292,7 @@ reviews its own work through the Board and the store.
 
 ## Notes
 
-- The DTOs are modelled against the **installed** opencode v2 (last live cross-check: 2.0.19,
+- The DTOs are modelled against the **installed** opencode v2 (last live cross-check: 2.3.2,
   2026-09-29 - `docs/opencode-v2-adoption.md`). In this version the
   agent object has neither `native` nor `builtIn` (v1.18.x had `native`); every path is
   prefixed `/api` and list endpoints answer with a `{data:[…]}` envelope. The records keep

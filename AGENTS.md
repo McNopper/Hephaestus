@@ -395,7 +395,7 @@ servers/skills)/Providers/Board
 views, the MCP build-tools endpoint `eclipse-build`, and the tasks Board (stage
 columns over the linked ticket graph). It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
 
-- **v2 in this client (last live cross-check: v2.3.0, 2026-11-13; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
+- **v2 in this client (last live cross-check: v2.3.2, 2026-11-18; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
   Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
   single `/api/event` stream (v2 event names; `location.directory` scopes client-side). The
   interactive connection **attaches to the shared background service** by default
