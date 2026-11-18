@@ -308,6 +308,20 @@ public final class TaskToolProvider implements ToolProvider {
           }
           return json(o);
         }
+      case "task_archive_done":
+        {
+          Map<String, Object> r =
+              store.archiveDone(
+                  reqStr(a, "project"), optStr(a, "by", "chat"), optStr(a, "before", null));
+          JsonObject o = new JsonObject();
+          JsonArray moved = new JsonArray();
+          ((List<String>) r.get("archived")).forEach(moved::add);
+          JsonArray skipped = new JsonArray();
+          ((List<String>) r.get("skipped")).forEach(skipped::add);
+          o.add("archived", moved);
+          o.add("skipped", skipped);
+          return json(o);
+        }
       case "task_traceability":
         {
           Map<String, Object> out = store.traceability(reqStr(a, "project"));
@@ -696,6 +710,25 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("project", strP());
                   obj.add("sprint_id", strP());
                   obj.add("auto_archive", boolP());
+                })));
+    out.add(
+        new McpTool(
+            "task_archive_done",
+            "T-183: archive the board's DONE history chain-safely - every done SPRINT-LESS ticket"
+                + " no live epic-chain ticket still needs moves to _archive/ (project-wide variant"
+                + " of U-060's rule); in-sprint and recent work stays. Optional 'before' (ISO-8601"
+                + " instant) keeps tickets created at/after it visible. Reports archived + skipped"
+                + " (id:reason).",
+            schema(
+                new String[] {"project"},
+                obj -> {
+                  obj.add("project", strP());
+                  obj.add("by", strP());
+                  obj.add(
+                      "before",
+                      strP(
+                          "ISO-8601 instant (e.g. 2026-11-14T00:00:00Z); only older done"
+                              + " tickets are candidates"));
                 })));
     out.add(
         new McpTool(

@@ -44,6 +44,53 @@ public class TaskStoreSemanticsTest {
   }
 
   @Test
+  public void archiveDoneIsChainSafeScopedAndRecencyAware() {
+    // in-sprint done: stays (current wave / ticker history)
+    Task inWave = store.create("p", TaskStore.CreateSpec.of("in wave"));
+    store.planSprint("p", "S-9", List.of(inWave.id), "g");
+    store.update("p", inWave.id, Map.of("status", "done"));
+    // chain-protected: a LIVE parent blocks archiving its done child
+    Task parent = store.create("p", TaskStore.CreateSpec.of("parent"));
+    Task child = store.create("p", TaskStore.CreateSpec.of("child"));
+    store.update("p", child.id, Map.of("status", "done", "epic", parent.id));
+    // plain sprint-less history
+    Task old = store.create("p", TaskStore.CreateSpec.of("old"));
+    store.update("p", old.id, Map.of("status", "done"));
+    // recent arc work
+    Task recent = store.create("p", TaskStore.CreateSpec.of("recent"));
+    store.update("p", recent.id, Map.of("status", "done"));
+
+    // past cutoff: nothing is a candidate -> full skip report, nothing moves
+    Map<String, Object> past = store.archiveDone("p", "test", "2000-01-01T00:00:00Z");
+    assertEquals(List.of(), past.get("archived"));
+    assertTrue(past.get("skipped").toString().contains(recent.id + ":recent"));
+
+    // future cutoff: candidates = every sprint-less done (recent INCLUDED - it is older
+    // than the cutoff); sprint + chain rules still hold
+    Map<String, Object> future = store.archiveDone("p", "test", "2999-01-01T00:00:00Z");
+    List<String> moved = (List<String>) future.get("archived");
+    assertEquals(2, moved.size());
+    assertTrue("old history moved: " + moved, moved.contains(old.id));
+    assertTrue("recent moves under a future cutoff: " + moved, moved.contains(recent.id));
+    String skipped = future.get("skipped").toString();
+    assertTrue("in-sprint stays: " + skipped, skipped.contains(inWave.id + ":in-sprint"));
+    assertTrue("chain-needed stays: " + skipped, skipped.contains(child.id + ":chain-needed"));
+
+    // live visibility: parent and inWave remain; both moved tickets are archived
+    List<String> live = store.list("p", null, null, null, null).stream().map(t -> t.id).toList();
+    assertTrue(live.contains(parent.id));
+    assertTrue(live.contains(inWave.id));
+    assertFalse(live.contains(old.id));
+    assertFalse(live.contains(recent.id));
+    List<String> archivedIds = store.archived("p").stream().map(t -> t.id).toList();
+    assertTrue("the archive keeps the full record: " + archivedIds, archivedIds.contains(old.id));
+    assertTrue(archivedIds.contains(recent.id));
+
+    // loud validation for a malformed cutoff
+    assertThrows(TaskStore.Invalid.class, () -> store.archiveDone("p", "test", "not-a-date"));
+  }
+
+  @Test
   public void modelOverrideRoundTripsThroughTheStoreAndCodec() {
     Task t = store.create("p", TaskStore.CreateSpec.of("modelled"));
     assertNull("no model by default", t.model);

@@ -218,81 +218,10 @@ public class CoreActivator extends Plugin {
       }
       System.setProperty(
           "opencode.tasks.root", TasksRootResolution.resolveForWorkspace("").toString());
-      // T-176 second stage: only after a CORRECT root exists, hand off to the
-      // endpoint bundle (its component reads the property at activation)
-      logInfo("tasks root bridged: " + System.getProperty("opencode.tasks.root"));
-      startEclipseBuildBundle();
     } catch (RuntimeException | LinkageError e) {
       logWarning(
           "cannot bridge the resolved tasksRoot into opencode.tasks.root: " + e.getMessage());
     }
-  }
-
-  private static final java.util.concurrent.atomic.AtomicBoolean MCP_BUNDLE_STARTED =
-      new java.util.concurrent.atomic.AtomicBoolean();
-
-  /**
-   * Starts the {@code com.opencode.ide.mcp} bundle, which owns the {@code eclipse-build} endpoint
-   * (T-176, second stage, observed 2026-11-18): NOTHING ever classloads that bundle — its only
-   * consumer (core's {@code McpInfo} DS reference) is resolved by service <i>name</i>, never by
-   * loading the class — so even an {@code immediate="true"} {@code McpServiceComponent} never ran
-   * (log evidence: core attached, zero {@code com.opencode.ide.mcp} entries). Core already
-   * Require-Bundles the mcp bundle; starting it from here is the deterministic hand-off, and doing
-   * it only inside a SUCCESSFUL tasks-root bridge guarantees the component activates with the
-   * correct store root (the ordering its javadoc promises). Idempotent, best-effort: a failed start
-   * is logged and the bridge itself never fails.
-   */
-  private static void startEclipseBuildBundle() {
-    if (!MCP_BUNDLE_STARTED.compareAndSet(false, true)) {
-      return;
-    }
-    try {
-      org.osgi.framework.Bundle mcp = Platform.getBundle("com.opencode.ide.mcp");
-      if (mcp == null) {
-        MCP_BUNDLE_STARTED.set(false); // retry on a later bridge
-        logInfo("eclipse-build hand-off: mcp bundle not found in the platform");
-        return;
-      }
-      logInfo(
-          "eclipse-build hand-off: starting com.opencode.ide.mcp (state " + mcp.getState() + ")");
-      mcp.start(); // idempotent per OSGi: a STARTED bundle is a no-op
-      logInfo("eclipse-build hand-off: com.opencode.ide.mcp now state " + mcp.getState());
-      final org.osgi.framework.Bundle observed = mcp;
-      Thread probe =
-          new Thread(
-              () -> {
-                try {
-                  Thread.sleep(2500);
-                } catch (InterruptedException ie) {
-                  Thread.currentThread().interrupt();
-                  return;
-                }
-                logInfo(
-                    "eclipse-build hand-off: mcp state after 2.5s = "
-                        + observed.getState()
-                        + ", context="
-                        + (observed.getBundleContext() != null));
-              },
-              "mcp-state-probe");
-      probe.setDaemon(true);
-      probe.start();
-    } catch (Exception e) {
-      MCP_BUNDLE_STARTED.set(false); // allow a later bridge retry
-      logWarning(
-          "cannot start the eclipse-build endpoint bundle (com.opencode.ide.mcp): "
-              + e.getMessage());
-    }
-  }
-
-  private static void logInfo(String message) {
-    CoreActivator a = instance;
-    if (a != null) {
-      a.getLog().log(new Status(IStatus.INFO, PLUGIN_ID, message));
-    }
-  }
-
-  static void logInfoShared(String message) {
-    logInfo(message);
   }
 
   public static void logError(String message, Throwable cause) {

@@ -503,20 +503,6 @@ public interface OpencodeClient {
   void registerMcp(String name, McpServerConfig config) throws OpencodeException;
 
   /**
-   * Scoped registration (T-176): v2 resolves an UNSCOPED PUT to the server's default location,
-   * while repo-scoped listings read another location — so an unscoped registration is invisible
-   * everywhere the harness looks (observed live 2026-11-18: eclipse-build registered under {@code
-   * C:\Users\...} while {@code GET /api/mcp?location[directory]=<repo>} listed only
-   * pixellab/tasks). Same bracket syntax as the list/management calls (B-023).
-   *
-   * @param directory project/worktree path, or {@code null} for the server default
-   */
-  default void registerMcp(String name, McpServerConfig config, String directory)
-      throws OpencodeException {
-    registerMcp(name, config);
-  }
-
-  /**
    * {@code GET /api/mcp} - the MCP servers registered with the opencode server (their ids and
    * transport types). Default returns empty so test fakes and partial implementations stay
    * compiling.

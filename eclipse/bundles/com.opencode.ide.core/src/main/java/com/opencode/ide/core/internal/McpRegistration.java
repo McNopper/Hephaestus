@@ -22,40 +22,26 @@ public final class McpRegistration {
 
   private OpencodeClient registeredClient;
   private String registeredUrl;
-  private String registeredDirectory;
 
   public McpRegistration(ClientLog log) {
     this.log = Objects.requireNonNull(log, "log");
   }
 
   /**
-   * Register {@code endpointUrl} with {@code client} unless that exact (client, url, location)
-   * triple was already registered successfully. Failures are logged and non-fatal.
+   * Register {@code endpointUrl} with {@code client} unless that exact pair was already registered
+   * successfully. Failures are logged and non-fatal.
    */
-  public void registerIfNeeded(OpencodeClient client, String endpointUrl) {
-    registerIfNeeded(client, endpointUrl, null);
-  }
-
-  /**
-   * Location-scoped variant (T-176): the directory joins the dedup key - a connection whose working
-   * directory changed re-registers under the new scope instead of being skipped as a duplicate of
-   * the old one.
-   */
-  public synchronized void registerIfNeeded(
-      OpencodeClient client, String endpointUrl, String directory) {
+  public synchronized void registerIfNeeded(OpencodeClient client, String endpointUrl) {
     if (client == null || endpointUrl == null || endpointUrl.isEmpty()) {
       return;
     }
-    if (client == registeredClient
-        && endpointUrl.equals(registeredUrl)
-        && Objects.equals(directory, registeredDirectory)) {
+    if (client == registeredClient && endpointUrl.equals(registeredUrl)) {
       return;
     }
     try {
-      client.registerMcp(SERVER_NAME, McpServerConfig.enabled(endpointUrl), directory);
+      client.registerMcp(SERVER_NAME, McpServerConfig.enabled(endpointUrl));
       registeredClient = client;
       registeredUrl = endpointUrl;
-      registeredDirectory = directory;
     } catch (OpencodeException | RuntimeException e) {
       log.log(
           Level.SEVERE, "failed to register MCP server '" + SERVER_NAME + "' at " + endpointUrl, e);

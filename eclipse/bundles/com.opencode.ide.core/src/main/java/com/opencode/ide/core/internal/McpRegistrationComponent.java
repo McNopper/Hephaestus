@@ -54,13 +54,6 @@ public class McpRegistrationComponent {
 
   private void scheduleRegistration() {
     ExecutorService current = executor;
-    CoreActivator.logInfoShared(
-        "eclipse-build registration check: connection="
-            + (connection != null)
-            + " mcpInfo="
-            + (mcpInfo != null)
-            + " url="
-            + (mcpInfo == null ? null : mcpInfo.getEndpointUrl()));
     if (current != null && connection != null && mcpInfo != null) {
       current.execute(this::runRegistration);
     }
@@ -73,8 +66,7 @@ public class McpRegistrationComponent {
       return;
     }
     try {
-      registration.registerIfNeeded(
-          current.getClient(), info.getEndpointUrl(), current.getWorkingDirectory());
+      registration.registerIfNeeded(current.getClient(), info.getEndpointUrl());
     } catch (Exception e) {
       CoreActivator.logError("eclipse-build MCP registration failed", e);
     }

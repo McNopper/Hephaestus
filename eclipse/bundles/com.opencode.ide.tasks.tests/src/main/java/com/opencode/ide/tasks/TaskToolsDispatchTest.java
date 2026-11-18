@@ -11,6 +11,7 @@ import com.opencode.ide.tools.McpDispatcher;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -44,6 +45,7 @@ public class TaskToolsDispatchTest {
           "task_board",
           "task_plan_sprint",
           "task_close_sprint",
+          "task_archive_done",
           "task_traceability",
           "task_readiness",
           "task_doctor");
@@ -55,6 +57,31 @@ public class TaskToolsDispatchTest {
   @Before
   public void setUp() {
     dispatcher = new McpDispatcher(new TaskToolProvider(tmp.getRoot().toPath().resolve("tasks")));
+  }
+
+  @Test
+  public void taskArchiveDoneSweepsAndReportsThroughTheMcpSurface() {
+    TaskStore store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
+    Task old = store.create("p", TaskStore.CreateSpec.of("old history"));
+    store.update("p", old.id, Map.of("status", "done"));
+
+    // past cutoff: nothing archived, the skip report explains why
+    JsonObject skippedRun =
+        callOk("task_archive_done", "{\"project\":\"p\",\"before\":\"2000-01-01T00:00:00Z\"}");
+    assertEquals(0, skippedRun.getAsJsonArray("archived").size());
+    assertTrue(skippedRun.getAsJsonArray("skipped").toString().contains(old.id + ":recent"));
+
+    // future cutoff: the candidate moves and is reported
+    JsonObject movedRun =
+        callOk("task_archive_done", "{\"project\":\"p\",\"before\":\"2999-01-01T00:00:00Z\"}");
+    assertEquals(1, movedRun.getAsJsonArray("archived").size());
+    assertEquals(old.id, movedRun.getAsJsonArray("archived").get(0).getAsString());
+    assertTrue(movedRun.has("skipped"));
+
+    // a malformed cutoff is a domain error RESULT (not a JSON-RPC protocol error)
+    JsonObject bad = call("task_archive_done", "{\"project\":\"p\",\"before\":\"nope\"}");
+    assertTrue("domain error flagged", bad.get("isError").getAsBoolean());
+    assertTrue("the message names the field: " + bad, bad.toString().contains("before"));
   }
 
   private JsonObject call(String tool, String argsJson) {
@@ -101,13 +128,13 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void toolsListAdvertisesAllTwentyOneToolsWithSchemas() {
+  public void toolsListAdvertisesAllTwentyTwoToolsWithSchemas() {
     JsonObject response =
         JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .getAsJsonObject();
     JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-    assertEquals(21, tools.size());
+    assertEquals(22, tools.size());
     for (int i = 0; i < tools.size(); i++) {
       JsonObject tool = tools.get(i).getAsJsonObject();
       assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());

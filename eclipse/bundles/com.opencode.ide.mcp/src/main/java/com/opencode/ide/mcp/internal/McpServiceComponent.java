@@ -22,16 +22,9 @@ import java.util.logging.Logger;
  * opencode.tasks.root} system property, which the core bundle's activator bridges from the ONE
  * shared resolver ({@code com.opencode.ide.core.TasksRootResolution}, B-016): the same order the
  * Board view resolves — workspace climb, open-project repo adoption, then the {@code tasksRoot}
- * preference — so both surfaces always see one store. The component is {@code immediate="true"}
- * (T-176): the ONLY consumer of {@link McpInfo} is core's McpRegistrationComponent behind a {@code
- * 0..1} dynamic reference, which never forces a delayed component to activate. Stage two (observed
- * 2026-11-18): the mcp BUNDLE itself was never started — SCR resolves that reference by service
- * <i>name</i>, never loading the class, so nothing in the framework class-loads this bundle; the
- * deterministic hand-off is {@code CoreActivator}, which starts this bundle only after a successful
- * {@code opencode.tasks.root} bridge — the ordering {@link #activate()} depends on (the plain
- * fallback {@code <user.home>/.harness/tasks} is for non-Eclipse embedders only). The counter-case
- * (T-146/CDT) stays delayed because that component class-loads heavy {@code org.eclipse.cdt.*}
- * bundles at activation — this one needs only plain bundles (tools/tasks/client).
+ * preference — so both surfaces always see one store. The component is {@code immediate="false"} so
+ * it activates only when the first consumer binds {@link McpInfo} — after the bridge has run (the
+ * plain fallback is {@code <user.home>/.harness/tasks} for non-Eclipse embedders).
  */
 public class McpServiceComponent implements McpInfo {
 
@@ -71,8 +64,6 @@ public class McpServiceComponent implements McpInfo {
    * reflectively).
    */
   public void deactivate() {
-    LOG.info(
-        "eclipse-build endpoint stopping (was port " + McpState.port + ") - DS/bundle lifecycle");
     McpState.setPort(-1);
     McpState.setToken(null);
     McpHttpServer current = server;

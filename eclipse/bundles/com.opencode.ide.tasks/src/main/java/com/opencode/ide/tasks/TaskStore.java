@@ -1253,6 +1253,60 @@ public final class TaskStore {
   }
 
   /**
+   * T-183 - the chain-safe DONE sweep for the board's backlog of history: archives every DONE,
+   * SPRINT-LESS ticket no live epic-chain ticket still needs (the project-wide variant of U-060's
+   * rule), leaving sprint-scoped work (current wave / ticker history) and - with {@code before} -
+   * recent work on the board. Each move is an independent {@link #archive} transaction, exactly
+   * like the U-060 auto-archiver; the snapshot is taken before the first move.
+   *
+   * @param before optional ISO-8601 instant: only tickets CREATED strictly before it are candidates
+   *     ({@code null} = all sprint-less done)
+   * @return {@code archived} (moved ids) + {@code skipped} ({@code id:reason} for in-sprint /
+   *     recent / chain-needed - the reasons a candidate stayed visible)
+   */
+  public Map<String, Object> archiveDone(String project, String by, String before) {
+    Instant cutoff = null;
+    if (before != null && !before.isBlank()) {
+      try {
+        cutoff = Instant.parse(before.trim());
+      } catch (RuntimeException e) {
+        throw new Invalid(
+            "before must be an ISO-8601 instant (e.g. 2026-11-14T00:00:00Z), got '" + before + "'");
+      }
+    }
+    List<Task> all = list(project, null, null, null, null);
+    List<String> moved = new ArrayList<>();
+    List<String> skipped = new ArrayList<>();
+    for (Task t : all) {
+      if (t == null || !"done".equals(t.status)) {
+        continue;
+      }
+      if (t.sprint != null && !t.sprint.isBlank()) {
+        skipped.add(t.id + ":in-sprint");
+        continue;
+      }
+      if (cutoff != null && t.createdAt != null && t.createdAt.isAfter(cutoff)) {
+        skipped.add(t.id + ":recent");
+        continue;
+      }
+      boolean needed =
+          all.stream()
+              .anyMatch(
+                  u -> u != null && u != t && !"done".equals(u.status) && inSameEpicChain(u, t));
+      if (needed) {
+        skipped.add(t.id + ":chain-needed");
+        continue;
+      }
+      archive(project, t.id, by);
+      moved.add(t.id);
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("archived", moved);
+    out.put("skipped", skipped);
+    return out;
+  }
+
+  /**
    * U-027/U-060 wave close with SAFE auto-archiving: the done tickets of the closed wave are
    * archived only when no live ticket of their epic chain still needs them as upstream (archiving
    * never orphans downstream stages), and candidates are scoped to the closing sprint. The plain
