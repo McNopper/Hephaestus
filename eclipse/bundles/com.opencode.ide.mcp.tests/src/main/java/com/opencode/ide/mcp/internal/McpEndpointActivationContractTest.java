@@ -36,4 +36,25 @@ public class McpEndpointActivationContractTest {
       assertTrue("it provides the McpInfo seam", xml.contains("com.opencode.ide.mcp.McpInfo"));
     }
   }
+
+  /**
+   * T-176 stage two: core must keep its Require-Bundle edge to mcp — that edge is the activation
+   * hand-off (CoreActivator starts the mcp bundle after a successful tasks-root bridge; without the
+   * dependency the endpoint bundle is never reachable from core).
+   */
+  @Test
+  public void coreStillRequiresTheMcpBundleForTheActivationHandOff() throws Exception {
+    java.net.URL entry =
+        org.eclipse.core.runtime.Platform.getBundle("com.opencode.ide.core")
+            .getEntry("META-INF/MANIFEST.MF");
+    assertNotNull("core's manifest must be an entry of the core bundle", entry);
+    try (InputStream in = entry.openStream()) {
+      String manifest = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+      // manifest lines are wrapped at 72 bytes: unfold continuation lines first
+      String unfolded = manifest.replace("\r\n ", "").replace("\n ", "");
+      assertTrue(
+          "core Require-Bundle must still name com.opencode.ide.mcp: " + manifest,
+          unfolded.contains("com.opencode.ide.mcp"));
+    }
+  }
 }

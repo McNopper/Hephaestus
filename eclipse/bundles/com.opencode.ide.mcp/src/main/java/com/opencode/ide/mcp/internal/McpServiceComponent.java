@@ -24,15 +24,14 @@ import java.util.logging.Logger;
  * Board view resolves — workspace climb, open-project repo adoption, then the {@code tasksRoot}
  * preference — so both surfaces always see one store. The component is {@code immediate="true"}
  * (T-176): the ONLY consumer of {@link McpInfo} is core's McpRegistrationComponent behind a {@code
- * 0..1} dynamic reference, which never forces a delayed component to activate — with {@code
- * immediate="false"} the endpoint never started at all (observed black-box: no listener, no
- * registration). Ordering is safe: core's activator bridges {@code opencode.tasks.root} when the
- * core bundle starts, and core both requires the mcp bundle (its SCR class-loads {@code McpInfo}
- * only after the activator ran) and precedes it in the start order, so the bridge is in place
- * before {@link #activate()} reads the property. The plain fallback {@code
- * <user.home>/.harness/tasks} remains for non-Eclipse embedders. The counter-case (T-146/CDT) stays
- * delayed because that component class-loads heavy {@code org.eclipse.cdt.*} bundles at activation
- * — this one needs only plain bundles (tools/tasks/client).
+ * 0..1} dynamic reference, which never forces a delayed component to activate. Stage two (observed
+ * 2026-11-18): the mcp BUNDLE itself was never started — SCR resolves that reference by service
+ * <i>name</i>, never loading the class, so nothing in the framework class-loads this bundle; the
+ * deterministic hand-off is {@code CoreActivator}, which starts this bundle only after a successful
+ * {@code opencode.tasks.root} bridge — the ordering {@link #activate()} depends on (the plain
+ * fallback {@code <user.home>/.harness/tasks} is for non-Eclipse embedders only). The counter-case
+ * (T-146/CDT) stays delayed because that component class-loads heavy {@code org.eclipse.cdt.*}
+ * bundles at activation — this one needs only plain bundles (tools/tasks/client).
  */
 public class McpServiceComponent implements McpInfo {
 

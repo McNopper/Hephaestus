@@ -218,9 +218,43 @@ public class CoreActivator extends Plugin {
       }
       System.setProperty(
           "opencode.tasks.root", TasksRootResolution.resolveForWorkspace("").toString());
+      // T-176 second stage: only after a CORRECT root exists, hand off to the
+      // endpoint bundle (its component reads the property at activation)
+      startEclipseBuildBundle();
     } catch (RuntimeException | LinkageError e) {
       logWarning(
           "cannot bridge the resolved tasksRoot into opencode.tasks.root: " + e.getMessage());
+    }
+  }
+
+  private static final java.util.concurrent.atomic.AtomicBoolean MCP_BUNDLE_STARTED =
+      new java.util.concurrent.atomic.AtomicBoolean();
+
+  /**
+   * Starts the {@code com.opencode.ide.mcp} bundle, which owns the {@code eclipse-build} endpoint
+   * (T-176, second stage, observed 2026-11-18): NOTHING ever classloads that bundle — its only
+   * consumer (core's {@code McpInfo} DS reference) is resolved by service <i>name</i>, never by
+   * loading the class — so even an {@code immediate="true"} {@code McpServiceComponent} never ran
+   * (log evidence: core attached, zero {@code com.opencode.ide.mcp} entries). Core already
+   * Require-Bundles the mcp bundle; starting it from here is the deterministic hand-off, and doing
+   * it only inside a SUCCESSFUL tasks-root bridge guarantees the component activates with the
+   * correct store root (the ordering its javadoc promises). Idempotent, best-effort: a failed start
+   * is logged and the bridge itself never fails.
+   */
+  private static void startEclipseBuildBundle() {
+    if (!MCP_BUNDLE_STARTED.compareAndSet(false, true)) {
+      return;
+    }
+    try {
+      org.osgi.framework.Bundle mcp = Platform.getBundle("com.opencode.ide.mcp");
+      if (mcp != null) {
+        mcp.start(); // idempotent per OSGi: a STARTED bundle is a no-op
+      }
+    } catch (Exception e) {
+      MCP_BUNDLE_STARTED.set(false); // allow a later bridge retry
+      logWarning(
+          "cannot start the eclipse-build endpoint bundle (com.opencode.ide.mcp): "
+              + e.getMessage());
     }
   }
 
