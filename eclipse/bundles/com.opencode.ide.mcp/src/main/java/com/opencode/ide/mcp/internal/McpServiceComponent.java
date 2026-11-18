@@ -22,9 +22,17 @@ import java.util.logging.Logger;
  * opencode.tasks.root} system property, which the core bundle's activator bridges from the ONE
  * shared resolver ({@code com.opencode.ide.core.TasksRootResolution}, B-016): the same order the
  * Board view resolves — workspace climb, open-project repo adoption, then the {@code tasksRoot}
- * preference — so both surfaces always see one store. The component is {@code immediate="false"} so
- * it activates only when the first consumer binds {@link McpInfo} — after the bridge has run (the
- * plain fallback is {@code <user.home>/.harness/tasks} for non-Eclipse embedders).
+ * preference — so both surfaces always see one store. The component is {@code immediate="true"}
+ * (T-176): the ONLY consumer of {@link McpInfo} is core's McpRegistrationComponent behind a {@code
+ * 0..1} dynamic reference, which never forces a delayed component to activate — with {@code
+ * immediate="false"} the endpoint never started at all (observed black-box: no listener, no
+ * registration). Ordering is safe: core's activator bridges {@code opencode.tasks.root} when the
+ * core bundle starts, and core both requires the mcp bundle (its SCR class-loads {@code McpInfo}
+ * only after the activator ran) and precedes it in the start order, so the bridge is in place
+ * before {@link #activate()} reads the property. The plain fallback {@code
+ * <user.home>/.harness/tasks} remains for non-Eclipse embedders. The counter-case (T-146/CDT) stays
+ * delayed because that component class-loads heavy {@code org.eclipse.cdt.*} bundles at activation
+ * — this one needs only plain bundles (tools/tasks/client).
  */
 public class McpServiceComponent implements McpInfo {
 
