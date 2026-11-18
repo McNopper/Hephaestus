@@ -19,7 +19,7 @@
   steward executes), `docs/design-stage-pipeline.md` (the U-110 design — its
   ten-schedule topology is SUPERSEDED on that point, see
   [Supersession](#supersession)), `docs/opencode-v2-adoption.md` (W1: the
-  `experimental.schedule.*` surface this system composes), `AGENTS.md`
+  `experimental.automation.*` surface this system composes (renamed from `experimental.schedule.*` in 2.3.1, #64160)), `AGENTS.md`
   (the ticket/sprint workflow this system mechanizes).
 
 ## Overview
@@ -36,11 +36,11 @@ recreatable by re-running one script (`ticker-setup.ps1`).
 ```text
         opencode service (runtime host — forgets everything on restart)
 ┌──────────────────────────────────────────────────────────────────────┐
-│  experimental.schedules (W1)            session/subagent execution   │
+│  experimental.automations (W1)          session/subagent execution   │
 │  ┌────────────────────────┐            ┌──────────────────────────┐  │
-│  │ schedule "ticker-v"    │ every N min│ steward session "ticker-v"│  │
-│  │ {sessionID, when,      │──prompt──▶│ (child of a repo-rooted   │  │
-│  │  prompt, runCount,     │            │  parent; stage-pipeline   │  │
+│  │ automation "ticker-v"  │ every N min│ steward session "ticker-v"│  │
+│  │ {sessionID, trigger,   │──prompt──▶│ (child of a repo-rooted   │  │
+│  │  action, runCount,     │            │  parent; stage-pipeline   │  │
 │  │  lastOutcome}          │            │  skill = the procedure)   │  │
 │  └────────────────────────┘            └────────┬─────────────────┘  │
 │          dies with service                      │ spawns (depth 2)   │
@@ -58,7 +58,7 @@ recreatable by re-running one script (`ticker-setup.ps1`).
 
 ## Major parts
 
-- **The opencode service (runtime host)** — owns the `experimental.schedules`
+- **The opencode service (runtime host)** — owns the `experimental.automations`
   surface (W1: list/get/create/pause/resume/delete), session execution and
   background subagents. Everything it holds is runtime state: schedules, live
   sessions, running subagents, and the steward's cap count all die with the
@@ -99,10 +99,10 @@ recreatable by re-running one script (`ticker-setup.ps1`).
 Four interfaces carry the whole system. Each section states the interaction,
 the governing FRs, and the invariant it must preserve.
 
-### I-1 Schedule × steward (`experimental.schedules`)
+### I-1 Automation × steward (`experimental.automations`)
 
-- **Arming** = `POST /api/experimental/schedule` with the steward's session
-  id, `name: "ticker-v"`, the interval, and the tick prompt (exactly what the
+- **Arming** = `POST /api/experimental/automation` with the steward's session
+  id, `name: "ticker-v"`, the `trigger` interval, and the `action` tick prompt (exactly what the
   prototype's script does). The prompt is **arm-time data**: the canonical
   stage list and the Cap number are interpolated into it by
   `ticker-setup.ps1` — the cap reaches the steward through the prompt and
@@ -382,7 +382,7 @@ the prototype files.
   leftover; the unified script has no `-Stages` parameter. Replace with the
   unified truth: resume = re-run `ticker-setup.ps1` (same interval/cap
   choices if desired — C-F), store is the memory. This document's
-  [I-1](#i-1-schedule--steward-experimentalschedules) and S-4 are the
+  [I-1](#i-1-automation--steward-experimentalautomations) and S-4 are the
   governing text to reconcile to.
 
 ### Route C — coherence note (`subagent_depth`)
@@ -404,7 +404,7 @@ the prototype files.
 
 | Concern | Choice | Why |
 |---|---|---|
-| Scheduling | opencode `experimental.schedules` (W1), one record named `ticker-v` | native per-session timer; exactly-one is one name to look up |
+| Scheduling | opencode `experimental.automations` (W1; renamed from schedules in 2.3.1, #64160), one record named `ticker-v` | native per-session timer; exactly-one is one name to look up |
 | Steward | one background-driven session, child of a repo-rooted parent | config inheritance (C-C); the skill is the procedure |
 | Workers/reviewers | native background subagents (2.3.0 semantics) | goal-driven, idle-reported; the cap is the only admission knob |
 | Cap | steward-local count-before-spawn, arm-time value in the prompt | no surface enforces it; one steward makes it global by construction |

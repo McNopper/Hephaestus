@@ -38,7 +38,7 @@ ticket fields, recorded artifacts.
   artifact indexes, claims, sprint records, readiness, and the append-only
   history that carries the evidence. Mutated only through the `task_*` verbs;
   no hand edits.
-- **Per-stage ticker** (one steward session per stage, `experimental.schedules`)
+- **Per-stage ticker** (one steward session per stage, `experimental.automations`)
   — runs the micro-sprint over its stage's READY backlog: SCAN readiness →
   BLOCKED escalate → DONE divide → READY kickoff → CLOSE + digest. Holds the
   big picture; never does the discipline work; never accepts.
@@ -89,7 +89,7 @@ ticket fields, recorded artifacts.
 | Concern | Choice | Why |
 |---|---|---|
 | Coordination store | Markdown ticket files + `task_*` MCP verbs | parseable, peer-writable, review-decidable |
-| Scheduling | opencode `experimental.schedules` (W1) | native per-stage tickers, no new machinery |
+| Scheduling | opencode `experimental.automations` (W1; renamed from schedules in 2.3.1) | native per-stage tickers, no new machinery |
 | Workers | native background subagents (2.3.0) | goal-driven, idle-reported; the cap is the only admission knob |
 | Artifacts | upstream artifacts store (W12) or repo-path refs (fallback) | the chain carries content, not just IDs |
 | Verdict | engine review pass + quality gate | no self-grading |

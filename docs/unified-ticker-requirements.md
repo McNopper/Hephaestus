@@ -79,8 +79,8 @@ resolving NEEDS-HUMAN.
 ### Topology — the ONE model (C1)
 
 - **FR-001 (C1)** ubiquitous: THE V-pipeline scheduler SHALL consist of
-  exactly ONE steward session and exactly ONE experimental schedule, and the
-  schedule SHALL be named `ticker-v`.
+  exactly ONE steward session and exactly ONE experimental automation, and the
+  automation SHALL be named `ticker-v`.
 - **FR-002 (C1, C3)** ubiquitous: THE `ticker-v` schedule SHALL drive its
   steward session with the stage-pipeline skill's one-pass tick prompt (the
   prompt the prototype arms: per stage — readiness scan, blocked-escalate,
@@ -171,8 +171,8 @@ resolving NEEDS-HUMAN.
 
 ## Constraints & Assumptions
 
-- **C-A:** The experimental schedules surface is enabled in the service
-  config (`"experimental": { "schedules": true }` — W1 adopted, see
+- **C-A:** The experimental automations surface is enabled in the service
+  config (`"experimental": { "automations": true }` — renamed from schedules in 2.3.1 #64160; W1 adopted, see
   `docs/opencode-v2-adoption.md`).
 - **C-B (F1, confirmed in SKILL.md field observations):** The steward session
   itself spawns workers, so the ticker is a NESTED steward:

@@ -67,7 +67,7 @@ control plane (H7) with the orchestrator role absorbed into the assistant.
    the stage agent creates the derived ticket(s) for the next stage and links
    them (`epic` = the basis ticket). One basis fans out to several children
    (ASPICE work-product derivation).
-3. **Per-stage tickers** (upstream `experimental.schedules`, W1 — adopted): one
+3. **Per-stage tickers** (upstream `experimental.automations`, W1 (renamed from schedules in 2.3.1) — adopted): one
    steward session per stage. Each schedule trigger is a **sprint kickoff**: a
    micro-sprint over the stage's READY backlog.
 4. **Goal-driven subagents** (native default since 2.3.0): the ticker spawns a
@@ -328,7 +328,7 @@ model), `/reload` config pickup, and the artifacts store. No recreation found.
 The genuinely ours remainder: the store (basis links, readiness, claims), the
 spawn-cap admission, and the engine verdict.
 
-Adopted native: `experimental.schedules` (W1) · `experimental.artifacts.*`
+Adopted native: `experimental.automations` (W1; renamed from schedules in 2.3.1) · `experimental.artifacts.*`
 (W12) · background subagents (#63382) · `experimental.job.list` (W13) ·
 worktree APIs (unchanged adoption target, now optional — only if a future
 design needs isolated worktrees) · permission request/reply · `usage.limits` /

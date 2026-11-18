@@ -135,7 +135,7 @@ hand edits are not an architecture edge (DENY-6).
 
 ### 2.3 C3 `pump` — the control layer (the two dial touchpoints)
 
-Reality anchor: one steward session per stage on `experimental.schedules`,
+Reality anchor: one steward session per stage on `experimental.automations` (renamed from schedules in 2.3.1),
 armed/disarmed by `ticker-setup.ps1`; the `stage-pipeline` skill ([ARCH
 §Interfaces to the real code C3]). The tick algorithm is [DSG §4]
 verbatim ([AR-D] C-M2-1 consumed).

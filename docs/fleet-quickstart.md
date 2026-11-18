@@ -4,7 +4,7 @@
   fleet_* MCP tools) was removed in the U-110 arc - live acceptance evidence
   in ticket U-111 (AE-6), design in docs/design-stage-pipeline.md section 9.
 - **The replacement:** the linked stage pipeline - ONE steward session + ONE
-  `experimental.schedules` schedule (`ticker-v`) armed with
+  `experimental.automations` automation (`ticker-v`) armed with
   `.opencode/skills/stage-pipeline/ticker-setup.ps1`; each tick walks all V
   stages in canonical order, procedure in the stage-pipeline skill, store
   evidence in ticket U-111 (AE-6).

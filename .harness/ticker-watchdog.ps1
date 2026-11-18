@@ -1,15 +1,15 @@
 $ErrorActionPreference = 'Continue'
-# ticker-watchdog.ps1 - check-once: reconcile the ticker-v schedule with the desired state.
+# ticker-watchdog.ps1 - check-once: reconcile the ticker-v automation with the desired state.
 # Designed to run on a Windows scheduled task every ~5 minutes. Exits after one check.
 #
 # Desired state:  .harness/ticker-state.json  {"enabled": true|false}
-# Enable action:  .opencode/skills/stage-pipeline/ticker-setup.ps1 (fresh session + schedule)
-# Disable action: delete every ticker-v schedule (per-session queries) - the schedules are
+# Enable action:  .opencode/skills/stage-pipeline/ticker-setup.ps1 (fresh session + automation)
+# Disable action: delete every ticker-v automation (per-session queries) - the automations are
 #                 session-bound and the host cycling eats them stochastically (T-052), so the
 #                 disable also terminates the ticker sessions (the durable disable).
 #
 # The watchdog makes ENABLE self-healing against the T-052 cycling: if the cycling eats the
-# schedule while enabled, the next check re-arms. Disable stays durable (nothing re-arms while
+# automation while enabled, the next check re-arms. Disable stays durable (nothing re-arms while
 # the flag is false).
 
 $ErrorActionPreference = 'Continue'
@@ -30,13 +30,13 @@ if (-not $enabled) {
     exit 0
 }
 
-# enabled: reconcile - does a ticker-v schedule exist on any known ticker session?
+# enabled: reconcile - does a ticker-v automation exist on any known ticker session?
 $pw = (Get-Content $serviceJson -Raw | ConvertFrom-Json).password
 $token = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("opencode:$pw"))
 $h = @{ Authorization = "Basic $token" }
 
-# enumerate the repo's sessions and query each for a ticker-v schedule (the ticker-v
-# sessions are named ticker-v by the setup script; a session-bound schedule dies with
+# enumerate the repo's sessions and query each for a ticker-v automation (the ticker-v
+# sessions are named ticker-v by the setup script; a session-bound automation dies with
 # the session under the T-052 cycling, so check EVERY session, not just the last one)
 $dir = [uri]::EscapeDataString('C:\Development\GitHub\Hephaestus')
 $sessions = $null
@@ -53,7 +53,7 @@ foreach ($ses in $sessions) {
     $sid = $ses.id
     if (-not $sid) { continue }
     try {
-        $sch = Invoke-RestMethod -Uri "http://127.0.0.1:28894/api/experimental/schedule?sessionID=$sid" -Headers $h -TimeoutSec 20
+        $sch = Invoke-RestMethod -Uri "http://127.0.0.1:28894/api/experimental/automation?sessionID=$sid" -Headers $h -TimeoutSec 20
         $list = @($sch); if ($sch.data) { $list = @($sch.data) }
         foreach ($x in $list) {
             if ($x.name -eq 'ticker-v' -and $x.status -eq 'active') {
@@ -70,9 +70,9 @@ if ($scheduleFound) {
     exit 0
 }
 
-# enabled but NO active ticker-v schedule anywhere: the cycling ate it - re-arm
+# enabled but NO active ticker-v automation anywhere: the cycling ate it - re-arm
 $log = Join-Path $repo '.harness\ticker-watchdog.log'
-"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] enabled but no active ticker-v schedule found - re-arming" | Out-File $log -Append -Encoding utf8
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] enabled but no active ticker-v automation found - re-arming" | Out-File $log -Append -Encoding utf8
 try {
     $env:JAVA_HOME = 'C:\Program Files\Java\jdk-21.0.12.1'
     & $setupScript -IntervalMinutes 5 -Cap 4 2>&1 | Out-File $log -Append -Encoding utf8

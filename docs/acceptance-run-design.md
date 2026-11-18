@@ -129,7 +129,7 @@ point ([ARCH §Interfaces to the real code M1]; [SYS §Interfaces 1]).
 ### 2.2 M2 `ticker` — control
 
 Reality anchor: one steward session per stage on
-`experimental.schedules` (W1), armed/disarmed by `ticker-setup.ps1`;
+`experimental.automations` (W1; renamed from schedules in 2.3.1), armed/disarmed by `ticker-setup.ps1`;
 rolling records `ticker-<stage>` ([ARCH §Interfaces to the real code
 M2]). The ticker holds the big picture, never does the discipline work,
 never accepts ([DSG §1]).

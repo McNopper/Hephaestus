@@ -360,7 +360,7 @@ Concretely, the chat agent — the PO's **kickoff assistant** — can:
 
 - run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
 - **arm and disarm the ticker** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
-  (ONE steward session + ONE `experimental.schedules` schedule - `ticker-v` - W1,
+  (ONE steward session + ONE `experimental.automations` automation - `ticker-v` - W1,
   adopted; each tick walks all stages in canonical V order under the global
   spawn cap, and the tick prompt is thin glue over the `stage-pipeline` skill),
   or flip the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);

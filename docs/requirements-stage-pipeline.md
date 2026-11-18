@@ -161,7 +161,7 @@ escalations (NEEDS-HUMAN).
 - **C-004 Retirement ordering:** the fleet is removed LAST, only after live
   parity evidence (the acceptance run) validates the whole loop; wandering
   verbs and RecurringWaves go at chunk 5 after tickers hold parity.
-- **C-005 Native-first:** adopt `experimental.schedules`, `experimental.
+- **C-005 Native-first:** adopt `experimental.automations` (renamed from schedules in 2.3.1), `experimental.
   artifacts`, background subagents, `experimental.job.list`; reimplement
   nothing these provide.
 - **C-006 Backward compatibility:** store semantics (status machine, claims,

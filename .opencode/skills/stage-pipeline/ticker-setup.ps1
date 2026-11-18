@@ -1,7 +1,7 @@
 ﻿# ticker-setup.ps1 - arm the V-pipeline ticker (U-110 chunk 3, unified per
 # owner directive 2026-11-14: ONE schedule walks the whole V step by step).
 #
-# Creates ONE steward session and ONE experimental schedule; each tick is
+# Creates ONE steward session and ONE experimental automation; each tick is
 # ONE pass over all stages in canonical V order under the global spawn cap.
 # Re-running re-arms: the steward binding is reused (refreshed interval +
 # prompt, DS-006 supersession clause), never duplicated - the name-lookup
@@ -12,14 +12,16 @@
 # The DISARM touchpoint - a time-boxed horizon end - is the steward's
 # pass-final act, contract-landed in the stage-pipeline skill (kickoff
 # horizon read + horizon enforcement) and executed via the durable disable
-# (.harness/ticker-state.json enabled:false + schedule delete) so the
+# (.harness/ticker-state.json enabled:false + automation delete) so the
 # watchdog cannot re-arm a horizon-ended run. This script stays arm-only;
 # no dial value is read or stored here (pump invariance, QA-3).
 #
 # Requirements:
 #   - the running opencode service (url + password from service.json, same
 #     pattern the Eclipse host uses), or -BaseUrl/-Token overrides
-#   - "experimental": { "schedules": true } in the service config
+#   - "experimental": { "automations": true } in the service config
+#     (2.3.1 renamed schedules -> automations, #64160; the old "schedules"
+#     flag still works - either grants the surface)
 #   - the stage-pipeline skill (this directory)
 #
 # Usage: pwsh -NoProfile -File ticker-setup.ps1 [-IntervalMinutes 5] [-Cap 4]
@@ -90,18 +92,18 @@ function Invoke-Api {
 }
 
 # ONE schedule walks the whole V (owner directive 2026-11-14): a single
-# steward session + a single experimental schedule; each tick is ONE pass
+# steward session + a single experimental automation; each tick is ONE pass
 # over all stages in canonical V order under the global spawn cap.
 function Get-TickerSchedule {
-    # ticker-v schedules are session-bound (T-052): enumerate the repo's
-    # sessions and query each (GET /api/experimental/schedule?sessionID=...);
+    # ticker-v automations are session-bound (T-052): enumerate the repo's
+    # sessions and query each (GET /api/experimental/automation?sessionID=...);
     # a response is either a bare array or the v2 {data:[...]} envelope.
     $sessions = Invoke-Api -Method "GET" -Path "/api/session$suffix"
     $list = @($sessions); if ($sessions.data) { $list = @($sessions.data) }
     $found = @()
     foreach ($ses in $list) {
         if (-not $ses.id) { continue }
-        $sch = Invoke-Api -Method "GET" -Path "/api/experimental/schedule?sessionID=$($ses.id)"
+        $sch = Invoke-Api -Method "GET" -Path "/api/experimental/automation?sessionID=$($ses.id)"
         $perSession = @($sch); if ($sch.data) { $perSession = @($sch.data) }
         foreach ($x in $perSession) {
             if ($x.name -eq "ticker-v") { $found += $x }
@@ -113,17 +115,17 @@ function Get-TickerSchedule {
 # Re-arm guard (C8 step 2, delta #1 fix): look up BEFORE creating. Found +
 # live steward binding -> reuse it (S-3, DS-002); binding dead (the host
 # cycling eats sessions, T-052) or not found -> fresh steward (S-4). The
-# schedule RECORD is retired and re-created either way, bound to the chosen
-# session: the schedule API has create/list/get/pause/resume/delete but no
+# automation RECORD is retired and re-created either way, bound to the chosen
+# session: the automation API has create/list/get/pause/resume/delete but no
 # update, so Q-001 resolves to retire-and-recreate - a re-arm always
 # refreshes interval + prompt (DS-006) and never duplicates (INV-1/INV-2).
 $tickers = @(Get-TickerSchedule)
 # The enumeration is eventually-consistent on the live service: a transient EMPTY read on a
 # repo that has armed before made this script conclude "first arm" - it created a SECOND
-# steward and deleted nothing (observed 2026-11-17: two ticker-v schedules, INV-1 violated).
-# Retry the lookup before concluding "no schedules yet"; a genuine first arm just pays this
+# steward and deleted nothing (observed 2026-11-17: two ticker-v automations, INV-1 violated).
+# Retry the lookup before concluding "no automations yet"; a genuine first arm just pays this
 # bounded delay. The post-create INV-1 check below (retried until exactly one) is the backstop
-# if this read stays empty while a schedule actually exists.
+# if this read stays empty while an automation actually exists.
 for ($i = 0; $i -lt 10 -and $tickers.Count -eq 0; $i++) {
     Start-Sleep -Milliseconds 300
     $tickers = @(Get-TickerSchedule)
@@ -146,7 +148,7 @@ if ($binding) {
     if (-not $sessionId) { throw "session creation returned no id" }
 }
 foreach ($t in $tickers) {
-    Invoke-Api -Method "DELETE" -Path "/api/experimental/schedule/$($t.id)" | Out-Null
+    Invoke-Api -Method "DELETE" -Path "/api/experimental/automation/$($t.id)" | Out-Null
 }
 $stages = "requirements, system, architecture, design, implementation, test-implementation, test-design, test-architecture, test-system, test-requirements"
 # DS-006 supersession clause (design §2 C3, verbatim; §2 C7 lands it in this
@@ -180,38 +182,40 @@ $prompt =
     "stageless tickets are never divided, claimed or kicked off. After the last stage, close the pass " +
     "with a digest. An empty V is a successful pass. " +
     "SUPERSESSION: this prompt is the current parameterization; it supersedes any earlier tick prompt still visible in this session's history."
+# 2.3.1 rename (#64160): CreatePayload is now {sessionID, name, trigger,
+# action:{type:"prompt", prompt}} - the old {when, prompt} shape is gone.
 $body = @{
     sessionID = $sessionId
     name = "ticker-v"
-    when = @{ type = "every"; every = "$IntervalMinutes minutes" }
-    prompt = $prompt
+    trigger = @{ type = "every"; every = "$IntervalMinutes minutes" }
+    action = @{ type = "prompt"; prompt = $prompt }
 }
 try {
-    $schedule = Invoke-Api -Method "POST" -Path "/api/experimental/schedule" -Body $body
+    $schedule = Invoke-Api -Method "POST" -Path "/api/experimental/automation" -Body $body
 } catch {
     # duplicate-name race on create (C8 error contract): re-lookup and reuse;
     # fail only if the second lookup is also inconsistent
     $raced = Get-TickerSchedule | Select-Object -First 1
     if (-not $raced) { throw }
     $schedule = $raced
-    Write-Host "[ticker] create raced an existing ticker-v schedule - reused $($schedule.id)"
+    Write-Host "[ticker] create raced an existing ticker-v automation - reused $($schedule.id)"
 }
 $scheduleId = if ($schedule.data) { $schedule.data.id } else { $schedule.id }
-if (-not $scheduleId) { throw "schedule creation returned no id" }
-# assert exactly one schedule and one steward afterwards (C8 step 3, INV-1/INV-2);
+if (-not $scheduleId) { throw "automation creation returned no id" }
+# assert exactly one automation and one steward afterwards (C8 step 3, INV-1/INV-2);
 # the enumeration lags the POST by a moment on the live service, so re-read until it
 # settles on EXACTLY ONE (retrying past 0 alone was not enough: a stale duplicate or a
 # lagging delete also transiently misreports - false negatives here made a successful arm
 # look like a failure AND let a real duplicate pass, U-075/T-174-era fixes; same semantics:
-# the end state MUST be exactly one schedule bound to this steward)
+# the end state MUST be exactly one automation bound to this steward)
 $final = @()
 for ($i = 0; $i -lt 20 -and $final.Count -ne 1; $i++) {
     $final = @(Get-TickerSchedule)
     if ($final.Count -ne 1) { Start-Sleep -Milliseconds 500 }
 }
-if ($final.Count -ne 1) { throw "arming invariant violated: $($final.Count) ticker-v schedules exist after arming (INV-1: exactly one)" }
-if ($final[0].sessionID -ne $sessionId) { throw "arming invariant violated: ticker-v schedule bound to $($final[0].sessionID), not the steward $sessionId (INV-2)" }
+if ($final.Count -ne 1) { throw "arming invariant violated: $($final.Count) ticker-v automations exist after arming (INV-1: exactly one)" }
+if ($final[0].sessionID -ne $sessionId) { throw "arming invariant violated: ticker-v automation bound to $($final[0].sessionID), not the steward $sessionId (INV-2)" }
 $sessionsAfter = Invoke-Api -Method "GET" -Path "/api/session$suffix"
 $sessionAfter = @($sessionsAfter); if ($sessionsAfter.data) { $sessionAfter = @($sessionsAfter.data) }
 if (-not ($sessionAfter | Where-Object { $_.id -eq $sessionId })) { throw "arming invariant violated: steward session $sessionId not found on the service (INV-2)" }
-Write-Host "[ticker] ticker-v armed: session $sessionId, schedule $scheduleId, every $IntervalMinutes min, cap $Cap"
+Write-Host "[ticker] ticker-v armed: session $sessionId, automation $scheduleId, every $IntervalMinutes min, cap $Cap"
