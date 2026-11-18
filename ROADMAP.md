@@ -190,36 +190,6 @@ places; this file only lists the one currently open question: none.
 *(Resolved since the last pass: the Attention QUESTION popup kind - the live
 SSE event-type enum carries `form.created`, mapped by T-067.)*
 
-## Coherence debt (known divergences)
-
-Every **open `E-006` child** is a row here (checked 2026-11-17: `U-052` is
-the only child left open — its other 49 children are done) plus the
-divergences still open under another umbrella; the section disappears when
-E-006 closes (that is its second AC). **Where a row below contradicts
-`AGENTS.md`, the row is right.**
-
-- **U-052** - `inputs changed:` markers (epic E-006, carrying D-003 option
-  B): shipped 2026-11-17 - the `inputs_changed_at` stamp plus the production
-  readiness tick's idempotent marker (InputsChangedStampTest 5/5); the row
-  retires with E-006 on its own done.
-  Auto-archive is tool-exposed as of U-060.
-- **U-059** - archive-aware production readiness: **RESOLVED 2026-11-17** (row kept
-  only until the section disappears with E-006) - all three production
-  `StageReadiness.evaluate` sites plus the `staleCause` lookup now pass the
-  archive pool (per-host tests: tool 10/10, recorder 6/6, board 9/9), so
-  readiness consults the archive in PRODUCTION, not only at library level;
-  the remaining release condition (archives in real use, condition 1) is a
-  release-checklist item, not a divergence.
-- **T-037 residue** - superseded *per-stage-schedule* wording inside done
-  V-walk artifacts (`acceptance-run-system.md` "one steward session per
-  stage", `acceptance-run-architecture.md` "one schedule per stage",
-  `autonomy-spectrum-architecture.md` "one schedule per stage",
-  `requirements-stage-pipeline.md` "one steward session per stage", and the
-  `.tests.md` rows that pin them): those artifacts' paired verdicts cite the
-  wording, so they are corrected by their own epics on a re-walk; the
-  supersession authority is `docs/unified-ticker-architecture.md` (the
-  ten→one row) plus AGENTS.md/README.md, which T-037 aligned 2026-11-17.
-
 ## Standing rules
 
 - **The upstream cross-check precedes every work session:** diff the live
