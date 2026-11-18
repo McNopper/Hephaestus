@@ -12,8 +12,8 @@ import java.util.Map;
  * present, in store order), the selected sprint's goal, totals, an error/notice string ({@code
  * null} when the board loaded fine - e.g. "task store not found at ..." when the store root is
  * missing), and the per-ticket {@link StageReadiness} dispatch verdicts (U-018: the board surfaces
- * what should run NOW - ready counts on the fleet controls, stale/ waiting chips on the cards;
- * keyed by ticket id, empty when unknown).
+ * what should run NOW - ready counts and stale/waiting chips feed the ticker-v pump and the board
+ * badges; keyed by ticket id, empty when unknown).
  *
  * <p>In {@link BoardModel.BoardMode#PIPELINE} the snapshot additionally carries a {@link
  * PipelineSnapshot} (all ten V stages plus the trailing untracked group); in {@link
@@ -98,8 +98,8 @@ public record BoardSnapshot(
 
   /**
    * @return how many tickets the readiness verdict calls BLOCKED — the U-022 NEEDS-HUMAN count:
-   *     blocked tickets no live fleet job is retrying park at the human (dispatch skips them);
-   *     clearing the blocker returns them into the cyclic pump.
+   *     blocked tickets no ticker attempt is retrying park at the human (the resolution-first
+   *     ticker skips them); clearing the blocker returns them into the pump.
    */
   public long needsHumanCount() {
     return count(StageReadiness.Kind.BLOCKED);

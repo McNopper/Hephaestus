@@ -12,6 +12,7 @@ import com.opencode.ide.board.model.StageColumn;
 import com.opencode.ide.board.model.StageJourney;
 import com.opencode.ide.board.model.StageSelection;
 import com.opencode.ide.board.model.TaskStoreWatcher;
+import com.opencode.ide.board.model.TasksOverrideMigration;
 import com.opencode.ide.board.model.TicketRow;
 import com.opencode.ide.board.model.VStageLayout;
 import com.opencode.ide.board.model.WaveDigest;
@@ -1636,6 +1637,20 @@ public class BoardView extends ViewPart {
       }
       setContentDescription(description.toString());
     }
+    // T-144 intercept: one line per applied snapshot - the Board's launch-and-capture
+    // test channel (mode, totals, needs-human; errors included)
+    com.opencode.ide.core.intercept.ViewIntercept.record(
+        "board",
+        boardMode
+            + " | total="
+            + snapshot.total()
+            + " blocked="
+            + snapshot.blockedCount()
+            + " needsHuman="
+            + snapshot.needsHumanCount()
+            + " stale="
+            + snapshot.staleCount()
+            + (snapshot.error() != null ? " | ERROR: " + snapshot.error() : ""));
     setTitleToolTip("tasks: " + model.root() + "\nrepo: " + repoRoot());
   }
 
@@ -2103,7 +2118,11 @@ public class BoardView extends ViewPart {
         if (settings != null) {
           String root = settings.get(SETTING_ROOT);
           if (root != null) {
-            rootOverride = root;
+            // T-052 settings migration: a persisted override from before the
+            // store relocation is re-pointed to the relocated sibling - the
+            // stale legacy skeleton exists but is empty and the Board would
+            // silently show zero tickets (live finding 2026-11-18)
+            rootOverride = TasksOverrideMigration.migrate(root);
           }
           String project = settings.get(SETTING_PROJECT);
           if (project != null && !project.isBlank()) {

@@ -2,10 +2,10 @@ package com.opencode.ide.board.model;
 
 /**
  * U-035 rate-limit gate for the board's activation refresh: part activation ({@code setFocus}) is a
- * refresh cadence — mirroring the Fleet view's peer re-read — but tabbing through views must never
- * churn the single-flight refresh pipeline. The first activation passes; further ones pass only
- * after the minimum interval elapsed since the last ALLOWED activation (a denied activation never
- * extends the window).
+ * refresh cadence — mirroring a peer client's re-read of the shared store — but tabbing through
+ * views must never churn the single-flight refresh pipeline. The first activation passes; further
+ * ones pass only after the minimum interval elapsed since the last ALLOWED activation (a denied
+ * activation never extends the window).
  *
  * <p>Pure time arithmetic: the caller supplies the clock, so the gate is unit-testable without SWT,
  * waits or wall-clock sleeps.
