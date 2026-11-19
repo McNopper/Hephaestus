@@ -162,5 +162,5 @@ user-typed store root that is really a repo root descends into its
   `opencode.json`); and it needs git (worktrees) plus a claimable ticket in
   `sprint-backlog`.
 - **Readiness shows WAIT_UPSTREAM forever:** upstream stages need `done`
-  tickets with matching epics; unstaged tickets always read NOT_APPLICABLE
+  tickets linked by basis; unstaged tickets always read NOT_APPLICABLE
   and are never re-dispatched.

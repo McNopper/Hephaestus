@@ -19,7 +19,7 @@
 ## Overview
 
 The autonomy spectrum is not a mechanism — it is a **run position recorded
-on a GOAL/epic-root ticket at goal intake and read back by the unchanged
+on a GOAL-root ticket at goal intake and read back by the unchanged
 pump**. Four parts: the product-owner agent writes the position (two
 dials: goal horizon, review cadence) onto the goal ticket; the task store
 keeps it as the single verifiable home (git-versioned Markdown, D-006);
@@ -54,16 +54,16 @@ no machinery, and they never stall a wave.
 
 - **Goal intake — the product-owner agent** (`.opencode/agent/product-owner.md`,
   U-105 lineage): when the owner's message is a whole objective (a
-  stageless GOAL/epic root), it records the run position on the ticket as
+  stageless GOAL root), it records the run position on the ticket as
   the two dials — asking when the owner leaves them unstated (bounded
   round-trips, then register with the open question recorded). The dials
   are run parameters recorded on the ticket, not acceptance criteria.
-- **The store record — the GOAL/epic-root ticket**: the position's only
+- **The store record — the GOAL-root ticket**: the position's only
   home is the ticket file `.harness/tasks/hephaestus/<GOAL-id>.md` (the
   description carries the labeled dial record; a comment may carry the
   intake Q&A). Read back with `task_get`; auditable in git (D-006: store
-  files are git-versioned Markdown). Child tickets inherit by the `epic`
-  link — the position is read from the epic root, never restated per
+  files are git-versioned Markdown). Child tickets inherit by their `basis`
+  chain — the position is read from the goal root, never restated per
   child, never held in chat memory or a session.
 - **The pump — stage tickers on schedules** (`docs/design-stage-pipeline.md`
   §4): the tick algorithm is identical under both horizon modes; the
@@ -81,8 +81,8 @@ no machinery, and they never stall a wave.
   GOAL ticket (the store, not memory, is the proof — the product-owner
   loop, step 4).
 - **`task_get` / `task_board` / `task_readiness` (pump ← store)** — the
-  ticker reads the epic-root's dial record at kickoff to learn the run's
-  horizon; children are found through the `epic` link, so every stage
+  ticker reads the goal root's dial record at kickoff to learn the run's
+  horizon; children are found through the `basis` chain, so every stage
   ticker of the run obeys the same position without per-ticket
   restatement.
 - **Git history (audit)** — changes to the dial record are commits on the
@@ -98,13 +98,13 @@ no machinery, and they never stall a wave.
 ## End-to-end data flows
 
 - **F-1 Intake writes the position.** The owner states an objective →
-  the product-owner classifies it as a GOAL/epic root → asks about the
+  the product-owner classifies it as a GOAL root → asks about the
   dials if unstated (at most a couple of round-trips) → records horizon +
   cadence on the ticket → cites the ticket id back. Evidence: `task_get`
   shows the dial record on the GOAL ticket; `git log` on the ticket file
   shows when it was written.
 - **F-2 The pump obeys the horizon.** At each kickoff the ticker reads
-  the epic-root's horizon:
+  the goal root's horizon:
   - **run-to-Product-Goal:** the stage schedules recur without end; the
     run stops only at NEEDS-HUMAN escalations (the owner's queue) or when
     the GOAL root itself reports done by engine verdict.
@@ -132,7 +132,7 @@ no machinery, and they never stall a wave.
 
 | Concern | Choice | Why |
 |---|---|---|
-| Position home | the GOAL/epic-root ticket file, git-versioned Markdown (D-006) | `task_get`-verifiable and `git log`-auditable; no memory |
+| Position home | the GOAL-root ticket file, git-versioned Markdown (D-006) | `task_get`-verifiable and `git log`-auditable; no memory |
 | Intake actor | the product-owner agent (U-105 lineage; recorded by T-042) | the single point of entry; the owner's seat, build-denied |
 | Pump | the unchanged tick algorithm (design §4) | the dials set stop conditions, not procedures |
 | Release trigger | a human review that accepts (T-041; `release.ps1`) | the wave, not the calendar, is the release cadence; the human review is the trigger |

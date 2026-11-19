@@ -9,7 +9,7 @@ import java.util.function.UnaryOperator;
  * RE-DELIVERY of W-008 via T-054 (2026-11-15). The original implementation
  * lived in an uncommitted scratch tree that was lost before verification;
  * problem statement: docs/w008-reverification-2026-11-15.md (recorded on
- * ticket T-051; re-delivery order T-054, basis W-008, epic W-001). This file
+ * ticket T-051; re-delivery order T-054, basis W-008). This file
  * is rebuilt from the store specs alone: W-006's state grammar + codec
  * contract (chunk 1: JSON codec), W-008's mode gates (chunk 2: cursor+mode)
  * and editing transitions + undo protocol (chunk 3).

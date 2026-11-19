@@ -36,7 +36,7 @@ This skill **owns**:
 ## What `task_traceability` computes (engine truth)
 
 The `task_traceability` **tool** pairs with three signals (D-001/U-070): a
-`tester`-role ticket whose `epic` points at another ticket counts as
+`tester`-role ticket whose `basis` points at another ticket counts as
 verifying it; a definition is a ticket with role `architect`, `developer` or
 `pm` (`Task.DEFINITION_ROLES` / `Task.VERIFICATION_ROLES`); and a
 definition self-verifies through its **own journey when it walked both legs**
@@ -46,7 +46,7 @@ or a **test-shaped artifact** (`*.tests/` path). Rows report `via`/
 definition with no signal still reports as an orphan.
 
 This skill's audit is the **manual, artifact-level** complement: walk the
-recorded artifacts (FR/AC/IT/LT/CT/UT ids) and the store's epic links,
+recorded artifacts (FR/AC/IT/LT/CT/UT ids) and the store's basis links,
 classify coverage per composition level, and name the owning skill for each
 gap — the checks the tool cannot express. Use the tool for the quick matrix;
 run this skill's audit when the matrix must be trustworthy.

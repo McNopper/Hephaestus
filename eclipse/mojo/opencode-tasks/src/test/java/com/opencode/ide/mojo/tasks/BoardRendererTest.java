@@ -16,8 +16,8 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * Board rendering from a real fixture store: goal line, the canonical status columns with correct
- * counts, blocked marker, epics, totals; plus the no-sprint fallback, the explicit sprint
- * parameter, and HTML escaping.
+ * counts, blocked marker, totals; plus the no-sprint fallback, the explicit sprint parameter, and
+ * HTML escaping.
  */
 public class BoardRendererTest {
 
@@ -39,13 +39,12 @@ public class BoardRendererTest {
   public void setUp() throws Exception {
     root = tmp.newFolder("store").toPath();
     TaskStore store = new TaskStore(root);
-    store.create("demo", TaskStore.CreateSpec.of("Epic: ship the capacitor"));
+    store.create("demo", TaskStore.CreateSpec.of("Ship the capacitor"));
     store.update("demo", "T-001", Map.of("story_points", 5));
     store.create("demo", TaskStore.CreateSpec.of("Wire the flux"));
-    store.update("demo", "T-002", Map.of("story_points", 2, "epic", "T-001"));
+    store.update("demo", "T-002", Map.of("story_points", 2));
     store.create("demo", TaskStore.CreateSpec.of("Test the flux"));
-    store.update(
-        "demo", "T-003", Map.of("story_points", 3, "epic", "T-001", "assignee", "agent-2"));
+    store.update("demo", "T-003", Map.of("story_points", 3, "assignee", "agent-2"));
     store.create("demo", TaskStore.CreateSpec.of("Unplanned backlog item"));
     store.planSprint("demo", "S-01", List.of("T-001", "T-002", "T-003"), "Ship the flux capacitor");
     store.update("demo", "T-002", Map.of("status", "done"));
@@ -54,7 +53,7 @@ public class BoardRendererTest {
   }
 
   @Test
-  public void markdownHasGoalColumnsCountsBlockedEpicsAndTotals() throws Exception {
+  public void markdownHasGoalColumnsCountsBlockedMarkerAndTotals() throws Exception {
     String md = render(null);
     assertTrue(md.contains("Ship the flux capacitor"));
     assertTrue(md.contains("Sprint: **S-01** (active)"));
@@ -78,7 +77,7 @@ public class BoardRendererTest {
 
     assertTrue(
         md.contains(
-            "- [T-001] Epic: ship the capacitor — developer, 5 points, "
+            "- [T-001] Ship the capacitor — developer, 5 points, "
                 + "⚠ blocked: waiting on parts"));
     assertTrue(md.contains("- [T-003] Test the flux — developer, 3 points, agent-2"));
     assertFalse(
@@ -87,8 +86,6 @@ public class BoardRendererTest {
     assertFalse(
         "tickets outside the sprint must not appear", md.contains("Unplanned backlog item"));
 
-    assertTrue(md.contains("## Epics"));
-    assertTrue(md.contains("[T-001] Epic: ship the capacitor — 1 open of 2"));
     assertTrue(md.contains("**Totals:** 10 points total, 2 points done."));
   }
 
@@ -140,13 +137,12 @@ public class BoardRendererTest {
   }
 
   @Test
-  public void htmlRendersSprintLineEpicsAndTicketFields() throws Exception {
-    // U-091: pins the HTML sprint-status suffix, epic titles and per-ticket
+  public void htmlRendersSprintLineAndTicketFields() throws Exception {
+    // U-091: pins the HTML sprint-status suffix and per-ticket
     // fields (points pluralization, assignee) that contains() checks skipped
     String html = BoardRenderer.html(StoreBoards.load(root, null, s -> {}));
     assertTrue(html.contains("Sprint: <strong>S-01</strong> (active)"));
-    assertTrue(html.contains("<span class=\"id\">[T-001]</span> Epic: ship the capacitor"));
-    assertTrue(html.contains("1 open of 2"));
+    assertTrue(html.contains("<span class=\"id\">[T-001]</span> Ship the capacitor"));
     assertTrue(html.contains(", 3 points, agent-2"));
 
     // an unknown requested sprint has no metadata: the HTML must say so
@@ -155,7 +151,7 @@ public class BoardRendererTest {
   }
 
   @Test
-  public void htmlShowsSingularPointAndEmptyEpics() throws Exception {
+  public void htmlShowsSingularPointAndEmptyColumns() throws Exception {
     Path solo = tmp.newFolder("points-store").toPath();
     TaskStore store = new TaskStore(solo);
     store.create("solo", TaskStore.CreateSpec.of("Small ticket"));
@@ -164,8 +160,8 @@ public class BoardRendererTest {
     String html = BoardRenderer.html(StoreBoards.load(solo, null, s -> {}));
     // singular "point" for story_points == 1, plural otherwise
     assertTrue(html.contains(", 1 point</li>"));
-    // a board without epics renders the (none) placeholder
-    assertTrue(html.contains("<p class=\"empty\">(none)</p>"));
+    // columns without tickets render the (empty) placeholder
+    assertTrue(html.contains("<p class=\"empty\">(empty)</p>"));
   }
 
   @Test
@@ -189,40 +185,6 @@ public class BoardRendererTest {
     assertTrue(
         "the separator goes between boards, never before the first one",
         html.indexOf("<hr class=\"sep\">") > html.indexOf("</h1>"));
-  }
-
-  @Test
-  public void epicRowsCountOpenVersusDoneAndAreSortedById() throws Exception {
-    Path solo = tmp.newFolder("epic-store").toPath();
-    TaskStore store = new TaskStore(solo);
-    store.create("solo", TaskStore.CreateSpec.of("Epic hub"));
-    store.create("solo", TaskStore.CreateSpec.of("Done member"));
-    store.update("solo", "T-002", Map.of("epic", "T-001", "status", "done"));
-    store.create("solo", TaskStore.CreateSpec.of("Open member"));
-    store.update("solo", "T-003", Map.of("epic", "T-001", "status", "sprint-backlog"));
-    store.create("solo", TaskStore.CreateSpec.of("Another open member"));
-    store.update("solo", "T-004", Map.of("epic", "T-001", "status", "sprint-backlog"));
-    store.create("solo", TaskStore.CreateSpec.of("Ghost reference"));
-    store.update("solo", "T-005", Map.of("epic", "T-GHOST"));
-
-    String md = BoardRenderer.markdown(StoreBoards.load(solo, null, s -> {}));
-    // U-091: two open + one done member -> exactly 2 open of 3 (a done ticket
-    // must not count as open, and an open one must not be dropped)
-    assertTrue(md.contains("[T-001] Epic hub \u2014 2 open of 3"));
-    // an epic key without a matching task renders the bare id, no title
-    assertTrue(md.contains("- T-GHOST \u2014 1 open of 1"));
-    // epic rows are sorted by id, not by column insertion order: T-GHOST is
-    // the only member in the first-processed column, so without the sort it
-    // would come before T-001 (compare within the Epics section only - the
-    // ticket lines above also mention T-001)
-    String epics = md.substring(md.indexOf("## Epics"));
-    assertTrue(
-        "epic rows must be sorted by id",
-        epics.indexOf("[T-001] Epic hub") < epics.indexOf("- T-GHOST"));
-
-    String html = BoardRenderer.html(StoreBoards.load(solo, null, s -> {}));
-    assertTrue(html.contains("<span class=\"id\">T-GHOST</span>"));
-    assertTrue(html.contains("2 open of 3"));
   }
 
   private String render(String sprint) throws IOException {

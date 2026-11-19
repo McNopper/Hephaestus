@@ -27,7 +27,6 @@ second emoji for a concept already listed.
 | type: story | 📖 | card type column |
 | type: task | 🛠️ | card type column |
 | type: spike | ⚡️ | card type column |
-| epic lane marker | ▤ | lane header (text marker, font-sized) |
 | sort: idle | ⇅ | card column headers |
 | sort: ascending | ▲ | card column headers |
 | sort: descending | ▼ | card column headers |

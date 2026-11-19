@@ -28,6 +28,6 @@ public abstract class BoardModelTestHarness {
   /** The plain task spec both fixtures build their tickets from. */
   protected TaskStore.CreateSpec spec(String title, String role) {
     return new TaskStore.CreateSpec(
-        title, "", "task", role, "medium", 0, List.of(), List.of(), null, "T");
+        title, "", "task", role, "medium", 0, List.of(), List.of(), "T");
   }
 }

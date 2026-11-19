@@ -2,8 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / design-stage artifact of ticket **T-125** (epic U-113,
-  basis T-113, stage `design`): the design INSIDE the autonomy-spectrum
+- **Kind:** `doc` / design-stage artifact of ticket **T-125** (basis T-113, stage `design`): the design INSIDE the autonomy-spectrum
   flow's five components — per-component contracts in
   `name(inputs) -> output | errors` form, the data structures the
   components consume (the dial record, the kickoff horizon read, the
@@ -71,13 +70,13 @@ doctrine load (E5).
 
 - **C-C1-1 `classify(ownerMessage) -> goalRegistration | ticketRegistration | answer`**
   — the intake classification ([PO] loop step 1). Inputs: the owner's
-  message. Outputs: a stageless GOAL/epic root for a whole objective, a
+  message. Outputs: a stageless GOAL root for a whole objective, a
   staged ticket (requirement or `type: bug`) otherwise, or an
   evidence-backed answer for a question. Errors: ambiguous input →
   clarification round-trips to the owner, **bounded at two** ([PO]'s
   bound; [SYS §F-1] "a couple" made concrete) — past the bound the
   registration proceeds with the open questions recorded on the ticket,
-  never resolved by a private guess; an unknown `epic` or `basis` id →
+  never resolved by a private guess; an unknown `basis` id →
   the registration **halts** (no orphan ticket), the id returns to the
   owner for correction ([PO] step 3).
 - **C-C1-2 `recordPosition(goalId, answers | openQuestions) -> DialRecord`**
@@ -140,13 +139,13 @@ armed/disarmed by `ticker-setup.ps1`; the `stage-pipeline` skill ([ARCH
 §Interfaces to the real code C3]). The tick algorithm is [DSG §4]
 verbatim ([AR-D] C-M2-1 consumed).
 
-- **C-C3-1 `readHorizon(epicRoot) -> horizon | defaults`** — the kickoff
-  read (E2 `task_get`/`task_board` on the epic root; [SYS §Interfaces 2]).
-  Inputs: the run's epic root resolved per DS-2's walk. Outputs: the
+- **C-C3-1 `readHorizon(goalRoot) -> horizon | defaults`** — the kickoff
+  read (E2 `task_get`/`task_board` on the goal root; [SYS §Interfaces 2]).
+  Inputs: the run's goal root resolved per DS-2's walk. Outputs: the
   horizon mode from the record's `goal horizon` line — and **only that
   line**: the cadence line of DS-1 is outside this contract's surface
   entirely (DD-03; QA-3). Errors: record absent, unparseable, or no
-  epic-root ancestor → fall through to the doctrine defaults (C-C5-1;
+  chain root → fall through to the doctrine defaults (C-C5-1;
   [SYS §F-4]) — **never a question back to the owner** (the pump has no
   C1 edge, DENY-1) and **never a stall**; a store read failure → the
   same fallthrough, failing safe toward the safe end.
@@ -259,7 +258,7 @@ it is loaded, never executes ([ARCH §Dependency rules] direction rule).
 
 ### DS-1 · The dial record (the position's grammar and custody)
 
-The record is a labeled block of ticket text living in the **GOAL/epic
+The record is a labeled block of ticket text living in the **GOAL
 root's description** — the position's ONLY home ([SYS §Major Parts 2];
 a `task_add_comment` may carry the intake Q&A beside it, E1). Grammar
 (fixed labels, closed vocabularies — DD-01):
@@ -283,7 +282,7 @@ Grammar rules and invariants:
 - **`time-boxed` carries its end** — the value the steward's disarm
   (C-C3-3) enforces at the schedule lane (AD-4).
 - **Custody:** written only by C1 (E1), read only at kickoff by C3 (E2);
-  child tickets inherit through the `epic` link — never restated per
+  child tickets inherit through their `basis` chain — never restated per
   child; no side channel may carry it — not chat memory, not session
   state, not a config file (DENY-7). Exactly one home; verification
   resolves to the store (`task_get`) and provenance to git (`git log`,
@@ -297,10 +296,10 @@ Grammar rules and invariants:
 How any stage ticker resolves "the run position" for its stage (the
 read side of DS-1; consumed by C-C3-1 at every tick's kickoff):
 
-1. **Resolve the root:** from the stage's tickets, walk the `epic` link
-   to the epic-less ancestor — the stageless GOAL root (DD-05; [PO]
+1. **Resolve the root:** from the stage's tickets, walk the `basis` chain
+   to its root — the stageless GOAL root (DD-05; [PO]
    step 1 registers whole objectives as stageless roots). A staged
-   ticket with no epic ancestor has no owner goal → step 3.
+   ticket with no chain root has no owner goal → step 3.
 2. **Read and parse:** `task_get` the root; if its description carries
    a DS-1 record that parses against the grammar → the horizon (and
    end, when time-boxed). Only the `goal horizon` line is consumed
@@ -357,7 +356,7 @@ F-1..F-4, exactly as [ARCH §Guarantee flows] traces them to G-1..G-4.
 ### W-1 · Goal intake writes the position (F-1 → G-1; executor: C1)
 
 1. **Classify** (C-C1-1) — the owner's message is a whole objective → a
-   stageless GOAL/epic root; ambiguous → bounded clarification
+   stageless GOAL root; ambiguous → bounded clarification
    (two round-trips, [PO]).
 2. **Ask** (C-C1-3, E5) — the dials when the owner leaves them
    unstated; silence → openQuestions, never a block.
@@ -377,7 +376,7 @@ tickets carry no restatement.
 
 1. **Arm** (C3 steward, E6) — the steward arms the stage schedules at
    kickoff (`ticker-setup.ps1`).
-2. **Read** (C-C3-1, E2) — at every tick's kickoff, resolve the epic
+2. **Read** (C-C3-1, E2) — at every tick's kickoff, resolve the goal
    root (DS-2) and read the horizon; no record → defaults (W-4).
 3. **Tick** (C-C3-2, E2 + E4) — the five-step tick, [DSG §4] verbatim,
    identical under both horizon modes (QA-3).
@@ -429,7 +428,7 @@ tickets carry no restatement.
 | Owner leaves the dials unstated | bounded ask (two round-trips, [PO]); register with open questions recorded (C-C1-2); the safe end applies at read time (W-4) — never a stall |
 | Owner answers after registration | C1 updates the record (E1); the next kickoff obeys (DS-2); no pump restart |
 | Store call fails during intake | surface the failure with the draft text preserved; retry from the draft ([PO] step 4); no local queue — the seat holds no state outside the store |
-| Unknown `epic`/`basis` id at registration | the registration halts — no orphan ticket; the id returns to the owner ([PO] step 3) |
+| Unknown `basis` id at registration | the registration halts — no orphan ticket; the id returns to the owner ([PO] step 3) |
 | Dial record absent or unparseable at kickoff | fall through to the doctrine defaults (C-C3-1, DS-2 step 3); the tick proceeds; the pump never asks the owner (no C1 edge) |
 | Store read failure at kickoff | same fallthrough — fail safe toward the safe end; the tick proceeds |
 | Time-boxed horizon reached mid-tick | finish the boundary cleanly: in-flight to engine verdicts, sprint closes with a digest naming the horizon end, no new launches (C-C3-3) |
@@ -437,7 +436,7 @@ tickets carry no restatement.
 | No human acceptance after a wave | the release stays pending — an absence, not a datum (DS-4): no timer, no machine retry, no state to clean up (AD-5) |
 | Release path invoked from a machine context | structurally unreachable (DENY-5): no machine actor's surface contains `release.ps1` |
 | Wave close interrupted mid-division (recurrence ticket) | division heal at the next boundary: re-read existing derivations, create only the missing DS-3 ticket (the [AR-D] heal discipline, consumed) |
-| Dial record found on a child ticket (side-channel violation) | not a readable position — the walk reads the epic root only (DS-2); the violation is a review-visible defect against DENY-7, never an input |
+| Dial record found on a child ticket (side-channel violation) | not a readable position — the walk reads the goal root only (DS-2); the violation is a review-visible defect against DENY-7, never an input |
 
 ## 7. Pass-through record: where [ARCH], [AR-D] and [DSG] fix the structure
 
@@ -483,7 +482,7 @@ and workflow steps that ride or avoid it:
 | **DENY-4** C2 → anything | §2.2: zero outgoing edges — no callbacks, no notifications; discovery by read at the tick boundary |
 | **DENY-5** any machine component → the release trigger | C-C4-2's unreachable error face; W-3 step 4 — `release.ps1` exists in no machine surface (T-041 as structure, AD-5) |
 | **DENY-6** any component → C2 files directly | §2.2 + §3 Facade: every store touch is a verb call; hand edits are not an edge |
-| **DENY-7** any side channel carrying the run position | DS-1 custody invariants; DS-2 reads the epic root only; §6's last row treats a restated record as a defect, never an input |
+| **DENY-7** any side channel carrying the run position | DS-1 custody invariants; DS-2 reads the goal root only; §6's last row treats a restated record as a defect, never an input |
 
 **The C1/C3/C4 no-edge rule, contract-visible.** The architecture's
 named structural rule — no edge between any pair of C1, C3, C4 ([ARCH
@@ -550,7 +549,7 @@ realized:
 Consistency with [SYS]: the two dials are named as [SYS §The two dials]
 names them; the T-041 floor is a standing rule, not a dial value (DS-1
 rule 1); the record's only home is the GOAL root's description with the
-Q&A in a comment; children inherit via `epic` with no restatement
+Q&A in a comment; children inherit via `basis` with no restatement
 (DS-1/DS-2); NEEDS-HUMAN is the escalation threshold at every setting
 (C-C3-2's BLOCKED step, unchanged); a time-boxed stop is deliberate,
 not an escalation (C-C3-3). No contract contradicts [SYS].

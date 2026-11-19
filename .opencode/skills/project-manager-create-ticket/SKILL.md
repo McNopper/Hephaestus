@@ -3,7 +3,7 @@ name: project-manager-create-ticket
 description: >
   Use this skill as the template/guide for writing a correct Hephaestus ticket:
   choosing the right role, writing concrete acceptance criteria, sizing story
-  points, and linking epics for traceability. Invoked by the project-manager agent, the
+  points, and linking tickets for traceability. Invoked by the project-manager agent, the
   manifest-author, or any worker that opens a ticket via task_create.
 ---
 
@@ -39,7 +39,7 @@ breaks. This skill keeps every ticket claimable and verifiable.
 | `model` | Optional fleet model override (`provider/model[#variant]`). The cost lever of decomposition: a small, well-specified ticket can run on a cheap model — pin one when the work is mechanical; leave null (server default) when it needs the strong default. |
 | `acceptance_criteria` | Concrete, checkable bullets ("Given … When … Then …"). Verification passes only when all are met. |
 | `labels` | Free tags for filtering (e.g. `vulkan`, `regression`). |
-| `epic` | Parent ticket id for traceability (definition ticket id on a verification ticket, or vice-versa). Optional but strongly recommended for linking. |
+| `basis` | Upstream/parent ticket id for traceability (the derivation edge: definition ticket on a verification ticket, upstream on downstream). Optional but strongly recommended for linking. |
 | `sprint` | Leave null — the PM commits it at wave planning (`task_plan_sprint`; the UI calls it a wave). |
 
 ## Role map (who owns / claims the ticket)
@@ -62,7 +62,7 @@ role from the known set above when one fits.
 
 ## Traceability by convention
 
-- A verification ticket sets `epic` = its definition ticket's id (`FR-001`,
+- A verification ticket sets `basis` = its definition ticket's id (`FR-001`,
   `SW-002`, `ARCH-003`, …). The `project-manager-audit-traceability` matrix then shows the link.
 - Keep stable prefixes per artifact kind: `FR-` requirements, `AC-` acceptance,
   `SW-` system, `ARCH-` architecture, `DS-` design, `UT-` unit, `CT-` component,

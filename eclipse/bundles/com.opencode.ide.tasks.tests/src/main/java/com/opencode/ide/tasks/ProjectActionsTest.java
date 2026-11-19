@@ -37,7 +37,7 @@ public class ProjectActionsTest {
     return store.create(
             project,
             new TaskStore.CreateSpec(
-                title, "d", "task", "developer", "high", 2, List.of("ac"), List.of(), null, "T"))
+                title, "d", "task", "developer", "high", 2, List.of("ac"), List.of(), "T"))
         .id;
   }
 

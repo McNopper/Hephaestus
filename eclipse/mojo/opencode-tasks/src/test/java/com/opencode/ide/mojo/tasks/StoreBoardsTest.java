@@ -216,7 +216,6 @@ public class StoreBoardsTest {
             + "sprint: "
             + (sprint == null ? "null" : sprint)
             + "\n"
-            + "epic: null\n"
             + "assignee: null\n"
             + "resume_to: null\n"
             + "blocker: null\n"

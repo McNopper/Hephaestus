@@ -45,7 +45,6 @@ public class ReviewDoubtTest {
                 3,
                 List.of("ac one"),
                 List.of(),
-                null,
                 "D"),
             stage);
     // U-080: definition-stage exits require a recorded product
@@ -117,7 +116,6 @@ public class ReviewDoubtTest {
                 2,
                 List.of("ac"),
                 List.of(),
-                null,
                 "D"));
     try {
       store.routeReviewDoubt(PROJECT, t.id, "doubt", "reviewer");

@@ -3,7 +3,7 @@
 ## About this document
 
 - **Kind:** `doc` / architecture-stage specification (V stage:
-  architecture; ticket T-109, epic U-113, basis T-093). It derives the
+  architecture; ticket T-109, basis T-093). It derives the
   INTERNAL STRUCTURE of the release cadence from its system definition:
   the components, each one's responsibility, and the explicit dependency
   rules between them as **default-deny edges** — an edge exists only if
@@ -75,7 +75,7 @@ at the close sweep and write exactly two non-state things; one tool
 component executes the cut, reachable only from the chat control on the
 owner's explicit go. This is the same pattern family as the
 acceptance-run architecture (same substrate — consistency across the
-epic's walks). The cadence's distinctive structural property is what it
+requirement chains). The cadence's distinctive structural property is what it
 DENIES: no edge from evaluation to execution, no edge from the tool to
 the store.
 
@@ -246,7 +246,7 @@ structure:
 | [DSG §4] the tick algorithm; the unified `ticker-v` topology | C2's fixed procedure | [DSG]'s per-stage illustration is realized live as ONE `ticker-v` steward walking all stages ([SYS §2]; SKILL.md); determinism unchanged |
 | [DSG §6] skills/docs as static knowledge | C5 | "Skills are the carriage of process change" — knowledge, not runtime actors |
 | [DSG §8] engine-only `done` | C6 + the denied C6→C4 edge | The verdict model is decided; the architecture states it as an unreachable-transition rule |
-| [DSG §2/§3] store contract (`stage:` immutability, epic/basis links, history, write discipline) | C1 invariants | Store semantics decided; C1 owns them wholesale |
+| [DSG §2/§3] store contract (`stage:` immutability, basis links, history, write discipline) | C1 invariants | Store semantics decided; C1 owns them wholesale |
 
 ## Traceability: the cadence through the components
 

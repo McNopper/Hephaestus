@@ -2,7 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / design-stage artifact of ticket T-115 (epic U-112, basis
+- **Kind:** `doc` / design-stage artifact of ticket T-115 (basis
   T-105, stage `design`): the inside of the product-owner seat integration —
   component contracts (inputs → outputs | errors), data structures, key
   workflows and error behavior for the architecture's components C-1..C-6.
@@ -57,8 +57,8 @@ Contracts (the loop, step-shaped):
 - `distill(input, clarifications?) -> TicketDraft` | errors: for bugs, the
   owner's wording is quoted and the distillation labeled; unresolved doubts
   ride on the ticket as open questions (the store, not memory, carries them).
-- `link(draft, {epic, basis?}) -> TicketDraft` | errors: unknown `epic` or
-  `basis` id → registration halted — no orphan ticket is created; the id goes
+- `link(draft, {basis?}) -> TicketDraft` | errors: unknown `basis`
+  id → registration halted — no orphan ticket is created; the id goes
   back to the owner for correction.
 - `register(draft) -> ticketId` via `task_create` | errors: store API failure
   → surfaced to the owner with the draft text preserved in the reply; a retry
@@ -230,9 +230,10 @@ quietly accepts an unverified "done" from a delegate.
   C-1 `classify` output.
 - `TicketDraft` — the `distill` product:
   `{title, description, acceptance_criteria[], kind: staged(stage) | GOAL,
-  type: requirement | bug, epic, basis?, model?, dials?}`.
-  Invariants: acceptance criteria are testable statements; `epic` per the
-  active goal (U-112 while open); `basis` when it derives from an existing
+  type: requirement | bug, basis?, model?, dials?}`.
+  Invariants: acceptance criteria are testable statements; `basis` carries the
+  chain (to the active goal root, or to the upstream ticket it derives from
+  - an existing
   ticket; `model` is a runtime placeholder value or absent (DR-6); `dials`
   (goal horizon, review cadence) present only on GOAL roots and recorded on
   the ticket — never as acceptance criteria (seat definition, U-105).
@@ -254,7 +255,7 @@ Only the non-obvious flows; each cites the dependency rules it upholds.
 2. Ambiguous → bounded clarification round-trips to the owner.
 3. `distill` → `TicketDraft` (testable criteria; bugs quote the owner's
    wording, distillation labeled).
-4. `link` — `epic` (U-112 while open), `basis` when derivational.
+4. `link` — `basis` (to the goal root or a derivational upstream).
 5. `register` via `task_create`; `price` via the `model` field (runtime value
    only — DR-6).
 6. `cite` the id back; `verifyRegistration` via `task_get` — the store is the
@@ -303,7 +304,7 @@ Upheld: DR-2, DR-3 (name-only dependence between C-2 and C-1), AD-003/AD-004.
 |---|---|
 | Ambiguous owner input | bounded clarification (≤2 round-trips), else register with open questions on the ticket |
 | Store API failure during `register` | owner surfaced with the draft preserved; retry from the draft; no local queue (DS-006) |
-| Unknown `epic`/`basis` at `link` | registration halted — no orphan ticket; id returned for correction |
+| Unknown `basis` at `link` | registration halted — no orphan ticket; id returned for correction |
 | Unknown `agentId` on D-3 | chat opens on default agent selection — degrade, don't fail (DS-003) |
 | Un-armed drift on D-2 | revert to committed agent — not a switch (DS-002) |
 | Store unreachable during verify | honest "cannot verify"; no cached status claims |

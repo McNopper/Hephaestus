@@ -9,30 +9,21 @@ import java.util.Map;
 import org.junit.Test;
 
 /**
- * U-027 readiness consults the archive: an archived upstream still satisfies its epic-chain
+ * U-027 readiness consults the archive: an archived upstream still satisfies its basis-chain
  * downstream (archiving never orphans the V chain), and the wave-close auto-archive moves a done
  * ticket only when no live ticket still needs it. The plain close never archives.
  */
 public class ArchiveReadinessTest extends StoreTestHarness {
 
-  private Task ticket(String title, String epic, String stage) {
+  private Task ticket(String title, String basis, String stage) {
     Task t =
         store.create(
             "p",
             new TaskStore.CreateSpec(
-                title,
-                "d",
-                "task",
-                "developer",
-                "high",
-                3,
-                List.of("it works"),
-                List.of(),
-                null,
-                "T"),
+                title, "d", "task", "developer", "high", 3, List.of("it works"), List.of(), "T"),
             stage);
-    if (epic != null) {
-      t = store.update("p", t.id, Map.of("epic", epic));
+    if (basis != null) {
+      t = store.update("p", t.id, Map.of("basis", basis));
     }
     // U-081: a satisfying upstream must be PROVEN (artifacted)
     store.addArtifact(
@@ -42,12 +33,12 @@ public class ArchiveReadinessTest extends StoreTestHarness {
 
   @Test
   public void anArchivedUpstreamStillSatisfiesItsChildren() {
-    Task parent = ticket("chain head", "E-1", "requirements");
+    Task parent = ticket("chain head", null, "requirements");
     parent = store.update("p", parent.id, Map.of("status", "done"));
     store.archive("p", parent.id, "wave close");
     // the child is touched last: the archived upstream is fresh evidence,
     // not a stale input (the STALE machinery has its own tests)
-    Task child = ticket("downstream", "E-1", "system");
+    Task child = ticket("downstream", parent.id, "system");
 
     Map<String, StageReadiness.Readiness> withArchive =
         StageReadiness.evaluate(List.of(child), store.archived("p"));
@@ -65,8 +56,8 @@ public class ArchiveReadinessTest extends StoreTestHarness {
 
   @Test
   public void autoArchiveKeepsUpstreamsNeededByLiveTickets() {
-    Task parent = ticket("needed upstream", "E-2", "requirements");
-    Task child = ticket("live downstream", "E-2", "system");
+    Task parent = ticket("needed upstream", null, "requirements");
+    Task child = ticket("live downstream", parent.id, "system");
     Task lone = ticket("unneeded done", null, "requirements");
     store.planSprint("p", "S-01", List.of(parent.id, child.id, lone.id), "goal");
     store.update("p", parent.id, Map.of("status", "done"));

@@ -10,10 +10,10 @@ import org.junit.Test;
  * The deterministic V-walk check (owner model 2026-11-19): the left leg divides with at least one
  * link to the NEXT stage, every walked left-leg ticket is joined on the right leg by a test-*
  * ticket whose basis is exactly it (1:1 join-back), right-leg joins point at LEFT-leg tickets only,
- * and every basis/epic link resolves in the live pool OR the archive pool. Counts converge as a
- * walk completes: |left| = |right| under these rules. Shipped legacy work is exempt through a
- * recorded "division SATISFIED" comment (SKILL stage-pipeline: division-with-rationale) - never
- * mint duplicate children for shipped work.
+ * and every basis link resolves in the live pool OR the archive pool. Counts converge as a walk
+ * completes: |left| = |right| under these rules. Shipped legacy work is exempt through a recorded
+ * "division SATISFIED" comment (SKILL stage-pipeline: division-with-rationale) - never mint
+ * duplicate children for shipped work.
  */
 public class VWalkDoctorTest extends StoreTestHarness {
 
@@ -29,7 +29,6 @@ public class VWalkDoctorTest extends StoreTestHarness {
             3,
             List.of(),
             List.of(),
-            null,
             "T",
             null,
             null,

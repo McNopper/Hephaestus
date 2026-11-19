@@ -2,7 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / system-stage artifact of ticket T-083 (epic U-112, basis
+- **Kind:** `doc` / system-stage artifact of ticket T-083 (basis
   T-036, stage `system`): the integration model for the product-owner seat —
   dispatch wiring, agent switching, model/cost position, and the mechanized
   spot-check rule.
@@ -30,7 +30,7 @@ owner chat ──> [product-owner seat] ──> task store ──> stage tickers
 
 - **The seat** — `.opencode/agent/product-owner.md`, `mode: primary`, tools
   denied at role level: `write`, `edit`, `patch`, `bash`. Its loop:
-  classify → distill acceptance criteria → link (`epic`/`basis`) → register
+  classify → distill acceptance criteria → link (`basis`) → register
   and cite the ticket id → verify from store evidence.
 - **Dispatch surfaces** — the ways a session comes up running the seat (§2).
 - **The machine** — the store, the stage tickers, the workers, the engine

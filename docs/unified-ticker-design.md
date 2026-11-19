@@ -3,7 +3,7 @@
 ## About this document
 
 - **Kind:** `doc` / design-stage artifact of ticket T-117 (project
-  `hephaestus`, epic U-112, basis T-103, stage `design`): the inside of the
+  `hephaestus`, basis T-103, stage `design`): the inside of the
   unified V-ticker's components — component contracts (inputs → outputs |
   errors), data structures, key workflows and error behavior, derived from the
   architecture's component set C1..C8 and its default-deny edge list E1..E11.
@@ -82,7 +82,7 @@ added, none re-specified:
 - `addArtifact(ticketId, kind, ref, note, by)` via `task_add_artifact` — the
   worker's product record; the done-time guard reads it ([DSG §2]).
 - `addComment(ticketId, text, by)` via `task_add_comment`.
-- `create(ticket)` via `task_create` — division; carries `stage` / `epic` /
+- `create(ticket)` via `task_create` — division; carries `stage` /
   `basis` and the artifact references ([DSG §3]).
 - `close(record)` via `task_close_sprint` — gated: only at a pass end where
   nothing is claimed or in flight (FR-013, pass-through).
@@ -176,8 +176,8 @@ E8 (loads [SKILL] only). Contracts:
   one attempt per ticket per tick ([SYS I-3], FR-006).
 - `divide(ticket, quota) -> children[] | deferred` — the division step:
   read the done ticket (`get`), create the next-stage children plus the
-  paired `test-*` tickets for definition stages (`create` with `epic`
-  inherited, `basis` = the done ticket, artifact references carried —
+  paired `test-*` tickets for definition stages (`create` with
+  `basis` = the done ticket, artifact references carried —
   [DSG §3]). **Atomic per basis ticket** (DS-005): all children of one
   ticket are created in one step or none are; the quota counts basis tickets
   divided, never child tickets created. Quota exhausted → remaining done
@@ -225,7 +225,7 @@ ticket (denied edges). Contracts:
   reconnect over C2 like any actor (I-3), retry the own-ticket write.
 - `Brief` — composed by C4 at spawn; exactly the narrow brief of [DSG §5]:
   ticket content, direct basis artifacts, stage skill, lane constraints —
-  no epic tree, no other tickets, no store-wide visibility. The UNCLEAR
+  no scope umbrella, no other tickets, no store-wide visibility. The UNCLEAR
   retry re-spawn appends the reviewer's question to the same brief shape.
 - `CompletionReport` — the only return channel (E4's idle report; no
   mid-flight orders, denied edge). Bounded by contract: ticket id, artifact

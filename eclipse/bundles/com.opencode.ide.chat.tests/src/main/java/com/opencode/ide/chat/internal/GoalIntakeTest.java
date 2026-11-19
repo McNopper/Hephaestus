@@ -45,7 +45,6 @@ public class GoalIntakeTest {
             0,
             List.of(),
             List.of(),
-            null,
             "T",
             null,
             null,
@@ -144,10 +143,10 @@ public class GoalIntakeTest {
         "objective carried verbatim into the continuation", cont.description.contains(objective));
     assertTrue(cont.labels.contains(GoalIntake.GOAL_LABEL));
 
-    // the open tickets re-home under the continuation's epic (basis edges untouched)
-    assertEquals(continuation, store.get("p", child1.id).epic);
-    assertEquals(continuation, store.get("p", grandchild.id).epic);
-    assertEquals("T-001", store.get("p", child1.id).basis);
+    // the goal's direct child re-homes its basis to the continuation; the deeper
+    // derivation edge (grandchild -> child1) stays untouched - chains stay valid
+    assertEquals(continuation, store.get("p", child1.id).basis);
+    assertEquals(child1.id, store.get("p", grandchild.id).basis);
 
     // the original CLOSES (done + the continuation file as its artifact) - never an archived
     // live basis, so the children's readiness stays decidable

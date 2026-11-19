@@ -52,7 +52,7 @@ public class TaskStoreSemanticsTest {
     // chain-protected: a LIVE parent blocks archiving its done child
     Task parent = store.create("p", TaskStore.CreateSpec.of("parent"));
     Task child = store.create("p", TaskStore.CreateSpec.of("child"));
-    store.update("p", child.id, Map.of("status", "done", "epic", parent.id));
+    store.update("p", child.id, Map.of("status", "done", "basis", parent.id));
     // plain sprint-less history
     Task old = store.create("p", TaskStore.CreateSpec.of("old"));
     store.update("p", old.id, Map.of("status", "done"));
@@ -121,7 +121,7 @@ public class TaskStoreSemanticsTest {
         store.create(
             "p",
             new TaskStore.CreateSpec(
-                "third", "", "task", "pm", "low", 1, List.of(), List.of(), null, "FR"));
+                "third", "", "task", "pm", "low", 1, List.of(), List.of(), "FR"));
     assertEquals("FR-001", fr.id);
     assertEquals("product-backlog", a.status);
     assertEquals(1, a.history.size());
@@ -131,7 +131,7 @@ public class TaskStoreSemanticsTest {
         store.create(
             "p",
             new TaskStore.CreateSpec(
-                "odd", "", "task", "pm", "low", 0, List.of(), List.of(), null, "x y!"));
+                "odd", "", "task", "pm", "low", 0, List.of(), List.of(), "x y!"));
     assertEquals("xy-001", odd.id);
   }
 
@@ -139,22 +139,20 @@ public class TaskStoreSemanticsTest {
   public void createValidatesTypePriorityRole() {
     try {
       store.create(
-          "p", new TaskStore.CreateSpec("t", "", "banana", "dev", "low", 0, null, null, null, "T"));
+          "p", new TaskStore.CreateSpec("t", "", "banana", "dev", "low", 0, null, null, "T"));
       fail("expected Invalid");
     } catch (TaskStore.Invalid expected) {
       assertTrue(expected.getMessage().contains("type"));
     }
     try {
       store.create(
-          "p",
-          new TaskStore.CreateSpec("t", "", "task", "dev", "urgent", 0, null, null, null, "T"));
+          "p", new TaskStore.CreateSpec("t", "", "task", "dev", "urgent", 0, null, null, "T"));
       fail("expected Invalid");
     } catch (TaskStore.Invalid expected) {
       assertTrue(expected.getMessage().contains("priority"));
     }
     try {
-      store.create(
-          "p", new TaskStore.CreateSpec("t", "", "task", "  ", "low", 0, null, null, null, "T"));
+      store.create("p", new TaskStore.CreateSpec("t", "", "task", "  ", "low", 0, null, null, "T"));
       fail("expected Invalid");
     } catch (TaskStore.Invalid expected) {
       assertTrue(expected.getMessage().contains("role"));
@@ -688,9 +686,9 @@ public class TaskStoreSemanticsTest {
     Task parent = store.create("p", TaskStore.CreateSpec.of("arch work"));
     store.update("p", parent.id, Map.of("role", "architect"));
     Task test = store.create("p", TaskStore.CreateSpec.of("verifies arch"));
-    store.update("p", test.id, Map.of("role", "tester", "epic", parent.id));
+    store.update("p", test.id, Map.of("role", "tester", "basis", parent.id));
     Task orphanV = store.create("p", TaskStore.CreateSpec.of("orphan verification"));
-    store.update("p", orphanV.id, Map.of("role", "tester", "epic", "T-999"));
+    store.update("p", orphanV.id, Map.of("role", "tester"));
 
     Map<String, Object> out = store.traceability("p");
     assertEquals(3, out.get("ticket_count"));
@@ -715,7 +713,7 @@ public class TaskStoreSemanticsTest {
   @SuppressWarnings("unchecked")
   public void traceabilityCountsTestArtifactsAndPmDefinitions() {
     // U-110: the wandering journey signal retired with the model - pairing now rides the
-    // basis/epic links created at division; the artifact signal is pinned here
+    // basis links created at division; the artifact signal is pinned here
     Task withTests = store.create("p", TaskStore.CreateSpec.of("records its tests"));
     store.addArtifact(
         "p",
@@ -806,7 +804,6 @@ public class TaskStoreSemanticsTest {
                 5,
                 List.of("GIVEN x"),
                 List.of("l1"),
-                "EP-1",
                 "T"));
     TaskStore fresh = new TaskStore(store.root());
     Task back = fresh.get("p", t.id);
@@ -815,6 +812,5 @@ public class TaskStoreSemanticsTest {
     assertEquals("critical", back.priority);
     assertEquals(List.of("GIVEN x"), back.acceptanceCriteria);
     assertEquals(List.of("l1"), back.labels);
-    assertEquals("EP-1", back.epic);
   }
 }

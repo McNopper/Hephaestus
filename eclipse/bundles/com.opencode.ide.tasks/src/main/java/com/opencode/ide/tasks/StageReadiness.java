@@ -20,10 +20,9 @@ import java.util.Map;
  * carries a recorded artifact (U-081 - a label proves nothing), STALE when the basis changed after
  * the ticket ran (the ASPICE consistency check), READY otherwise, NOT_APPLICABLE when done.
  *
- * <p>LEGACY FALLBACK (migration, design &sect;10): tickets without a {@code basis} keep the old
- * epic-chain walk - upstream evidence from the ticket's own gated flow history ("advanced to X",
- * "stage N passed: ...") or the epic chain (parent/sibling in the upstream stage). New code never
- * adds to this path; it disappears when the live store is fully basis-linked.
+ * <p>Owner model 2026-11-19: the epic field is REMOVED - readiness walks basis chains. A ticket
+ * without a basis resolves through its own gated flow history ("advanced to X", "stage N passed:
+ * ...") only; there is no second chain.
  *
  * <p>Precedence, first match wins (pinned by tests): NOT_APPLICABLE (no/invalid stage) &gt; BLOCKED
  * &gt; RUNNING (in-progress/in-review) &gt; WAIT_UPSTREAM &gt; STALE &gt; READY. BLOCKED outranks
@@ -57,8 +56,8 @@ public final class StageReadiness {
   }
 
   /**
-   * U-027: readiness over the LIVE tickets with the ARCHIVED pool as extra epic-chain evidence - an
-   * archived upstream still satisfies its downstream (archiving never orphans the V chain).
+   * U-027: readiness over the LIVE tickets with the ARCHIVED pool as extra basis-chain evidence -
+   * an archived upstream still satisfies its downstream (archiving never orphans the V chain).
    * Archived tickets are evidence only; they are never evaluated as rows.
    */
   public static Map<String, Readiness> evaluate(List<Task> live, List<Task> archived) {
@@ -79,11 +78,10 @@ public final class StageReadiness {
   }
 
   /**
-   * The upstream ticket a STALE verdict for {@code t} blames: the basis ticket (U-110) when the
-   * ticket is basis-linked, else the newest done/in-review ticket in {@code t}'s legacy epic-chain
-   * upstream stage. Only meaningful once {@link #evaluate} returned STALE for {@code t} (the
-   * verdict owns the precedence chain and the staleness comparison); the store's invalidation
-   * recorder uses this to name the upstream in the marker it appends.
+   * The upstream ticket a STALE verdict for {@code t} blames: the basis ticket (U-110). Only
+   * meaningful once {@link #evaluate} returned STALE for {@code t} (the verdict owns the precedence
+   * chain and the staleness comparison); the store's invalidation recorder uses this to name the
+   * upstream in the marker it appends.
    */
   /**
    * The ticket whose change caused {@code t}'s staleness - looked up over the LIVE tickets plus the
@@ -99,8 +97,7 @@ public final class StageReadiness {
     if (t.basis != null) {
       return find(t.basis, pool);
     }
-    String upstream = upstreamStage(t.stage);
-    return upstream == null ? null : satisfiedViaEpicChain(t, upstream, pool);
+    return null;
   }
 
   /**
@@ -120,10 +117,9 @@ public final class StageReadiness {
   }
 
   /**
-   * The tickets that GOVERN this stage (U-079: top-down coverage): the basis chain for basis-linked
-   * tickets (the derivation ancestors, nearest first), else the legacy epic-chain scan for tickets
-   * without a basis. Deduplicated by id; status is not filtered - an upstream still in rework is
-   * context too.
+   * The tickets that GOVERN this stage (U-079: top-down coverage): the basis chain (the derivation
+   * ancestors, nearest first). Deduplicated by id; status is not filtered - an upstream still in
+   * rework is context too.
    */
   public static List<Task> governingDefinitions(Task t, List<Task> tickets) {
     if (t == null || !VStages.isValid(t.stage) || tickets == null) {
@@ -142,18 +138,8 @@ public final class StageReadiness {
       }
       return new java.util.ArrayList<>(byId.values());
     }
-    int here = VStages.STAGES.indexOf(t.stage);
-    for (Task u : tickets) {
-      if (u == null || u.id == null || u.id.equals(t.id)) {
-        continue;
-      }
-      if (!VStages.isValid(u.stage) || VStages.STAGES.indexOf(u.stage) >= here) {
-        continue;
-      }
-      if (linkedByEpic(t, u)) {
-        byId.putIfAbsent(u.id, u);
-      }
-    }
+    // basis is the only chain now (epic removed 2026-11-19): a basis-less ticket
+    // has no governing ancestors to inject.
     List<Task> out = new java.util.ArrayList<>(byId.values());
     out.sort(
         java.util.Comparator.comparingInt((Task u) -> VStages.STAGES.indexOf(u.stage))
@@ -178,8 +164,8 @@ public final class StageReadiness {
     if ("in-review".equals(t.status)) {
       return new Readiness(Kind.RUNNING, "stage '" + t.stage + "' work is in-review");
     }
-    // U-110: the derivation edge - a ticket with a basis waits on exactly its basis ticket; the
-    // legacy epic-chain walk below only serves migration tickets without a basis link.
+    // U-110: the derivation edge - a ticket with a basis waits on exactly its basis ticket;
+    // basis-less tickets fall through to their own flow history (epic removed 2026-11-19).
     if (t.basis != null) {
       return ofBasis(t, tickets);
     }
@@ -187,10 +173,10 @@ public final class StageReadiness {
     if (upstream == null) {
       return finishedOrBacklog(t, "stage 'requirements' has no upstream");
     }
-    Task viaEpic = satisfiedViaEpicChain(t, upstream, tickets);
+
     String flow = flowEvidence(t, upstream);
-    if (viaEpic == null && flow == null) {
-      if ("done".equals(t.status) && !epicChainHasStage(t, upstream, tickets)) {
+    if (flow == null) {
+      if ("done".equals(t.status)) {
         return new Readiness(
             Kind.NOT_APPLICABLE,
             "stage '"
@@ -202,47 +188,12 @@ public final class StageReadiness {
       }
       return new Readiness(
           Kind.WAIT_UPSTREAM,
-          "no done/in-review ticket in upstream stage '"
-              + upstream
-              + "' (epic chain or own flow history)");
+          "no done/in-review ticket in upstream stage '" + upstream + "' (own flow history)");
     }
     // U-081: proof of upstream work is the artifact, not the label - a
     // done/in-review upstream with nothing recorded cannot satisfy its
     // downstream (backfilling the artifact is what unblocks it)
-    if (viaEpic != null && (viaEpic.artifacts == null || viaEpic.artifacts.isEmpty())) {
-      return new Readiness(
-          Kind.WAIT_UPSTREAM,
-          "upstream "
-              + viaEpic.id
-              + " ("
-              + upstream
-              + ", "
-              + viaEpic.status
-              + ") claims done but has no artifact;"
-              + " record it with task_add_artifact on the upstream first");
-    }
-    if (viaEpic != null
-        && ranBefore(t)
-        && isStrictlyAfter(viaEpic.inputsEffectiveAt(), t.inputsEffectiveAt())) {
-      return new Readiness(
-          Kind.STALE,
-          "upstream "
-              + viaEpic.id
-              + " ("
-              + upstream
-              + ", updated "
-              + Task.formatTs(viaEpic.inputsEffectiveAt())
-              + ") changed after "
-              + t.id
-              + " (updated "
-              + Task.formatTs(t.inputsEffectiveAt())
-              + "); re-run needed");
-    }
-    if (viaEpic != null) {
-      return finishedOrBacklog(
-          t,
-          "upstream '" + upstream + "' satisfied by " + viaEpic.id + " (" + viaEpic.status + ")");
-    }
+
     // flow != null here (the null case returned WAIT_UPSTREAM above): a pass
     // event names itself as the evidence (FR-011), an advance keeps its
     // established wording
@@ -323,53 +274,6 @@ public final class StageReadiness {
       }
     }
     return null;
-  }
-
-  /**
-   * The newest done/in-review ticket in the upstream stage that is linked to {@code t} through the
-   * epic chain (epic parent or sibling); tickets without timestamps sort as oldest. Null when the
-   * chain satisfies nothing - the ticket's own flow history may still satisfy the upstream.
-   */
-  private static Task satisfiedViaEpicChain(Task t, String upstream, List<Task> tickets) {
-    Task best = null;
-    for (Task u : tickets) {
-      if (u == null || u.id == null || u.id.equals(t.id)) {
-        continue;
-      }
-      if (!upstream.equals(u.stage) || !("done".equals(u.status) || "in-review".equals(u.status))) {
-        continue;
-      }
-      if (!linkedByEpic(t, u)) {
-        continue;
-      }
-      if (best == null || isStrictlyAfter(u.inputsEffectiveAt(), best.inputsEffectiveAt())) {
-        best = u;
-      }
-    }
-    return best;
-  }
-
-  /**
-   * True when the epic chain holds ANY ticket in the upstream stage, whatever its status: an
-   * upstream in rework still counts - its done downstreams wait for it, then go STALE when it lands
-   * again.
-   */
-  private static boolean epicChainHasStage(Task t, String upstream, List<Task> tickets) {
-    for (Task u : tickets) {
-      if (u != null
-          && u.id != null
-          && !u.id.equals(t.id)
-          && upstream.equals(u.stage)
-          && linkedByEpic(t, u)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** The epic-chain link: {@code u} is {@code t}'s epic parent or shares its epic (id or label). */
-  private static boolean linkedByEpic(Task t, Task u) {
-    return u.id.equals(t.epic) || t.epic != null && t.epic.equals(u.epic);
   }
 
   /**

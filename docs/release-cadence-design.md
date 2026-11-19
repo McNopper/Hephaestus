@@ -2,7 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / design-stage artifact of ticket T-121 (epic U-113, basis
+- **Kind:** `doc` / design-stage artifact of ticket T-121 (basis
   T-109, stage `design`): the inside of the release-cadence components —
   contracts (`name(inputs) -> output | errors`), data structures, key
   workflows and error behavior for the architecture's components C1..C6.

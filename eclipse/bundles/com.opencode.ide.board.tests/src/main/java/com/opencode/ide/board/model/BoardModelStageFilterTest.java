@@ -34,8 +34,7 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
   /** Creates a backlog (sprint-less) ticket with the given stage and role. */
   private String backlogTicket(String title, String stage, String role) {
     TaskStore.CreateSpec spec =
-        new TaskStore.CreateSpec(
-            title, "", "task", role, "medium", 0, List.of(), List.of(), null, "T");
+        new TaskStore.CreateSpec(title, "", "task", role, "medium", 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     if (stage != null) {
       Map<String, Object> changes = new HashMap<>();

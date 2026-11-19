@@ -3,7 +3,7 @@
 ## About this document
 
 - **Kind:** `doc` / system-stage flow specification (V stage: system; ticket
-  T-093, epic U-113, basis T-041). It specifies the release cadence as a
+  T-093, basis T-041). It specifies the release cadence as a
   SYSTEM flow: which actor evaluates the human-review condition at wave
   completion, what store-verifiable evidence counts as "a human review",
   both outcome paths (cut via `release.ps1` vs commit + push with the

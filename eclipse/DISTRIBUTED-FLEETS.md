@@ -49,7 +49,7 @@ text — fine for years).
 projects want independent write policies, split *per project* (the store is
 already subdirectory-scoped: `.harness/tasks/<project>/`) — each project dir
 becomes its own repo, the Board's project selector picks the repo, and nothing
-else changes. Shard by **project, never by V-stage**: stages of one epic must
+else changes. Shard by **project, never by V-stage**: stages of one requirement chain must
 share a queue or the dataflow pipeline (H6) stalls on cross-repo staleness it
 cannot see.
 

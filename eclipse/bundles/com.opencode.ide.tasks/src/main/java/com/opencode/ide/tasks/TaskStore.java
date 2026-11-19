@@ -94,7 +94,6 @@ public final class TaskStore {
       Integer storyPoints,
       List<String> acceptanceCriteria,
       List<String> labels,
-      String epic,
       String idPrefix,
       Boolean blocked,
       String blocker,
@@ -102,8 +101,8 @@ public final class TaskStore {
       String review) {
 
     /**
-     * Pre-T-155 13-arg shape (no review field). Kept so existing call sites keep their signature;
-     * new code uses the canonical 14-arg form.
+     * Pre-T-155 12-arg shape (no review field). Kept so existing call sites keep their signature;
+     * new code uses the canonical 13-arg form.
      */
     public CreateSpec(
         String title,
@@ -114,7 +113,6 @@ public final class TaskStore {
         Integer storyPoints,
         List<String> acceptanceCriteria,
         List<String> labels,
-        String epic,
         String idPrefix,
         Boolean blocked,
         String blocker,
@@ -128,7 +126,6 @@ public final class TaskStore {
           storyPoints,
           acceptanceCriteria,
           labels,
-          epic,
           idPrefix,
           blocked,
           blocker,
@@ -149,7 +146,6 @@ public final class TaskStore {
         Integer storyPoints,
         List<String> acceptanceCriteria,
         List<String> labels,
-        String epic,
         String idPrefix) {
       this(
           title,
@@ -160,7 +156,6 @@ public final class TaskStore {
           storyPoints,
           acceptanceCriteria,
           labels,
-          epic,
           idPrefix,
           null,
           null,
@@ -169,8 +164,7 @@ public final class TaskStore {
 
     /** Builder-ish factory with pm defaults. */
     public static CreateSpec of(String title) {
-      return new CreateSpec(
-          title, "", "task", "developer", "medium", 0, List.of(), List.of(), null, "T");
+      return new CreateSpec(title, "", "task", "developer", "medium", 0, List.of(), List.of(), "T");
     }
   }
 
@@ -297,12 +291,7 @@ public final class TaskStore {
           if (spec.labels() != null) {
             t.labels = new ArrayList<>(spec.labels());
           }
-          // Basis is THE chain edge (owner model 2026-11-19: the requirement is the epic,
-          // named through the basis chain) - validated live+archive so joins may reattach to
-          // kept archive nodes. Epic stays an unvalidated scope label (it may point forward,
-          // e.g. a fixture labeling children before the umbrella lands); the basis message
-          // stays stable (DoneGateTest pins it).
-          t.epic = spec.epic();
+
           if (spec.basis() != null && !linkExists(project, spec.basis(), data)) {
             throw new Invalid(
                 "basis ticket " + spec.basis() + " not found in project " + project + " (U-110)");
@@ -502,12 +491,7 @@ public final class TaskStore {
                 t.sprint = string(e.getValue());
                 applied.add(e.getKey());
               }
-              case "epic" -> {
-                // epic stays an unvalidated scope label (may point forward); the chain edge
-                // is basis (owner model 2026-11-19: the requirement IS the epic).
-                t.epic = string(e.getValue());
-                applied.add(e.getKey());
-              }
+
               // Owner rule 2026-11-19: re-joining is a VERB, not a hand edit - basis is
               // re-pointable through task_update (validated live+archive, null clears), so
               // chains stay correctable without escaping the API.
@@ -602,12 +586,11 @@ public final class TaskStore {
           }
           if (!applied.isEmpty()) {
             t.updatedAt = now();
-            // D-003 option B: only status/stage/epic/basis/role writes are INPUT changes - they
+            // D-003 option B: only status/stage/basis/role writes are INPUT changes - they
             // bump the inputs stamp; title/model/assignee/labels & co. stay bookkeeping (W-006).
-            // basis rides with epic: both re-point the ticket's derivation edges (2026-11-19).
+
             if (applied.contains("status")
                 || applied.contains("stage")
-                || applied.contains("epic")
                 || applied.contains("basis")
                 || applied.contains("role")) {
               t.inputsChangedAt = t.updatedAt;
@@ -1275,7 +1258,7 @@ public final class TaskStore {
 
   /**
    * T-183 - the chain-safe DONE sweep for the board's backlog of history: archives every DONE,
-   * SPRINT-LESS ticket no live epic-chain ticket still needs (the project-wide variant of U-060's
+   * SPRINT-LESS ticket no live basis-chain ticket still needs (the project-wide variant of U-060's
    * rule), leaving sprint-scoped work (current wave / ticker history) and - with {@code before} -
    * recent work on the board. Each move is an independent {@link #archive} transaction, exactly
    * like the U-060 auto-archiver; the snapshot is taken before the first move.
@@ -1312,8 +1295,7 @@ public final class TaskStore {
       }
       boolean needed =
           all.stream()
-              .anyMatch(
-                  u -> u != null && u != t && !"done".equals(u.status) && inSameEpicChain(u, t));
+              .anyMatch(u -> u != null && u != t && !"done".equals(u.status) && inSameChain(u, t));
       if (needed) {
         skipped.add(t.id + ":chain-needed");
         continue;
@@ -1329,7 +1311,7 @@ public final class TaskStore {
 
   /**
    * U-027/U-060 wave close with SAFE auto-archiving: the done tickets of the closed wave are
-   * archived only when no live ticket of their epic chain still needs them as upstream (archiving
+   * archived only when no live ticket of their basis chain still needs them as upstream (archiving
    * never orphans downstream stages), and candidates are scoped to the closing sprint. The plain
    * {@link #closeSprint(String, String)} never archives.
    *
@@ -1355,7 +1337,7 @@ public final class TaskStore {
       boolean needed =
           live.stream()
               .anyMatch(
-                  u -> u != candidate && !"done".equals(u.status) && inSameEpicChain(u, candidate));
+                  u -> u != candidate && !"done".equals(u.status) && inSameChain(u, candidate));
       if (!needed) {
         archive(project, candidate.id, "auto-archive");
         archivedIds.add(candidate.id);
@@ -1366,14 +1348,16 @@ public final class TaskStore {
   }
 
   /**
-   * The U-023/U-027 epic chain: the epic parent ({@code u.id == t.epic}) or a sibling ({@code
-   * u.epic == t.epic}).
+   * The U-023/U-027 chain after the epic removal (2026-11-19): the basis parent ({@code u.id ==
+   * t.basis}) or a sibling ({@code u.basis == t.basis}).
    */
-  static boolean inSameEpicChain(Task a, Task b) {
+  static boolean inSameChain(Task a, Task b) {
     if (a == null || b == null || a.id.equals(b.id)) {
       return false;
     }
-    return a.id.equals(b.epic) || b.id.equals(a.epic) || a.epic != null && a.epic.equals(b.epic);
+    return a.id.equals(b.basis)
+        || b.id.equals(a.basis)
+        || a.basis != null && a.basis.equals(b.basis);
   }
 
   /**
@@ -1415,7 +1399,7 @@ public final class TaskStore {
    * T-032: the link graph around one ticket, computed deterministically over the current file set
    * (no cached state). up = the basis chain walked to the entry ticket (a basis pointing nowhere
    * reports {@code missing}); down = the direct derivation children (basis == this id); back = the
-   * siblings (same basis, not this id); epic = the scope container when present.
+   * siblings (same basis, not this id).
    */
   public Map<String, Object> links(String project, String id) {
     List<Task> all = list(project, null, null, null, null);
@@ -1459,9 +1443,7 @@ public final class TaskStore {
     out.put("up", up);
     out.put("down", down);
     out.put("back", back);
-    if (self.epic != null) {
-      out.put("epic", self.epic);
-    }
+
     return out;
   }
 
@@ -1494,7 +1476,7 @@ public final class TaskStore {
               // archiving on wave close orphaned WAIT_UPSTREAM
               // children). The opt-in overload closeSprint(project,
               // sprintId, autoArchive) archives the wave's done tickets
-              // no live epic chain still needs; the task_close_sprint
+              // no live basis chain still needs; the task_close_sprint
               // tool exposes it as opt-in auto_archive (U-060).
               // Readiness callers do not pass the archive pool yet (U-059).
               continue;
@@ -1526,7 +1508,7 @@ public final class TaskStore {
 
   /**
    * The definition&lt;-&gt;verification traceability matrix (D-001 decision: THREE pairing signals
-   * - a role+epic link, the ticket's own V-journey, and test-shaped artifacts; pm requirements
+   * - a role+basis link, the ticket's own V-journey, and test-shaped artifacts; pm requirements
    * count as definitions). The matrix row reports the signals ({@code via}) so the audit can tell a
    * real pair from inflation; a definition with no signal at all stays an orphan.
    */
@@ -1542,7 +1524,7 @@ public final class TaskStore {
     for (Task t : tickets) {
       List<String> links = new ArrayList<>();
       for (Task other : tickets) {
-        if (t.id.equals(other.epic)) {
+        if (t.id.equals(other.basis)) {
           links.add(other.id);
         }
       }
@@ -1555,19 +1537,20 @@ public final class TaskStore {
       // own definition history - not an orphan.
       boolean bothLegs = enteredDefinitionLeg(t) && reachedTestStage(t);
       if (Task.VERIFICATION_ROLES.contains(t.role)) {
-        verifies = t.epic != null && byId.containsKey(t.epic) ? t.epic : (bothLegs ? t.id : null);
+        verifies =
+            t.basis != null && byId.containsKey(t.basis) ? t.basis : (bothLegs ? t.id : null);
         if (verifies == null) {
           orphanVerifications.add(t.id);
         } else {
-          via.add(t.id.equals(verifies) ? "journey" : "epic:" + verifies);
+          via.add(t.id.equals(verifies) ? "journey" : "basis:" + verifies);
         }
       }
       boolean selfVerified = via.contains("journey");
       if (Task.DEFINITION_ROLES.contains(t.role)) {
         for (Task other : tickets) {
-          if (t.id.equals(other.epic) && Task.VERIFICATION_ROLES.contains(other.role)) {
+          if (t.id.equals(other.basis) && Task.VERIFICATION_ROLES.contains(other.role)) {
             verifiedBy.add(other.id);
-            via.add("epic:" + other.id);
+            via.add("basis:" + other.id);
           }
         }
         // signal 3: it recorded a test-shaped artifact (*.tests/ path)
@@ -1583,7 +1566,7 @@ public final class TaskStore {
       row.put("id", t.id);
       row.put("role", t.role);
       row.put("status", t.status);
-      row.put("epic", t.epic);
+      row.put("basis", t.basis);
       row.put("links", links);
       row.put("verifies", verifies);
       row.put("verified_by", verifiedBy);
@@ -1781,9 +1764,9 @@ public final class TaskStore {
    */
   /**
    * A link target resolves in the live pool or in the archive pool (owner rule 2026-11-19): joins
-   * may reattach to kept archive nodes ("if they are joined again"), while legacy free-text epics
-   * like "v-flow" are rejected - basis and epic validate identically at create and update, so
-   * dangling references can never enter the store again.
+   * may reattach to kept archive nodes ("if they are joined again") - basis validates at create and
+   * update, so dangling references can never enter the store again. (The epic field was removed
+   * 2026-11-19: the stage is the structure, the basis chain is the scope.)
    */
   private boolean linkExists(String project, String id, ProjectData data) {
     if (data.tasks.containsKey(id)) {
@@ -1830,7 +1813,7 @@ public final class TaskStore {
     // ---- V-walk invariants (owner model 2026-11-19, deterministic check) ----
     // Left leg divides >=1 link forward to the NEXT stage (V order); every walked left-leg
     // ticket is joined on the right leg by a test-* ticket whose basis is exactly it; right-leg
-    // joins point at LEFT-leg tickets only (1:1 join-back); every basis/epic link resolves in
+    // joins point at LEFT-leg tickets only (1:1 join-back); every basis link resolves in
     // live OR archive. Counts converge as a walk completes: |left| = |right| under these rules.
     // Shipped legacy work is exempt with a recorded "division SATISFIED" comment (SKILL
     // stage-pipeline: division-with-rationale) - never mint duplicate children for shipped work.
@@ -1848,8 +1831,6 @@ public final class TaskStore {
       if (x.basis != null && !byId.containsKey(x.basis)) {
         out.add(x.id + ": basis " + x.basis + " does not resolve (live or archive)");
       }
-      // epic is deliberately NOT checked: it is an unvalidated scope label (it may point
-      // forward, e.g. "epic: T-006" set before T-006 exists) - the chain edge is basis.
     }
     for (Task t : tasks) {
       boolean walked = "done".equals(t.status) || "in-review".equals(t.status);
@@ -2536,7 +2517,6 @@ public final class TaskStore {
     t.priority = orDefault(strOrNull(o, "priority"), "medium");
     t.role = orDefault(strOrNull(o, "role"), "developer");
     t.assignee = strOrNull(o, "assignee");
-    t.epic = strOrNull(o, "epic");
     t.labels = jsonStrings(o, "labels");
     t.acceptanceCriteria = jsonStrings(o, "acceptance_criteria");
     if (o.has("todos")) {

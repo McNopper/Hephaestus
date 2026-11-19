@@ -199,7 +199,7 @@ public class BoardModelTest {
     store.archive("p", parent.id, "wave close");
     // the child is touched last: the archived upstream is fresh evidence, never a stale input
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "system");
-    store.update("p", child.id, Map.of("epic", parent.id));
+    store.update("p", child.id, Map.of("basis", parent.id));
     store.planSprint("p", "S-01", List.of(child.id), "ship the board");
 
     BoardModel model = new BoardModel(root, "p");

@@ -19,7 +19,7 @@ public class BoardPolishPackTest {
 
   private static TicketRow row(String id, String status, String stage) {
     return new TicketRow(
-        id, "title", "story", "developer", 3, null, false, null, status, stage, "high", null);
+        id, "title", "story", "developer", 3, null, false, null, status, stage, "high");
   }
 
   /** FR-006..FR-009: nine connectors, reading order 1-&gt;10, correct directions. */

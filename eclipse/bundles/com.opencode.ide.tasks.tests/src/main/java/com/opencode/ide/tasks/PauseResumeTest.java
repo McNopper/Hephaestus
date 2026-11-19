@@ -29,7 +29,6 @@ public class PauseResumeTest extends StoreTestHarness {
                 3,
                 List.of("it works"),
                 List.of(),
-                null,
                 "T"),
             "implementation");
     t = store.setBlocked("p", t.id, "stalled", "agent");
@@ -57,7 +56,6 @@ public class PauseResumeTest extends StoreTestHarness {
                 3,
                 List.of("it works"),
                 List.of(),
-                null,
                 "T"),
             "implementation");
     t = store.setPaused("p", t.id, "maintenance", "shutdown");

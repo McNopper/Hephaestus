@@ -2,8 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / architecture-stage artifact of ticket T-105 (epic U-112,
-  basis T-083, stage `architecture`): the internal structure of the
+- **Kind:** `doc` / architecture-stage artifact of ticket T-105 (basis T-083, stage `architecture`): the internal structure of the
   product-owner seat integration — components, per-component responsibilities
   and explicit dependency rules, derived from the governing system definition.
 - **Read by:** the design stage (this is its basis — what the design of each
@@ -62,7 +61,7 @@ structure.
 
 | # | Component | Reality anchor | Responsibility | Depends on |
 |---|---|---|---|---|
-| C-1 | **Seat definition** | `.opencode/agent/product-owner.md` (`mode: primary`; `write`/`edit`/`patch`/`bash` denied at role level) | the owner-side loop: classify → distill acceptance criteria → link (`epic`/`basis`) → register + cite the ticket id → verify from store evidence; records the two autonomy dials on GOAL tickets; states NEEDS-HUMAN honestly | C-3 only |
+| C-1 | **Seat definition** | `.opencode/agent/product-owner.md` (`mode: primary`; `write`/`edit`/`patch`/`bash` denied at role level) | the owner-side loop: classify → distill acceptance criteria → link (`basis`) → register + cite the ticket id → verify from store evidence; records the two autonomy dials on GOAL tickets; states NEEDS-HUMAN honestly | C-3 only |
 | C-2 | **Dispatch surfaces** | D-1: opencode TUI `/agents` (primary-agent selector). D-2: Eclipse chat agent combo (`wireGuardedCombo` + `SelectorGuard` in `ChatView`). D-3: Eclipse `openChat` command (`OpenChatHandler`, `agentId` parameter → `ChatView.preselectAgent`), launched from `ServerView` | bring an owner-chosen session up running the seat — deliberately, once per session; never a machine-initiated route | C-1, by name only (the dispatch key) |
 | C-3 | **Task store** | `.harness/tasks/hephaestus/` + the `task_*` API | the single coordination blackboard: tickets, sprints, claims, readiness, history events, engine invariants (done-time artifact guard, blocked state machine, write discipline) | — (substrate) |
 | C-4 | **Stage-pipeline machine** | `docs/design-stage-pipeline.md`: per-stage tickers (`stage-pipeline` skill), goal-driven workers, the engine's review pass + quality gate | consume intake tickets from C-3, divide + derive down the V, produce engine verdicts back into C-3; spawn capacity and done authority live here | C-3 only |

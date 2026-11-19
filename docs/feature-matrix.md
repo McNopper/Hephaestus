@@ -12,7 +12,7 @@
 | Feature | Status | Evidence / ticket |
 |---|---|---|
 | Task store (file-based blackboard, one md per ticket) | ✅ | E-001; `tasks` MCP serves all agents |
-| V-stage field (immutable ownership) + basis/epic links + readiness (READY/WAIT_UPSTREAM/STALE/BLOCKED/RUNNING) | ✅ | V-001; H6 readiness; U-110 store contract |
+| V-stage field (immutable ownership) + basis links + readiness (READY/WAIT_UPSTREAM/STALE/BLOCKED/RUNNING) | ✅ | V-001; H6 readiness; U-110 store contract |
 | V-enforcement: stage artifacts, top-down coverage injection, DONE as gate verdict | ✅ | U-078..U-082 (v0.1.4); done-time guard (U-110) |
 | Stageless verdict lane (in-review tickets with no stage get the step-3 engine verdict, both carriages: SKILL + tick prompt) | ✅ built, verdict pending | T-174 (StagelessVerdictContractTest 2/2) |
 | Stage encoded in the ticket name (`[stage]` title tag, store-owned at every title/stage write) | ✅ built, verdict pending | T-175 (StageInTitleTest 10/10) |

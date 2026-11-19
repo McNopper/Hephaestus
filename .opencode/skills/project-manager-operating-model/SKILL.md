@@ -73,7 +73,7 @@ wave — the UI calls it a wave), `story_points`,
 `role` (architect / developer / tester / pm / cpp-engineer / graphics-engineer),
 `priority`, `model` (optional fleet model override, `provider/model[#variant]`;
 null = server default — the per-ticket cost lever), `assignee`,
-`acceptance_criteria[]`, `labels[]`, `epic` (optional),
+`acceptance_criteria[]`, `labels[]`,
 `stage` (V-model stage | null), `artifacts[]`, `todos[]`,
 timestamps, append-only `history[]`, `comments[]`.
 

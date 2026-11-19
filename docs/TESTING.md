@@ -34,7 +34,7 @@ maps directly to a ticket.
 
 | Area | Check | Ticket |
 |---|---|---|
-| **Board cards** | Switch *Group by* across Progress / V-model stages / Epic: every card shows `status emoji │ type emoji │ title │ points` as real sortable columns (click a column header to cycle ascending / descending / snapshot order); headers carry their text markers (status: emoji + name, stage: number + connector, lane: a box marker); row tooltips still show readiness + journey | U-065 |
+| **Board cards** | Switch *Group by* across Progress / V-model stages: every card shows `status emoji │ type emoji │ title │ points` as real sortable columns (click a column header to cycle ascending / descending / snapshot order); headers carry their text markers (status: emoji + name, stage: number + connector, lane: a box marker); row tooltips still show readiness + journey | U-065 |
 | **Chat background** | In the composer: `Ctrl+B` (or the `⤵ Background` button) backgrounds the session and keeps it working; `Ctrl+Alt+Shift+B` works from any view; Build All still owns `Ctrl+B` outside the chat | U-064 |
 | **Long turns** | A reply that runs tools for minutes never fails with "Send failed … 300s" — progress keeps it alive up to an hour; a dead session hands off silently to the late-reply watcher | B-024 |
 | **Version pin** | No version-mismatch warning in the Error Log (pin is 2.3.2; bump with each cross-check) | U-063 |
@@ -42,7 +42,7 @@ maps directly to a ticket.
 | **Traceability** | `task_traceability` reports `via`/`self_verified` rows; a ticket that walked to a test stage pairs with itself; pm requirements appear as definitions | U-070 |
 | **Store lint** | `task_doctor` reports nothing (unparsable files, unresolvable artifact refs, bad flag combos are all checked) | U-053 |
 | **Card sort** | Click a card column header: cycles ascending (up) -> descending (down) -> snapshot order (both arrows); unset values sort last in both directions | U-065 |
-| **Tooltips** | Hover: status group headers explain the status, epic lanes and blocked counts explain themselves, card column headers explain the sort | U-065 |
+| **Tooltips** | Hover: status group headers explain the status and blocked counts explain themselves, card column headers explain the sort | U-065 |
 | **Chat queue** | While a reply streams, ENTER queues a message: numbered table with header count + full-text row tooltips; pencil Edit / bin Remove / shuffle Fork, double-click or ENTER edits | U-071 |
 | **Ticket model lever** | the ticket's optional `model` field (`provider/model`, via `task_create`/`task_update`) decides what a run costs; small well-specified tickets deserve cheap models (the fleet-era per-stage dispatch dialog was removed with the fleet in U-110) | U-072, U-073 |
 | **Emoji vocabulary** | `docs/emoji-vocabulary.md` lists every concept with one canonical emoji; no concept shows two different emoji across surfaces | U-074 |

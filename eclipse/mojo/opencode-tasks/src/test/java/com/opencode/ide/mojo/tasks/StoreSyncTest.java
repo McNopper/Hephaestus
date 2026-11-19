@@ -57,7 +57,6 @@ public class StoreSyncTest {
             3,
             List.of("GIVEN a clean store"),
             List.of("ui"),
-            null,
             "H1"));
     store.planSprint("demo", null, List.of("T-001", "H1-001"), "Ship the first slice");
     store.update("demo", "H1-001", Map.of("status", "in-progress", "assignee", "agent-7"));
@@ -455,7 +454,6 @@ public class StoreSyncTest {
             model: null
             story_points: 1
             sprint: S-01
-            epic: null
             assignee: null
             resume_to: null
             blocker: null

@@ -3,7 +3,7 @@
 ## About this document
 
 - **Kind:** `doc` / system-stage flow specification (V stage: system; ticket
-  T-085, epic U-113, basis T-039). It specifies the recurrence FLOW: which
+  T-085, basis T-039). It specifies the recurrence FLOW: which
   actor mints the recurring live-in-Eclipse acceptance ticket, when, from
   what template, and how non-blocking is guaranteed in the dispatch
   machinery.
@@ -55,7 +55,6 @@ the ticket (section 6, G1).
 | `title` | `Acceptance (live in Eclipse): <one-line live check> (<D id> AC<n>)` | `Acceptance (live in Eclipse): wave <record id> live pass (wave <record id>)` |
 | `type` / `story_points` / `priority` | `task` / 0 / medium | same |
 | `role` / `stage` | `tester` / `test-requirements` (immutable) | same |
-| `epic` | the done ticket D's epic (scope inheritance) | the wave's single common epic, else `null` |
 | `basis` | D (the machine-readable derivation edge to the verified definition) | `null` (no single upstream ticket) |
 | `sprint` | none — NEVER planned into any sprint record | same |
 | `status` + `assignee` after mint | `in-progress` + `owner-acceptance` | same |
@@ -175,7 +174,7 @@ D's ordinary division children are created:
     3. If any test-requirements ticket's title already carries the token
        (open or done), stop — the instance exists.
     4. Create the ticket per docs/live-in-eclipse-recurrence-flow.md
-       section 3 (basis = D, epic = D's epic), then set status
+       section 3 (basis = D), then set status
        in-progress, assignee owner-acceptance.
     5. Do NOT plan it into a sprint record. Do NOT spawn a worker for it.
 
@@ -188,8 +187,8 @@ the sprint record closes:
        is done, then W is a completed wave.
     2. source token := "(wave <W id>)". If any test-requirements ticket's
        title already carries the token (open or done), skip W.
-    3. Create the ticket per section 3 (basis = null, epic = W's common
-       epic or null), then set status in-progress, assignee
+    3. Create the ticket per section 3 (basis = null), then set status
+       in-progress, assignee
        owner-acceptance. Do NOT plan it into a sprint record.
     4. Note the mint in the pass digest (U-061).
 ```
@@ -277,9 +276,10 @@ re-derives what was never confirmed.
   minted by the ticker per section 5.1, not by hand.
 - **T-040** is the first instance minted under the rule but BEFORE this flow
   existed (intake-minted; `sprint-backlog`, unassigned, `basis: null`). Live
-  readiness evidence (2026-11-15) shows it READY via the epic-chain
-  fallback — the next test-requirements kickoff could claim and worker-spawn
-  it. Transition note (out of T-085's lane): apply the owner-executed state
+  readiness evidence (2026-11-15) showed it READY via the then-legacy
+  epic-chain fallback (removed with the epic field, 2026-11-19 — a basis-less
+  ticket resolves through its own flow history only). Transition note
+  (out of T-085's lane): apply the owner-executed state
   once — `task_update` status `in-progress`, assignee `owner-acceptance` —
   so G1 holds for it too.
 

@@ -30,8 +30,7 @@ public class TicketRowDisplayTest {
         blocked ? "why" : null,
         status,
         stage,
-        "medium",
-        null);
+        "medium");
   }
 
   @Test
@@ -131,8 +130,7 @@ public class TicketRowDisplayTest {
             null,
             "in-progress",
             null,
-            "medium",
-            null);
+            "medium");
     assertEquals("🏃 padded", padded.pipelineLabel());
   }
 
@@ -145,18 +143,7 @@ public class TicketRowDisplayTest {
     assertEquals(
         "T-1",
         new TicketRow(
-                "T-1",
-                null,
-                null,
-                "pm",
-                1,
-                null,
-                false,
-                null,
-                "product-backlog",
-                null,
-                "medium",
-                null)
+                "T-1", null, null, "pm", 1, null, false, null, "product-backlog", null, "medium")
             .label());
   }
 
@@ -175,8 +162,7 @@ public class TicketRowDisplayTest {
             null,
             "in-progress",
             "design",
-            "medium",
-            null);
+            "medium");
 
     assertEquals("T-42 " + longTitle + " · design", longRow.label());
     assertEquals(longTitle.length() + "🏃 ".length(), longRow.pipelineLabel().length());
@@ -197,11 +183,11 @@ public class TicketRowDisplayTest {
   public void pointsLabelIsThePlainNumber() {
     assertEquals(
         "3",
-        new TicketRow("T-1", "t", "task", "pm", 3, null, false, null, "done", null, "medium", null)
+        new TicketRow("T-1", "t", "task", "pm", 3, null, false, null, "done", null, "medium")
             .pointsLabel());
     assertEquals(
         "0",
-        new TicketRow("T-1", "t", "task", "pm", 0, null, false, null, "done", null, "medium", null)
+        new TicketRow("T-1", "t", "task", "pm", 0, null, false, null, "done", null, "medium")
             .pointsLabel());
   }
 

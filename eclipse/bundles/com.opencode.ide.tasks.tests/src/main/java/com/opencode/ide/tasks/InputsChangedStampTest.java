@@ -18,7 +18,7 @@ import org.junit.rules.TemporaryFolder;
  * U-052 / D-003 option B - the {@code inputs_changed_at} stamp and the production marker tick:
  *
  * <ul>
- *   <li>the stamp bumps ONLY on structured writes (status/stage/epic/role, artifacts, the
+ *   <li>the stamp bumps ONLY on structured writes (status/stage/basis/role, artifacts, the
  *       claim/plan status moves) - comments and bookkeeping never move it (the W-006 incident pin:
  *       a comment on an upstream does NOT stale its downstream, a structured write DOES);
  *   <li>STALE compares the stamp on both sides with a per-side legacy fallback to {@code
@@ -73,7 +73,7 @@ public class InputsChangedStampTest {
     store.update("p", parent.id, Map.of("status", "done"));
     tick();
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
-    store.update("p", child.id, Map.of("epic", parent.id)); // child ran; its stamp is newest
+    store.update("p", child.id, Map.of("basis", parent.id)); // child ran; its stamp is newest
     assertEquals("parent satisfied, not stale", StageReadiness.Kind.READY, kind(child.id));
 
     // bookkeeping on the upstream: updatedAt moves, the INPUTS stamp does not -> no staleness
@@ -96,7 +96,7 @@ public class InputsChangedStampTest {
   @Test
   public void onlyStructuredWritesBumpTheStamp() throws Exception {
     Task t = store.create("p", TaskStore.CreateSpec.of("x"), "design");
-    Task epic = store.create("p", TaskStore.CreateSpec.of("e"), "requirements");
+    Task root = store.create("p", TaskStore.CreateSpec.of("e"), "requirements");
     Task claimable = store.create("p", TaskStore.CreateSpec.of("c"), "design");
     Task planned = store.create("p", TaskStore.CreateSpec.of("pl"), "design");
     assertNotNull("born stamped", stamp(t.id));
@@ -117,9 +117,9 @@ public class InputsChangedStampTest {
 
     // structured writes: each moves the stamp strictly forward
     tick();
-    store.update("p", t.id, Map.of("epic", epic.id));
+    store.update("p", t.id, Map.of("basis", root.id));
     Instant s1 = stamp(t.id);
-    assertTrue("epic bumps", s1.isAfter(born));
+    assertTrue("basis bumps", s1.isAfter(born));
     tick();
     store.update("p", t.id, Map.of("status", "in-progress"));
     Instant s2 = stamp(t.id);
@@ -168,13 +168,13 @@ public class InputsChangedStampTest {
   // ---------- AC1: the production tick's marker ----------
 
   /**
-   * {parent, child}: the child ran first (epic-set), the parent lands its structured product after
-   * - so the epic-chain child is STALE against the parent's structured stamp.
+   * {parent, child}: the child ran first (basis-set), the parent lands its structured product after
+   * - so the basis-linked child is STALE against the parent's structured stamp.
    */
   private String[] stalePair() throws InterruptedException {
     Task parent = store.create("p", TaskStore.CreateSpec.of("anchor"), "architecture");
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
-    store.update("p", child.id, Map.of("epic", parent.id));
+    store.update("p", child.id, Map.of("basis", parent.id));
     tick();
     store.addArtifact("p", parent.id, "doc", "docs/arch.md", "stage product", "fixture");
     store.update("p", parent.id, Map.of("status", "done"));

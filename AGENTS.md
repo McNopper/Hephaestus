@@ -77,7 +77,7 @@ implementation -> unit tests - so that by the time the V reaches the right
 leg, the tests already exist and decide done / not-done. The pair is written
 at stage ENTRY, not at review time: link the criteria as artifacts on the
 ticket (`task_add_artifact`). `task_traceability` pairs with THREE signals
-(D-001, implemented as U-070): the **role + epic link** (`tester` verifying a
+(D-001, implemented as U-070): the **role + basis link** (`tester` verifying a
 definition), its **own journey when it walked both legs** (a definition entry
 then a `test-*` stage - `advance()` flips the role on entry to the test leg,
 so the wandered ticket pairs with itself), and a
@@ -98,7 +98,7 @@ successful wave/release).
 **How work moves (the reporting lines):** the flow is either **along the
 V** or **horizontal for validation** - nothing moves any other way. When a
 stage succeeds, it **divides its result and passes it further**: outputs
-feed the next stage down/up the V (and the epic chain when a ticket
+feed the next stage down/up the V (and the basis chain when a ticket
 decomposes). When something **blocks, it goes back to the origin** - the
 stage it came from, where a **requirement can clarify it** (a new or
 updated requirement upstream answers the implementation question, then the
@@ -114,8 +114,9 @@ round-trips are exhausted.
 **V-model execution (U-110, linked stage pipeline):** tickets are
 **stationary** — born in one stage, never moved. The pipeline is the LINK
 GRAPH: completing an upstream ticket divides it into linked downstream
-tickets (`epic` = scope container inherited by the whole derivation tree;
-`basis` = the derivation edge). `stage:` is immutable ownership set at
+tickets (`basis` = the derivation edge; the basis chain up to the
+requirement IS the scope - the epic field is gone, owner rule 2026-11-19).
+`stage:` is immutable ownership set at
 creation. Division is performed by the stage's ticker/agent on completion;
 the downstream stage's ticker discovers the new tickets via readiness at its
 next tick (the tick boundary is the only synchronization point). Design:
@@ -207,7 +208,7 @@ product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-r
 paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
 blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
   returns to resume_to (default sprint-backlog); done and paused can never be blocked
-stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (epic inherited, basis = the completing ticket); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
+stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (basis = the completing ticket; the chain to the requirement is the scope); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
 ```
 
 **The stage is encoded in the name (owner directive 2026-11-17, T-175).** A staged ticket's
@@ -237,8 +238,8 @@ Readiness machinery (H6 dataflow): `task_readiness` reports, per ticket, whether
 stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no stage,
 or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
 all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
-run; STALE means an upstream (epic chain or basis) had a STRUCTURED input write after the
-downstream ran - status/stage/epic/role, the artifact list, the claim/plan status moves
+run; STALE means an upstream (basis chain) had a STRUCTURED input write after the
+downstream ran - status/stage/basis/role, the artifact list, the claim/plan status moves
 (D-003 option B: comments and bookkeeping never stale completed downstream work), decided
 per side on the `inputs_changed_at` stamp with a legacy fallback to `updated_at`. Each
 STALE verdict found by a production readiness tick leaves exactly one `inputs changed:`
@@ -358,7 +359,7 @@ several agents in parallel on a project without anyone blocking anyone.
 types is a **requirement or a bug** — it enters the harness as a registered ticket
 (store -> tickers -> workers -> engine verdicts), never as direct implementation in
 chat. The chat agent **registers** (tickets with distilled acceptance criteria),
-**governs** (records, epics, escalation) and **verifies** (evidence from the store);
+**governs** (records, links, escalation) and **verifies** (evidence from the store);
 **workers implement** — direct implementation by the chat agent is a **process
 violation**. Build belongs to the machine; the rule binds the machine and its agents,
 not the PO (the owner can override). Enforcement is **by role** where possible: the

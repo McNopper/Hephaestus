@@ -2,7 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / design-stage artifact of ticket T-119 (epic U-113, basis
+- **Kind:** `doc` / design-stage artifact of ticket T-119 (basis
   T-107, stage `design`): the inside of the live-in-Eclipse acceptance
   recurrence — component contracts (inputs → outputs | errors), data
   structures, key workflows and error behavior for the architecture's
@@ -95,7 +95,7 @@ trigger-shaped composites:
 - `pairingMint(D) -> minted | skipped` — **R1** (tick step 4, immediately
   after D's ordinary division children are created): `detectLiveChecks` →
   `derivePairingToken` → `dedupInstanceExists` (exists → `skipped`, I6) →
-  `mintInstance` with `basis = D`, `epic = D's epic`, landing
+  `mintInstance` with `basis = D`, landing
   `in-progress` + `owner-acceptance`. NEVER plans the instance into a
   sprint record, NEVER spawns a worker for it (DR-3; flow §5.1 step 5).
   Audit: the store's history events carry the mint with `by` provenance
@@ -108,7 +108,7 @@ trigger-shaped composites:
   step 6, once per pass, AFTER the digest is written, BEFORE the record
   closes — DR-2, DR-6). Per sprint record W: `isCompletedWave(W)` → token
   `(wave <W id>)` → dedup → `mintInstance` with `basis = null`,
-  `epic = commonEpic(W.members)` (DS-005), landing as above → ONE digest
+  landing as above → ONE digest
   note per mint (U-061, DS-003). Errors: a record failing the predicate →
   `skipped`, not a failure; a store write lost mid-sweep → the next pass's
   sweep re-derives (the sweep runs every pass; QA-002).
@@ -238,7 +238,6 @@ field set:
 | `title` | `Acceptance (live in Eclipse): <one-line live check> (<D id> AC<n>)` | `Acceptance (live in Eclipse): wave <record id> live pass (wave <record id>)` | `Acceptance (live in Eclipse): release vN.N.N live pass (release vN.N.N)` | fixed prefix + parenthesized token suffix make the title scan machine-readable (DS-004); check lines from D's ACs / the wave's agent-facing surfaces |
 | `type` / `story_points` / `priority` | `task` / 0 / medium | same | same | never dispatch-relevant |
 | `role` / `stage` | `tester` / `test-requirements` | same | same | immutable stage ownership (C-3); the empty division map (G2) keys on it |
-| `epic` | D's epic | W's single common epic, else `null` (DS-005) | `null` (DS-006) | scope container only — never a dispatch input (DR-4) |
 | `basis` | D | `null` | `null` | the only derivation edge points INTO the instance (DR-4); G6 leans on the done basis |
 | `sprint` | none | none | none | `task_plan_sprint` is never called for an instance (G1/DR-3) |
 | `status` + `assignee` after mint | `in-progress` + `owner-acceptance` | same | same | matches no dispatch branch (G1); fallback landing `sprint-backlog` + `owner-acceptance` (flow §3.1); the assignee is a routing marker, never evidence (release-cadence §3.1) |
@@ -252,10 +251,9 @@ Further structures:
   `(release vN.N.N)`; position: the parenthesized suffix of the title
   (AD-003). Invariant: unique per project, open OR done (I6) — identity and
   dedup key in one.
-- `WaveCandidate {recordId, members[], commonEpic}` — the sweep's detection
+- `WaveCandidate {recordId, members[]}` — the sweep's detection
   input; predicate `isCompletedWave` (§2 C-1). Invariants: `ticker-*`
-  excluded; a `paused` member keeps the wave open; `commonEpic` is the
-  members' single shared epic, else `null` (DS-005).
+  excluded; a `paused` member keeps the wave open.
 - `MintOutcome {instanceId | null, confirmed, landingZone: primary | fallback}`
   — `confirmed` is read-back truth from `task_get`, never the minter's
   intent (DS-002).
@@ -275,7 +273,7 @@ EXTENSION):
 2. `detectLiveChecks(D)` — empty → stop.
 3. `derivePairingToken(D)` → `(<D id> AC<n>)`.
 4. `dedupInstanceExists(token)` — true → stop (I6).
-5. `mintInstance(basis = D, epic = D's epic)` → landing `in-progress` +
+5. `mintInstance(basis = D)` → landing `in-progress` +
    `owner-acceptance`, read-back confirmed.
 6. Never plan the instance into a sprint record; never spawn a worker for
    it (DR-3).
@@ -288,7 +286,7 @@ DR-3, DR-4, DR-10; QA-002 (idempotent under re-execution).
 1. The pass completes; the digest is written (U-061; U-108 reopen
    semantics keep the `ticker-v` record rolling).
 2. `sweepCompletedWaves`: per record — `isCompletedWave` → token → dedup →
-   `mintInstance(basis = null, epic = commonEpic)` → landing as W-1 → one
+   `mintInstance(basis = null)` → landing as W-1 → one
    digest note per mint.
 3. The sibling walk's cadence evaluation runs (it READS the instances the
    sweep created or kept — release-cadence §6).
@@ -358,7 +356,6 @@ refuses blocking done tickets (DR-8/G6: failure flows forward).
 | Dedup scan surface unavailable | mint deferred to a later pass — never minted blind (DS-004) |
 | Record id starts `ticker-` | never a wave (ROADMAP carve-out) → skipped |
 | Wave has a `paused` member | not completed — the wave stays open → skipped |
-| No single common epic in a wave | `epic = null` (DS-005) — scope container only (DR-4) |
 | Engine refuses the direct `in-progress` mint | retry in-pass, then the fallback landing (`sprint-backlog` + `owner-acceptance`); the assignee keeps it unclaimable (flow §3.1) |
 | Update unconfirmed at pass end | repair item: re-assert the state update; NEVER re-create (dedup would skip, leaving the state wrong) (DS-002) |
 | Create / store write lost mid-pass | reconnect and resume the pass (SKILL.md field observation); re-derivation is safe — every mint step is a pure function of durable state + dedup (QA-002) |
@@ -379,7 +376,7 @@ workflow that upholds it:
 | DR-1 (store-only contact; no direct component edges) | every contract's edges land on C-3's `task_*` surface (§2); the mint becomes C-4's work order purely by the store holding the instance; W-1..W-6 name no component-to-component call |
 | DR-2 (rides the existing tick loop; no new trigger machinery) | `pairingMint` hooks step 4, `sweepCompletedWaves` hooks step 6 (W-1/W-2); the machinery is pass-through (§1); no timer, no event subscription |
 | DR-3 (instances are never dispatch inputs) | the landing zone `in-progress` + `owner-acceptance` matches no tick branch; `task_plan_sprint` never called (§4); C-1's never-clauses; the fallback landing leans on the assignee pre-check (C-3 pass-through) |
-| DR-4 (nothing derives from an instance) | `InstanceSpec.stage = test-requirements` (the last stage, empty division map); `basis` only points INTO an instance; no contract reads an instance as a dispatch input; `epic` is scope-only |
+| DR-4 (nothing derives from an instance) | `InstanceSpec.stage = test-requirements` (the last stage, empty division map); `basis` only points INTO an instance; no contract reads an instance as a dispatch input |
 | DR-5 (review scopes are disjoint) | `verdictInstance`'s scope rule (§2 C-5); the U-009 precedent; done is never a self-assessment (W-5) |
 | DR-6 (completion computed on real tickets; fixed step-6 order) | `isCompletedWave` reads member statuses only; W-2's fixed order digest → sweep → cadence evaluation → close |
 | DR-7 (the release path reads, never gates) | no release-cut mint contract exists anywhere (the negative resolution of R3's no-mint position); `releaseBackfillMint` is chat-side, never in `release.ps1` (W-3) |
@@ -407,7 +404,7 @@ Every element of the governing architecture → its design resolution here:
 | Actor row 4 — engine review pass (only `done` authority) | §2 C-5 (`verdictInstance`; W-5) |
 | Pseudo-actor `owner-acceptance` | §4 `status` + `assignee` row: a routing marker ("awaits the owner"), never evidence (release-cadence §3.1, pass-through) |
 | G1 — never dispatched | DR-3 row (§7); the landing-zone design (§4); the fallback-landing error row (§6) |
-| G2 — nothing derives from an instance | DR-4 row (§7); the `stage` / `basis` / `epic` rows (§4) |
+| G2 — nothing derives from an instance | DR-4 row (§7); the `stage` / `basis` rows (§4) |
 | G3 — parent verdicts unaffected | C-5's scope rule (§2); DR-5 row (§7) |
 | G4 — wave completion unaffected | `isCompletedWave` reads members only; W-2's fixed order; DR-6 row (§7) |
 | G5 — release unaffected | DR-7 row (§7); open instances carry over — no contract reads them at the cut |

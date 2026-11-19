@@ -414,21 +414,19 @@ public class TaskToolsDispatchTest {
 
   @Test
   public void updateSupportsSprintAndExplicitNullsParity() {
-    // pm parity: update could set sprint/epic/assignee to a value AND clear them with null
+    // pm parity: update could set sprint/assignee to a value AND clear them with null
     callOk("task_create", "{\"project\":\"p\",\"title\":\"a\"}");
     JsonObject set =
         callOk(
             "task_update",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":\"S-09\",\"epic\":\"T-002\",\"assignee\":\"x\"}");
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":\"S-09\",\"assignee\":\"x\"}");
     assertEquals("S-09", set.get("sprint").getAsString());
-    assertEquals("T-002", set.get("epic").getAsString());
     assertEquals("x", set.get("assignee").getAsString());
     JsonObject cleared =
         callOk(
             "task_update",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":null,\"epic\":null,\"assignee\":null}");
+            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":null,\"assignee\":null}");
     assertTrue("explicit null clears the sprint", cleared.get("sprint").isJsonNull());
-    assertTrue(cleared.get("epic").isJsonNull());
     assertTrue(cleared.get("assignee").isJsonNull());
     // story_points null is a no-op (cannot null an int)
     JsonObject points =

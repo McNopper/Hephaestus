@@ -1,7 +1,7 @@
 # System: the unified V-ticker (`ticker-v`) — one schedule, one steward, one record
 
 - **About this document:** the system-stage product of ticket T-055 (project
-  `hephaestus`, stage `system`, epic U-112, basis T-035). It specifies HOW the
+  `hephaestus`, stage `system`, basis T-035). It specifies HOW the
   unified V-pipeline scheduler works as ONE system: how the single `ticker-v`
   schedule, the single steward session, the global spawn cap and the single
   rolling sprint record interact with each other and with the opencode service,
@@ -51,7 +51,7 @@ recreatable by re-running one script (`ticker-setup.ps1`).
                                                   │ task_* verbs only
 ┌─────────────────────────────────────────────────▼────────────────────┐
 │  task store (.harness/tasks/hephaestus/ — the ONLY memory)           │
-│  tickets · claims · epic/basis links · artifacts · history            │
+│  tickets · claims · basis links · artifacts · history            │
 │  · ONE rolling sprint record "ticker-v" (U-108 reopen semantics)      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -86,7 +86,7 @@ recreatable by re-running one script (`ticker-setup.ps1`).
   in-review ticket per stage visit (FR-006 step 2), read-only, delivering the
   engine verdict (PASS → done, FAIL → blocked, UNCLEAR → one retry).
 - **The task store** — the single coordination blackboard, mutated only via
-  `task_*` verbs. Carries tickets, statuses, claims (assignee), epic/basis
+  `task_*` verbs. Carries tickets, statuses, claims (assignee), basis
   links, artifact indexes, the sprint records, and the append-only history.
   The store never loses a confirmed write.
 - **The rolling sprint record `ticker-v`** — ONE store-side sprint record
@@ -165,7 +165,7 @@ the governing FRs, and the invariant it must preserve.
 - **Write path**, in the tick's fixed order (FR-006): escalation
   (`task_set_blocked` on the *basis* ticket) → verdicts (`task_update` →
   `done` by the reviewer's PASS only; FAIL → `task_set_blocked`) → division
-  (`task_create` with `stage`/`epic`/`basis`, artifacts carried) → kickoff
+  (`task_create` with `stage`/`basis`, artifacts carried) → kickoff
   (`task_plan_sprint` THEN `task_claim` THEN spawn — FR-007's plan-then-claim
   is an ordering invariant: claims take `sprint-backlog` tickets only, and
   division-born tickets start in `product-backlog`; planning without planning
@@ -258,7 +258,7 @@ pass's readiness scan discovers them.
 
 | | Remembered by the store (survives everything) | Held by the service (dies on restart) |
 |---|---|---|
-| Work items | every ticket: status, stage, epic/basis links, assignee (claims), artifacts, labels, full history | — |
+| Work items | every ticket: status, stage, basis links, assignee (claims), artifacts, labels, full history | — |
 | Sprint | the ONE `ticker-v` record: active/closed, membership, goal, createdAt (U-108 reopen) | — |
 | Execution | — | the schedule (binding, interval, prompt), `runCount`/`lastOutcome` |
 | Sessions | — | live steward + worker/reviewer processes (session *records* persist but are inert without their schedule) |
@@ -463,7 +463,7 @@ and §4 cadence/rolling-record topology (`ticker-<stage>` records, per-stage
 intervals, per-stage steward sessions) are **superseded on the ten→one point**
 by `docs/unified-ticker-requirements.md` and this document. What carries over
 unchanged from it: the store contract (§2 ticket contract), the link contract
-(§3 epic/basis), readiness/STALE semantics, division and the engine verdict
+(§3 basis only), readiness/STALE semantics, division and the engine verdict
 (§8), fulfillment narrow-brief rules (§5), and the native-first inventory
 (§11). `docs/requirements-stage-pipeline.md` is amended on exactly its
 ticker-topology aspect by the requirements document. The repo-level coherence

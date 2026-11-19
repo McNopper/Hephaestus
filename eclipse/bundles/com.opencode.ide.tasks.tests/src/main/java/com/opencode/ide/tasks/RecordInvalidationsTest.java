@@ -47,13 +47,13 @@ public class RecordInvalidationsTest {
   }
 
   /**
-   * {parent, child}: parent done in architecture, child ran at design with epic -> parent and an
+   * {parent, child}: parent done in architecture, child ran at design with basis -> parent and an
    * older last touch => child STALE.
    */
   private String[] stalePair() throws InterruptedException {
     Task parent = store.create("p", TaskStore.CreateSpec.of("upstream anchor"), "architecture");
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
-    store.update("p", child.id, Map.of("epic", parent.id));
+    store.update("p", child.id, Map.of("basis", parent.id));
     store.update("p", child.id, Map.of("title", child.title + " v2"));
     tick();
     // U-110: the product is recorded BEFORE the done touch (done-time enforcement) -
@@ -175,7 +175,7 @@ public class RecordInvalidationsTest {
     store.addArtifact("p", parent.id, "doc", "docs/anchor-product.md", "stage product", null);
     store.update("p", parent.id, Map.of("status", "done"));
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "design");
-    store.update("p", child.id, Map.of("epic", parent.id));
+    store.update("p", child.id, Map.of("basis", parent.id));
     store.addArtifact("p", child.id, "doc", "docs/child-product.md", "stage product", null);
     store.update("p", child.id, Map.of("status", "done"));
     Task legacy = store.create("p", TaskStore.CreateSpec.of("legacy"));

@@ -113,13 +113,12 @@ public final class Task {
   public String model;
 
   public String assignee;
-  public String epic;
 
   /**
    * U-110: the BASIS work product this ticket derives from (the upstream ticket whose completion
    * spawned it) - the derivation edge of the linked stage pipeline. {@code null} for entry-stage
    * tickets (requirements) and legacy tickets. Readiness waits on the basis; traceability reports
-   * the chain. Distinct from {@link #epic}, which is the SCOPE container (children inherit it).
+   * the chain.
    */
   public String basis;
 
@@ -142,7 +141,7 @@ public final class Task {
 
   /**
    * D-003 option B: when the ticket's STRUCTURED inputs last changed - bumped only by writes to
-   * {@code status}/{@code stage}/{@code epic}/{@code role}, to the artifact list, and by the
+   * {@code status}/{@code stage}/{@code basis}/{@code role}, to the artifact list, and by the
    * claim/plan status moves. Comments and bookkeeping never touch it (the W-006 incident: a
    * bookkeeping write on an upstream must not stale the downstream's completed work). {@code null}
    * on legacy rows - they fall back to {@link #updatedAt} via {@link #inputsEffectiveAt()} until
@@ -245,7 +244,7 @@ public final class Task {
     JsonArray lb = new JsonArray();
     labels.forEach(lb::add);
     o.add("labels", lb);
-    o.addProperty("epic", epic);
+
     o.addProperty("basis", basis);
     o.add("artifacts", artifactsJson());
     o.add("todos", todosJson());

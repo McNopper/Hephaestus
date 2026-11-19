@@ -70,7 +70,7 @@ public class TaskStoreArchiveTest {
   public void closingAWaveKeepsDoneTicketsVisibleForTheReadinessChain() {
     // U-025 lesson (live 2026-09-19): archiving on wave close orphaned
     // WAIT_UPSTREAM children - the done upstream must stay visible to
-    // the readiness epic chain; archiving stays manual until readiness
+    // the readiness basis chain; archiving stays manual until readiness
     // consults the archive
     String done = create();
     String wip = create();

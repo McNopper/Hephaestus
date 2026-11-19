@@ -2,8 +2,7 @@
 
 ## About this document
 
-- **Kind:** `doc` / architecture-stage artifact of ticket T-107 (epic U-113,
-  basis T-085, stage `architecture`; discipline `software-architecture`): the
+- **Kind:** `doc` / architecture-stage artifact of ticket T-107 (basis T-085, stage `architecture`; discipline `software-architecture`): the
   internal structure of the live-in-Eclipse acceptance recurrence —
   components, per-component responsibilities and explicit dependency rules,
   derived from the governing system flow. Where the system flow or the
@@ -79,9 +78,9 @@ naming moves for the rules' sake:
 
 | # | Component | Reality anchor | Responsibility | Depends on |
 |---|---|---|---|---|
-| C-1 | **Mint extensions** (tick step 4 + step 6) | `.opencode/skills/stage-pipeline/SKILL.md` tick step 4 (division — the LIVE-CHECK PAIRING extension) and step 6 (close — the WAVE-COMPLETION RECURRENCE extension), wording verbatim in flow §5.1; the `ticker-v` steward session (`ticker-setup.ps1`) | **R1:** per done definition ticket D at step 4, immediately after D's ordinary division children — scan D's acceptance criteria for live-in-Eclipse checks, derive the source token, dedup-scan, mint the pairing instance (`basis` = D, `epic` = D's epic), set `in-progress` + `owner-acceptance`; never plan it into a sprint record, never spawn a worker for it. **R2:** once per pass at step 6, after the digest, before the record closes — sweep sprint records for completed waves (id not `ticker-`, ≥1 ticket, zero open), dedup, mint the wave instance (`basis` = null, `epic` = the wave's single common epic or null), note the mint in the pass digest (U-061). Never mints at a release cut (R3 → AD-004) | C-3 only |
+| C-1 | **Mint extensions** (tick step 4 + step 6) | `.opencode/skills/stage-pipeline/SKILL.md` tick step 4 (division — the LIVE-CHECK PAIRING extension) and step 6 (close — the WAVE-COMPLETION RECURRENCE extension), wording verbatim in flow §5.1; the `ticker-v` steward session (`ticker-setup.ps1`) | **R1:** per done definition ticket D at step 4, immediately after D's ordinary division children — scan D's acceptance criteria for live-in-Eclipse checks, derive the source token, dedup-scan, mint the pairing instance (`basis` = D), set `in-progress` + `owner-acceptance`; never plan it into a sprint record, never spawn a worker for it. **R2:** once per pass at step 6, after the digest, before the record closes — sweep sprint records for completed waves (id not `ticker-`, ≥1 ticket, zero open), dedup, mint the wave instance (`basis` = null), note the mint in the pass digest (U-061). Never mints at a release cut (R3 → AD-004) | C-3 only |
 | C-2 | **Kickoff assistant fallback** | the main chat session (H7, AGENTS.md chat-first control plane) | fallback minter when no ticker is armed (I1): same template, announced in chat; the ONLY routine executor of the R3 backfill mint (a release cut whose waves predate the rule → one release instance, token `(release vN.N.N)`). Never mints ad-hoc acceptance tickets outside the template | C-3 only |
-| C-3 | **Task store** | `.harness/tasks/hephaestus/` + the `task_*` API; the state machine (AGENTS.md); the Eclipse Board as its projection | holds every instance in exactly the contract shape (§3): `test-requirements` (immutable stage ownership), `in-progress` + `owner-acceptance`, no sprint membership, `basis`/`epic` per instance class, the source token in the title; provides the dedup scan surface (title scan over the project's `test-requirements` tickets, open or done); runs the dispatch machinery whose branches define G1 (claims take `sprint-backlog` only, readiness reports RUNNING for `in-progress`, `task_close_sprint` ejects only record members); carries the history-event audit trail and the invariants the guarantees lean on (done is never blocked; claims pre-check the candidate's assignee) | — (substrate) |
+| C-3 | **Task store** | `.harness/tasks/hephaestus/` + the `task_*` API; the state machine (AGENTS.md); the Eclipse Board as its projection | holds every instance in exactly the contract shape (§3): `test-requirements` (immutable stage ownership), `in-progress` + `owner-acceptance`, no sprint membership, `basis` per instance class, the source token in the title; provides the dedup scan surface (title scan over the project's `test-requirements` tickets, open or done); runs the dispatch machinery whose branches define G1 (claims take `sprint-backlog` only, readiness reports RUNNING for `in-progress`, `task_close_sprint` ejects only record members); carries the history-event audit trail and the invariants the guarantees lean on (done is never blocked; claims pre-check the candidate's assignee) | — (substrate) |
 | C-4 | **Owner live pass** (the T-002 pattern) | the maintainer at the Eclipse keyboard; checklist `docs/TESTING.md` | executes the instance's live checks (console checks, UI passes, panel round trips); records the evidence — a screenshot or panel transcript reference — as an artifact on the instance (I7); one pass may evidence several open instances (shared checklist), each instance's verdict independent; flips the instance to `in-review`; files findings as bug tickets (they ride the next wave); on a failed pass: records the failed evidence, blocks the instance (resume to sprint-backlog) naming the finding tickets, clears the blocker when findings land | C-3 only |
 | C-5 | **Engine verdict pass** | SKILL.md tick step 3 (one read-only `reviewer` subagent per `in-review` ticket); the engine's review pass + quality gate (`docs/design-stage-pipeline.md` §8) | the only `done` authority for an instance — same as any ticket: PASS → `done`, FAIL → `blocked` (flow §5.3); never consults an instance from a parent ticket's review (G3); never accepts the ticker's or the owner's self-assessment | C-3 only |
 
@@ -96,7 +95,6 @@ component(s) that write or read the field, nothing else changes.
 | `title` | `Acceptance (live in Eclipse): <one-line live check> (<D id> AC<n>)` | `Acceptance (live in Eclipse): wave <record id> live pass (wave <record id>)` | minted by C-1 (or C-2 fallback); the parenthesized source token is the identity + dedup key (I6) |
 | `type` / `story_points` / `priority` | `task` / 0 / medium | same | minted by C-1 / C-2 |
 | `role` / `stage` | `tester` / `test-requirements` (immutable) | same | immutable stage ownership (C-3); steers the empty division map (G2) |
-| `epic` | the done ticket D's epic (scope inheritance) | the wave's single common epic, else `null` | scope container only (C-3) — never a dispatch input |
 | `basis` | D (the machine-readable derivation edge to the verified definition) | `null` (no single upstream ticket) | carried for traceability (C-3); G6 leans on it: any backward-gating attempt hits a `done` ticket the store refuses to block |
 | `sprint` | none — NEVER planned into any sprint record | same | C-1/C-2 never call `task_plan_sprint` for it (G1) |
 | `status` + `assignee` after mint | `in-progress` + `owner-acceptance` | same | the G1 shape: matches no tick branch; `owner-acceptance` is a routing marker ("awaits the owner"), never evidence of owner action — the release-cadence oracle keys on authored comments/artifacts, not assignees (its §3.1) |
@@ -267,7 +265,8 @@ ruleset; this architecture records the seam and modifies neither file:
 - **Pass-through observation (live data, not structure):** T-040 — the first
   instance minted under the rule but before the flow existed — sits
   `sprint-backlog`, unassigned, `basis: null`, and live readiness evidence
-  shows it READY via the epic-chain fallback (flow §7). The one-time
+  showed it READY via the then-legacy epic-chain fallback (removed with
+  the epic field, 2026-11-19; flow §7). The one-time
   transition (apply `in-progress` + `owner-acceptance` once, so G1 holds for
   it too) is a store motion outside this architecture's lane; until it runs,
   G1 for T-040 rests on no `test-requirements` kickoff claiming it. T-002

@@ -39,8 +39,7 @@ public class BoardColumnOrderTest {
   /** Creates a sprint-planned ticket with the given stage and role. */
   private void sprintTicket(String title, String stage, String role) {
     TaskStore.CreateSpec spec =
-        new TaskStore.CreateSpec(
-            title, "", "task", role, "medium", 0, List.of(), List.of(), null, "T");
+        new TaskStore.CreateSpec(title, "", "task", role, "medium", 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     Map<String, Object> changes = new HashMap<>();
     changes.put("stage", stage);
@@ -90,7 +89,7 @@ public class BoardColumnOrderTest {
   private String priorityTicket(String title, String priority) {
     TaskStore.CreateSpec spec =
         new TaskStore.CreateSpec(
-            title, "", "task", "developer", priority, 0, List.of(), List.of(), null, "T");
+            title, "", "task", "developer", priority, 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
@@ -173,7 +172,7 @@ public class BoardColumnOrderTest {
   private String sprintTicketAtStage(String title, String stage) {
     TaskStore.CreateSpec spec =
         new TaskStore.CreateSpec(
-            title, "", "task", "developer", "medium", 0, List.of(), List.of(), null, "T");
+            title, "", "task", "developer", "medium", 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     Map<String, Object> changes = new HashMap<>();
     changes.put("stage", stage);

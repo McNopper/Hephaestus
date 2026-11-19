@@ -22,8 +22,7 @@ public record TicketRow(
     String blocker,
     String status,
     String stage,
-    String priority,
-    String epic) {
+    String priority) {
 
   /** Maps a store {@link Task} to a row ({@code null}-safe: {@code null} in, {@code null} out). */
   public static TicketRow from(Task task) {
@@ -41,21 +40,7 @@ public record TicketRow(
         task.blocker,
         task.status,
         task.stage,
-        task.priority,
-        task.epic);
-  }
-
-  /**
-   * The swimlane key for the Epic layout (U-018): the stored epic id, or {@code NO_EPIC} for
-   * unepicked tickets (they swim together).
-   */
-  public static final String NO_EPIC = "(no epic)";
-
-  /**
-   * @return the epic lane key - the epic id or {@link #NO_EPIC}; never blank.
-   */
-  public String epicLane() {
-    return epic == null || epic.isBlank() ? NO_EPIC : epic.trim();
+        task.priority);
   }
 
   /**

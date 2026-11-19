@@ -126,7 +126,7 @@ HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:
 5. **Emit the baseline** — write a Markdown report (e.g.
    `.harness/tasks/<project>/_reports/cost-baseline-<date>.md`) and attach it:
    `task_add_artifact(project, ticket_id="EP-…|none", kind="path", ref="<report>")`
-   when a wave/epic owns the batch, else just report in-channel.
+   when a wave owns the batch, else just report in-channel.
 6. **Calibrate** — hand the measured numbers to `project-manager-estimate-costs`: per-tier actuals
    replace rate-card guesses for the workload classes that have ≥3 samples. Flag the rest
    as still-guessed. Recommend de-escalations where a lower tier consistently sufficed.

@@ -17,7 +17,7 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * U-018: the board snapshot carries the per-ticket readiness verdicts - the sprint's tickets
- * evaluated through {@link StageReadiness} (computed over the UNFILTERED task set, so epic chains
+ * evaluated through {@link StageReadiness} (computed over the UNFILTERED task set, so basis chains
  * and upstream stages resolve), with ready/stale counts surfaced on the cards.
  */
 public class BoardReadinessTest {
@@ -36,7 +36,7 @@ public class BoardReadinessTest {
   private String ticket(String title, String stage, String priority) {
     TaskStore.CreateSpec spec =
         new TaskStore.CreateSpec(
-            title, "", "task", "developer", priority, 0, List.of(), List.of(), null, "T");
+            title, "", "task", "developer", priority, 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     Map<String, Object> changes = new HashMap<>();
     changes.put("stage", stage);

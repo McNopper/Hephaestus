@@ -91,7 +91,6 @@ public final class TaskToolProvider implements ToolProvider {
                   a.has("story_points") ? reqInt(a, "story_points") : 0,
                   strList(a, "acceptance_criteria"),
                   strList(a, "labels"),
-                  optStr(a, "epic", null),
                   orDefault(optStr(a, "id_prefix", null), "T"),
                   a.has("blocked") && !a.get("blocked").isJsonNull() ? reqBool(a, "blocked") : null,
                   optStr(a, "blocker", null),
@@ -154,7 +153,6 @@ public final class TaskToolProvider implements ToolProvider {
                   "assignee",
                   "acceptance_criteria",
                   "labels",
-                  "epic",
                   "basis",
                   "review",
                   "sprint")) {
@@ -466,7 +464,7 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("story_points", intP());
                   obj.add("acceptance_criteria", arrP());
                   obj.add("labels", arrP());
-                  obj.add("epic", strP());
+
                   obj.add("id_prefix", strP());
                   obj.add("blocked", boolP());
                   obj.add(
@@ -534,7 +532,7 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("assignee", strP());
                   obj.add("acceptance_criteria", arrP());
                   obj.add("labels", arrP());
-                  obj.add("epic", strP());
+
                   obj.add("sprint", strP());
                   obj.add(
                       "review",
@@ -671,7 +669,7 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_links",
-            "The link graph around a ticket: up = the basis chain to the entry ticket; down = direct derivation children; back = siblings (same basis) plus the epic.",
+            "The link graph around a ticket: up = the basis chain to the entry ticket; down = direct derivation children; back = siblings (same basis).",
             schema(
                 new String[] {"project", "ticket_id"},
                 obj -> {
@@ -704,7 +702,7 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_close_sprint",
-            "Close a sprint; unfinished tasks return to product-backlog. With auto_archive=true, the wave's done tickets that no live epic-chain ticket still needs are archived to _archive/ (U-060).",
+            "Close a sprint; unfinished tasks return to product-backlog. With auto_archive=true, the wave's done tickets that no live basis-chain ticket still needs are archived to _archive/ (U-060).",
             schema(
                 new String[] {"project", "sprint_id"},
                 obj -> {
@@ -716,7 +714,7 @@ public final class TaskToolProvider implements ToolProvider {
         new McpTool(
             "task_archive_done",
             "T-183: archive the board's DONE history chain-safely - every done SPRINT-LESS ticket"
-                + " no live epic-chain ticket still needs moves to _archive/ (project-wide variant"
+                + " no live basis-chain ticket still needs moves to _archive/ (project-wide variant"
                 + " of U-060's rule); in-sprint and recent work stays. Optional 'before' (ISO-8601"
                 + " instant) keeps tickets created at/after it visible. Reports archived + skipped"
                 + " (id:reason).",
@@ -734,7 +732,7 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_traceability",
-            "Build a definition<->verification traceability matrix for a project: pairs by role+epic link, a ticket that walked both legs of the V (self-pair) and test-shaped artifacts; pm counts as a definition; rows carry via/self_verified.",
+            "Build a definition<->verification traceability matrix for a project: pairs by role+basis link, a ticket that walked both legs of the V (self-pair) and test-shaped artifacts; pm counts as a definition; rows carry via/self_verified.",
             schema(new String[] {"project"}, obj -> obj.add("project", strP()))));
     out.add(
         new McpTool(

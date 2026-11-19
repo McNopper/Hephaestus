@@ -16,7 +16,7 @@ public class TicketRowStageTest {
 
   private static TicketRow row(String stage, String role) {
     return new TicketRow(
-        "T-001", "title", "task", role, 2, null, false, null, "in-progress", stage, "medium", null);
+        "T-001", "title", "task", role, 2, null, false, null, "in-progress", stage, "medium");
   }
 
   @Test
@@ -81,31 +81,18 @@ public class TicketRowStageTest {
             "why",
             "in-review",
             "design",
-            "medium",
-            null);
+            "medium");
     assertEquals("👀 [BLOCKED] [bug] do things", blocked.pipelineLabel());
 
     TicketRow plain =
         new TicketRow(
-            "T-2",
-            "plain",
-            "task",
-            "developer",
-            1,
-            null,
-            false,
-            null,
-            "done",
-            null,
-            "medium",
-            null);
+            "T-2", "plain", "task", "developer", 1, null, false, null, "done", null, "medium");
     assertEquals("✅ [task] plain", plain.pipelineLabel());
   }
 
   @Test
   public void nullFieldsAreLabelSafe() {
-    TicketRow empty =
-        new TicketRow(null, null, null, null, 0, null, false, null, null, null, null, null);
+    TicketRow empty = new TicketRow(null, null, null, null, 0, null, false, null, null, null, null);
     assertEquals("", empty.pipelineLabel());
     assertEquals("", empty.label());
     assertNull(empty.effectiveStage());

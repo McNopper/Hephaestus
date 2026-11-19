@@ -12,7 +12,7 @@
 - **Read by:** the downstream stages deriving from T-035; the testers writing
   the paired acceptance tests; the maintainer.
 - **Related:** ticket `.harness/tasks/hephaestus/T-035.md` (owner requirement
-  - provenance), epic `.harness/tasks/hephaestus/U-112.md` (the walked
+  - provenance), related `.harness/tasks/hephaestus/U-112.md` (the walked
   release path that exposed the ten-schedule cost), `docs/design-stage-pipeline.md`
   (the U-110 design — its scheduling-topology sections are superseded on the
   ten→one point by this document; store contract, readiness, verdicts and
@@ -23,7 +23,7 @@
 
 ## Coverage (upstream definitions addressed)
 
-- **U-112** (epic, owner objective 2026-11-14): the pipeline walked the whole
+- **U-112** (owner objective 2026-11-14): the pipeline walked the whole
   release path with TEN per-stage tickers. The walk exposed the cost of that
   topology — ten schedules to arm, ten sessions to watch, a spawn cap that is
   global only by luck (the sum of ten independent tickers), and ten things to
@@ -110,7 +110,7 @@ resolving NEEDS-HUMAN.
   UNCLEAR → one retry round-trip to the fulfiller);
   (3) DONE without downstream children → divide: create the linked
   next-stage ticket(s) plus the paired `test-*` ticket for definition stages
-  (`epic` inherited, `basis` = the done ticket, artifact references carried).
+  (`basis` = the done ticket, artifact references carried).
 - **FR-007 (C1)** event-driven: WHEN READY tickets are kicked off, the ticker
   SHALL plan them into the rolling `ticker-v` sprint record first
   (`task_plan_sprint`) and only then claim them (`task_claim`) — claims take

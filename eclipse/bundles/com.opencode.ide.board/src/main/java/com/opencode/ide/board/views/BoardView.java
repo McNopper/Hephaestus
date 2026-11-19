@@ -323,8 +323,6 @@ public class BoardView extends ViewPart {
     pipelineContent = null;
     if (boardMode == BoardMode.PIPELINE) {
       buildPipelineArea();
-    } else if (boardMode == BoardMode.EPIC) {
-      buildEpicArea();
     } else {
       buildFlatArea();
     }
@@ -340,68 +338,6 @@ public class BoardView extends ViewPart {
       child.dispose();
     }
     buildBoardArea();
-  }
-
-  /**
-   * U-018 epic swimlanes: one section per epic (header + a single status-prefixed, priority-sorted
-   * table). The area is rebuilt on every apply because the lane set changes with the tickets
-   * (rebuilds are cheap - a handful of epics - and refreshes are coalesced).
-   */
-  private void buildEpicArea() {
-    flatArea = new Composite(boardArea, SWT.NONE);
-    GridLayout lanes = new GridLayout(1, false);
-    lanes.marginWidth = 0;
-    lanes.marginHeight = 0;
-    lanes.verticalSpacing = 6;
-    flatArea.setLayout(lanes);
-    flatArea.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-  }
-
-  /** Rebuilds the epic lanes from the snapshot's lane map. */
-  private void applyEpicSnapshot(BoardSnapshot snapshot) {
-    if (flatArea == null || flatArea.isDisposed()) {
-      return;
-    }
-    for (Control child : flatArea.getChildren()) {
-      child.dispose();
-    }
-    rowLabels.clear(); // epic labels are rebuilt with the lanes
-    Map<String, List<TicketRow>> lanes = snapshot.epicLanes();
-    if (lanes.isEmpty()) {
-      Label empty = new Label(flatArea, SWT.NONE);
-      empty.setText("(no tickets match the current filters)");
-      empty.setLayoutData(new GridData(SWT.BEGINNING, SWT.CENTER, false, false));
-    }
-    for (Map.Entry<String, List<TicketRow>> lane : lanes.entrySet()) {
-      Label laneHeader = new Label(flatArea, SWT.NONE);
-      List<TicketRow> rows = lane.getValue();
-      // text markers only (owner feedback 2026-10-07): every group
-      // header uses the same medium - font-sized glyphs - so no header
-      // icon renders smaller than another header's marker
-      laneHeader.setText("\u25A4 " + lane.getKey() + "  (" + rows.size() + ")");
-      laneHeader.setFont(boldFont());
-      laneHeader.setToolTipText(
-          "epic swimlane "
-              + lane.getKey()
-              + ": "
-              + rows.size()
-              + " ticket(s) - click a card column header to sort");
-      laneHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-      // swimlane cards share the ONE column set with every other mode
-      // (U-065) - readiness chips ride along via the label registry
-      TableViewer viewer = createTicketViewer(flatArea);
-      // lane tables size to their content (capped), not FILL_BOTH -
-      // every lane stays visible in one scrollable stack
-      GridData laneTable = new GridData(SWT.FILL, SWT.CENTER, true, false);
-      laneTable.heightHint = Math.min(Math.max(rows.size(), 1), 8) * 18 + 8;
-      viewer.getTable().getParent().setLayoutData(laneTable);
-      viewer.setInput(rows);
-    }
-    for (BoardRowLabel label : rowLabels) {
-      label.setReadiness(snapshot.readiness());
-      label.setJourneys(snapshot.journeys());
-    }
-    flatArea.layout(true, true);
   }
 
   private void buildFlatArea() {
@@ -693,16 +629,15 @@ public class BoardView extends ViewPart {
   /**
    * Shared ticket viewer for EVERY Group-by mode (U-065): one card column set - status emoji | type
    * emoji | styled title | points - built by {@link #addCardColumns}, so the card shape cannot
-   * drift between the Progress kanban, the V-model stage columns, the Epic swimlanes and the
-   * archive row (the 2026-09-18 Progress-only columns became the whole board's contract on
-   * 2026-10-07).
+   * drift between the Progress kanban, the V-model stage columns and the archive row (the
+   * 2026-09-18 Progress-only columns became the whole board's contract on 2026-10-07).
    */
   private TableViewer createTicketViewer(Composite column) {
     Composite tableComposite = new Composite(column, SWT.NONE);
     TableColumnLayout tableLayout = new TableColumnLayout();
     tableComposite.setLayout(tableLayout);
     // U-033: grab so the table stretches to its column's width (the
-    // epic lanes and the archive row override this with their own data)
+    // the archive row overrides this with its own data)
     tableComposite.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
     TableViewer viewer =
@@ -719,10 +654,10 @@ public class BoardView extends ViewPart {
   /**
    * U-065: THE card column set every Group-by mode renders - status emoji | type emoji | styled
    * title (readiness chips, stage journey, blocker ride in the cell) | points. Progress (flat),
-   * V-model stages, Epic swimlanes and the archive row all go through this one builder, so the card
-   * shape cannot drift between modes (the 2026-09-18 Progress-only columns became the whole board's
-   * contract on 2026-10-07; owner direction the same day: emoji where possible - colored, visible,
-   * DPI-proof, no image files for cards).
+   * V-model stages and the archive row all go through this one builder, so the card shape cannot
+   * drift between modes (the 2026-09-18 Progress-only columns became the whole board's contract on
+   * 2026-10-07; owner direction the same day: emoji where possible - colored, visible, DPI-proof,
+   * no image files for cards).
    */
   private void addCardColumns(TableViewer viewer, TableColumnLayout tableLayout) {
     TableViewerColumn status = new TableViewerColumn(viewer, SWT.CENTER);
@@ -1253,15 +1188,13 @@ public class BoardView extends ViewPart {
             box.setLayout(layout);
             new Label(box, SWT.NONE).setText("Group by:");
             modeCombo = new Combo(box, SWT.DROP_DOWN | SWT.READ_ONLY);
-            modeCombo.setItems("Progress", "V-model stages", "Epic");
+            modeCombo.setItems("Progress", "V-model stages");
             modeCombo.setToolTipText(
                 "Progress: five-column status kanban ordered by workflow progress. "
                     + "V-model stages: the ten V-model stage columns arranged as a V "
-                    + "(requirements \u2192 test-requirements); every column shows, empty ones too. "
-                    + "Epic: swimlanes per epic (status-prefixed cards, priority-sorted).");
+                    + "(requirements → test-requirements); every column shows, empty ones too.");
             modeCombo.setLayoutData(fixedSize(140));
-            modeCombo.select(
-                boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
+            modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : 0);
             modeCombo.addSelectionListener(
                 new SelectionAdapter() {
                   @Override
@@ -1272,7 +1205,6 @@ public class BoardView extends ViewPart {
                     BoardMode picked =
                         switch (modeCombo.getSelectionIndex()) {
                           case 1 -> BoardMode.PIPELINE;
-                          case 2 -> BoardMode.EPIC;
                           default -> BoardMode.FLAT;
                         };
                     if (picked == boardMode) {
@@ -1611,8 +1543,6 @@ public class BoardView extends ViewPart {
     }
     if (boardMode == BoardMode.PIPELINE) {
       applyPipelineSnapshot(snapshot);
-    } else if (boardMode == BoardMode.EPIC) {
-      applyEpicSnapshot(snapshot);
     } else {
       applyFlatSnapshot(snapshot);
     }
@@ -2130,8 +2060,6 @@ public class BoardView extends ViewPart {
           }
           if (SETTING_MODE_PIPELINE.equalsIgnoreCase(settings.get(SETTING_MODE))) {
             boardMode = BoardMode.PIPELINE;
-          } else if ("epic".equalsIgnoreCase(settings.get(SETTING_MODE))) {
-            boardMode = BoardMode.EPIC;
           }
           if (settings.get(SETTING_SHOW_UNTRACKED) != null) {
             showUntracked = Boolean.parseBoolean(settings.get(SETTING_SHOW_UNTRACKED));
@@ -2175,7 +2103,7 @@ public class BoardView extends ViewPart {
     updatingModeCombo = true;
     try {
       if (modeCombo != null && !modeCombo.isDisposed()) {
-        modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : boardMode == BoardMode.EPIC ? 2 : 0);
+        modeCombo.select(boardMode == BoardMode.PIPELINE ? 1 : 0);
       }
     } finally {
       updatingModeCombo = false;
@@ -2195,11 +2123,7 @@ public class BoardView extends ViewPart {
       }
       settings.put(SETTING_ROOT, rootOverride == null ? "" : rootOverride);
       settings.put(SETTING_PROJECT, model == null ? projectName : model.project());
-      settings.put(
-          SETTING_MODE,
-          boardMode == BoardMode.PIPELINE
-              ? SETTING_MODE_PIPELINE
-              : boardMode == BoardMode.EPIC ? "epic" : "flat");
+      settings.put(SETTING_MODE, boardMode == BoardMode.PIPELINE ? SETTING_MODE_PIPELINE : "flat");
       settings.put(SETTING_STAGES, visibleStages == null ? "" : String.join(",", visibleStages));
       settings.put(SETTING_SHOW_UNTRACKED, String.valueOf(showUntracked));
       settings.put(SETTING_HIDDEN_STATUSES, String.join(",", hiddenStatuses));
@@ -2384,7 +2308,7 @@ public class BoardView extends ViewPart {
     }
 
     private String stageLabel(String stage) {
-      return PipelineSnapshot.UNTRACKED.equals(stage) ? stage + " (epics, stage-less)" : stage;
+      return PipelineSnapshot.UNTRACKED.equals(stage) ? stage + " (stage-less)" : stage;
     }
   }
 }

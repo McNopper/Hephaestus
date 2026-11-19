@@ -42,7 +42,7 @@ using software agents**: the ten-stage V-model with persistent stage artifacts
 (machine-gated at exit), automatic top-down coverage, evidence-based readiness and
 horizontal defect loops (see `docs/spice-alignment.md`). You add the requirements; the
 harness forces everything below. The requirements define the **scope** — sub-scopes
-decompose along epic links, work *inside* the scope runs autonomously (cyclic waves with
+decompose along basis links, work *inside* the scope runs autonomously (cyclic waves with
 the fleet, chat/UI triggers without it), a maintainer only jumps in when the scope itself
 must grow (`clarification:` exhausted → NEEDS-HUMAN), and the produced artifacts —
 requirements, architecture diagrams, design docs, test evidence — stay ordinary readable
@@ -200,8 +200,8 @@ Key rules:
 **V pipeline (optional, per ticket).** A ticket may carry a `stage` — the 10 canonical stages
 `requirements` … `test-requirements` (definition down the left leg, verification up the right).
 Stages run **concurrently** (no phase gates): each finished stage feeds the next stage
-by division — the stage's ticker creates the linked downstream tickets (`epic` inherited,
-`basis` = the completing ticket); a stage that cannot proceed blocks in place and escalates
+by division - the stage's ticker creates the linked downstream tickets (`basis` = the
+completing ticket); a stage that cannot proceed blocks in place and escalates
 to its basis. The Board view has a Pipeline mode for stage-ordered columns.
 
 See `project-manager-operating-model` (Scrum events, DoD, escalation), `project-manager-create-ticket` (how to fill

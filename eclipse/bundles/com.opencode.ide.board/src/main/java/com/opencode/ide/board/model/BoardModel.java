@@ -38,8 +38,7 @@ public final class BoardModel {
   /** The board layout: flat status kanban or V-model pipeline. */
   public enum BoardMode {
     FLAT,
-    PIPELINE,
-    EPIC
+    PIPELINE
   }
 
   private TaskStore store;
@@ -133,8 +132,8 @@ public final class BoardModel {
   }
 
   /**
-   * U-018: hides tickets of the given STATUSES everywhere (flat column drops out, V/epic cards
-   * vanish). {@code null} or empty = all visible.
+   * U-018: hides tickets of the given STATUSES everywhere (flat column drops out, V cards vanish).
+   * {@code null} or empty = all visible.
    */
   public void setStatusFilter(java.util.Set<String> hidden) {
     this.hiddenStatuses =
@@ -213,7 +212,7 @@ public final class BoardModel {
       // an internal DISPATCH scope only (Launch/Auto drain it).
       Map<String, List<Task>> board = store.board(project, null);
       // U-018: dispatch-readiness verdicts over the WHOLE sprint task
-      // set (epic chains and upstream stages need the unfiltered
+      // set (upstream stages need the unfiltered
       // tickets), computed once per refresh and carried in the snapshot
       List<Task> sprintTasks = new ArrayList<>();
       for (List<Task> tasks : board.values()) {
@@ -256,10 +255,7 @@ public final class BoardModel {
       }
       String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
       PipelineSnapshot pipeline = mode == BoardMode.PIPELINE ? pipelineOf(allRows) : null;
-      Map<String, List<TicketRow>> epicLanes =
-          mode == BoardMode.EPIC ? epicLanesOf(allRows) : Map.of();
-      return new BoardSnapshot(
-          columns, goal, total, blocked, null, pipeline, readiness, epicLanes, journeys);
+      return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness, journeys);
     } catch (RuntimeException e) {
       return BoardSnapshot.empty("Task store unreadable: " + e.getMessage());
     }
@@ -395,29 +391,6 @@ public final class BoardModel {
       java.util.Comparator.comparingInt(TicketRow::priorityRank)
           .thenComparingInt(TicketRow::stageDepth)
           .thenComparing(TicketRow::id, java.util.Comparator.nullsLast(String::compareTo));
-
-  /**
-   * U-018 epic swimlanes: all sprint rows grouped by epic lane key ({@link TicketRow#epicLane()}),
-   * epics alphabetical with the no-epic lane last, each lane priority-sorted (the within-column
-   * order) so the top of a lane is its most important work.
-   */
-  private static Map<String, List<TicketRow>> epicLanesOf(List<TicketRow> rows) {
-    Map<String, List<TicketRow>> lanes = new java.util.TreeMap<>(String::compareToIgnoreCase);
-    for (TicketRow row : rows) {
-      lanes.computeIfAbsent(row.epicLane(), k -> new ArrayList<>()).add(row);
-    }
-    Map<String, List<TicketRow>> ordered = new LinkedHashMap<>();
-    for (Map.Entry<String, List<TicketRow>> entry : lanes.entrySet()) {
-      if (!TicketRow.NO_EPIC.equals(entry.getKey())) {
-        ordered.put(entry.getKey(), sorted(entry.getValue()));
-      }
-    }
-    List<TicketRow> noEpic = lanes.get(TicketRow.NO_EPIC);
-    if (noEpic != null && !noEpic.isEmpty()) {
-      ordered.put(TicketRow.NO_EPIC, sorted(noEpic));
-    }
-    return ordered;
-  }
 
   /**
    * U-025: archives a done ticket (moves it to {@code _archive/}, out of the active

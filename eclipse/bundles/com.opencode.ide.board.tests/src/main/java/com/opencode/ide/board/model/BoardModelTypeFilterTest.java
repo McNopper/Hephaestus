@@ -35,7 +35,7 @@ public class BoardModelTypeFilterTest {
   private String sprintTicket(String title, String type) {
     TaskStore.CreateSpec spec =
         new TaskStore.CreateSpec(
-            title, "", type, "developer", "medium", 0, List.of(), List.of(), null, "T");
+            title, "", type, "developer", "medium", 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
     store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;

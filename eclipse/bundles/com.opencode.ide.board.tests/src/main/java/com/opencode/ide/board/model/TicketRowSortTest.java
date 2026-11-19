@@ -17,7 +17,7 @@ public class TicketRowSortTest {
 
   private static TicketRow row(String id, String status, String type, String title, int points) {
     return new TicketRow(
-        id, title, type, "developer", points, null, false, null, status, "design", "medium", null);
+        id, title, type, "developer", points, null, false, null, status, "design", "medium");
   }
 
   private static List<String> ids(String column, boolean ascending, TicketRow... rows) {
@@ -95,8 +95,7 @@ public class TicketRowSortTest {
 
   @Test
   public void allNullFieldsCompareWithoutThrowing() {
-    TicketRow empty =
-        new TicketRow(null, null, null, null, 0, null, false, null, null, null, null, null);
+    TicketRow empty = new TicketRow(null, null, null, null, 0, null, false, null, null, null, null);
     TicketRow set = row("T-1", "in-progress", "task", "title", 2);
     assertTrue(TicketRow.cardComparator("title", true).compare(empty, set) > 0);
     // descending still ranks the unset row LAST: set before empty = negative

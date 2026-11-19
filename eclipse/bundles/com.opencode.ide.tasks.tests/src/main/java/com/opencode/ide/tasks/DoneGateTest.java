@@ -93,12 +93,10 @@ public class DoneGateTest extends ToolRpcHarness {
     ok("task_create", "{\"project\":\"p\",\"title\":\"sys\",\"stage\":\"system\"}");
     ok(
         "task_create",
-        "{\"project\":\"p\",\"title\":\"design child\",\"stage\":\"design\",\"basis\":\"T-001\","
-            + "\"epic\":\"T-001\"}");
+        "{\"project\":\"p\",\"title\":\"design child\",\"stage\":\"design\",\"basis\":\"T-001\"}");
     TaskStore fresh = new TaskStore(root);
     Task child = fresh.get("p", "T-002");
     assertEquals("T-001", child.basis);
-    assertEquals("T-001", child.epic);
   }
 
   @Test
@@ -122,15 +120,6 @@ public class DoneGateTest extends ToolRpcHarness {
         new TaskStore(root).get("p", "T-003").basis);
     ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-003\",\"basis\":null}");
     assertTrue("null clears the link", new TaskStore(root).get("p", "T-003").basis == null);
-  }
-
-  @Test
-  public void epicStaysAnUnvalidatedScopeLabel() {
-    // epic may point forward (a fixture labeling children before the umbrella exists) and at
-    // free labels - the chain edge is basis; "we do not need an epic" (owner 2026-11-19).
-    ok("task_create", "{\"project\":\"p\",\"title\":\"t\",\"stage\":\"requirements\"}");
-    ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"epic\":\"E-NOT-YET-CREATED\"}");
-    assertEquals("E-NOT-YET-CREATED", new TaskStore(root).get("p", "T-001").epic);
   }
 
   private static final String TO_DONE =

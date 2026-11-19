@@ -36,8 +36,7 @@ public class BlockedStateTest {
   private Task staged(String title) {
     Task t =
         store.create(
-            "p",
-            new TaskStore.CreateSpec(title, "", "task", "dev", "low", 1, null, null, null, "T"));
+            "p", new TaskStore.CreateSpec(title, "", "task", "dev", "low", 1, null, null, "T"));
     return store.update("p", t.id, Map.of("stage", "design"));
   }
 

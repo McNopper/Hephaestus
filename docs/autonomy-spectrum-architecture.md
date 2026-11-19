@@ -29,7 +29,7 @@
 ## Scope
 
 The autonomy spectrum is not a program and adds no machinery — it is a
-**run position recorded on a GOAL/epic-root ticket at goal intake and
+**run position recorded on a GOAL-root ticket at goal intake and
 read back by the unchanged pump** [SYS §Overview]. Its architecture is a
 **process/agent architecture** like the acceptance run's: the components
 are components of the run, each anchored to a real surface of this repo
@@ -68,9 +68,9 @@ edge set rather than to convention.
 
 | Component | Layer | Responsibility (from the basis) | Anchored in (real code) | Basis |
 |---|---|---|---|---|
-| **C1 `intake`** | actor (intake) | The single point of entry for a run's position: classifies the owner's objective as a stageless GOAL/epic root; asks about the two dials (goal horizon, review cadence) when the owner leaves them unstated — bounded round-trips, then registers with the open question recorded; writes the labeled dial record onto the GOAL ticket; cites the ticket id back. Never steers the pump, never verdicts, never releases. | `.opencode/agent/product-owner.md` "The two dials (goal intake)" (U-105 lineage, recorded by T-042; write-denied for repo files) | [SYS §Major Parts 1; §F-1; PO] |
-| **C2 `store`** | substrate | The single coordination blackboard — the same substrate as [AR] M1: tickets with `epic` (scope) / `basis` (derivation) links, readiness, append-only history. Owns the run position as DATA: the dial record is labeled text on the GOAL/epic-root ticket file — the position's ONLY home; child tickets inherit via the `epic` link, never restated. Text custody only: no dial schema, no dial validation, no dial-driven store behavior. | `.harness/tasks/hephaestus/<GOAL-id>.md` + the `task_*` verb surface; git-versioned Markdown (D-006) | [SYS §Major Parts 2; §Interfaces 1/3] |
-| **C3 `pump`** | control | The stage tickers — the same control layer as [AR] M2: the tick algorithm is IDENTICAL under both horizon modes [DSG §4]. The only dial input is at kickoff: read the epic root's horizon to decide whether launching continues (run-to-Product-Goal = schedules recur; time-boxed = the steward disarms at the horizon). The cadence dial has no edge into the pump at all. The schedule lane: the steward arms the stage schedules at kickoff and disarms them at a time-boxed horizon; in-flight tickets always run to their engine verdict — never abandoned mid-flight. | One steward session per stage on `experimental.automations`, armed/disarmed by `.opencode/skills/stage-pipeline/ticker-setup.ps1`; the `stage-pipeline` skill | [SYS §Major Parts 3; §F-2; DSG §4] |
+| **C1 `intake`** | actor (intake) | The single point of entry for a run's position: classifies the owner's objective as a stageless GOAL root; asks about the two dials (goal horizon, review cadence) when the owner leaves them unstated — bounded round-trips, then registers with the open question recorded; writes the labeled dial record onto the GOAL ticket; cites the ticket id back. Never steers the pump, never verdicts, never releases. | `.opencode/agent/product-owner.md` "The two dials (goal intake)" (U-105 lineage, recorded by T-042; write-denied for repo files) | [SYS §Major Parts 1; §F-1; PO] |
+| **C2 `store`** | substrate | The single coordination blackboard — the same substrate as [AR] M1: tickets with `basis` (derivation) links, readiness, append-only history. Owns the run position as DATA: the dial record is labeled text on the GOAL-root ticket file — the position's ONLY home; child tickets inherit via their `basis` chain, never restated. Text custody only: no dial schema, no dial validation, no dial-driven store behavior. | `.harness/tasks/hephaestus/<GOAL-id>.md` + the `task_*` verb surface; git-versioned Markdown (D-006) | [SYS §Major Parts 2; §Interfaces 1/3] |
+| **C3 `pump`** | control | The stage tickers — the same control layer as [AR] M2: the tick algorithm is IDENTICAL under both horizon modes [DSG §4]. The only dial input is at kickoff: read the goal root's horizon to decide whether launching continues (run-to-Product-Goal = schedules recur; time-boxed = the steward disarms at the horizon). The cadence dial has no edge into the pump at all. The schedule lane: the steward arms the stage schedules at kickoff and disarms them at a time-boxed horizon; in-flight tickets always run to their engine verdict — never abandoned mid-flight. | One steward session per stage on `experimental.automations`, armed/disarmed by `.opencode/skills/stage-pipeline/ticker-setup.ps1`; the `stage-pipeline` skill | [SYS §Major Parts 3; §F-2; DSG §4] |
 | **C4 `gates`** | governance | The engine review pass plus the human review — [AR] M4 extended with the release boundary: engine verdicts gate every ticket's `done` (unchanged, [AR] AD-003); the wave close always ends at commit + push; a HUMAN review that accepts is the only release trigger; without one the release stays pending. Owns the acceptance-recurrence verdict lane (the fresh test-requirements acceptance ticket's eventual review). | The engine review pass + the project quality gate; `eclipse/releng/release.ps1` (tag per D-002, `-SNAPSHOT` bump) reachable only from the human-review context | [SYS §Major Parts 4; §F-3] |
 | **C5 `doctrine`** | knowledge (static) | The standing rules and procedures the actors load — data, not an active process: the two-dial vocabulary and the safe-end defaults, the T-041 standing release rule and the T-039 recurrence rule, the tick algorithm, and the division-map entry that carries the acceptance recurrence. Process change = editing the doctrine once; every run inherits it. | `AGENTS.md` "The autonomy spectrum (the operating model, owner requirement 2026-11-15)"; `ROADMAP.md` Vision/Product Goal + standing rules; [PO]; [DSG §4] | [SYS §Technology choices; §The two dials] |
 
@@ -82,13 +82,13 @@ edge set rather than to convention.
 [C3 pump]          [C1 intake]
    │  │                │
    │  │ E2 read the    │ E1 writes the dial
-   │  │ epic root +    │ record onto the GOAL
+   │  │ goal root +    │ record onto the GOAL
    │  │ tick verbs      │ root at intake
    │  ▼                ▼
    │ ┌────────────────────────────────────────────┐
-   │ │ [C2 store]  tickets · epic/basis links ·   │
+   │ │ [C2 store]  tickets · basis links ·   │
    │ │   readiness · history · THE DIAL RECORD    │
-   │ │   (labeled text on the GOAL/epic root)     │
+   │ │   (labeled text on the GOAL root)     │
    │ └────────────────────────────────────────────┘
    │                    ▲ E3 reads + done
    │ E6 arm/disarm      │
@@ -107,7 +107,7 @@ component**; cross-cutting concerns are noted without new owners:
 | System part (basis) | Primary component | Note |
 |---|---|---|
 | Goal intake — the product-owner agent | **C1** | the only new actor the spectrum contributes |
-| The store record — the GOAL/epic-root ticket | **C2** | the dial record is C2 data, not an actor |
+| The store record — the GOAL-root ticket | **C2** | the dial record is C2 data, not an actor |
 | The pump — stage tickers on schedules | **C3** | unchanged tick algorithm; dial input at kickoff only |
 | The review/acceptance gates | **C4** | [AR] M4 + the release boundary; the human review is the trigger |
 
@@ -141,8 +141,8 @@ depends on substrate; substrate and knowledge depend on nothing.
 
 | Edge | Direction | Interface (verbs / mechanism) | Basis |
 |---|---|---|---|
-| E1 | C1 → C2 | `task_create` (the GOAL/epic root), `task_update` (the labeled dial record onto the ticket), `task_add_comment` (the intake Q&A); the write happens even when a dial answer is missing — the open question is recorded with the registration | [SYS §Interfaces 1; §F-1; §F-4] |
-| E2 | C3 → C2 | Kickoff read: `task_get`/`task_board` on the epic root (the horizon) + `task_readiness` (the READY set) — children are found through the `epic` link; tick verbs: `task_plan_sprint`, `task_claim`, division/link creation (executing the C5 division map), `task_close_sprint`; `task_set_blocked` escalation of a blocked ticket onto its basis | [SYS §Interfaces 2; DSG §4] |
+| E1 | C1 → C2 | `task_create` (the GOAL root), `task_update` (the labeled dial record onto the ticket), `task_add_comment` (the intake Q&A); the write happens even when a dial answer is missing — the open question is recorded with the registration | [SYS §Interfaces 1; §F-1; §F-4] |
+| E2 | C3 → C2 | Kickoff read: `task_get`/`task_board` on the goal root (the horizon) + `task_readiness` (the READY set) — children are found through the `basis` chain; tick verbs: `task_plan_sprint`, `task_claim`, division/link creation (executing the C5 division map), `task_close_sprint`; `task_set_blocked` escalation of a blocked ticket onto its basis | [SYS §Interfaces 2; DSG §4] |
 | E3 | C4 → C2 | `task_get`/`task_traceability` reads; the `done` transition (engine-only, [AR] AD-003); the acceptance-recurrence ticket landing in C2 at the wave-close boundary | [SYS §Interfaces 1; §F-3] |
 | E4 | C3 → C5 | Loads the `stage-pipeline` skill: the fixed tick procedure + the division map (the T-039 recurrence entry is data here) | [DSG §4; SYS §Major Parts 3; §F-3] |
 | E5 | C1 → C5 | Loads the two-dials procedure: the dial vocabulary, the bounded round-trip bound, the safe-end defaults | [SYS §Major Parts 1; PO] |
@@ -174,7 +174,7 @@ conventions):
   [AGENTS.md write discipline].
 - **Any side channel carrying the run position**: chat memory, session
   state, a config file, a restatement on a child ticket — all denied; the
-  record's ONLY home is the GOAL/epic-root ticket file [SYS §Major Parts
+  record's ONLY home is the GOAL-root ticket file [SYS §Major Parts
   2 "never restated per child, never held in chat memory or a session"].
 
 Direction consistency: C2 and C5 have **zero outgoing edges**; every
@@ -218,15 +218,15 @@ evidence — one-to-one with [SYS §End-to-end data flows]:
 
 | Guarantee | Basis flow | Component chain | Structural evidence |
 |---|---|---|---|
-| **G-1** Store-verifiable run position | F-1 | C1 → E1 → C2 (the record on the GOAL root) → `epic` inheritance → C3 kickoff read (E2) | `task_get` on the GOAL ticket shows the labeled record; `git log` on the ticket file shows provenance; child tickets carry no restatement |
+| **G-1** Store-verifiable run position | F-1 | C1 → E1 → C2 (the record on the GOAL root) → `basis` chain inheritance → C3 kickoff read (E2) | `task_get` on the GOAL ticket shows the labeled record; `git log` on the ticket file shows provenance; child tickets carry no restatement |
 | **G-2** T-041 release floor | F-3 | C3 wave close (commit + push always) → C4 engine verdicts → human review that accepts → release | no machine edge to `release.ps1` (the denied-edge rule); without a human acceptance the release stays pending — at every cadence setting |
 | **G-3** T-039 non-blocking recurrence | F-3 | C5 division-map entry (data) → wave-close landing in C2 → fresh test-requirements acceptance ticket | the ticket's link structure: nothing's `basis` or readiness references it — no component waits on it |
 | **G-4** F-4 safe-end defaults | F-4 | C1 bounded round-trips → register with the open question recorded (E1) → C3 kickoff read → C5 defaults apply | no readiness, claim, verdict, wave close or commit has a dial input anywhere — no dial state can block a wave |
 
 - **G-1 Store-verifiable run position.** C1 writes the labeled dial
-  record onto the GOAL/epic-root ticket through E1; C2 holds it as the
+  record onto the GOAL-root ticket through E1; C2 holds it as the
   ticket file's text (git-versioned, D-006); children inherit through
-  C2's `epic` link, so every stage ticker of the run reads the same
+  C2's `basis` chain, so every stage ticker of the run reads the same
   position without per-ticket restatement (E2). The structural guarantee
   is custody: the record has exactly one home and no side channel may
   carry it, so verification always resolves to the store — `task_get` to

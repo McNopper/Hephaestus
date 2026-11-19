@@ -3,7 +3,7 @@
 ## About this document
 
 - **Kind:** `doc` / evaluation — the requirements-stage artifact of ticket T-036
-  (epic U-112): it evaluates the dedicated intake agent in design (definition,
+  (basis U-112): it evaluates the dedicated intake agent in design (definition,
   prompt, boundary enforcement) and states a build/defer recommendation.
 - **Read by:** the maintainer (owns the build/defer call), the PM and the tickers
   (intake dispatch), any agent touching the chat-first control plane.
@@ -51,9 +51,9 @@ pattern's canonical statement; this document applies it, not re-documents it.
 `.opencode/agent/product-owner.md` — the Product Owner's seat, `mode: primary`,
 tools denied at role level: `write`, `edit`, `patch`, `bash`. Per-message loop:
 classify (requirement / bug / process rule / question) -> distill acceptance
-criteria -> link (`epic`, `basis`) -> register and cite the ticket id -> verify
+criteria -> link (`basis`) -> register and cite the ticket id -> verify
 machine output from store evidence (`task_board`, `task_readiness`, `task_get`,
-`task_doctor`). Governance duties: epic-tree coherence, honest NEEDS-HUMAN
+`task_doctor`). Governance duties: chain coherence, honest NEEDS-HUMAN
 surfacing, machine-keeping ops (re-arm the tickers, reconnect the tasks
 server, deploy gate jars). Boundaries: never implement, never self-declare
 done, never spawn fulfillment workers, record provenance honestly.

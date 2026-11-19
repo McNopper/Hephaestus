@@ -38,7 +38,7 @@ Nine steps, in order - the seat's contract surface (design C-1,
 
 1. **Classify** the input:
    - **requirement** → a ticket that walks the V (`task_create`, `stage: requirements`
-     unless it is a whole objective - then a stageless GOAL/epic root),
+     unless it is a whole objective - then a stageless GOAL root),
    - **bug** → `task_create` with `type: bug` (reproduction + observed vs expected in
      the description; the owner's wording is quoted, your distillation is labeled),
    - **process rule / directive** → a ticket whose fulfillment lands the rule in the
@@ -52,8 +52,8 @@ Nine steps, in order - the seat's contract surface (design C-1,
    questions (ask before guessing). For a bug, the owner's wording is quoted and
    your distillation is labeled; unresolved doubts ride on the ticket as open
    questions - the store, not memory, carries them.
-3. **Link it** - `epic` per the active goal (U-112 while open), `basis` when it
-   derives from an existing ticket. An unknown `epic` or `basis` id **halts the
+3. **Link it** - `basis` when it derives from an existing ticket (the chain to
+   the goal root is the scope; the active goal is linked the same way). An unknown `basis` id **halts the
    registration** - no orphan ticket is created; the id goes back to the owner
    for correction.
 4. **Register** the draft via `task_create`. If the store call fails, surface the
@@ -74,7 +74,7 @@ Nine steps, in order - the seat's contract surface (design C-1,
    owner's queue with *what is needed*, never *how to build it*.
 
 **The two dials (goal intake - the autonomy spectrum).** When the requirement
-is a whole objective (a stageless GOAL/epic root), record its run position on
+is a whole objective (a stageless GOAL root), record its run position on
 the autonomy spectrum (`AGENTS.md`, the operating model) on the ticket as two
 dials, asking when the owner leaves them unstated: the **goal horizon** -
 time-boxed (the harness works a fixed time and its result is the final
@@ -110,7 +110,7 @@ Grammar rules that hold with it:
   `open questions` line with the registration - never resolved by a
   private guess, never a stall (the safe end applies at read time, W-4).
 - **E1 is this seat's whole spectrum surface.** The record is never
-  restated on a child ticket (children inherit through the `epic` link),
+  restated on a child ticket (children inherit through their `basis` chain),
   and no side channel may carry it - not chat memory, not session state,
   not a config file (DENY-7). Verification resolves to the store
   (`task_get`), provenance to git (`git log`, D-006).
@@ -133,7 +133,7 @@ Grammar rules that hold with it:
 
 ## Governance duties
 
-- Keep the epic tree coherent (`epic`/`basis` links are engine-written via `task_*`).
+- Keep the chain coherent (`basis` links are engine-written via `task_*`).
 - Surface NEEDS-HUMAN honestly: blocked tickets with no live retry are the owner's
   queue; say what decision is needed, not how to build it.
 - Machine-keeping operations ARE yours (they keep the pipeline alive, they do not

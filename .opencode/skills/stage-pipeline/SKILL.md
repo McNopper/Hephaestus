@@ -47,17 +47,17 @@ resolve when the surface recovers. Re-check the liveness sweep at step 5.
 The preamble only releases claims; it never writes stage business state,
 and the stage loop's order below is untouched.
 
-**Kickoff horizon read (DS-2 / C-C3-1, `docs/autonomy-spectrum-design.md` §2.3 —
+**Kickoff horizon read (DS-2 / C-C3-1, `docs/autonomy-spectrum-design.md` §2.3 -
 the pump's one dial touchpoint, run before the stage loop):** resolve the
 run's position once per pass: from a staged ticket of the run, walk the
-`epic` link to the epic-less ancestor, the
-stageless GOAL root (a staged ticket with no epic ancestor has no position -
+`basis` chain to its root, the
+stageless GOAL root (a staged ticket with no chain root has no position -
 fall through); `task_get` (E2) the root and parse its dial record's
 `goal horizon` line - and ONLY that line (DD-03): the review-cadence dial
 has no pump edge, no step below takes a dial parameter, and the five steps
 stay `docs/design-stage-pipeline.md` §4 verbatim under both horizon modes
 (QA-3, pump invariance).
-Record absent, unparseable, no epic-root ancestor, or the read failing →
+Record absent, unparseable, no chain root, or the read failing →
 fall through silently to the doctrine defaults (C-C5-1:
 `run-to-Product-Goal`, the T-041 floor unchanged - `AGENTS.md`): the tick
 proceeds, and the pump NEVER asks the owner - it holds no edge back to
@@ -114,7 +114,7 @@ Per stage:
    ticket(s) per your stage's division map - `task_create` with `stage` = the
    child stage and `basis` = the done ticket's id (THE link: the basis chain up
    to the requirement is the scope - the requirement IS the epic, owner rule
-   2026-11-19; never set `epic`), and carry the artifact references into the
+   2026-11-19; there is no epic field to set), and carry the artifact references into the
    description. Deterministic check (owner rule 2026-11-19): `task_doctor`
    reports every walked definition ticket that has no link to its next stage,
    no right-leg join (a `test-*` ticket with `basis` = it), or a dangling
@@ -166,7 +166,7 @@ Per stage:
    done), stop — the instance exists; the scan surface unavailable →
    defer the mint to a later pass, never mint blind (DS-004). Create per
    flow §3 (title with the token suffix, basis = D (the basis chain to the
-    requirement is the scope - never set `epic`), role
+    requirement is the scope - there is no epic field), role
    tester, stage test-requirements, type task / 0 points / medium
    priority, no model, description = flow §3.2 verbatim — the
    NON-BLOCKING paragraph never reworded, acceptance criteria = flow
@@ -250,8 +250,7 @@ agent), and this lane never claims one.
    test-requirements ticket's title already carries the token (open or
    done), skip W — the instance exists; the scan surface unavailable →
    defer the mint to a later pass, never mint blind (DS-004). Create per
-   flow §3 (title with the token suffix, basis = null, epic = W's single
-   common epic else null — scope container only, role tester, stage
+   flow §3 (title with the token suffix, basis = null - scope container only, role tester, stage
    test-requirements, type task / 0 points / medium priority, no model,
    description = flow §3.2 verbatim, acceptance criteria = flow §3.3's
    wave shape: the four fixed lines naming the wave's agent-facing

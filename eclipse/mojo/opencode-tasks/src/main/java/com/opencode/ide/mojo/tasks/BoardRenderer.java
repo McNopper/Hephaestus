@@ -19,9 +19,6 @@ public final class BoardRenderer {
   /** Board title used when a project has no active sprint and none was requested. */
   public static final String NO_SPRINT = "(no sprint)";
 
-  /** One row of the Epics section. */
-  public record EpicRow(String id, String title, int open, int total) {}
-
   /** One project's board, precomputed from loaded tasks. */
   public static final class ProjectBoard {
 
@@ -30,21 +27,18 @@ public final class BoardRenderer {
     public final String sprintGoal;
     public final String sprintStatus;
     public final Map<String, List<Task>> columns;
-    public final List<EpicRow> epics;
 
     ProjectBoard(
         String project,
         String sprintId,
         String sprintGoal,
         String sprintStatus,
-        Map<String, List<Task>> columns,
-        List<EpicRow> epics) {
+        Map<String, List<Task>> columns) {
       this.project = project;
       this.sprintId = sprintId;
       this.sprintGoal = sprintGoal;
       this.sprintStatus = sprintStatus;
       this.columns = columns;
-      this.epics = epics;
     }
 
     /** Story points across all tickets on the board. */
@@ -99,38 +93,14 @@ public final class BoardRenderer {
         }
       }
     }
-    Map<String, int[]> epicCounts = new LinkedHashMap<>();
-    for (List<Task> column : columns.values()) {
-      for (Task t : column) {
-        if (t.epic == null || t.epic.isBlank()) {
-          continue;
-        }
-        int[] c = epicCounts.computeIfAbsent(t.epic, k -> new int[2]);
-        c[1]++;
-        if (!"done".equals(t.status)) {
-          c[0]++;
-        }
-      }
-    }
-    List<EpicRow> epics = new ArrayList<>();
-    for (Map.Entry<String, int[]> e : epicCounts.entrySet()) {
-      Task epicTask = byId.get(e.getKey());
-      epics.add(
-          new EpicRow(
-              e.getKey(),
-              epicTask == null ? null : epicTask.title,
-              e.getValue()[0],
-              e.getValue()[1]));
-    }
-    epics.sort(Comparator.comparing(EpicRow::id));
+
     Task.Sprint sprint = sprintId == null ? null : sprints.get(sprintId);
     return new ProjectBoard(
         project,
         sprintId,
         sprint == null ? null : sprint.goal(),
         sprint == null ? null : sprint.status(),
-        columns,
-        epics);
+        columns);
   }
 
   private static String latestActiveSprintKey(Map<String, Task.Sprint> sprints) {
@@ -181,21 +151,6 @@ public final class BoardRenderer {
       }
       b.append('\n');
     }
-    b.append("## Epics\n");
-    if (board.epics.isEmpty()) {
-      b.append("_(none)_\n");
-    } else {
-      for (EpicRow e : board.epics) {
-        b.append("- ");
-        if (e.title() != null) {
-          b.append('[').append(e.id()).append("] ").append(e.title());
-        } else {
-          b.append(e.id());
-        }
-        b.append(" — ").append(e.open()).append(" open of ").append(e.total()).append('\n');
-      }
-    }
-    b.append('\n');
     b.append("**Totals:** ")
         .append(board.totalPoints())
         .append(" points total, ")
@@ -312,26 +267,6 @@ public final class BoardRenderer {
       }
       b.append("</section>\n");
     }
-    b.append("<section class=\"epics\">\n<h2>Epics</h2>\n");
-    if (board.epics.isEmpty()) {
-      b.append("<p class=\"empty\">(none)</p>\n");
-    } else {
-      b.append("<ul>\n");
-      for (EpicRow e : board.epics) {
-        b.append("<li>");
-        if (e.title() != null) {
-          b.append("<span class=\"id\">[")
-              .append(esc(e.id()))
-              .append("]</span> ")
-              .append(esc(e.title()));
-        } else {
-          b.append("<span class=\"id\">").append(esc(e.id())).append("</span>");
-        }
-        b.append(" — ").append(e.open()).append(" open of ").append(e.total()).append("</li>\n");
-      }
-      b.append("</ul>\n");
-    }
-    b.append("</section>\n");
     b.append("<p class=\"totals\">Totals: ")
         .append(board.totalPoints())
         .append(" points total, ")

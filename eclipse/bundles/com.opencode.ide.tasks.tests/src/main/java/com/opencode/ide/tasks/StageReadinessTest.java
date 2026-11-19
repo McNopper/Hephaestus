@@ -16,9 +16,9 @@ import org.junit.rules.TemporaryFolder;
  * done/in-review AND carries its product (U-081), STALE when the basis changed after the ticket ran
  * (strictly-after timestamps), READY otherwise, NOT_APPLICABLE when done. Entry-stage tickets
  * (requirements) without a basis are READY; tickets without any stage are NOT_APPLICABLE. BLOCKED
- * outranks everything, RUNNING outranks the wait. Tickets WITHOUT a basis keep the legacy
- * epic-chain fallback (migration, design &sect;10) - pinned by the last two cases. Deterministic by
- * construction: every timestamp is a pinned constant.
+ * outranks everything, RUNNING outranks the wait. Tickets WITHOUT a basis resolve through their own
+ * flow history only - the epic-chain fallback (and its two pinned cases) left with the epic field
+ * (owner model 2026-11-19). Deterministic by construction: every timestamp is a pinned constant.
  */
 public class StageReadinessTest {
 
@@ -157,21 +157,11 @@ public class StageReadinessTest {
   }
 
   @Test
-  public void legacyTicketWithoutBasisKeepsTheEpicChainFallback() {
-    // migration: an unbasis'd design ticket with a done epic parent in the upstream stage
-    // (the LADDER upstream of design is architecture - that is where the legacy walk looks)
+  public void basisLessTicketResolvesThroughItsOwnFlowHistoryOnly() {
+    // epic removed (owner model 2026-11-19): a basis-less non-root ticket has NO second chain -
+    // without its own gated flow history it waits on the upstream stage like any other
     Task design = ticket("D-9", "design", "product-backlog");
-    design.epic = "SYS-1";
     Task sys = ticket("SYS-1", "architecture", "done");
-    assertEquals(StageReadiness.Kind.READY, verdictOf(design, List.of(design, sys)).kind());
-  }
-
-  @Test
-  public void legacyEpicUpstreamWithoutArtifactStillWaits() {
-    Task design = ticket("D-9", "design", "product-backlog");
-    design.epic = "SYS-1";
-    Task sys = ticket("SYS-1", "architecture", "done");
-    sys.artifacts.clear();
     assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, verdictOf(design, List.of(design, sys)).kind());
   }
 
@@ -193,7 +183,6 @@ public class StageReadinessTest {
                 null,
                 null,
                 null,
-                sys.id, // epic: the scope container the child inherits
                 null,
                 null,
                 null,

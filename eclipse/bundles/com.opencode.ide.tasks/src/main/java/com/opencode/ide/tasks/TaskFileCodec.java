@@ -211,7 +211,7 @@ public final class TaskFileCodec {
     fm(b, "model", t.model);
     fm(b, "story_points", t.storyPoints);
     fm(b, "sprint", t.sprint);
-    fm(b, "epic", t.epic);
+
     fm(b, "basis", t.basis);
     fm(b, "assignee", t.assignee);
     fm(b, "resume_to", t.resumeTo);
@@ -324,7 +324,9 @@ public final class TaskFileCodec {
     Integer points = scalarInt(raw.remove("story_points"));
     t.storyPoints = points == null ? 0 : points;
     t.sprint = scalarString(raw.remove("sprint"));
-    t.epic = scalarString(raw.remove("epic"));
+    raw.remove(
+        "epic"); // epic field removed 2026-11-19 (owner: the stage is the structure) - discard
+    // stray legacy lines
     t.basis = scalarString(raw.remove("basis"));
     t.assignee = scalarString(raw.remove("assignee"));
     // U-067: blocked is a STATE. The legacy boolean flag migrates once,

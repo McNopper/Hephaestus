@@ -32,7 +32,6 @@ public record BoardSnapshot(
     String error,
     PipelineSnapshot pipeline,
     Map<String, StageReadiness.Readiness> readiness,
-    Map<String, List<TicketRow>> epicLanes,
     Map<String, StageJourney> journeys) {
 
   /** FLAT-mode shape: no pipeline grouping. */
@@ -42,7 +41,7 @@ public record BoardSnapshot(
       int total,
       int blockedCount,
       String error) {
-    this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of(), Map.of());
+    this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of());
   }
 
   public BoardSnapshot(
@@ -52,7 +51,7 @@ public record BoardSnapshot(
       int blockedCount,
       String error,
       PipelineSnapshot pipeline) {
-    this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of(), Map.of());
+    this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of());
   }
 
   public BoardSnapshot(
@@ -63,7 +62,7 @@ public record BoardSnapshot(
       String error,
       PipelineSnapshot pipeline,
       Map<String, StageReadiness.Readiness> readiness) {
-    this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of(), Map.of());
+    this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of());
   }
 
   /** An all-empty board carrying an error/notice message. */
@@ -107,8 +106,8 @@ public record BoardSnapshot(
 
   /**
    * U-028 FR-002/FR-005: the board-wide WIP count (status in-progress) on a LAYOUT-INDEPENDENT
-   * surface - derived from the flat columns every mode fills, so it survives the hidden-status,
-   * epic-swimlane and V layouts alike; recomputed per snapshot. A plain count, never a limit.
+   * surface - derived from the flat columns every mode fills, so it survives the hidden-status and
+   * V layouts alike; recomputed per snapshot. A plain count, never a limit.
    */
   public int wipCount() {
     int wip = 0;

@@ -92,7 +92,7 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
 
   @Test
   public void pmRoleTicketLandsInRequirements() {
-    String id = sprintTicket("epic work", null, "pm");
+    String id = sprintTicket("scope work", null, "pm");
     PipelineSnapshot pipeline = pipelineModel().refresh().pipeline();
 
     assertEquals(id, pipeline.column("requirements").rows().get(0).id());
@@ -226,7 +226,7 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
 
   @Test
   public void stageFilterIncludesUntrackedOnlyWhenSelected() {
-    sprintTicket("epic-ish", null, "weird-role"); // untracked: role maps to no stage
+    sprintTicket("scope-ish", null, "weird-role"); // untracked: role maps to no stage
     BoardModel model = pipelineModel();
 
     model.setStageFilter(java.util.Set.of("design"));

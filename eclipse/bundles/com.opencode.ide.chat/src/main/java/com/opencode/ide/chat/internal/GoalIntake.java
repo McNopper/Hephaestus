@@ -23,7 +23,7 @@ import java.util.Set;
  *       and spawns it again);
  *   <li>{@code /goal clear} - close-or-split with the pipeline state preserved: no open children
  *       -&gt; archive the goal; open children -&gt; a continuation ticket carries the objective,
- *       the open tickets re-home under its {@code epic}, and the original CLOSES with the
+ *       the goal's direct children re-home under its {@code basis}, and the original CLOSES
  *       continuation file as its artifact so every child's basis chain stays satisfied (done +
  *       artifact - never an archived non-done base).
  * </ul>
@@ -66,7 +66,6 @@ public final class GoalIntake {
                 0,
                 List.of(),
                 List.of(GOAL_LABEL),
-                null,
                 "T",
                 null,
                 null,
@@ -157,7 +156,7 @@ public final class GoalIntake {
           null);
     }
     // close-or-SPLIT: the continuation carries the objective verbatim, the open tickets re-home
-    // under its epic, and the original CLOSES with the continuation file as its artifact - so
+    // under its basis, and the original CLOSES with the continuation file as its artifact - so
     // every child's basis chain stays satisfied (done + artifact, never an archived live base)
     String title = goal.title == null || goal.title.isBlank() ? "continued goal" : goal.title;
     String body =
@@ -177,7 +176,6 @@ public final class GoalIntake {
                 0,
                 List.of(),
                 List.of(GOAL_LABEL),
-                null,
                 "T",
                 null,
                 null,
@@ -185,7 +183,11 @@ public final class GoalIntake {
                 null),
             "requirements");
     for (Task child : open) {
-      store.update(project, child.id, Map.of("epic", cont.id));
+      // re-home the goal's DIRECT children only - their derivation now leads at the
+      // continuation; deeper edges stay, so the chain keeps its shape and stays valid
+      if (goal.id.equals(child.basis)) {
+        store.update(project, child.id, Map.of("basis", cont.id));
+      }
     }
     store.addComment(
         project,
@@ -217,9 +219,9 @@ public final class GoalIntake {
   }
 
   /**
-   * The open (not-done) descendants of the goal over BOTH links the pipeline uses - {@code basis}
-   * (the derivation chain division creates) and {@code epic} (scope) - computed to a fixed point
-   * over the LIVE store; the root itself is excluded.
+   * The open (not-done) descendants of the goal over the link the pipeline uses - {@code basis}
+   * (the derivation chain division creates) - computed to a fixed point over the LIVE store; the
+   * root itself is excluded.
    */
   static List<Task> openDescendants(TaskStore store, String project, String rootId) {
     List<Task> all = store.list(project, null, null, null, null);
@@ -233,9 +235,7 @@ public final class GoalIntake {
         if (t == null || t.id == null || inTree.contains(t.id)) {
           continue;
         }
-        boolean child =
-            (t.basis != null && inTree.contains(t.basis))
-                || (t.epic != null && inTree.contains(t.epic));
+        boolean child = t.basis != null && inTree.contains(t.basis);
         if (child) {
           inTree.add(t.id);
           grew = true;

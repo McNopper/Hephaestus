@@ -300,7 +300,6 @@ public class MojosTest {
             + "sprint: "
             + sprint
             + "\n"
-            + "epic: null\n"
             + "basis: null\n"
             + "assignee: null\n"
             + "resume_to: null\n"

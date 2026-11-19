@@ -166,7 +166,7 @@ $prompt =
     "PASS: task_update done; FAIL: task_set_blocked with the reasons; UNCLEAR: one " +
     "retry round-trip to the fulfiller; (4) DONE tickets without downstream children " +
     "divide: create the linked downstream ticket(s) per the division map (task_create " +
-    "with stage/basis - the basis chain to the requirement replaces any epic; " +
+    "with stage/basis - the basis chain to the requirement is the scope; " +
     "task_doctor reports missing divisions and missing right-leg joins) plus the " +
     "paired test ticket; (5) READY tickets: plan them " +
     "into the ticker-v sprint (task_plan_sprint) then claim under the spawn cap of " +

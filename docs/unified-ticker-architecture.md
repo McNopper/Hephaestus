@@ -28,7 +28,7 @@
   steward executes; cited as [SKILL]),
   `.opencode/skills/stage-pipeline/ticker-setup.ps1` (the prototype arming
   script, read-only provenance; cited as [SETUP]); ticket T-103 (this stage,
-  epic U-112, basis T-055).
+  basis T-055).
 
 ## Scope
 
@@ -71,7 +71,7 @@ component set collapses from ten tickers to one steward.
 
 | Component | Layer | Responsibility (from the basis) | Anchored in (real machinery) | Basis |
 |---|---|---|---|---|
-| **C1 `store`** | substrate | The ONLY memory: tickets with immutable `stage:` ownership, `epic` (scope) / `basis` (derivation) links, claims, artifact indexes, append-only history, readiness semantics — plus the ONE rolling sprint record `ticker-v` (U-108 reopen semantics). Mutated only through the `task_*` verbs; never loses a confirmed write. | `.harness/tasks/hephaestus/` (one Markdown file per ticket) + the `task_*` MCP verb surface | [SYS §Major parts "task store" + "rolling sprint record"; I-3; I-5] |
+| **C1 `store`** | substrate | The ONLY memory: tickets with immutable `stage:` ownership, `basis` (derivation) links, claims, artifact indexes, append-only history, readiness semantics — plus the ONE rolling sprint record `ticker-v` (U-108 reopen semantics). Mutated only through the `task_*` verbs; never loses a confirmed write. | `.harness/tasks/hephaestus/` (one Markdown file per ticket) + the `task_*` MCP verb surface | [SYS §Major parts "task store" + "rolling sprint record"; I-3; I-5] |
 | **C2 `host`** | platform | The opencode service runtime: the `experimental.automations` surface (W1: list/get/create/pause/resume/delete), session execution, background-subagent execution, and the `tasks` MCP transport. Holds everything that dies on restart (automations, live sessions, the cap count, the MCP connection). Provides surfaces and transport only — no agency of its own. | the running service (url + token from `service.json`, Basic auth — the same discovery [SETUP] uses) | [SYS §Major parts "opencode service"; remember-vs-forget] |
 | **C3 `schedule`** | control-data | The ONE `ticker-v` experimental-schedule record: the name is the identity key (INV-1); bound to the steward session; carries the arm-time tick prompt (canonical stage list + Cap interpolated — the cap reaches the steward through the prompt and nowhere else, C-F); service-maintained health fields `runCount` / `lastOutcome`. Runtime state — dies with C2. | the schedule record on C2; created/looked-up only by C8 | [SYS §Major parts "ticker-v schedule"; I-1] |
 | **C4 `steward`** | control | The tick executor: ONE pass over all ten stages in canonical order — BLOCKED escalate to basis → IN-REVIEW verdict application → DONE divide → READY plan-then-claim under the cap → gated pass close — plus reconciliation of interrupted work at the first pass after a resume, count-before-spawn + defer-at-cap, and the mid-pass store-loss reconnect. Holds the big picture and the cap counter; never works a ticket itself and never accepts one. | the steward session titled `ticker-v`, created as a CHILD of a repo-rooted parent (C-C); the procedure is [SKILL] | [SYS §Major parts "steward session"; I-2..I-4] |
@@ -92,7 +92,7 @@ component set collapses from ten tickers to one steward.
     │    the tick's fixed order)        │
     ▼ E5 own-ticket writes ─────────────┼──▶ (C5 writes, C6 reads)
  ┌─────────────────────────────────────────────────────────────┐
- │ [C1 store] tickets · claims · epic/basis links · artifacts  │
+ │ [C1 store] tickets · claims · basis links · artifacts  │
  │            · history · ONE record "ticker-v" (U-108 reopen) │
  └─────────────────────────────────────────────────────────────┘
         ▲ E3/E5/E6 ride the store transport it hosts
@@ -153,7 +153,7 @@ here.**
 |---|---|---|---|
 | E1 | C8 → C2 | Arming: create the steward session (`POST /api/session`, child of a repo-rooted parent, C-C) + create/look-up the `ticker-v` schedule by name with the arm-time prompt (interval, Cap interpolated). REQUIRED: exactly-one on re-arm — reuse or retire-and-recreate, never duplicate (the guard is Route A's content; Q-001/Q-002 ride it). | [SYS I-1; S-3; FR-003; C-F] |
 | E2 | C3 → C4 | Firing: when the interval elapses, C2 delivers the arm-time tick prompt into the steward session as a new turn. No state carried between ticks in the prompt or the schedule — each firing is a complete, independent pass. | [SYS I-1; FR-002; FR-005] |
-| E3 | C4 → C1 | The tick's store interface. Read path: `task_readiness` per stage (an empty V costs exactly one query per stage, FR-014) plus `task_get` / `task_list` / `task_board` for verdicts and division. Write path, in the tick's fixed order (FR-006): escalate (`task_set_blocked` on the *basis* ticket) → verdict application (`task_update` → `done` on the reviewer's PASS only; FAIL → `task_set_blocked`; UNCLEAR → one retry round-trip to the fulfiller, riding E4) → division (`task_create` with `stage`/`epic`/`basis`, artifact references carried, paired `test-*` for definition stages) → kickoff (`task_plan_sprint` THEN `task_claim` — INV-4's ordering) → gated close (`task_close_sprint` only when nothing is claimed or in flight — I-5). Plus reconciliation writes: `task_release` of orphaned claims (S-2). One attempt per ticket per tick. | [SYS I-3; FR-006/007; DSG §2/§3] |
+| E3 | C4 → C1 | The tick's store interface. Read path: `task_readiness` per stage (an empty V costs exactly one query per stage, FR-014) plus `task_get` / `task_list` / `task_board` for verdicts and division. Write path, in the tick's fixed order (FR-006): escalate (`task_set_blocked` on the *basis* ticket) → verdict application (`task_update` → `done` on the reviewer's PASS only; FAIL → `task_set_blocked`; UNCLEAR → one retry round-trip to the fulfiller, riding E4) → division (`task_create` with `stage`/`basis`, artifact references carried, paired `test-*` for definition stages) → kickoff (`task_plan_sprint` THEN `task_claim` — INV-4's ordering) → gated close (`task_close_sprint` only when nothing is claimed or in flight — I-5). Plus reconciliation writes: `task_release` of orphaned claims (S-2). One attempt per ticket per tick. | [SYS I-3; FR-006/007; DSG §2/§3] |
 | E4 | C4 → C2 | Subagent spawn: workers (one per claimed ticket, the fulfillment brief) and reviewers (one per `in-review` ticket per stage visit, skipping tickets owned by the steward's own running children); background, reports on idle — no reverse channel. Admission: count-before-spawn ≤ Cap counting BOTH workers and reviewers; defer-at-cap plans the ticket into the rolling record but does NOT claim it (I-4); overlapping lanes serialize. Also carries the store-loss reconnect. | [SYS I-2; I-4; FR-008/009/010/011] |
 | E5 | C5 → C1 | Own-ticket footprint only: `task_add_artifact`, `task_update` → `in-review`, `task_add_comment`, `task_set_blocked` when stuck. `done` is unreachable (structurally excluded from the write set, FR-008). | [SYS I-2; DSG §5] |
 | E6 | C6 → C1 | Read-only store reads: the ticket, its artifacts, its history. No writes — the verdict travels back over E4's spawn mechanism and is applied by C4 (AD-005). | [SYS I-2; I-3; reviewer.md] |
@@ -228,7 +228,7 @@ doc records the mapping and the pass-through rationale — not new structure:
 | [SYS §Invariants] INV-1..INV-7 | §Invariant anchors | each invariant mapped to the component/edge that preserves it — none re-derived |
 | [SYS §Restart and re-arm scenarios] S-1..S-6 | §Scenario walks | the walks are re-traced through the components, not re-specified |
 | [DSG §2] ticket contract (`stage:` immutability, done-time guard, division trigger) | C1 responsibilities, wholesale | store semantics are decided; C1 owns them, nothing architectural to add |
-| [DSG §3] link contract (epic = scope, basis = derivation, paired test at division) | C1's link model + E3's division step | the two-relations model is research-decided; encoded as C1 data + E3 verbs |
+| [DSG §3] link contract (basis = derivation and scope, paired test at division) | C1's link model + E3's division step | the single-relation model is owner-decided (2026-11-19); encoded as C1 data + E3 verbs |
 | [DSG §5] fulfillment (narrow brief, cap, lane serialization, no isolation) | C5 + E4 + AD-004 | admission and brief semantics are decided; E4 encodes them as exactly one directed edge |
 | [DSG §6] stage skills (one common skill, parameterized per stage) | C7 + E8/E9 | "one process, ten parameterizations — not ten divergent copies" — static knowledge, not a runtime actor |
 | [DSG §7] artifacts store (W12, opt-in per D-004) | C1's artifact index; publication shape is a local setting | "the ticket's artifact list stays the store-side index" — ref shape is not structure |

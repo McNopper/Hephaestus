@@ -23,7 +23,7 @@
 ## Scope decision (owner, 2026-11-14)
 
 **The harness keeps: the task store and the pipeline designed here.** Tasks
-(tickets, epic links, readiness, claims, sprints) plus the stage tickers,
+(tickets, basis links, readiness, claims, sprints) plus the stage tickers,
 goal-driven subagents, the artifacts store, and the engine-owned verdict.
 Everything else enters adopt-and-remove: the FleetRunner and its dispatch /
 merge-back / watchdog / admission machinery, the `fleet_*` MCP tools, the
@@ -33,7 +33,7 @@ wandering-V verbs, and RecurringWaves. The D-005 minimal core shrinks to:
 ## 1. The model
 
 ```text
-epic (basis links)          schedules (W1)           subagents (2.3.0)
+basis links                 schedules (W1)           subagents (2.3.0)
      │                            │                        │
 [stationary tickets] ──► per-stage tickers ──► spawn cap ──► goal-driven workers
      │                    (= sprint kickoffs)                ("finish this ticket")
@@ -65,7 +65,7 @@ control plane (H7) with the orchestrator role absorbed into the assistant.
    in-progress → in-review → done`).
 2. **The pipeline is the link graph.** Completing an upstream ticket *divides*:
    the stage agent creates the derived ticket(s) for the next stage and links
-   them (`epic` = the basis ticket). One basis fans out to several children
+   them (`basis` = the completed ticket). One basis fans out to several children
    (ASPICE work-product derivation).
 3. **Per-stage tickers** (upstream `experimental.automations`, W1 (renamed from schedules in 2.3.1) — adopted): one
    steward session per stage. Each schedule trigger is a **sprint kickoff**: a
@@ -93,10 +93,10 @@ control plane (H7) with the orchestrator role absorbed into the assistant.
   downstream ticket(s). Creation is performed by the stage agent as part of
   finishing (the "division"), or by the downstream stage's ticker at kickoff
   when the division map is mechanical (design → implementation). Both paths
-  produce tickets with `epic = <basis id>`; both record the same artifact
+  produce tickets with `basis = <upstream id>`; both record the same artifact
   references so the chain carries content, not just IDs.
 
-## 3. The link contract (research-informed: scope and derivation are SEPARATE relations)
+## 3. The link contract (basis is the ONLY link (owner rule 2026-11-19: scope collapsed into the chain))
 
 The decomposition research (2026-11-14, `docs/research-epic-decomposition-2026-11.md` —
 Scrum Guide, SAFe, Jira, GitLab, GitHub) is decisive: every framework keeps
@@ -110,36 +110,38 @@ GitHub: sub-issue parent ≠ cross-references).
 
 Therefore:
 
-- **`epic` = the scope container.** A division creates the downstream tickets
-  with the SAME epic as the completing ticket — one epic groups its whole
-  derivation tree (the SAFe view: epic contains its features). Epic done =
-  rollup of epic-children done (GitHub/GitLab pattern); no separate epic DoD.
-- **NEW `basis` field = the derivation edge** (directional, child → the
-  upstream ticket whose product this ticket derives from). This is what
-  readiness walks for upstream/downstream and STALE — the star-shaped epic
-  graph cannot carry direction, the basis chain can. ASPICE traceability:
-  basis = trace-to-basis; derivations = every ticket whose basis points here.
+- **Scope rides the chain (owner rule 2026-11-19):** the `epic` field is
+  REMOVED - the requirement IS the scope. A division creates the downstream
+  tickets with `basis` = the completing ticket, and the basis chain up to the
+  requirement groups the derivation tree (one requirement = one chain; done =
+  the chain complete). No separate rollup field, no epic swimlane - the stage
+  structure carries the scope.
+- **`basis` = THE chain edge** (directional, child -> the upstream ticket
+  whose product this ticket derives from). It is what readiness walks for
+  upstream/downstream and STALE - only a directional chain can carry
+  direction. ASPICE traceability: basis = trace-to-basis; derivations =
+  every ticket whose basis points here.
 - **Paired verification at division:** division creates BOTH the next
-  definition ticket AND its paired `test-*` ticket — same epic (scope),
-  basis = the ticket they verify (order). Readiness gates the test ticket on
+  definition ticket AND its paired `test-*` ticket - each carries `basis` =
+  the ticket it derives from / verifies (order), their shared scope being
+  the chain to the requirement. Readiness gates the test ticket on
   its basis reaching `done`.
 - **Consistency is always-on:** readiness STALE (basis-upstream's
-  `inputs_changed_at` stamp changed after the downstream ran — U-052's field)
+  `inputs_changed_at` stamp changed after the downstream ran - U-052's field)
   is the ASPICE consistency check. **Dependency: U-052 lands before the
   tickers go live.**
 - **Checkpoints are not entities:** a "milestone" is either a wave with an
   optional target date (owner decision, later if needed) or the completion
-  gate of a key ticket (the stage-gate verdict) — per Atlassian: "your
+  gate of a key ticket (the stage-gate verdict) - per Atlassian: "your
   project milestone could be the completion of a certain task, but it's not
   the task itself." No new construct.
-- **Anti-pattern guardrails encoded:** no evergreen wandering epics (an epic
-  with open children across many waves is a smell — Atlassian puts
-  long-lived programs in *initiatives above* epics); waves without goals are
-  a smell (the sprint goal is the commitment); milestones never become scope
-  containers.
-- Grouping umbrellas coexist unchanged: `E-*` program umbrellas keep working
-  as plain epic grouping; `task_traceability` reports both relations (epic =
-  scope rollup, basis = order and traceability).
+- **Anti-pattern guardrails encoded:** no evergreen wandering requirements
+  (a requirement with open descendants across many waves is a smell -
+  Atlassian puts long-lived programs in *initiatives above*); waves without
+  goals are a smell (the sprint goal is the commitment); milestones never
+  become scope containers.
+- `task_traceability` reports the basis relation (order and traceability);
+  its three signals pair via the basis link (role + basis).
 
 ## 4. Micro-sprints and the ticker cadence
 
@@ -200,7 +202,7 @@ identical across all ten stages**. What is concrete per stage is only data:
 
 | Concrete per stage | Example (design) |
 |---|---|
-| the **division map** — which children it spawns, for which stage | a done design ticket spawns implementation tickets (`basis` = the design ticket, `epic` inherited, stage = implementation) |
+| the **division map** — which children it spawns, for which stage | a done design ticket spawns implementation tickets (`basis` = the design ticket, stage = implementation) |
 | the **discipline skill** | `software-design` / for workers `software-implementation` |
 | the **artifacts** | the design document(s) published to the artifacts store |
 
@@ -225,7 +227,7 @@ adding a stage = adding its division map + skill, nothing else.
   A subagent's world is exactly its ticket: the ticket content, the **direct
   basis artifacts** (the upstream stage product it derives from — e.g. the
   design document for an implementation worker), its stage skill + the common
-  process skill, and its lane constraints. No epic tree, no initiative
+  process skill, and its lane constraints. No scope umbrella, no initiative
   context, no other tickets, no store-wide visibility. Transitively needed
   content lives IN the basis artifact (ASPICE consistency: the design doc
   incorporates the requirements it implements). The ticker composes this brief
@@ -312,7 +314,7 @@ adding a stage = adding its division map + skill, nothing else.
 - Open sprint records (`S-08`.., `ticker-*` for new stages) continue under the
   existing reopen semantics (U-108).
 - The Board's V-pipeline projection becomes a **stage-column × link-graph**
-  view (columns = stages, tickets stationary, edges = epic links). UI chunk.
+  view (columns = stages, tickets stationary, edges = basis links). UI chunk.
 - The traceability report keeps its three signals; the "wandered ticket pairs
   with itself" signal disappears with the wandering — pairing is now explicit
   (division-created test tickets).
@@ -333,7 +335,7 @@ Adopted native: `experimental.automations` (W1; renamed from schedules in 2.3.1)
 worktree APIs (unchanged adoption target, now optional — only if a future
 design needs isolated worktrees) · permission request/reply · `usage.limits` /
 `session.stats` / `session.generate` tokens-cost.
-Ours (nothing native exists — D-005 core): the store (tickets, epic basis
+Ours (nothing native exists — D-005 core): the store (tickets, basis
 links, readiness, claims), the spawn-cap admission, the engine verdict, the
 Eclipse host surfaces.
 

@@ -29,7 +29,7 @@ public class TaskFileCodecTest {
     t.role = "developer";
     t.storyPoints = 8;
     t.sprint = "S-01";
-    t.epic = "T-001";
+
     t.assignee = "agent-7";
     t.status = "blocked";
     t.blocker = "waiting on API";
@@ -62,7 +62,7 @@ public class TaskFileCodecTest {
     assertEquals(t.role, back.role);
     assertEquals(t.storyPoints, back.storyPoints);
     assertEquals(t.sprint, back.sprint);
-    assertEquals(t.epic, back.epic);
+
     assertEquals(t.assignee, back.assignee);
     assertEquals(t.isBlocked(), back.isBlocked());
     assertEquals(t.blocker, back.blocker);

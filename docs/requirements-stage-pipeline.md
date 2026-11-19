@@ -12,7 +12,8 @@
   HOW; trace to it, do not duplicate), ticket
   `.harness/tasks/hephaestus/U-111.md`, `docs/opencode-v2-adoption.md`
   (W1/W12/W13 adoption policy), `docs/research-epic-decomposition-2026-11.md`
-  (why epic and basis are separate relations).
+  (scope vs derivation research; the scope field was removed 2026-11-19 - the
+  basis chain up to the requirement carries both).
 
 ## Goal
 
@@ -49,11 +50,12 @@ escalations (NEEDS-HUMAN).
   store SHALL reject the transition (guard enforced at the `done` transition,
   migrated from advance-time).
 - **FR-003 (AC-1)** event-driven: WHEN an upstream ticket divides, the store
-  SHALL create the downstream ticket(s) with `epic` inherited from the
-  completing ticket, `basis` = the completing ticket, and the upstream's
+  SHALL create the downstream ticket(s) with `basis` = the completing ticket
+  (the chain to the requirement is the scope - owner rule 2026-11-19) and the
+  upstream's
   artifact references carried over (the chain carries content, not just IDs).
 - **FR-004 (AC-1)** event-driven: WHEN a definition-stage ticket divides, the
-  system SHALL also create its paired `test-*` ticket (same epic, basis = the
+  system SHALL also create its paired `test-*` ticket (basis = the
   ticket it verifies), gated by readiness on its basis reaching `done`.
 
 ### Readiness (AC-2)
@@ -61,7 +63,8 @@ escalations (NEEDS-HUMAN).
 - **FR-005 (AC-2)** ubiquitous: THE readiness evaluation SHALL derive
   upstream/downstream relations and READY/STALE state from basis chains.
 - **FR-006 (AC-2)** state-driven: WHILE a ticket carries no basis, the
-  readiness evaluation SHALL fall back to the legacy epic-chain semantics.
+  readiness evaluation SHALL resolve through the ticket's own flow history
+  only - there is no second chain (epic field removed, owner rule 2026-11-19).
 - **FR-007 (AC-2)** event-driven: WHEN a basis-upstream's `inputs_changed_at`
   stamp (U-052 semantics, landed first) changes after the downstream ran, the
   downstream SHALL be reported STALE.
@@ -154,9 +157,9 @@ escalations (NEEDS-HUMAN).
   Eclipse host.
 - **C-002 Stationary ownership:** the ten canonical stages stay; `stage:` is
   immutable ownership set at creation (`null` legal), never a cursor.
-- **C-003 Two relations:** `epic` = scope container (one epic groups its
-  whole derivation tree; done = rollup), `basis` = derivation edge
-  (direction, traceability). Milestones are never scope containers — no new
+- **C-003 One relation (owner rule 2026-11-19):** `basis` = derivation edge
+  AND scope grouping (the chain up to the requirement groups the tree; done =
+  chain complete). Milestones are never scope containers — no new
   construct.
 - **C-004 Retirement ordering:** the fleet is removed LAST, only after live
   parity evidence (the acceptance run) validates the whole loop; wandering

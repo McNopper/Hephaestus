@@ -36,7 +36,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
   /**
    * T-001..T-007 covering every kind: T-001 READY (requirements in a sprint), T-002 WAIT_UPSTREAM
    * (system, nothing upstream), T-003 NOT_APPLICABLE (no stage), T-004 STALE (design ran before,
-   * epic chain to T-006 which changed after), T-005 BLOCKED, T-006 the done architecture anchor
+   * basis link to T-006 which changed after), T-005 BLOCKED, T-006 the done architecture anchor
    * (itself NOT_APPLICABLE: done, and it entered the pipeline at architecture - nothing upstream to
    * wait on), T-007 RUNNING.
    */
@@ -46,9 +46,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
     call("task_create", "{\"project\":\"p\",\"title\":\"waiting\",\"stage\":\"system\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"legacy\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"stale child\",\"stage\":\"design\"}");
-    call(
-        "task_update",
-        "{\"project\":\"p\",\"ticket_id\":\"T-004\",\"epic\":\"T-006\",\"title\":\"stale child v2\"}");
+    call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-004\",\"title\":\"stale child v2\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"blocked\",\"stage\":\"design\"}");
     call(
         "task_set_blocked",
@@ -56,6 +54,12 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
     call("task_create", "{\"project\":\"p\",\"title\":\"anchor\",\"stage\":\"architecture\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"runner\",\"stage\":\"design\"}");
     call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-007\",\"status\":\"in-progress\"}");
+    // T-006 exists now: the STALE child links to it (basis is the chain edge, validated)
+    call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-004\",\"basis\":\"T-006\"}");
+    // T-006 exists now: the STALE child links to it (basis is the chain edge, validated)
+    call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-004\",\"basis\":\"T-006\"}");
+    // T-006 exists now: the STALE child links to it (basis is the chain edge, validated)
+    call("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-004\",\"basis\":\"T-006\"}");
     tick();
     // U-110: the product is recorded BEFORE the done (done-time enforcement) - the done touch
     // keeps the anchor the newest input
@@ -199,7 +203,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
     store.archive("p", parent.id, "wave close");
     // the child is touched last: the archived upstream is fresh evidence, never a stale input
     Task child = store.create("p", TaskStore.CreateSpec.of("downstream"), "system");
-    store.update("p", child.id, Map.of("epic", parent.id));
+    store.update("p", child.id, Map.of("basis", parent.id));
 
     assertFalse(
         "control: without the archive pool the archived parent is invisible"
