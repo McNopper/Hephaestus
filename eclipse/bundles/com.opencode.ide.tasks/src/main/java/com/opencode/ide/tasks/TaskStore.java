@@ -297,8 +297,13 @@ public final class TaskStore {
           if (spec.labels() != null) {
             t.labels = new ArrayList<>(spec.labels());
           }
+          // Basis is THE chain edge (owner model 2026-11-19: the requirement is the epic,
+          // named through the basis chain) - validated live+archive so joins may reattach to
+          // kept archive nodes. Epic stays an unvalidated scope label (it may point forward,
+          // e.g. a fixture labeling children before the umbrella lands); the basis message
+          // stays stable (DoneGateTest pins it).
           t.epic = spec.epic();
-          if (spec.basis() != null && !data.tasks.containsKey(spec.basis())) {
+          if (spec.basis() != null && !linkExists(project, spec.basis(), data)) {
             throw new Invalid(
                 "basis ticket " + spec.basis() + " not found in project " + project + " (U-110)");
           }
@@ -498,7 +503,21 @@ public final class TaskStore {
                 applied.add(e.getKey());
               }
               case "epic" -> {
+                // epic stays an unvalidated scope label (may point forward); the chain edge
+                // is basis (owner model 2026-11-19: the requirement IS the epic).
                 t.epic = string(e.getValue());
+                applied.add(e.getKey());
+              }
+              // Owner rule 2026-11-19: re-joining is a VERB, not a hand edit - basis is
+              // re-pointable through task_update (validated live+archive, null clears), so
+              // chains stay correctable without escaping the API.
+              case "basis" -> {
+                String b = string(e.getValue());
+                if (b != null && !linkExists(project, b, data)) {
+                  throw new Invalid(
+                      "basis ticket " + b + " not found in project " + project + " (U-110)");
+                }
+                t.basis = b;
                 applied.add(e.getKey());
               }
               case "acceptance_criteria" -> {
@@ -583,11 +602,13 @@ public final class TaskStore {
           }
           if (!applied.isEmpty()) {
             t.updatedAt = now();
-            // D-003 option B: only status/stage/epic/role writes are INPUT changes - they bump
-            // the inputs stamp; title/model/assignee/labels & co. stay bookkeeping (W-006)
+            // D-003 option B: only status/stage/epic/basis/role writes are INPUT changes - they
+            // bump the inputs stamp; title/model/assignee/labels & co. stay bookkeeping (W-006).
+            // basis rides with epic: both re-point the ticket's derivation edges (2026-11-19).
             if (applied.contains("status")
                 || applied.contains("stage")
                 || applied.contains("epic")
+                || applied.contains("basis")
                 || applied.contains("role")) {
               t.inputsChangedAt = t.updatedAt;
             }
@@ -1758,6 +1779,24 @@ public final class TaskStore {
    * check when the repo root cannot be determined from the store root's layout - one report line
    * per file or ticket, sorted; empty when the store is consistent. Read-only.
    */
+  /**
+   * A link target resolves in the live pool or in the archive pool (owner rule 2026-11-19): joins
+   * may reattach to kept archive nodes ("if they are joined again"), while legacy free-text epics
+   * like "v-flow" are rejected - basis and epic validate identically at create and update, so
+   * dangling references can never enter the store again.
+   */
+  private boolean linkExists(String project, String id, ProjectData data) {
+    if (data.tasks.containsKey(id)) {
+      return true;
+    }
+    for (Task a : archived(project)) {
+      if (a.id.equals(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public List<String> inconsistencies(String project) {
     if (projectDirectoryMissing(project)) {
       return new ArrayList<>();
@@ -1786,6 +1825,99 @@ public final class TaskStore {
                 + " ("
                 + t.status
                 + ") has no recorded artifact (record the stage's product with task_add_artifact)");
+      }
+    }
+    // ---- V-walk invariants (owner model 2026-11-19, deterministic check) ----
+    // Left leg divides >=1 link forward to the NEXT stage (V order); every walked left-leg
+    // ticket is joined on the right leg by a test-* ticket whose basis is exactly it; right-leg
+    // joins point at LEFT-leg tickets only (1:1 join-back); every basis/epic link resolves in
+    // live OR archive. Counts converge as a walk completes: |left| = |right| under these rules.
+    // Shipped legacy work is exempt with a recorded "division SATISFIED" comment (SKILL
+    // stage-pipeline: division-with-rationale) - never mint duplicate children for shipped work.
+    List<Task> pool = new ArrayList<>(tasks);
+    pool.addAll(archived(project));
+    Map<String, Task> byId = new java.util.HashMap<>();
+    Map<String, List<Task>> byBasis = new java.util.HashMap<>();
+    for (Task x : pool) {
+      byId.put(x.id, x);
+      if (x.basis != null) {
+        byBasis.computeIfAbsent(x.basis, k -> new ArrayList<>()).add(x);
+      }
+    }
+    for (Task x : pool) {
+      if (x.basis != null && !byId.containsKey(x.basis)) {
+        out.add(x.id + ": basis " + x.basis + " does not resolve (live or archive)");
+      }
+      // epic is deliberately NOT checked: it is an unvalidated scope label (it may point
+      // forward, e.g. "epic: T-006" set before T-006 exists) - the chain edge is basis.
+    }
+    for (Task t : tasks) {
+      boolean walked = "done".equals(t.status) || "in-review".equals(t.status);
+      if (!walked || !VStages.isValid(t.stage)) {
+        continue;
+      }
+      boolean satisfied =
+          t.comments != null
+              && t.comments.stream()
+                  .anyMatch(
+                      c ->
+                          c != null && c.text() != null && c.text().contains("division SATISFIED"));
+      List<Task> kids = byBasis.getOrDefault(t.id, new ArrayList<>());
+      if (VStages.isVerification(t.stage)) {
+        // I2: the right leg joins back 1:1 to a LEFT-leg ticket (shipped legacy exempt)
+        if (t.basis == null) {
+          if (!satisfied) {
+            out.add(
+                t.id
+                    + ": stage="
+                    + t.stage
+                    + " ("
+                    + t.status
+                    + ") has no basis - a right-leg ticket joins back to its left-leg ticket");
+          }
+        } else {
+          Task target = byId.get(t.basis);
+          if (target != null
+              && VStages.isValid(target.stage)
+              && VStages.isVerification(target.stage)
+              && !satisfied) {
+            out.add(
+                t.id
+                    + ": stage="
+                    + t.stage
+                    + " joins back to right-leg ticket "
+                    + t.basis
+                    + " (stage="
+                    + target.stage
+                    + ") - the right leg joins LEFT-leg tickets only");
+          }
+        }
+      } else if ("done".equals(t.status)) {
+        // I1: >= 1 link forward to the next stage (division happened)
+        String next = VStages.next(t.stage);
+        boolean fwd = next != null && kids.stream().anyMatch(k -> next.equals(k.stage));
+        if (!fwd && !satisfied) {
+          out.add(
+              t.id
+                  + ": stage="
+                  + t.stage
+                  + " (done) has no link to the next stage ("
+                  + next
+                  + ") - division not done (create it or record 'division SATISFIED' for shipped legacy work)");
+        }
+        // I3: joined on the right leg
+        boolean joined =
+            kids.stream()
+                .anyMatch(k -> VStages.isValid(k.stage) && VStages.isVerification(k.stage));
+        if (!joined && !satisfied) {
+          out.add(
+              t.id
+                  + ": stage="
+                  + t.stage
+                  + " (done) is not joined on the right leg (no test-* ticket with basis="
+                  + t.id
+                  + ") - create the join or record 'division SATISFIED' for shipped legacy work");
+        }
       }
     }
     Path repoRoot = repoRootOrNull();

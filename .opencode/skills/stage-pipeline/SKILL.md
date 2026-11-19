@@ -108,11 +108,19 @@ Per stage:
    verdict: PASS → `done`; FAIL → `blocked` with the reviewer's reasons
    (which escalates to the basis); UNCLEAR → one retry round-trip to the
    fulfiller. Verdicts are the engine's, never the fulfiller's own.
-4. DONE → PROCESS FORWARD (division): for each done ticket without downstream
-   children, create the next-stage ticket(s) per your stage's division map —
-   `task_create` with `stage` = the child stage, `epic` = the parent's epic
-   (scope inherits), `basis` = the done ticket's id (the derivation edge), and
-   carry the artifact references into the description. Quota (DS-003): the
+4. DONE → PROCESS FORWARD (division): requirements come in, get sorted and
+   prepared, and every done stage ticket TRIGGERS the next stage's ticket(s) -
+   for each done ticket without downstream children, create the next-stage
+   ticket(s) per your stage's division map - `task_create` with `stage` = the
+   child stage and `basis` = the done ticket's id (THE link: the basis chain up
+   to the requirement is the scope - the requirement IS the epic, owner rule
+   2026-11-19; never set `epic`), and carry the artifact references into the
+   description. Deterministic check (owner rule 2026-11-19): `task_doctor`
+   reports every walked definition ticket that has no link to its next stage,
+   no right-leg join (a `test-*` ticket with `basis` = it), or a dangling
+   basis - heal by dividing, by creating the join, or - shipped legacy work
+   only - by recording a `division SATISFIED` comment (never mint duplicate
+   children for shipped work). Quota (DS-003): the
    pass divides up to **10 basis tickets** - the division-burst quota, a
    procedure constant, deliberately NOT an arm-time parameter. It counts
    basis tickets divided, never child tickets created, and one basis
@@ -157,7 +165,8 @@ Per stage:
    test-requirements ticket's title already carries the token (open or
    done), stop — the instance exists; the scan surface unavailable →
    defer the mint to a later pass, never mint blind (DS-004). Create per
-   flow §3 (title with the token suffix, basis = D, epic = D's epic, role
+   flow §3 (title with the token suffix, basis = D (the basis chain to the
+    requirement is the scope - never set `epic`), role
    tester, stage test-requirements, type task / 0 points / medium
    priority, no model, description = flow §3.2 verbatim — the
    NON-BLOCKING paragraph never reworded, acceptance criteria = flow

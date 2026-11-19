@@ -155,6 +155,7 @@ public final class TaskToolProvider implements ToolProvider {
                   "acceptance_criteria",
                   "labels",
                   "epic",
+                  "basis",
                   "review",
                   "sprint")) {
             JsonElement v = a.get(field);

@@ -166,7 +166,9 @@ $prompt =
     "PASS: task_update done; FAIL: task_set_blocked with the reasons; UNCLEAR: one " +
     "retry round-trip to the fulfiller; (4) DONE tickets without downstream children " +
     "divide: create the linked downstream ticket(s) per the division map (task_create " +
-    "with stage/epic/basis) plus the paired test ticket; (5) READY tickets: plan them " +
+    "with stage/basis - the basis chain to the requirement replaces any epic; " +
+    "task_doctor reports missing divisions and missing right-leg joins) plus the " +
+    "paired test ticket; (5) READY tickets: plan them " +
     "into the ticker-v sprint (task_plan_sprint) then claim under the spawn cap of " +
     "$Cap concurrent subagents (check your running subagents first - never exceed " +
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +

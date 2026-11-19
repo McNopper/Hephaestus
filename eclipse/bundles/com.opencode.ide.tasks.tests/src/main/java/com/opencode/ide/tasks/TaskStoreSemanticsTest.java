@@ -578,18 +578,35 @@ public class TaskStoreSemanticsTest {
         new TaskStore(store.root()).get("p", bare.id).stage);
     Task verified =
         store.create("p", TaskStore.CreateSpec.of("right leg produces no product"), "test-design");
+    // V-walk (2026-11-19): the right leg joins back 1:1 - through the new basis-on-update
+    // verb - which also gives `bare` its right-leg joiner.
+    store.update("p", verified.id, Map.of("basis", bare.id));
     store.update("p", verified.id, Map.of("status", "done"));
     Task untracked = store.create("p", TaskStore.CreateSpec.of("unstaged done"));
     store.update("p", untracked.id, Map.of("status", "done"));
 
     List<String> drift = store.inconsistencies("p");
 
-    assertEquals("only the bare definition stage is reported: " + drift, 1, drift.size());
+    // With the join in place: what remains is the product gap + the forward-division gap.
+    assertEquals("product gap + forward-division gap: " + drift, 2, drift.size());
     assertTrue(
-        drift.get(0),
-        drift.get(0).contains(bare.id + ": stage=architecture (done) has no recorded artifact"));
+        "the product gap stays precise: " + drift,
+        drift.stream()
+            .anyMatch(
+                s -> s.contains(bare.id + ": stage=architecture (done) has no recorded artifact")));
+    assertTrue(
+        "the forward-division gap: " + drift,
+        drift.stream().anyMatch(s -> s.contains("has no link to the next stage (design)")));
+    assertTrue(
+        "the joined right leg and its left-leg target stay quiet: " + drift,
+        drift.stream().noneMatch(s -> s.contains("not joined") || s.contains("has no basis")));
     store.addArtifact("p", bare.id, "doc", "docs/architecture-product.md", "stage product", "dev");
-    assertEquals("recording the product heals the report", List.of(), store.inconsistencies("p"));
+    assertEquals(
+        "recording the product leaves the forward-division gap",
+        1,
+        store.inconsistencies("p").size());
+    store.addComment("p", bare.id, "division SATISFIED (legacy fixture)", "po");
+    assertEquals("the SATISFIED comment heals the report", List.of(), store.inconsistencies("p"));
   }
 
   @Test

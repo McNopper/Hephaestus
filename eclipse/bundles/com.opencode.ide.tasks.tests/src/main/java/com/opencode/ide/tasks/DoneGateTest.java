@@ -101,6 +101,38 @@ public class DoneGateTest extends ToolRpcHarness {
     assertEquals("T-001", child.epic);
   }
 
+  @Test
+  public void taskUpdateCanRepointBasisThroughTheVerb() {
+    ok("task_create", "{\"project\":\"p\",\"title\":\"root one\",\"stage\":\"requirements\"}");
+    ok("task_create", "{\"project\":\"p\",\"title\":\"root two\",\"stage\":\"requirements\"}");
+    ok(
+        "task_create",
+        "{\"project\":\"p\",\"title\":\"child\",\"stage\":\"design\",\"basis\":\"T-001\"}");
+    // Owner rule 2026-11-19: re-joining is a VERB, not a hand edit - basis repoints through
+    // task_update (validated live+archive), so chains stay correctable inside the API.
+    ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-003\",\"basis\":\"T-002\"}");
+    TaskStore fresh = new TaskStore(root);
+    assertEquals("T-002", fresh.get("p", "T-003").basis);
+    String error =
+        err("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-003\",\"basis\":\"GONE-9\"}");
+    assertTrue(error, error.contains("basis ticket GONE-9 not found"));
+    assertEquals(
+        "a rejected repoint leaves the link alone",
+        "T-002",
+        new TaskStore(root).get("p", "T-003").basis);
+    ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-003\",\"basis\":null}");
+    assertTrue("null clears the link", new TaskStore(root).get("p", "T-003").basis == null);
+  }
+
+  @Test
+  public void epicStaysAnUnvalidatedScopeLabel() {
+    // epic may point forward (a fixture labeling children before the umbrella exists) and at
+    // free labels - the chain edge is basis; "we do not need an epic" (owner 2026-11-19).
+    ok("task_create", "{\"project\":\"p\",\"title\":\"t\",\"stage\":\"requirements\"}");
+    ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"epic\":\"E-NOT-YET-CREATED\"}");
+    assertEquals("E-NOT-YET-CREATED", new TaskStore(root).get("p", "T-001").epic);
+  }
+
   private static final String TO_DONE =
       "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"done\"}";
 }
