@@ -1842,7 +1842,11 @@ public final class TaskStore {
               && t.comments.stream()
                   .anyMatch(
                       c ->
-                          c != null && c.text() != null && c.text().contains("division SATISFIED"));
+                          c != null
+                              && c.text() != null
+                              && c.text()
+                                  .toLowerCase(java.util.Locale.ROOT)
+                                  .contains("division satisfied"));
       List<Task> kids = byBasis.getOrDefault(t.id, new ArrayList<>());
       if (VStages.isVerification(t.stage)) {
         // I2: the right leg joins back 1:1 to a LEFT-leg ticket (shipped legacy exempt)

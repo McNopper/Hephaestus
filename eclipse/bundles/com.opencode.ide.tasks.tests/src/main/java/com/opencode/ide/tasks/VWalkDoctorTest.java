@@ -79,6 +79,18 @@ public class VWalkDoctorTest extends StoreTestHarness {
   }
 
   @Test
+  public void satisfiedExemptionIsCaseInsensitive() {
+    // ticker-v's own heal wrote "Division SATISFIED ..." (sentence case); the exemption
+    // must match the documented phrase regardless of case, or shipped work re-flags.
+    Task req = create("case requirement", "requirements", null);
+    shipDone(req);
+    store.addComment(
+        "p", req.id, "Division SATISFIED (ticker-v pass 2026-11-17, basis-null rule)", "ticker-v");
+    List<String> drift = store.inconsistencies("p");
+    assertTrue("a capital-D SATISFIED comment exempts too: " + drift, quietFor(drift, req.id));
+  }
+
+  @Test
   public void rightLegJoinsBackToLeftLegTicketsOnly() {
     Task req = create("root", "requirements", null);
     Task rightOk = create("right ok", "test-system", req.id);
