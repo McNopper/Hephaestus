@@ -11,26 +11,25 @@ update all references.
 
 ## Mental model (read this first)
 
-A ticket is one Markdown file carrying **five independent axes**. Grouping and
+A ticket is one Markdown file carrying **four independent axes**. Grouping and
 ancestry are plain link fields, not types - the engine treats them as data, and
 every query (readiness, traceability, `task_links`) recomputes from the files
 deterministically.
 
 | Axis | Question it answers | Contract |
 |---|---|---|
-| `epic` | *whose scope am I?* | link to the scope-container ticket; inherited by the whole derivation tree; the epic itself is an ordinary ticket (often the GOAL ticket) |
-| `basis` | *where did I come from?* | the one upstream ticket whose completion spawned me (the derivation edge); entry tickets carry none |
+| `basis` | *where did I come from?* | the one upstream ticket whose completion spawned me (the derivation edge); entry tickets carry none; the basis chain up to the requirement IS the scope (owner rule 2026-11-19: the `epic` field is gone) |
 | `stage` | *which V-level owns me?* | immutable at creation; drives dispatch and readiness |
 | `status` | *where am I in the lifecycle?* | six states; blocked/paused are states with resume rules, done/paused can never be blocked |
 | `sprint` | *which wave am I planned into?* | optional execution batch, orthogonal to everything above |
 
 **The derivation tree.** Division creates children: `basis` = the completed
-ticket, `epic` inherited. The V walks down the definition leg and up the
-verification leg by pair (`X` <-> `test-X`). Progress over an epic = done
+ticket. The V walks down the definition leg and up the
+verification leg by pair (`X` <-> `test-X`). Progress over a requirement = done
 children / all children (`task_list`, `task_traceability`, `task_links`).
-**There are no milestones** - the cross-tree anchors are the epic and the
-release definition in `ROADMAP.md`. Classic mapping: Product Goal = GOAL
-ticket, epic = the `epic` field, story = a ticket (stage-sized), sub-task =
+**There are no milestones** - the cross-tree anchors are the requirement's
+basis chain and the release definition in `ROADMAP.md`. Classic mapping: Product Goal = GOAL
+ticket, story = a ticket (stage-sized), sub-task =
 todos, sprint = a wave.
 
 ## Ticket contract (`task_*` tools, `.harness/tasks/` store)
@@ -49,11 +48,11 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `story_points` | int | relative size; `project-manager-estimate-costs` can later feed a `cost` field |
 | `priority` | `low`/`medium`/`high`/`critical` | drives self-claim order |
 | `role` | enum (extensible) | `architect`/`developer`/`tester`/`pm`/`cpp-engineer`/`graphics-engineer` → who claims it |
-| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. The V is an **async pipeline**, not a phase gate (U-110): the ticket stays in its stage — completing it divides into linked downstream tickets (`epic` inherited, `basis` = the completing ticket), which their own stages' tickers gate via readiness. The wandering verbs (`task_advance`/`task_send_back`/pass-through, U-029) are retired; legacy `stage N passed: reason` markers in old history remain readable. |
+| `stage` | enum/null | V pipeline stage (canonical `VStages` order): `requirements`, `system`, `architecture`, `design`, `implementation`, `test-implementation`, `test-design`, `test-architecture`, `test-system`, `test-requirements`; `null` = legacy/untracked. Set at creation for definition work; verification tickets carry their test stage. The V is an **async pipeline**, not a phase gate (U-110): the ticket stays in its stage - completing it divides into linked downstream tickets (`basis` = the completing ticket; the chain to the requirement is the scope), which their own stages' tickers gate via readiness. The wandering verbs (`task_advance`/`task_send_back`/pass-through, U-029) are retired; legacy `stage N passed: reason` markers in old history remain readable. |
 | `assignee` | string | set by `task_claim` |
 | `acceptance_criteria` | string[] | GIVEN/WHEN/THEN; verification must satisfy all |
 | `labels` | string[] | free tags |
-| `epic` | string | parent ticket id for traceability |
+| `basis` | string | upstream/derivation ticket id (validated live+archive at create/update; the chain to the requirement is the scope) |
 | `artifacts` | `{kind, ref, note, by, ts}[]` | **where the produced output lives** |
 | `todos` | `{text, done}[]` | checklist items (`task_todo` with `action=add/toggle/remove`) |
 | `history` | append-only | state transitions |
@@ -100,7 +99,7 @@ retired — the automatic fleet pump lives in Eclipse (JobManager).
 Plus the H6 readiness/stage pack: `task_readiness` (per-ticket READY / WAIT_UPSTREAM /
 STALE / BLOCKED / RUNNING / NOT_APPLICABLE over the current board, basis-chain gating
 per U-110), `task_set_blocked` (blocked escalation to the basis), `task_create` with
-`stage`/`epic`/`basis` (division + linking), `review` (`human | ai` - who must
+`stage`/`basis` (division + linking), `review` (`human | ai` - who must
 verdict the ticket; human only on the first/last stage, T-155), `task_stage_agents` /
 `task_set_stage_agent` (the per-stage dispatch agent map, U-104 - the ticker's
 STAGE-AGENT MAP, settable without file edits), `task_doctor` - the stage-flow surface the

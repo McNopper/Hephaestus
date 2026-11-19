@@ -101,8 +101,7 @@ Renders the sprint board of every project into `board.md` and `board.html` (stan
 page, inline CSS, escaped content) under `-Dopencode.tasks.out`
 (default `target/opencode-tasks/`). Both files show the sprint goal and status, all six
 status columns in canonical order (paused included) with counts, ticket lines
-(`[id] title — role, points, assignee, ⚠ blocked: reason`), an Epics section with open
-ticket counts, and a totals line (total/done points). The store is only read.
+(`[id] title — role, points, assignee, ⚠ blocked: reason`) and a totals line (total/done points). The store is only read.
 
 ```bash
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan  # latest active sprint per project
