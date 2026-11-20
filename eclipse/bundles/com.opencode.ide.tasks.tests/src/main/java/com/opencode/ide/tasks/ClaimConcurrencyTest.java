@@ -34,8 +34,7 @@ public class ClaimConcurrencyTest {
     TaskStore setup = new TaskStore(root);
     final int tickets = 12;
     for (int i = 0; i < tickets; i++) {
-      String id = setup.create("p", TaskStore.CreateSpec.of("t" + i)).id;
-      setup.planSprint("p", "S-01", List.of(id), "g");
+      setup.create("p", TaskStore.CreateSpec.of("t" + i));
     }
     final int threads = 8;
     ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -69,8 +68,8 @@ public class ClaimConcurrencyTest {
           assertTrue("ticket claimed twice: " + id, all.add(id));
         }
       }
-      assertEquals("every sprint-backlog ticket claimed exactly once", tickets, all.size());
-      assertEquals(0, new TaskStore(root).list("p", null, "sprint-backlog", null, null).size());
+      assertEquals("every ready ticket claimed exactly once", tickets, all.size());
+      assertEquals(0, new TaskStore(root).list("p", null, "ready", null).size());
       assertTrue(
           "store drained: further claims return null",
           new TaskStore(root).claim("p", "developer", null, null) == null);
@@ -84,7 +83,6 @@ public class ClaimConcurrencyTest {
     Path root = tmp.getRoot().toPath().resolve("tasks2");
     TaskStore setup = new TaskStore(root);
     String id = setup.create("p", TaskStore.CreateSpec.of("target")).id;
-    setup.planSprint("p", "S-01", List.of(id), "g");
     final int comments = 40;
     ExecutorService pool = Executors.newFixedThreadPool(4);
     try {
@@ -123,7 +121,6 @@ public class ClaimConcurrencyTest {
     Path root = tmp.getRoot().toPath().resolve("tasks3");
     TaskStore store = new TaskStore(root);
     String id = store.create("p", TaskStore.CreateSpec.of("steal")).id;
-    store.planSprint("p", "S-01", List.of(id), "g");
     store.claim("p", "developer", null, "agent-a");
     TaskStore.Invalid refused =
         assertThrows(
@@ -143,9 +140,8 @@ public class ClaimConcurrencyTest {
     Task next = store.claim("p", "developer", null, "agent-b");
     assertEquals("the released ticket is claimable again", id, next.id);
     assertEquals("agent-b", store.get("p", id).assignee);
-    // the FIRST claim through update (from sprint-backlog) stays open
+    // the FIRST claim through update (from ready) stays open
     String id2 = store.create("p", TaskStore.CreateSpec.of("first")).id;
-    store.planSprint("p", "S-02", List.of(id2), "g");
     store.update("p", id2, Map.of("status", "in-progress", "assignee", "agent-c"));
     assertEquals("agent-c", store.get("p", id2).assignee);
   }

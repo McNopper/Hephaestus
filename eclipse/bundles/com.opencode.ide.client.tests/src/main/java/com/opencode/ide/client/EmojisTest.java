@@ -28,8 +28,9 @@ public class EmojisTest {
 
   @Test
   public void pipelineStatusesMapToTheirSymbols() {
-    assertEquals("📌", Emojis.statusSymbol("product-backlog"));
-    assertEquals("📋", Emojis.statusSymbol("sprint-backlog"));
+    assertEquals("ready maps to the fresh glyph", "🆕", Emojis.statusSymbol("ready"));
+    assertEquals(
+        "not-implemented maps to the cross glyph", "❌", Emojis.statusSymbol("not-implemented"));
     assertEquals("🏃", Emojis.statusSymbol("in-progress"));
     assertEquals("👀", Emojis.statusSymbol("in-review"));
     assertEquals("✅", Emojis.statusSymbol("done"));

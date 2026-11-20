@@ -160,7 +160,7 @@ user-typed store root that is really a repo root descends into its
 - **Fleet does nothing:** it is disabled by design until you Enable it (the
   Fleet view's *Enable Fleet* button, or `"disabled": false` in
   `opencode.json`); and it needs git (worktrees) plus a claimable ticket in
-  `sprint-backlog`.
+  `ready`.
 - **Readiness shows WAIT_UPSTREAM forever:** upstream stages need `done`
   tickets linked by basis; unstaged tickets always read NOT_APPLICABLE
   and are never re-dispatched.

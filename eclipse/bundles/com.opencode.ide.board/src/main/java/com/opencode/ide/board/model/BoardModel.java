@@ -1,12 +1,8 @@
 package com.opencode.ide.board.model;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.opencode.ide.tasks.Task;
 import com.opencode.ide.tasks.TaskStore;
 import com.opencode.ide.tasks.VStages;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -14,13 +10,11 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeSet;
 
 /**
- * SWT-free kanban model over the Markdown {@link TaskStore}: one project, one selected sprint,
- * refreshed on demand (the view drives it from {@link TaskStoreWatcher} events). All reads are
- * tolerant of a missing or unreadable store — a snapshot with an {@code error} comes back instead
- * of an exception.
+ * SWT-free kanban model over the Markdown {@link TaskStore}: one project, refreshed on demand (the
+ * view drives it from {@link TaskStoreWatcher} events). All reads are tolerant of a missing or
+ * unreadable store — a snapshot with an {@code error} comes back instead of an exception.
  *
  * <p>Two layouts: {@link BoardMode#FLAT} (the seven status columns (paused and blocked included))
  * and {@link BoardMode#PIPELINE} (the ten V-model stage columns - tickets land in their {@link
@@ -28,9 +22,6 @@ import java.util.TreeSet;
  * directive 2026-11-19). The {@code blockedOnly} filter applies in both modes.
  */
 public final class BoardModel {
-
-  /** Pseudo-sprint id for tickets whose {@code sprint} field is null. */
-  public static final String BACKLOG = "(backlog)";
 
   /** The single definition of the fallback project name (view + model share it). */
   public static final String DEFAULT_PROJECT = "hephaestus";
@@ -43,7 +34,6 @@ public final class BoardModel {
 
   private TaskStore store;
   private String project;
-  private String sprint = BACKLOG;
 
   /** U-018: free-text filter over id/title (case-insensitive substring, empty = no filter). */
   private String textFilter = "";
@@ -89,15 +79,6 @@ public final class BoardModel {
 
   public void setProject(String project) {
     this.project = project == null || project.isBlank() ? DEFAULT_PROJECT : project;
-  }
-
-  /** The selected sprint id, or {@link #BACKLOG}. */
-  public String sprint() {
-    return sprint;
-  }
-
-  public void setSprint(String sprint) {
-    this.sprint = sprint == null || sprint.isBlank() ? BACKLOG : sprint;
   }
 
   /** The board layout; {@link BoardMode#FLAT} unless switched. */
@@ -196,9 +177,8 @@ public final class BoardModel {
   }
 
   /**
-   * Reads the board for the selected sprint in the current {@link #mode()}. {@link #BACKLOG}
-   * selects the tickets with a {@code null} sprint field (client-side filter over the unfiltered
-   * board); a named sprint selects exactly that sprint's tickets.
+   * Reads the board in the current {@link #mode()} - ALL tickets (owner model 2026-11-20: no
+   * backlogs, no sprint scope; the filters carry the scope).
    */
   public BoardSnapshot refresh() {
     Path dir = projectDir();
@@ -207,10 +187,10 @@ public final class BoardModel {
     }
     try {
       // U-020 follow-up (user direction 2026-09-18): the board shows
-      // ALL tickets - the wave selector is gone, scope comes from the
-      // filters (blocked/bugs/stages/text). The selected sprint stays
-      // an internal DISPATCH scope only (Launch/Auto drain it).
-      Map<String, List<Task>> board = store.board(project, null);
+      // ALL tickets - scope comes from the filters (blocked/bugs/stages/
+      // text); the owner's no-backlog model (2026-11-20) removed the last
+      // sprint remnant.
+      Map<String, List<Task>> board = store.board(project);
       // U-018: dispatch-readiness verdicts over the WHOLE sprint task
       // set (upstream stages need the unfiltered
       // tickets), computed once per refresh and carried in the snapshot
@@ -253,9 +233,8 @@ public final class BoardModel {
         rows.sort(WITHIN_COLUMN);
         columns.put(status, List.copyOf(rows));
       }
-      String goal = BACKLOG.equals(sprint) ? "" : sprintGoals(dir).getOrDefault(sprint, "");
       PipelineSnapshot pipeline = mode == BoardMode.PIPELINE ? pipelineOf(allRows) : null;
-      return new BoardSnapshot(columns, goal, total, blocked, null, pipeline, readiness, journeys);
+      return new BoardSnapshot(columns, total, blocked, null, pipeline, readiness, journeys);
     } catch (RuntimeException e) {
       return BoardSnapshot.empty("Task store unreadable: " + e.getMessage());
     }
@@ -329,8 +308,8 @@ public final class BoardModel {
   /**
    * Moves a ticket to an arbitrary V stage (drag-and-drop on the V-model layout). A forward (or
    * same-depth) move is a plain {@code stage} update. A backward move carries the send-back
-   * contract: the reason becomes the blocker text, and — like the store's one-step {@link
-   * #sendBack(String, String)} — the ticket returns to the product backlog unassigned.
+   * contract: the reason becomes the blocker text, and - like the store's one-step {@link
+   * #sendBack(String, String)} - the ticket returns to ready unassigned.
    *
    * @param targetStage the stage id to move to ({@code null} is refused - a ticket is born in a
    *     stage, owner directive 2026-11-19)
@@ -363,7 +342,7 @@ public final class BoardModel {
       Map<String, Object> changes = new HashMap<>();
       changes.put("stage", targetStage);
       if (backward) {
-        changes.put("status", "product-backlog");
+        changes.put("status", "ready");
         changes.put("assignee", null);
         changes.put("blocked", true);
         changes.put("blocker", "sent back from " + row.effectiveStage() + ": " + reason.trim());
@@ -435,30 +414,6 @@ public final class BoardModel {
     return "Cannot " + what + " " + id + ": " + detail;
   }
 
-  /**
-   * The selectable sprint ids: distinct non-null sprints from the tickets, plus sprints seen in
-   * {@code _meta.json}, sorted — with {@link #BACKLOG} appended last.
-   */
-  public List<String> sprints() {
-    TreeSet<String> ids = new TreeSet<>();
-    Path dir = projectDir();
-    if (Files.isDirectory(dir)) {
-      try {
-        for (Task t : store.list(project, null, null, null, null)) {
-          if (t.sprint != null && !t.sprint.isBlank()) {
-            ids.add(t.sprint);
-          }
-        }
-      } catch (RuntimeException ignored) {
-        // unreadable store: fall through to whatever _meta.json knows
-      }
-      ids.addAll(sprintGoals(dir).keySet());
-    }
-    List<String> out = new ArrayList<>(ids);
-    out.add(BACKLOG);
-    return out;
-  }
-
   /** Loads the full {@link Task} behind a row id, or {@code null} when gone/unreadable. */
   public Task loadTask(String id) {
     try {
@@ -479,24 +434,10 @@ public final class BoardModel {
       return List.of();
     }
     try {
-      return List.copyOf(store.list(project, null, null, null, null));
+      return List.copyOf(store.list(project, null, null, null));
     } catch (RuntimeException e) {
       return List.of();
     }
-  }
-
-  /**
-   * The selected sprint's tickets as full {@link Task}s — {@link #BACKLOG} selects the unassigned
-   * ones, exactly like {@link #refresh()}.
-   */
-  public List<Task> sprintTasks() {
-    List<Task> out = new ArrayList<>();
-    for (Task t : projectTasks()) {
-      if (BACKLOG.equals(sprint) ? t.sprint == null : sprint.equals(t.sprint)) {
-        out.add(t);
-      }
-    }
-    return out;
   }
 
   private Map<String, List<Task>> unassignedBoard() {
@@ -504,12 +445,10 @@ public final class BoardModel {
     for (String status : Task.VALID_STATUSES) {
       out.put(status, new ArrayList<>());
     }
-    for (Task t : store.list(project, null, null, null, null)) {
-      if (t.sprint == null) {
-        List<Task> column = out.get(t.status);
-        if (column != null) {
-          column.add(t);
-        }
+    for (Task t : store.list(project, null, null, null)) {
+      List<Task> column = out.get(t.status);
+      if (column != null) {
+        column.add(t);
       }
     }
     return out;
@@ -517,37 +456,5 @@ public final class BoardModel {
 
   private Path projectDir() {
     return store.root().resolve(TaskStore.sanitizeProject(project));
-  }
-
-  /**
-   * Read-only parse of {@code _meta.json}'s {@code sprints} map (id → goal). Tolerant: any
-   * missing/corrupt sidecar yields an empty map.
-   */
-  private static Map<String, String> sprintGoals(Path projectDir) {
-    Map<String, String> goals = new LinkedHashMap<>();
-    Path meta = projectDir.resolve("_meta.json");
-    if (!Files.isRegularFile(meta)) {
-      return goals;
-    }
-    try {
-      JsonObject doc =
-          JsonParser.parseString(Files.readString(meta, StandardCharsets.UTF_8)).getAsJsonObject();
-      if (doc.has("sprints") && doc.get("sprints").isJsonObject()) {
-        for (Map.Entry<String, JsonElement> e : doc.getAsJsonObject("sprints").entrySet()) {
-          if (!e.getValue().isJsonObject()) {
-            continue;
-          }
-          JsonObject sprint = e.getValue().getAsJsonObject();
-          String goal =
-              sprint.has("goal") && !sprint.get("goal").isJsonNull()
-                  ? sprint.get("goal").getAsString()
-                  : "";
-          goals.put(e.getKey(), goal);
-        }
-      }
-    } catch (RuntimeException | java.io.IOException ignored) {
-      // unreadable sidecar: goals simply stay empty
-    }
-    return goals;
   }
 }

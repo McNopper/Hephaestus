@@ -49,7 +49,7 @@ requirements, architecture diagrams, design docs, test evidence — stay ordinar
 documents, so a human can overview the whole the pre-AI way. It is organized by
 **domain** (not by a lifecycle or folder
 tree): skills and agents are flat under `.opencode/` and named `<domain>-<descriptor>`.
-Project management is a concrete, Scrum-like **ticket/sprint** workflow over the
+Project management is a concrete, Scrum-like **ticket** workflow over the
 **task store** (`.harness/tasks/`, one Markdown file per ticket) served as `task_*`
 MCP tools by the Eclipse harness's `eclipse-build` endpoint and the stdio
 `tasks-tools` launcher (opencode prefixes them with the server name — `tasks_task_*`
@@ -78,8 +78,8 @@ Three ideas hold it together:
   own, resolve via `/models`).
 
 > **The PM/ticket system is optional.** Any skill or agent can be used **directly** by a
-> human (or another agent) with no ticket or sprint — just invoke the skill or pick an
-> agent with `/agents`. The PM system is there when you want tracked, multi-agent, sprint
+> human (or another agent) with no ticket - just invoke the skill or pick an
+> agent with `/agents`. The PM system is there when you want tracked, multi-agent, ticket
 > execution; skip it for ad-hoc work. Skills like `project-manager-doc-about` also work standalone,
 > independent of PM.
 
@@ -93,7 +93,7 @@ repository, two ways to use it:
 | Capability | Plain opencode TUI (no Eclipse) | Eclipse harness (on top) |
 |---|---|---|
 | Skills, agents, model tiers (`/agents`, `/models`, Plan mode) | ✅ | ✅ — same engine, surfaced in views |
-| **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, sprints | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
+| **Task board** — `task_*` tools incl. `task_doctor` lint, V-pipeline, seven-state model | ✅ `tasks` stdio server (`eclipse/tasks-tools.ps1`) | ✅ **Board view** (kanban + pipeline, type badges, peer-write refresh) *and* the same tools via `eclipse-build` |
 | ~~**Fleet**~~ — removed in U-110; the ticker-v schedule + goal-driven subagents replaced it | ✗ | ✗ (Board mirrors the store; no fleet view) |
 | **Maven mojos** `opencode-tasks:sync` / `:plan` over the store | ✅ | ✅ |
 | Graphics MCP (screenshot, RenderDoc, render comparison) — **not shipped in this repo**; user-supplied `mcp.graphics` since the 2026-10-15 curation (AGENTS.md) | ✅ | ✅ |
@@ -166,26 +166,27 @@ not static-vs-shared linkage (that is a build decision):
 | **Software System** | Integrated product of libraries + external interfaces. | the deliverable | — |
 | **Package/Folder** | Organization only; a language *module* is also just organization. | — | — |
 
-## The ticket / sprint workflow
+## The ticket workflow
 
 The **task store** (`.harness/tasks/<project>/`, one Markdown file per ticket) holds
-**tickets** and **sprints**, scoped per **project** so several independent projects run at
+**tickets**, scoped per **project** so several independent projects run at
 once. Agents read/write it through the `task_*` MCP tools; humans can read the files
 directly (and hand edits are tolerated between tool writes). Ticket states:
 
 ```text
-product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
-   (incomplete on sprint close ───────────────────────────────────────────────────────────────┘)
-paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
-blocked = orthogonal flag (blocked:bool + blocker:str) at any active state
+ready --claim--> in-progress --verify--> in-review --accept--> done
+   (not-implemented = a DONE state reachable from any non-terminal state: decided not to build)
+paused = dependency wait: born paused while the basis is open; auto-resumes when it completes
+blocked = hard stop that propagates up the basis chain to the requirement; clearing walks back down
 ```
 
 Key rules:
 
-- **Self-claim by role.** A worker loops `task_claim(role=…)`; the call is atomic (file
-  lock + temp-rename writes) so two agents never get the same ticket. A returned ticket
+- **Self-claim by role.** A worker loops `task_claim(role=.)`; the call is atomic (file
+  lock + temp-rename writes) so two agents never get the same ticket - it only takes
+  **ready** tickets (unassigned, readiness READY). A returned ticket
   (`task_release`) can be picked up by a *different* agent. A claim with nothing to do
-  returns `null` — worker loops stop on it.
+  returns `null` - worker loops stop on it.
 - **Record artifacts.** When a worker produces a file, git commit/branch, or doc, it
   records it with `task_add_artifact(kind=file|git|path|url|doc, ref=…)` *before* moving to
   `in-review` — the ticket is the hand-off contract.
@@ -211,7 +212,7 @@ a ticket), `project-manager-route-request` (ambiguous next step), `project-manag
 
 | Agent | Role | Model |
 |---|---|---|
-| `orchestrator` | kicks off the sprint; workers self-claim | tier (`high`) |
+| `orchestrator` | kicks off the work; workers self-claim | tier (`high`) |
 | `manifest-author` | high-tier plan + execution manifest | tier (`high`) |
 | `executor` | open-tier task execution; records artifacts | tier (`low`) |
 | `reviewer` | high-tier final review (edit-denied) | tier (`high`) |
@@ -251,16 +252,14 @@ selector row) reverts — only an opened-dropdown pick or Enter commits.
 ## Recommended opencode workflow
 
 1. **Frame the project:** the maintainer writes the brief/goal; the `project-manager` agent creates tickets
-   (`task_create`) in `product-backlog`.
-2. **Sprint planning:** `task_plan_sprint` commits tickets to a sprint (`sprint-backlog`).
-3. **Execute:** workers `task_claim(role=…)`, use the matching `software-*` /
+   (`task_create`) - born **ready** (or **paused** while their basis is open).
+2. **Execute:** the ticker pumps the V: workers `task_claim(role=.)`, use the matching `software-*` /
    `test-software-*` skill, record artifacts, and move tickets to `in-review`.
-4. **Review & accept:** the `reviewer` / test skills verify; acceptance is the
-   **engine's review pass** — after a merged launch the fleet dispatches a read-only
-   review session and applies its verdict (U-021): PASS → `done` (and advance into the
-   next stage's backlog), FAIL → staged send-back, UNCLEAR → stays `in-review` for the maintainer. The maintainer's regular duty is resolving NEEDS-HUMAN escalations and accepting
-   at Sprint Review.
-5. **Iterate:** defects rework; `task_close_sprint` returns unfinished tickets to the backlog.
+3. **Review & accept:** the `reviewer` / test skills verify; acceptance is the
+   **engine's review pass** - after a merged launch the fleet dispatches a read-only
+   review session and applies its verdict (U-021): PASS → done (and divide into the
+   next stage's tickets), FAIL → staged send-back, UNCLEAR → stays in-review for the maintainer. The maintainer's regular duty is resolving NEEDS-HUMAN escalations.
+4. **Iterate:** defects rework; a decided-not-to-build ticket lands in `not-implemented`.
 
 Use **Plan mode** (`Tab`) for multi-file changes; `/agents` to pick an agent; `/models` to
 resolve a tier; the `orchestrator` dispatches parallel subagents. Skills auto-load from

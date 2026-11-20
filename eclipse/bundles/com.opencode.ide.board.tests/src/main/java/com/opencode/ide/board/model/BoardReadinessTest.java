@@ -44,9 +44,7 @@ public class BoardReadinessTest {
     return t.id;
   }
 
-  private void plan(String id) {
-    store.planSprint("p", "S-01", List.of(id), "goal");
-  }
+  private void plan(String id) {}
 
   @Test
   public void requirementsTicketsWithoutUpstreamAreReady() {
@@ -115,7 +113,6 @@ public class BoardReadinessTest {
 
   private BoardSnapshot modelRefresh() {
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     return model.refresh();
   }
 }

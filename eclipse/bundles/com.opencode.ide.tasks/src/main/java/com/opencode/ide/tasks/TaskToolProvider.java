@@ -114,13 +114,12 @@ public final class TaskToolProvider implements ToolProvider {
                   reqStr(a, "project"),
                   optStr(a, "role", null),
                   status,
-                  optStr(a, "sprint", null),
                   a.has("blocked") && !a.get("blocked").isJsonNull()
                       ? reqBool(a, "blocked")
                       : null);
-          if ("product-backlog".equals(status)) {
+          if ("ready".equals(status)) {
             // T-032: the standalone backlog tool folded into the list - the
-            // prioritized order is the backlog contract
+            // prioritized order is the ready-queue contract
             out.sort(TaskStore.prioritized());
           }
           JsonArray arr = new JsonArray();
@@ -154,8 +153,7 @@ public final class TaskToolProvider implements ToolProvider {
                   "acceptance_criteria",
                   "labels",
                   "basis",
-                  "review",
-                  "sprint")) {
+                  "review")) {
             JsonElement v = a.get(field);
             if (v == null) {
               continue;
@@ -194,7 +192,7 @@ public final class TaskToolProvider implements ToolProvider {
               store.claim(
                   reqStr(a, "project"),
                   reqStr(a, "role"),
-                  orDefault(optStr(a, "status", null), "sprint-backlog"),
+                  orDefault(optStr(a, "status", null), "ready"),
                   optStr(a, "by", null));
           return json(claimed == null ? JsonNull.INSTANCE : claimed.toJson());
         }
@@ -269,42 +267,13 @@ public final class TaskToolProvider implements ToolProvider {
         {
           JsonObject o = new JsonObject();
           store
-              .board(reqStr(a, "project"), optStr(a, "sprint", null))
+              .board(reqStr(a, "project"))
               .forEach(
                   (status, tasks) -> {
                     JsonArray arr = new JsonArray();
                     tasks.forEach(t -> arr.add(t.toJson()));
                     o.add(status, arr);
                   });
-          return json(o);
-        }
-      case "task_plan_sprint":
-        {
-          List<String> ids = strList(a, "ticket_ids");
-          return json(
-              store
-                  .planSprint(
-                      reqStr(a, "project"),
-                      optStr(a, "sprint_id", null),
-                      ids,
-                      optStr(a, "goal", ""))
-                  .toJson());
-        }
-      case "task_close_sprint":
-        {
-          boolean autoArchive = optBool(a, "auto_archive", false);
-          Map<String, Object> out =
-              store.closeSprint(reqStr(a, "project"), reqStr(a, "sprint_id"), autoArchive);
-          JsonObject o = new JsonObject();
-          o.add("sprint", ((Task.Sprint) out.get("sprint")).toJson());
-          JsonArray arr = new JsonArray();
-          ((List<String>) out.get("returned_to_backlog")).forEach(arr::add);
-          o.add("returned_to_backlog", arr);
-          if (out.containsKey("auto_archived")) {
-            JsonArray archivedArr = new JsonArray();
-            ((List<String>) out.get("auto_archived")).forEach(archivedArr::add);
-            o.add("auto_archived", archivedArr);
-          }
           return json(o);
         }
       case "task_archive_done":
@@ -444,9 +413,9 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_create",
-            "Create a task (ticket) in a project - born in product-backlog, or blocked when"
-                + " blocked=true (U-067: the status moves to blocked and resume_to remembers"
-                + " product-backlog).",
+            "Create a task (ticket) in a project - born ready (or paused while its basis is open),"
+                + " or blocked when blocked=true (U-067: the status moves to blocked and"
+                + " resume_to remembers the birth state).",
             schema(
                 new String[] {"project", "title"},
                 obj -> {
@@ -471,7 +440,8 @@ public final class TaskToolProvider implements ToolProvider {
                       "blocker",
                       strP(
                           "Required with blocked=true: why the ticket is born blocked (U-067: "
-                              + "status moves to blocked, resume_to remembers product-backlog)."));
+                              + "status moves to blocked, resume_to remembers the birth state"
+                              + " (ready/paused))."));
                   obj.add(
                       "basis",
                       strP(
@@ -498,14 +468,13 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_list",
-            "List tasks, optionally filtered by role/status/sprint/blocked.",
+            "List tasks, optionally filtered by role/status/blocked.",
             schema(
                 new String[] {"project"},
                 obj -> {
                   obj.add("project", strP());
                   obj.add("role", strP(roleDesc));
                   obj.add("status", enumP(Task.VALID_STATUSES));
-                  obj.add("sprint", strP());
                   obj.add("blocked", boolP());
                 })));
     out.add(
@@ -533,7 +502,6 @@ public final class TaskToolProvider implements ToolProvider {
                   obj.add("acceptance_criteria", arrP());
                   obj.add("labels", arrP());
 
-                  obj.add("sprint", strP());
                   obj.add(
                       "review",
                       strP(
@@ -596,15 +564,16 @@ public final class TaskToolProvider implements ToolProvider {
                 obj -> {
                   obj.add("project", strP());
                   obj.add("role", strP(roleDesc));
-                  JsonObject status = enumP(List.of("sprint-backlog"));
-                  status.addProperty("description", "Only sprint-backlog tickets are claimable.");
+                  JsonObject status = enumP(List.of("ready"));
+                  status.addProperty(
+                      "description", "Only ready, unassigned tickets are claimable.");
                   obj.add("status", status);
                   obj.add("by", strP());
                 })));
     out.add(
         new McpTool(
             "task_release",
-            "Release a task back to sprint-backlog (so another agent can pick it up).",
+            "Release a task back to ready (so another agent can pick it up).",
             schema(
                 new String[] {"project", "ticket_id"},
                 obj -> {
@@ -679,43 +648,19 @@ public final class TaskToolProvider implements ToolProvider {
     out.add(
         new McpTool(
             "task_board",
-            "Wave Kanban grouped by status (all six status columns always present; "
-                + "paused = parked for maintenance).",
+            "Kanban grouped by status (all seven status columns always present - "
+                + "owner model 2026-11-20: no backlogs).",
             schema(
                 new String[] {"project"},
                 obj -> {
                   obj.add("project", strP());
-                  obj.add("sprint", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_plan_sprint",
-            "Create/commit a sprint and move given tasks into it (force-sets sprint-backlog).",
-            schema(
-                new String[] {"project"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("sprint_id", strP());
-                  obj.add("ticket_ids", arrP());
-                  obj.add("goal", strP());
-                })));
-    out.add(
-        new McpTool(
-            "task_close_sprint",
-            "Close a sprint; unfinished tasks return to product-backlog. With auto_archive=true, the wave's done tickets that no live basis-chain ticket still needs are archived to _archive/ (U-060).",
-            schema(
-                new String[] {"project", "sprint_id"},
-                obj -> {
-                  obj.add("project", strP());
-                  obj.add("sprint_id", strP());
-                  obj.add("auto_archive", boolP());
                 })));
     out.add(
         new McpTool(
             "task_archive_done",
-            "T-183: archive the board's DONE history chain-safely - every done SPRINT-LESS ticket"
+            "T-183: archive the board's DONE history chain-safely - every done ticket"
                 + " no live basis-chain ticket still needs moves to _archive/ (project-wide variant"
-                + " of U-060's rule); in-sprint and recent work stays. Optional 'before' (ISO-8601"
+                + " of U-060's rule); recent work stays. Optional 'before' (ISO-8601"
                 + " instant) keeps tickets created at/after it visible. Reports archived + skipped"
                 + " (id:reason).",
             schema(
@@ -746,7 +691,7 @@ public final class TaskToolProvider implements ToolProvider {
             "task_doctor",
             "Store self-check (lint): reports ticket files the store cannot parse (invisible to every "
                 + "other task_* read), inconsistent flag combinations per ticket (done but blocked, "
-                + "sprint set while product-backlog) and file/path artifact refs that do not resolve "
+                + "an unknown status outside the seven-state model) and file/path artifact refs that do not resolve "
                 + "under the repo root (glob/brace/prose-like refs are skipped, and so is the whole "
                 + "check when the store root is not <repo>/.harness/tasks); ok=true when the store "
                 + "is consistent.",

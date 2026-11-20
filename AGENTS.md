@@ -9,7 +9,7 @@
 Repository-level conventions for agentic work in this repository. Hephaestus is an
 **opencode-native**, **domain-organized** system: skills and agents are flat under
 `.opencode/` and named by `<domain>-<descriptor>`; project management is a concrete,
-Scrum-like ticket/sprint workflow over the **task store** (`.harness/tasks/`, one
+Scrum-like ticket workflow over the **task store** (`.harness/tasks/`, one
 Markdown file per ticket) served as `task_*` MCP tools; C++ and graphics tooling are
 first-class agents / MCP tools.
 
@@ -23,8 +23,8 @@ the TUI already covers.)*
 
 - **A whole initiative / project** → the **PM agent** (`project-manager`) runs the Scrum workflow
   over tickets in the task store (one subdirectory per project; multiple projects
-  coexist). The maintainer acts as the product owner: writes the brief/goal, prioritizes the backlog,
-  and resolves the NEEDS-HUMAN escalations - tickets that are blocked
+  coexist). The maintainer acts as the product owner: writes the brief/goal, prioritizes the
+  work, and resolves the NEEDS-HUMAN escalations - tickets that are blocked
   (status=blocked) with no
   live fleet job retrying them. Acceptance itself is the engine's review pass: a PASS
   verdict moves the ticket to done. Issues bubble up to the PM and only human-worthy
@@ -34,9 +34,9 @@ the TUI already covers.)*
   its artifact back on the ticket.
 
 > **The PM/ticket system is optional.** Every skill and agent can be used **directly** by a
-> human (or by another agent) with no ticket, sprint, or task store involved — for
+> human (or by another agent) with no ticket, or task store involved - for
 > ad-hoc work, just invoke the skill or `/agents` you need. Use the PM system only when you
-> want tracked, multi-agent, sprint-based execution. Likewise, `project-manager-doc-about` (and any
+> want tracked, multi-agent, ticket-based execution. Likewise, `project-manager-doc-about` (and any
 > skill) works standalone, independent of PM.
 
 ## The flow and the final check
@@ -67,7 +67,7 @@ Cross-cutting coordination agents are **unprefixed** (`orchestrator`, `manifest-
 curated out of the repo (2026-10-15): specialized skills and agents come from the user,
 not from Hephaestus (quarantine: `C:\Temp\Hephaestus`).
 
-## The ticket / sprint workflow (the PM)
+## The ticket workflow (the PM)
 
 **Paired verification:** when a ticket ENTERS a
 definition stage, its paired verification criteria are created and LINKED in
@@ -92,8 +92,7 @@ is ACCEPTANCE verification (owner requirement 2026-11-15, ticket T-039): it
 pairs to requirements via the `test-requirements` leg - the last stage of
 the V - and belongs there, not in ad-hoc blocked/in-review states or manual
 follow-up notes; the stage-pipeline skill's division map carries the
-recurrence (a fresh, NON-BLOCKING test-requirements acceptance ticket per
-successful wave/release).
+recurrence (a fresh, NON-BLOCKING test-requirements acceptance ticket per done definition ticket with live-in-Eclipse checks).
 
 **How work moves (the reporting lines):** the flow is either **along the
 V** or **horizontal for validation** - nothing moves any other way. When a
@@ -181,13 +180,7 @@ floor — never a question back to the owner, never a stall. Worked example
 (2026-11-14): an unattended ticker-v run drove the wave end-to-end, and the
 owner's review and acceptance cut release `v0.2.0`.
 
-**Terminology:** the UI says **wave**, not sprint —
-a wave is a named batch of agent work, planned on demand and drained in minutes
-by the fleet (no weekly cadence, no time-box). The store field, tool names
-(`task_plan_sprint`) and ticket frontmatter keep `sprint` as the schema key for
-stability; treat "wave" and "sprint" as synonyms everywhere else.
-
-The **task store** stores **tickets** and **sprints**, scoped per **project** (one
+The **task store** stores **tickets**, scoped per **project** (one
 subdirectory of `.harness/tasks/` each, so several independent projects run at once).
 **The store is the ground truth — the single coordination blackboard.** The Eclipse Board
 is a projection of it, and every agent (a user's chat session, a fleet worker, the
@@ -203,11 +196,13 @@ inside a fleet worktree — worktrees carry no `target/` build output); opencode
 `eclipse-build_task_*`) — the tool/wire names stay `task_*`. States:
 
 ```text
-product-backlog --plan--> sprint-backlog --claim--> in-progress --verify--> in-review --accept--> done
-   (incomplete on sprint close ──────────────────────────────────────────────────────────────┘)
-paused = parked for maintenance (U-038): visible, never blocked; resume is a status update
-blocked = a STATE (status:blocked + resume_to:str + blocker:str); clearing
-  returns to resume_to (default sprint-backlog); done and paused can never be blocked
+ready --claim--> in-progress --verify--> in-review --accept--> done
+   (not-implemented = a DONE state reachable from any non-terminal state: decided not to build)
+paused = dependency wait: born paused while the basis is open; auto-resumes paused -> ready the
+   moment the basis completes (the pump); never claimed directly - only the resume path moves it
+blocked = a STATE (status:blocked + resume_to:str + blocker:str) that PROPAGATES UP the basis
+   chain to the requirement; clearing walks back down to resume_to (fallback ready);
+   done and paused can never be blocked
 stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (basis = the completing ticket; the chain to the requirement is the scope); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
 ```
 
@@ -239,19 +234,19 @@ stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no 
 or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
 all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
 run; STALE means an upstream (basis chain) had a STRUCTURED input write after the
-downstream ran - status/stage/basis/role, the artifact list, the claim/plan status moves
+downstream ran - status/stage/basis/role, the artifact list, the claim status moves
 (D-003 option B: comments and bookkeeping never stale completed downstream work), decided
 per side on the `inputs_changed_at` stamp with a legacy fallback to `updated_at`. Each
 STALE verdict found by a production readiness tick leaves exactly one `inputs changed:`
 history marker on the downstream ticket (idempotent - later ticks append nothing until the
 input changes again; U-052). The PM agent can use it to ask "what's
 runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
-(*Auto ▶*: launches every runnable sprint ticket under a concurrency + cost-budget cap).
+(*Auto ▶*: launches every runnable ready-state ticket under a concurrency + cost-budget cap).
 
 - A worker **self-claims** by role: `task_claim(role=…)` atomically finds the next
-  matching ticket, moves it to `in-progress`, sets `assignee`. Two agents never get the
-  same ticket. A returned ticket (`task_release`) can be picked up by a *different*
-  agent.
+  matching **ready** ticket (unassigned, readiness READY), moves it to `in-progress`, sets
+  `assignee`. Two agents never get the same ticket. A returned ticket (`task_release`) can
+  be picked up by a *different* agent.
 - When a worker produces an artifact (file, git commit/branch, doc), it records it with
   `task_add_artifact(kind=file|git|path|url|doc, ref=…)` **before** moving to `in-review` —
   the ticket is the hand-off contract.
@@ -282,7 +277,7 @@ Verification maps by level: `test-software-implementation` (unit) ↔ `software-
 `test-software-requirements` (acceptance) ↔ `software-requirements`.
 
 The V-model is used as an **async pipeline**, not a phase gate: stages run **concurrently**,
-each finished stage's ticket feeds the next stage's backlog, and a stage that cannot proceed
+each finished stage's ticket feeds the next stage's ready queue, and a stage that cannot proceed
 sends the ticket back with a reason. There are **no phase gates and no ordering enforcement**
 — the ticket's `stage` field (nullable; `VStages` in the tasks bundle is canonical) only
 steers dispatch (stage → role → skill) and the prompt the fleet gives the worker:
@@ -369,7 +364,7 @@ write/edit/patch/bash and owns registration (evaluation:
 
 Concretely, the chat agent — the PO's **kickoff assistant** — can:
 
-- run the whole ticket/sprint workflow via the `tasks` server (`tasks_task_*`);
+- run the whole ticket workflow via the `tasks` server (`tasks_task_*`);
 - **arm and disarm the ticker** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
   (ONE steward session + ONE `experimental.automations` automation - `ticker-v` - W1,
   adopted; each tick walks all stages in canonical V order under the global
@@ -477,7 +472,7 @@ on a fresh machine (the file lives in the user profile, outside the repo).
 
 Lean, flat, model-neutral:
 
-- **Coordination (unprefixed):** `orchestrator` (kicks off the sprint; workers self-claim),
+- **Coordination (unprefixed):** `orchestrator` (kicks off the work; workers self-claim),
   `manifest-author` (high-tier plan + execution manifest), `executor` (open-tier task execution;
   records artifacts), `reviewer` (high-tier final review; edit-denied), `rubberduck`
   (cross-vendor critic; edit-denied), `research` (authoritative-source investigation;

@@ -83,7 +83,7 @@ open instances — the checklist is shared, the verdicts are separate:
    reporting rules below); findings ride the NEXT wave — finished work
    is never re-opened.
 3. **Failed pass:** record the failed evidence on the instance first,
-   then block it (`task_set_blocked`, resume to `sprint-backlog`) with
+   then block it (`task_set_blocked`, resume to `ready`) with
    the blocker naming the finding tickets; when the findings land, clear
    the blocker (only the owner does) and re-run the pass.
 

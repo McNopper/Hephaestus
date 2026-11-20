@@ -48,12 +48,10 @@ public class ProjectActionsTest {
     Path dir = root.resolve("fresh");
     assertTrue("the project directory exists", Files.isDirectory(dir));
     assertTrue(
-        "the store sidecar carries the id seq and the wave table",
-        Files.isRegularFile(dir.resolve("_meta.json")));
+        "the store sidecar carries the id seq", Files.isRegularFile(dir.resolve("_meta.json")));
     String meta = Files.readString(dir.resolve("_meta.json"));
     assertTrue(meta.contains("\"seq\""));
-    assertTrue(meta.contains("\"sprints\""));
-    assertEquals("a fresh project is empty", 0, store.list("fresh", null, null, null, null).size());
+    assertEquals("a fresh project is empty", 0, store.list("fresh", null, null, null).size());
   }
 
   @Test
@@ -80,15 +78,12 @@ public class ProjectActionsTest {
 
     assertEquals("fresh", report.get("project"));
     assertEquals(2, report.get("tickets_removed"));
-    assertEquals(
-        "the project itself survives", 0, store.list("fresh", null, null, null, null).size());
+    assertEquals("the project itself survives", 0, store.list("fresh", null, null, null).size());
     assertTrue(
         "the other project's ticket is untouched",
         store.get(PROJECT, keep) != null && "done".equals("done"));
     assertEquals(
-        "the other project still lists its work",
-        1,
-        store.list(PROJECT, null, null, null, null).size());
+        "the other project still lists its work", 1, store.list(PROJECT, null, null, null).size());
     assertFalse("no ids collide after a reset", doomed.equals(second));
   }
 

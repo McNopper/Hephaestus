@@ -3,7 +3,6 @@ package com.opencode.ide.mojo.tasks;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.JsonObject;
@@ -58,7 +57,6 @@ public class StoreSyncTest {
             List.of("GIVEN a clean store"),
             List.of("ui"),
             "H1"));
-    store.planSprint("demo", null, List.of("T-001", "H1-001"), "Ship the first slice");
     store.update("demo", "H1-001", Map.of("status", "in-progress", "assignee", "agent-7"));
   }
 
@@ -129,8 +127,6 @@ public class StoreSyncTest {
     assertTrue(hasFinding(findings, "T-099.md", "invalid status 'bogus'"));
     assertTrue(hasFinding(findings, "T-001.md", "CRLF line endings"));
     assertTrue(hasFinding(findings, "_meta.json", "seq['T']=0"));
-    assertTrue(hasFinding(findings, "_meta.json", "counter=0"));
-    assertTrue(hasFinding(findings, "T-099.md", "sprint 'S-42'"));
     assertTrue(result.hasUnfixableErrors());
     assertTrue(result.hasFixableFindings());
     assertTrue(result.projects().get(0).appliedFixes().isEmpty());
@@ -158,11 +154,8 @@ public class StoreSyncTest {
             .getAsJsonObject();
     assertEquals(1, meta.getAsJsonObject("seq").get("T").getAsInt());
     assertEquals(1, meta.getAsJsonObject("seq").get("H1").getAsInt());
-    assertEquals(1, meta.get("counter").getAsInt());
+    assertEquals(0, meta.get("counter").getAsInt());
     assertEquals("hand-added", meta.get("note").getAsString());
-    assertEquals(
-        "Ship the first slice",
-        meta.getAsJsonObject("sprints").getAsJsonObject("S-01").get("goal").getAsString());
 
     Map<String, byte[]> afterFix = snapshot(dir);
     assertFalse(afterFix.keySet().stream().anyMatch(n -> n.contains(".tmp-")));
@@ -337,12 +330,12 @@ public class StoreSyncTest {
             .getAsJsonObject();
     assertEquals(1, meta.getAsJsonObject("seq").get("T").getAsInt());
     assertEquals(1, meta.getAsJsonObject("seq").get("H1").getAsInt());
-    assertEquals(1, meta.get("counter").getAsInt());
-    assertNotNull(meta.getAsJsonObject("sprints"));
+    // the sprint counter is retired with the model: a recreated sidecar
+    // recovers the id seq and carries a zeroed legacy counter
+    assertEquals(0, meta.get("counter").getAsInt());
 
     List<StoreSync.Finding> after = new StoreSync(root).run(false).projects().get(0).findings();
     assertTrue(after.stream().noneMatch(f -> f.severity() == StoreSync.Severity.ERROR));
-    assertTrue(hasFinding(after, "T-001.md", "sprint 'S-01'"));
   }
 
   @Test
@@ -379,8 +372,8 @@ public class StoreSyncTest {
         StandardCharsets.UTF_8);
 
     StoreSync.Result result = new StoreSync(root).run(false);
-    // U-091: tickets reference S-01; with no sprints object at all the sprint
-    // scan and the sprint-reference check must both skip, not crash
+    // U-091: with no sprints object at all the meta-side sprint scan
+    // must skip, not crash
     assertTrue(
         "expected no findings, got: " + result.projects().get(0).findings(),
         result.projects().get(0).findings().isEmpty());
@@ -394,8 +387,8 @@ public class StoreSyncTest {
         StandardCharsets.UTF_8);
 
     StoreSync.Result result = new StoreSync(root).run(false);
-    // U-091: a non-object sprints value is skipped by both the max-sprint scan
-    // and the sprint-reference check; neither may coerce it to an object
+    // U-091: a non-object sprints value is skipped by the max-sprint scan;
+    // it may never be coerced to an object
     assertTrue(
         "expected no findings, got: " + result.projects().get(0).findings(),
         result.projects().get(0).findings().isEmpty());

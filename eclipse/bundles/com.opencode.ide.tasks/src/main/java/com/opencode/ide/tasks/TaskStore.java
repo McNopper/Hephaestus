@@ -28,21 +28,18 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * The Markdown task store: one directory per project under the configured root, one {@code <id>.md}
  * file per task (see {@link TaskFileCodec}), plus a {@code _meta.json} sidecar holding the
- * per-prefix id counters, the sprint counter and the sprint metadata (goal/status/timestamps - the
- * board itself is derived from the tasks).
+ * per-prefix id counters (the board itself is derived from the tasks).
  *
  * <p>Layout:
  *
  * <pre>
  * &lt;root&gt;/
  *   &lt;project&gt;/
- *     _meta.json     # {"seq": {"T": 5}, "counter": 2, "sprints": {...}}
+ *     _meta.json     # {"seq": {"T": 5}, "counter": 2}
  *     .lock          # cross-process lock file (never deleted)
  *     T-001.md
  *     T-002.md
@@ -55,15 +52,17 @@ import java.util.regex.Pattern;
  * {@code <project>/.lock} so the Eclipse-hosted endpoint and the standalone stdio tool (separate
  * processes) serialize. Writes go to a temp file in the same directory followed by {@code
  * Files.move(REPLACE_EXISTING)} - on Windows this is the safe replace pattern ({@code ATOMIC_MOVE +
- * REPLACE_EXISTING} is undefined per spec). Multi-file operations (plan/close sprint) validate
- * every precondition before writing the first file so a rejected call never leaves partial state; a
- * crash mid-write can, and is documented as such.
+ * REPLACE_EXISTING} is undefined per spec). Multi-file operations validate every precondition
+ * before writing the first file so a rejected call never leaves partial state; a crash mid-write
+ * can, and is documented as such.
  *
  * <h2>Semantics</h2>
  *
- * Field names, status machine, claim ordering (priority desc, then created_at asc, then id), lax
- * update rules, sprint force-set on plan, and the traceability pairing all mirror the retired
- * Python {@code pm} MCP server one-for-one; see the skills in {@code .opencode/skills/pm-*}.
+ * Field names, claim ordering (priority desc, then created_at asc, then id), lax update rules and
+ * the traceability pairing mirror the retired Python {@code pm} MCP server; the STATUS MODEL is the
+ * owner's 2026-11-20 seven-state pump - no backlogs, born ready (or paused while the basis is
+ * open), see {@link Task#VALID_STATUSES} - and supersedes the pm statuses. The skills in {@code
+ * .opencode/skills/pm-*} predate that model.
  */
 public final class TaskStore {
 
@@ -187,9 +186,6 @@ public final class TaskStore {
 
   private static final String INVALIDATION_BY = "h6";
 
-  /** Sprint ids the counter understands: exactly {@code S-<n>} (U-094). */
-  private static final Pattern SPRINT_ID_PATTERN = Pattern.compile("S-(\\d+)");
-
   /** The readiness report's severity order: most urgent kind first. */
   private static final List<StageReadiness.Kind> READINESS_SEVERITY =
       List.of(
@@ -219,7 +215,8 @@ public final class TaskStore {
   // ------------------------------------------------------------------
 
   /**
-   * Creates a task (born product-backlog - or born blocked when blocked=true, U-067) with a freshly
+   * Creates a task (born {@code ready} - or born {@code paused} while its basis is open, or born
+   * blocked when blocked=true, U-067; owner model 2026-11-20: no backlogs exist) with a freshly
    * minted id.
    */
   public Task create(String project, CreateSpec spec) {
@@ -297,6 +294,12 @@ public final class TaskStore {
                 "basis ticket " + spec.basis() + " not found in project " + project + " (U-110)");
           }
           t.basis = spec.basis();
+          // Owner rule 2026-11-20 (no backlogs): birth computes the state - ready when nothing
+          // upstream is open, paused while the basis is still open (the dependency wait; the
+          // basis's completion resumes it - the auto-resume in update()).
+          if (spec.basis() != null && !basisSatisfied(data, spec.basis())) {
+            t.status = "paused";
+          }
           // T-155: review: human|ai - validated LOUDLY at the mint point, and `human`
           // only on the first/last stage (or stageless) per the owner rule of 2026-11-17
           t.review = normalizeReview(spec.review());
@@ -305,7 +308,7 @@ public final class TaskStore {
           }
           if (bornBlocked) {
             // B-026/U-067: blocked is a STATE entered at birth - the status moves to
-            // blocked and resume_to remembers product-backlog for the one door out.
+            // blocked and resume_to remembers the birth state (ready/paused) for the one door out.
             t.enterBlocked(spec.blocker());
           }
           t.createdAt = now();
@@ -363,14 +366,13 @@ public final class TaskStore {
   }
 
   /**
-   * Lists tasks with optional role/status/sprint/blocked filters (creation order). A project that
-   * does not exist on disk reads as empty - reads never materialize the project directory (review
-   * S5: task_doctor on a typo'd project used to create it).
+   * Lists tasks with optional role/status/blocked filters (creation order). A project that does not
+   * exist on disk reads as empty - reads never materialize the project directory (review S5:
+   * task_doctor on a typo'd project used to create it).
    */
-  public List<Task> list(
-      String project, String role, String status, String sprint, Boolean blocked) {
+  public List<Task> list(String project, String role, String status, Boolean blocked) {
     if (projectDirectoryMissing(project)) {
-      return new ArrayList<>(); // mutable: callers sort in place (readiness, backlog)
+      return new ArrayList<>(); // mutable: callers sort in place (readiness, ready-queue)
     }
     List<Task> out =
         new ArrayList<>(transaction(project, data -> new ArrayList<>(data.tasks.values())));
@@ -380,13 +382,23 @@ public final class TaskStore {
     if (status != null) {
       out.removeIf(t -> !status.equals(t.status));
     }
-    if (sprint != null) {
-      out.removeIf(t -> !sprint.equals(t.sprint));
-    }
     if (blocked != null) {
       out.removeIf(t -> t.isBlocked() != blocked);
     }
     return out;
+  }
+
+  /**
+   * The birth/resume test (owner model 2026-11-20): a basis counts as satisfied once it reached a
+   * verdict - {@code in-review} (engine verdict pending) or a terminal state. An absent basis
+   * cannot hold a ticket hostage (create() already validated the link when it was set).
+   */
+  private static boolean basisSatisfied(ProjectData data, String basisId) {
+    if (basisId == null) {
+      return true;
+    }
+    Task b = data.tasks.get(basisId);
+    return b == null || "in-review".equals(b.status) || b.isTerminal();
   }
 
   /**
@@ -487,10 +499,6 @@ public final class TaskStore {
                 t.blocker = string(e.getValue());
                 applied.add(e.getKey());
               }
-              case "sprint" -> {
-                t.sprint = string(e.getValue());
-                applied.add(e.getKey());
-              }
 
               // Owner rule 2026-11-19: re-joining is a VERB, not a hand edit - basis is
               // re-pointable through task_update (validated live+archive, null clears), so
@@ -535,12 +543,15 @@ public final class TaskStore {
           // leave back to resume_to; a plain status move leaves cleanup to
           // the commit-time invariant)
           if (requestedBlocked != null && requestedBlocked) {
-            if ("done".equals(t.status)) {
-              throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+            if (t.isTerminal()) {
+              throw new Invalid(
+                  "a "
+                      + t.status
+                      + " ticket is never blocked (U-067: done/not-implemented are terminal)");
             }
             if ("paused".equals(t.status)) {
               throw new Invalid(
-                  "a paused ticket is never blocked (U-038: paused is parked for maintenance"
+                  "a paused ticket is never blocked (U-038: paused is the dependency wait"
                       + " - resume it first)");
             }
             String resume =
@@ -558,15 +569,27 @@ public final class TaskStore {
             // terminal or parked status either - the invariant holds on every entry path,
             // not only on task_set_blocked and the blocked-flag door above.
             if ("blocked".equals(requestedStatus)
-                && ("done".equals(t.status) || "paused".equals(t.status))) {
+                && (t.isTerminal() || "paused".equals(t.status))) {
               throw new Invalid(
                   "a "
                       + t.status
                       + " ticket is never blocked (U-067/U-038"
-                      + (t.status.equals("done") ? ": done is terminal" : ": resume it first")
+                      + (t.isTerminal() ? ": terminal" : ": resume it first")
                       + ")");
             }
             t.status = requestedStatus;
+          }
+          // Owner rule 2026-11-20 (the pump): the moment a ticket completes, the tickets
+          // WAITING on it resume - paused -> ready, automatically.
+          if ("done".equals(requestedStatus) || "not-implemented".equals(requestedStatus)) {
+            for (Task u : data.tasks.values()) {
+              if (u != t && "paused".equals(u.status) && t.id.equals(u.basis)) {
+                u.status = "ready";
+                u.updatedAt = now();
+                u.history("resumed: basis " + t.id + " completed", null);
+                data.changed.add(u.id);
+              }
+            }
           }
           // U-110: done-time enforcement - the DEFINITION stage's product is the point of the V,
           // so a definition-stage ticket cannot reach done bare (the old advance-time gate moved
@@ -690,17 +713,16 @@ public final class TaskStore {
   /**
    * B-007 doubt round-trip (FR-009..FR-012): reviewer doubt - or a heuristic checkpoint refusal
    * (FR-011) - routes back to the ORIGINATOR instead of blocking for a human. The ticket returns to
-   * its own stage's backlog (same mechanics as a stage advance, without the stage move: product
-   * backlog, assignee cleared) with the doubt recorded as an attributable comment and a {@code
-   * review doubt retry (n/N)} history marker. Exactly {@link #REVIEW_DOUBT_RETRY_LIMIT} retry per
-   * stage visit (C-004: a visit ends at the next stage transition - {@code advanced to}, {@code
-   * sent back to}, {@code reported to}, {@code stage N passed}, a direct stage update, or ticket
-   * creation); a doubt that recurs inside the same visit escalates the ticket to blocked - {@code
-   * blocked} is the needs-a-human signal and is reached only after the originator had its attempt
-   * (U-023 round-trip doctrine).
+   * ready (same mechanics as a stage advance, without the stage move: ready, assignee cleared) with
+   * the doubt recorded as an attributable comment and a {@code review doubt retry (n/N)} history
+   * marker. Exactly {@link #REVIEW_DOUBT_RETRY_LIMIT} retry per stage visit (C-004: a visit ends at
+   * the next stage transition - {@code advanced to}, {@code sent back to}, {@code reported to},
+   * {@code stage N passed}, a direct stage update, or ticket creation); a doubt that recurs inside
+   * the same visit escalates the ticket to blocked - {@code blocked} is the needs-a-human signal
+   * and is reached only after the originator had its attempt (U-023 round-trip doctrine).
    *
    * @param reason the reviewer's doubt or the checkpoint's refusal reason
-   * @return the ticket after the routing (product-backlog retry, or blocked)
+   * @return the ticket after the routing (ready retry, or blocked)
    * @throws Invalid when the ticket has no (valid) stored stage or the reason is blank
    */
   public Task routeReviewDoubt(String project, String id, String reason, String by) {
@@ -732,7 +754,7 @@ public final class TaskStore {
             data.changed.add(id);
             return t;
           }
-          t.status = "product-backlog";
+          t.status = "ready";
           t.assignee = null;
           t.updatedAt = now();
           t.comments.add(
@@ -826,8 +848,8 @@ public final class TaskStore {
   /**
    * O-002: creates a NEW task-store project - the scaffold a user would otherwise hand-write under
    * {@code .harness/tasks/} (the directory plus the store's own {@code _meta.json} shape: id seq,
-   * counter, sprints). Only this project is created; every other project keeps its history, actuals
-   * and fleet ownership bindings untouched.
+   * counter). Only this project is created; every other project keeps its history, actuals and
+   * fleet ownership bindings untouched.
    *
    * @throws Invalid when the project already exists (pick another name)
    */
@@ -839,22 +861,21 @@ public final class TaskStore {
     }
     try {
       Files.createDirectories(dir);
-      writeAtomic(dir.resolve("_meta.json"), "{\"seq\":{},\"counter\":0,\"sprints\":{}}");
+      writeAtomic(dir.resolve("_meta.json"), "{\"seq\":{},\"counter\":0}");
     } catch (java.io.IOException e) {
       throw new UncheckedIo("task store I/O failed: " + e.getMessage(), e);
     }
   }
 
   /**
-   * O-002: resets a project - every ticket of THIS project (live and archived) and its wave history
-   * are removed, so a user repurposing the repo never hand-deletes store files. The confirmation
-   * dialog lists what is lost BEFORE this runs. Cross-project safety is STRUCTURAL: only files
-   * under {@code <root>/<project>/} are touched - other projects keep their tickets/actuals and the
-   * fleet's {@code <id>.project} ownership bindings stay intact. The id counters survive the reset
-   * on purpose: ids are never reused (the crash-recovery rule).
+   * O-002: resets a project - every ticket of THIS project (live and archived) is removed, so a
+   * user repurposing the repo never hand-deletes store files. The confirmation dialog lists what is
+   * lost BEFORE this runs. Cross-project safety is STRUCTURAL: only files under {@code
+   * <root>/<project>/} are touched - other projects keep their tickets/actuals and the fleet's
+   * {@code <id>.project} ownership bindings stay intact. The id counters survive the reset on
+   * purpose: ids are never reused (the crash-recovery rule).
    *
-   * @return what was lost ({@code project}, {@code tickets_removed}, {@code archived_removed},
-   *     {@code sprints_cleared})
+   * @return what was lost ({@code project}, {@code tickets_removed}, {@code archived_removed})
    * @throws Invalid when the project does not exist
    */
   public java.util.Map<String, Object> resetProject(String project, String by) {
@@ -885,7 +906,8 @@ public final class TaskStore {
         }
         Files.deleteIfExists(archive);
       }
-      // wave history is part of what is lost; the id seq is NOT reset
+      // the id seq is NOT reset; stale sprint records are dropped with the
+      // owner's no-sprint model (2026-11-20)
       Path meta = dir.resolve("_meta.json");
       JsonObject doc =
           Files.isRegularFile(meta)
@@ -893,7 +915,6 @@ public final class TaskStore {
                   .getAsJsonObject()
               : new JsonObject();
       doc.remove("sprints");
-      doc.add("sprints", new JsonObject());
       writeAtomic(meta, GSON.toJson(doc));
     } catch (java.io.IOException e) {
       throw new UncheckedIo("task store I/O failed: " + e.getMessage(), e);
@@ -902,7 +923,6 @@ public final class TaskStore {
     report.put("project", name);
     report.put("tickets_removed", tickets);
     report.put("archived_removed", archived);
-    report.put("sprints_cleared", true);
     return report;
   }
 
@@ -925,29 +945,56 @@ public final class TaskStore {
         });
   }
 
-  /** Enters the blocked STATE with a reason (U-067: resume remembers the current status). */
+  /**
+   * Enters the blocked STATE with a reason (U-067: resume remembers the current status) and, per
+   * the owner's chain rule (2026-11-20), escalates UP the basis links: the whole ticket chain goes
+   * back to the requirement, which is blocked as well. Every hop carries a {@code [chain:
+   * <origin>]} marker so clearing the origin walks back DOWN and restores each hop's exact
+   * pre-block state. Chain hops bypass the direct-entry refusals (even a done or paused hop joins -
+   * its state is remembered in resume_to); a hop already blocked keeps its own reason.
+   */
   public Task setBlocked(String project, String id, String blocker, String by) {
     return transaction(
         project,
         data -> {
           Task t = require(data, project, id);
-          if ("done".equals(t.status)) {
-            throw new Invalid("a done ticket is never blocked (U-067: done is terminal)");
+          if (t.isTerminal()) {
+            throw new Invalid(
+                "a "
+                    + t.status
+                    + " ticket is never blocked (U-067: done/not-implemented are terminal)");
           }
           if ("paused".equals(t.status)) {
             throw new Invalid(
-                "a paused ticket is never blocked (U-038: paused is parked for maintenance"
+                "a paused ticket is never blocked (U-038: paused is the dependency wait"
                     + " - resume it first)");
           }
           t.enterBlocked(blocker);
           t.updatedAt = now();
           t.history("blocked:" + blocker, by);
           data.changed.add(id);
+          String marker = "[chain: " + id + "] ";
+          String next = t.basis;
+          while (next != null) {
+            Task hop = data.tasks.get(next);
+            if (hop == null || hop.isBlocked()) {
+              break; // the chain stops at an absent or already-blocked hop (its reason stands)
+            }
+            hop.enterBlocked(marker + (blocker == null ? "" : blocker));
+            hop.updatedAt = now();
+            hop.history("blocked by chain from " + id, by);
+            data.changed.add(hop.id);
+            next = hop.basis;
+          }
           return t;
         });
   }
 
-  /** Leaves the blocked STATE back to resume_to (U-067; default sprint-backlog). */
+  /**
+   * Leaves the blocked STATE back to resume_to (U-067; default ready) and walks back DOWN the chain
+   * this block created: every hop still carrying this origin's {@code [chain: <id>]} marker is
+   * cleared too, each returning to ITS pre-block state (owner rule 2026-11-20).
+   */
   public Task clearBlocked(String project, String id, String by) {
     return transaction(
         project,
@@ -957,31 +1004,44 @@ public final class TaskStore {
           t.updatedAt = now();
           t.history("unblocked", by);
           data.changed.add(id);
+          String marker = "[chain: " + id + "] ";
+          for (Task u : data.tasks.values()) {
+            if (u.isBlocked() && u.blocker != null && u.blocker.startsWith(marker)) {
+              u.leaveBlocked();
+              u.updatedAt = now();
+              u.history("unblocked (chain from " + id + ")", by);
+              data.changed.add(u.id);
+            }
+          }
           return t;
         });
   }
 
   /**
-   * Atomically claims the next matching task (-&gt; in-progress, assignee set). Only sprint-backlog
-   * tasks of the given role that are not blocked are claimable; ordering is priority desc, then
-   * created_at asc, then id. Returns {@code null} when nothing is claimable (worker loops stop on
-   * this).
+   * Atomically claims the next matching task (-&gt; in-progress, assignee set). Only READY,
+   * UNASSIGNED tasks of the given role that are not blocked are claimable (owner model 2026-11-20:
+   * born ready, claimed into the pump - the assignee shields acceptance instances); ordering is
+   * priority desc, then created_at asc, then id. Returns {@code null} when nothing is claimable
+   * (worker loops stop on this).
    */
   public Task claim(String project, String role, String status, String by) {
-    String want = status == null ? "sprint-backlog" : status;
-    if (!"sprint-backlog".equals(want)) {
+    String want = status == null ? "ready" : status;
+    if (!"ready".equals(want)) {
       throw new Invalid(
-          "claim status must be one of [sprint-backlog], got '"
+          "claim status must be one of [ready], got '"
               + want
               + "'"
-              + " (only sprint-backlog tickets are claimable)");
+              + " (only ready tickets are claimable)");
     }
     return transaction(
         project,
         data -> {
           List<Task> candidates = new ArrayList<>();
           for (Task t : data.tasks.values()) {
-            if (role.equals(t.role) && want.equals(t.status) && !t.isBlocked()) {
+            if (role.equals(t.role)
+                && want.equals(t.status)
+                && !t.isBlocked()
+                && t.assignee == null) {
               candidates.add(t);
             }
           }
@@ -1004,16 +1064,16 @@ public final class TaskStore {
         });
   }
 
-  /** Returns an unstarted (or in-progress) task to sprint-backlog; clears the assignee. */
+  /** Returns an unstarted (or in-progress) task to ready; clears the assignee. */
   public Task release(String project, String id, String by) {
     return transaction(
         project,
         data -> {
           Task t = require(data, project, id);
-          if (!"sprint-backlog".equals(t.status) && !"in-progress".equals(t.status)) {
+          if (!"ready".equals(t.status) && !"in-progress".equals(t.status)) {
             throw new Invalid("cannot release ticket in status '" + t.status + "'");
           }
-          t.status = "sprint-backlog";
+          t.status = "ready";
           t.assignee = null;
           t.updatedAt = now();
           t.history("released by " + (by == null ? "?" : by), by);
@@ -1135,23 +1195,16 @@ public final class TaskStore {
         });
   }
 
-  /** Prioritized product backlog (product-backlog only; priority desc, created asc). */
-  public List<Task> backlog(String project) {
-    List<Task> out = list(project, null, "product-backlog", null, null);
-    out.sort(prioritized());
-    return out;
-  }
-
   /**
-   * Wave Kanban grouped by status; all six status columns always present (paused = parked for
-   * maintenance).
+   * Kanban grouped by status; all seven status columns always present (owner model 2026-11-20:
+   * ready / in-progress / in-review / done / not-implemented / paused / blocked - no backlogs).
    */
-  public Map<String, List<Task>> board(String project, String sprint) {
+  public Map<String, List<Task>> board(String project) {
     Map<String, List<Task>> out = new LinkedHashMap<>();
     for (String s : Task.VALID_STATUSES) {
       out.put(s, new ArrayList<>());
     }
-    for (Task t : list(project, null, null, sprint, null)) {
+    for (Task t : list(project, null, null, null)) {
       List<Task> column = out.get(t.status);
       if (column != null) {
         column.add(t);
@@ -1160,67 +1213,6 @@ public final class TaskStore {
     return out;
   }
 
-  /**
-   * Creates (or reuses) a sprint and commits the given tasks into it. Like the pm server this
-   * force-sets every listed task to {@code sprint-backlog} (even in-progress/done ones); all task
-   * ids are validated before the first file is written.
-   */
-  public Task.Sprint planSprint(
-      String project, String sprintId, List<String> ticketIds, String goal) {
-    return transaction(
-        project,
-        data -> {
-          String sid = sprintId == null || sprintId.isBlank() ? nextSprintId(data) : sprintId;
-          // U-094: an explicit id must teach the counter, else a later auto-mint
-          // can collide with it (the counter never learned the explicit id). For
-          // auto-minted ids this is a no-op (n == counter).
-          advanceSprintCounter(data, sid);
-          if (ticketIds != null) {
-            for (String tid : ticketIds) {
-              if (!data.tasks.containsKey(tid)) {
-                throw new Invalid("ticket " + tid + " not found");
-              }
-            }
-          }
-          Task.Sprint sprint = data.sprints.get(sid);
-          if (sprint == null) {
-            sprint = new Task.Sprint(sid, goal == null ? "" : goal, "active", now(), null);
-          } else {
-            // U-108: planning into a CLOSED sprint reopens it - the reuse must not carry the
-            // stale closed status/timestamps while it holds active work (the S-08/S-09
-            // incident). createdAt stays the honest first-creation instant.
-            String status = "closed".equals(sprint.status()) ? "active" : sprint.status();
-            Instant closedAt = "closed".equals(sprint.status()) ? null : sprint.closedAt();
-            String sprintGoal = goal != null && !goal.isEmpty() ? goal : sprint.goal();
-            sprint = new Task.Sprint(sid, sprintGoal, status, sprint.createdAt(), closedAt);
-          }
-          if (ticketIds != null) {
-            for (String tid : ticketIds) {
-              Task t = data.tasks.get(tid);
-              if (t == null || t.isBlocked()) {
-                throw new Invalid(
-                    "cannot plan ticket "
-                        + tid
-                        + (t == null ? " (not found)" : " - it is blocked; clear it first"));
-              }
-              t.sprint = sid;
-              t.status = "sprint-backlog";
-              t.updatedAt = now();
-              t.inputsChangedAt = t.updatedAt; // D-003: planning is a status move
-              t.history("planned into " + sid, null);
-              data.changed.add(tid);
-            }
-          }
-          data.sprints.put(sid, sprint);
-          data.metaDirty = true;
-          return sprint;
-        });
-  }
-
-  /**
-   * Closes a sprint; unfinished tasks return to product-backlog. Done tickets keep their
-   * sprint/status, but a stale blocked flag on one is cleared (a done ticket is never blocked).
-   */
   /**
    * Archives a ticket (user direction 2026-09-19: done tickets leave the active board at some
    * point): the {@code <id>.md} file moves to {@code <project>/_archive/} — the archive keeps the
@@ -1257,16 +1249,15 @@ public final class TaskStore {
   }
 
   /**
-   * T-183 - the chain-safe DONE sweep for the board's backlog of history: archives every DONE,
-   * SPRINT-LESS ticket no live basis-chain ticket still needs (the project-wide variant of U-060's
-   * rule), leaving sprint-scoped work (current wave / ticker history) and - with {@code before} -
-   * recent work on the board. Each move is an independent {@link #archive} transaction, exactly
-   * like the U-060 auto-archiver; the snapshot is taken before the first move.
+   * T-183 - the chain-safe DONE sweep for the board's backlog of history: archives every DONE
+   * ticket no live basis-chain ticket still needs (the project-wide variant of U-060's rule) and -
+   * with {@code before} - recent work on the board. Each move is an independent {@link #archive}
+   * transaction, exactly like the U-060 auto-archiver; the snapshot is taken before the first move.
    *
    * @param before optional ISO-8601 instant: only tickets CREATED strictly before it are candidates
-   *     ({@code null} = all sprint-less done)
-   * @return {@code archived} (moved ids) + {@code skipped} ({@code id:reason} for in-sprint /
-   *     recent / chain-needed - the reasons a candidate stayed visible)
+   *     ({@code null} = all done)
+   * @return {@code archived} (moved ids) + {@code skipped} ({@code id:reason} for recent /
+   *     chain-needed - the reasons a candidate stayed visible)
    */
   public Map<String, Object> archiveDone(String project, String by, String before) {
     Instant cutoff = null;
@@ -1278,15 +1269,11 @@ public final class TaskStore {
             "before must be an ISO-8601 instant (e.g. 2026-11-14T00:00:00Z), got '" + before + "'");
       }
     }
-    List<Task> all = list(project, null, null, null, null);
+    List<Task> all = list(project, null, null, null);
     List<String> moved = new ArrayList<>();
     List<String> skipped = new ArrayList<>();
     for (Task t : all) {
-      if (t == null || !"done".equals(t.status)) {
-        continue;
-      }
-      if (t.sprint != null && !t.sprint.isBlank()) {
-        skipped.add(t.id + ":in-sprint");
+      if (t == null || !t.isTerminal()) {
         continue;
       }
       if (cutoff != null && t.createdAt != null && t.createdAt.isAfter(cutoff)) {
@@ -1294,8 +1281,7 @@ public final class TaskStore {
         continue;
       }
       boolean needed =
-          all.stream()
-              .anyMatch(u -> u != null && u != t && !"done".equals(u.status) && inSameChain(u, t));
+          all.stream().anyMatch(u -> u != null && u != t && !u.isTerminal() && inSameChain(u, t));
       if (needed) {
         skipped.add(t.id + ":chain-needed");
         continue;
@@ -1307,44 +1293,6 @@ public final class TaskStore {
     out.put("archived", moved);
     out.put("skipped", skipped);
     return out;
-  }
-
-  /**
-   * U-027/U-060 wave close with SAFE auto-archiving: the done tickets of the closed wave are
-   * archived only when no live ticket of their basis chain still needs them as upstream (archiving
-   * never orphans downstream stages), and candidates are scoped to the closing sprint. The plain
-   * {@link #closeSprint(String, String)} never archives.
-   *
-   * @param autoArchive archive the unneeded done tickets of the wave
-   * @return the plain close result plus {@code auto_archived} (the ids moved to {@code _archive/})
-   */
-  public Map<String, Object> closeSprint(String project, String sprintId, boolean autoArchive) {
-    Map<String, Object> result = closeSprint(project, sprintId);
-    if (!autoArchive) {
-      return result;
-    }
-    List<String> archivedIds = new java.util.ArrayList<>();
-    // U-060: candidates are the CLOSING SPRINT's done tickets only - another
-    // sprint's done tickets are never touched by this close. The chain-safety
-    // check below still sees the whole live project, so an upstream a live
-    // (possibly other-sprint) ticket still needs is never archived.
-    List<Task> candidates = list(project, null, "done", sprintId, null);
-    List<Task> live = list(project, null, null, null, null);
-    for (Task candidate : candidates) {
-      if (!"done".equals(candidate.status)) {
-        continue;
-      }
-      boolean needed =
-          live.stream()
-              .anyMatch(
-                  u -> u != candidate && !"done".equals(u.status) && inSameChain(u, candidate));
-      if (!needed) {
-        archive(project, candidate.id, "auto-archive");
-        archivedIds.add(candidate.id);
-      }
-    }
-    result.put("auto_archived", List.copyOf(archivedIds));
-    return result;
   }
 
   /**
@@ -1402,7 +1350,7 @@ public final class TaskStore {
    * siblings (same basis, not this id).
    */
   public Map<String, Object> links(String project, String id) {
-    List<Task> all = list(project, null, null, null, null);
+    List<Task> all = list(project, null, null, null);
     Task self = all.stream().filter(t -> t.id.equals(id)).findFirst().orElse(null);
     if (self == null) {
       throw new NotFound("ticket " + id + " not found");
@@ -1458,54 +1406,6 @@ public final class TaskStore {
     return m;
   }
 
-  public Map<String, Object> closeSprint(String project, String sprintId) {
-    return transaction(
-        project,
-        data -> {
-          Task.Sprint sprint = data.sprints.get(sprintId);
-          if (sprint == null) {
-            throw new NotFound("sprint " + sprintId + " not found");
-          }
-          List<String> returned = new ArrayList<>();
-          for (Task t : data.tasks.values()) {
-            if (!sprintId.equals(t.sprint)) {
-              continue;
-            }
-            if ("done".equals(t.status)) {
-              // NOT archived here (U-025 lesson, live 2026-09-19:
-              // archiving on wave close orphaned WAIT_UPSTREAM
-              // children). The opt-in overload closeSprint(project,
-              // sprintId, autoArchive) archives the wave's done tickets
-              // no live basis chain still needs; the task_close_sprint
-              // tool exposes it as opt-in auto_archive (U-060).
-              // Readiness callers do not pass the archive pool yet (U-059).
-              continue;
-            }
-            t.sprint = null;
-            if (t.isBlocked()) {
-              // U-067: a blocked ticket stays blocked on wave close -
-              // clearing it later returns it to the product backlog
-              t.resumeTo = "product-backlog";
-              t.history("returned from " + sprintId + " (stays blocked)", null);
-            } else {
-              t.status = "product-backlog";
-              t.history("returned from " + sprintId, null);
-            }
-            t.updatedAt = now();
-            data.changed.add(t.id);
-            returned.add(t.id);
-          }
-          Task.Sprint closed =
-              new Task.Sprint(sprintId, sprint.goal(), "closed", sprint.createdAt(), now());
-          data.sprints.put(sprintId, closed);
-          data.metaDirty = true;
-          Map<String, Object> out = new LinkedHashMap<>();
-          out.put("sprint", closed);
-          out.put("returned_to_backlog", returned);
-          return out;
-        });
-  }
-
   /**
    * The definition&lt;-&gt;verification traceability matrix (D-001 decision: THREE pairing signals
    * - a role+basis link, the ticket's own V-journey, and test-shaped artifacts; pm requirements
@@ -1513,7 +1413,7 @@ public final class TaskStore {
    * real pair from inflation; a definition with no signal at all stays an orphan.
    */
   public Map<String, Object> traceability(String project) {
-    List<Task> tickets = list(project, null, null, null, null);
+    List<Task> tickets = list(project, null, null, null);
     Map<String, Task> byId = new HashMap<>();
     for (Task t : tickets) {
       byId.put(t.id, t);
@@ -1638,7 +1538,7 @@ public final class TaskStore {
   /**
    * U-104: sets - or with a blank/null {@code agent} CLEARS - the dispatch agent for one V stage:
    * the chat/Board-settable selection without file edits (the ticker's spawn step reads it). The
-   * map persists in {@code _meta.json} next to the sprint records.
+   * map persists in {@code _meta.json} next to the id counters.
    *
    * @throws Invalid when the stage is not a V stage - rejected loudly, never sanitized
    *     (U-107/U-109)
@@ -1730,7 +1630,7 @@ public final class TaskStore {
     // changed:' history event here, idempotently (the recorder's whole-history guard + freshness
     // make repeated polls append nothing new).
     recordInvalidations(project);
-    List<Task> tickets = list(project, null, null, null, null);
+    List<Task> tickets = list(project, null, null, null);
     // U-059: production readiness consults the archive pool (an archived upstream still decides)
     Map<String, StageReadiness.Readiness> verdicts =
         StageReadiness.evaluate(tickets, archived(project));
@@ -1754,13 +1654,12 @@ public final class TaskStore {
    * Store self-check (lint): human-readable reports of store damage and inconsistent flag
    * combinations - ticket files the store cannot parse (every other read skips them, so a corrupted
    * file would otherwise vanish silently), tickets that are {@code done} but still carry the
-   * blocked flag, tickets with a sprint set while sitting in {@code product-backlog}, {@code
-   * file}/{@code path} artifact refs that do not resolve under the repo root (U-053: two corrupted
-   * refs sat unnoticed for days), and - U-080 - done/in-review tickets parked on a DEFINITION stage
-   * without any recorded artifact (legacy rows the advance gate now refuses: "the architecture was
-   * not done"). Glob/ brace/enumerated/prose-like refs are skipped, and so is the whole resolution
-   * check when the repo root cannot be determined from the store root's layout - one report line
-   * per file or ticket, sorted; empty when the store is consistent. Read-only.
+   * blocked flag, {@code file}/{@code path} artifact refs that do not resolve under the repo root
+   * (U-053: two corrupted refs sat unnoticed for days), and - U-080 - done/in-review tickets parked
+   * on a DEFINITION stage without any recorded artifact (legacy rows the advance gate now refuses:
+   * "the architecture was not done"). Glob/ brace/enumerated/prose-like refs are skipped, and so is
+   * the whole resolution check when the repo root cannot be determined from the store root's layout
+   * - one report line per file or ticket, sorted; empty when the store is consistent. Read-only.
    */
   /**
    * A link target resolves in the live pool or in the archive pool (owner rule 2026-11-19): joins
@@ -1794,8 +1693,8 @@ public final class TaskStore {
                   return data.unparsable;
                 }));
     for (Task t : tasks) {
-      if (t.sprint != null && "product-backlog".equals(t.status)) {
-        out.add(t.id + ": status=product-backlog but sprint=" + t.sprint);
+      if (!Task.VALID_STATUSES.contains(t.status)) {
+        out.add(t.id + ": unknown status '" + t.status + "' (not in " + Task.VALID_STATUSES + ")");
       }
       if (("done".equals(t.status) || "in-review".equals(t.status))
           && VStages.isValid(t.stage)
@@ -1933,7 +1832,7 @@ public final class TaskStore {
 
   /**
    * One-shot migration from the retired Python pm store document (one JSON doc per project).
-   * Imports tickets, per-prefix counters and sprint metadata; returns the number of imported tasks.
+   * Imports tickets and per-prefix counters; returns the number of imported tasks.
    */
   public int importPmJson(String project, String pmJson) {
     JsonElement parsed = JsonParser.parseString(pmJson);
@@ -1974,10 +1873,6 @@ public final class TaskStore {
             data.counter = Math.max(data.counter, doc.get("counter").getAsInt());
             data.metaDirty = true;
           }
-          if (doc.has("sprints")) {
-            readSprints(doc, data);
-            data.metaDirty = true;
-          }
           if (doc.has("stage_agents")) {
             readStageAgents(doc, data);
             data.metaDirty = true;
@@ -1989,24 +1884,6 @@ public final class TaskStore {
   // ------------------------------------------------------------------
   // Transaction engine
   // ------------------------------------------------------------------
-
-  /**
-   * {@code _meta.json}'s {@code sprints} map -> the in-memory sprint table (one parser for both
-   * load paths).
-   */
-  private static void readSprints(JsonObject doc, ProjectData data) {
-    for (Map.Entry<String, JsonElement> e : doc.getAsJsonObject("sprints").entrySet()) {
-      JsonObject s = e.getValue().getAsJsonObject();
-      data.sprints.put(
-          e.getKey(),
-          new Task.Sprint(
-              strOrNull(s, "id"),
-              strOrNull(s, "goal"),
-              strOrNull(s, "status"),
-              instantOrNull(s, "created_at"),
-              instantOrNull(s, "closed_at")));
-    }
-  }
 
   /**
    * {@code _meta.json}'s {@code stage_agents} map -> the in-memory dispatch override (U-104); an
@@ -2029,7 +1906,6 @@ public final class TaskStore {
 
   private static final class ProjectData {
     final Map<String, Task> tasks = new LinkedHashMap<>();
-    final Map<String, Task.Sprint> sprints = new LinkedHashMap<>();
     final Map<String, Integer> seq = new LinkedHashMap<>();
 
     /** U-104: stage -> dispatch agent override ({@code _meta.json}'s {@code stage_agents}). */
@@ -2200,9 +2076,6 @@ public final class TaskStore {
           }
         }
         data.counter = doc.has("counter") ? doc.get("counter").getAsInt() : 0;
-        if (doc.has("sprints")) {
-          readSprints(doc, data);
-        }
         readStageAgents(doc, data); // U-104; absent key leaves the map empty
       } catch (IOException | RuntimeException e) {
         LOG.log(
@@ -2276,9 +2149,6 @@ public final class TaskStore {
       data.seq.forEach(seq::addProperty);
       meta.add("seq", seq);
       meta.addProperty("counter", data.counter);
-      JsonObject sprints = new JsonObject();
-      data.sprints.forEach((id, s) -> sprints.add(id, s.toJson()));
-      meta.add("sprints", sprints);
       JsonObject stageAgents = new JsonObject();
       data.stageAgents.forEach(stageAgents::addProperty);
       meta.add("stage_agents", stageAgents);
@@ -2361,32 +2231,7 @@ public final class TaskStore {
     return String.format("%s-%03d", prefix, n);
   }
 
-  private static String nextSprintId(ProjectData data) {
-    data.counter = data.counter + 1;
-    data.metaDirty = true;
-    return String.format("S-%02d", data.counter);
-  }
-
-  /**
-   * U-094: advances the sprint counter past an explicit id, so mixing explicit and auto-minted
-   * sprint ids can never mint a colliding one. Only exact {@code S-<n>} ids count (legacy {@code
-   * wave-*} ids leave the counter alone); the counter never regresses.
-   */
-  private static void advanceSprintCounter(ProjectData data, String sprintId) {
-    if (sprintId == null) {
-      return;
-    }
-    Matcher m = SPRINT_ID_PATTERN.matcher(sprintId.trim());
-    if (m.matches()) {
-      int n = Integer.parseInt(m.group(1));
-      if (n > data.counter) {
-        data.counter = n;
-        data.metaDirty = true;
-      }
-    }
-  }
-
-  /** T-032: the tool layer sorts {@code task_list(status=product-backlog)} with this order. */
+  /** T-032: the tool layer sorts {@code task_list(status=ready)} with this order. */
   public static Comparator<Task> prioritized() {
     return Comparator.comparing((Task t) -> -Task.PRIORITY_ORDER.getOrDefault(t.priority, 0))
         .thenComparing(t -> t.createdAt == null ? Instant.EPOCH : t.createdAt)
@@ -2498,7 +2343,13 @@ public final class TaskStore {
     t.title = orEmpty(strOrNull(o, "title"));
     t.description = orEmpty(strOrNull(o, "description"));
     t.type = orDefault(strOrNull(o, "type"), "task");
-    t.status = orDefault(strOrNull(o, "status"), "product-backlog");
+    // The pm server's backlog statuses map into the owner's no-backlog model
+    // (2026-11-20): both product-backlog and sprint-backlog read as ready.
+    String pmStatus = orDefault(strOrNull(o, "status"), "ready");
+    t.status =
+        "product-backlog".equals(pmStatus) || "sprint-backlog".equals(pmStatus)
+            ? "ready"
+            : pmStatus;
     t.resumeTo =
         o.has("resume_to") && !o.get("resume_to").isJsonNull()
             ? o.get("resume_to").getAsString()
@@ -2513,7 +2364,6 @@ public final class TaskStore {
       t.status = "blocked";
     }
     t.blocker = strOrNull(o, "blocker");
-    t.sprint = strOrNull(o, "sprint");
     t.storyPoints =
         o.has("story_points") && !o.get("story_points").isJsonNull()
             ? o.get("story_points").getAsInt()

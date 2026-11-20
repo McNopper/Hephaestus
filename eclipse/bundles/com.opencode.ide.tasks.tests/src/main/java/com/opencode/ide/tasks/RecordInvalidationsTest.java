@@ -73,7 +73,7 @@ public class RecordInvalidationsTest {
     String[] ids = stalePair();
     assertEquals(
         StageReadiness.Kind.STALE,
-        StageReadiness.evaluate(store.list("p", null, null, null, null)).get(ids[1]).kind());
+        StageReadiness.evaluate(store.list("p", null, null, null)).get(ids[1]).kind());
 
     Task before = store.get("p", ids[1]);
     assertEquals(1, store.recordInvalidations("p"));
@@ -142,7 +142,7 @@ public class RecordInvalidationsTest {
     Task fresh = store.create("p", TaskStore.CreateSpec.of("fresh"), "requirements");
     assertEquals(
         StageReadiness.Kind.READY,
-        StageReadiness.evaluate(store.list("p", null, null, null, null)).get(fresh.id).kind());
+        StageReadiness.evaluate(store.list("p", null, null, null)).get(fresh.id).kind());
 
     assertEquals(0, store.recordInvalidations("p"));
 

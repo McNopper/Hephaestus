@@ -210,7 +210,6 @@ public final class TaskFileCodec {
     fm(b, "stage", t.stage);
     fm(b, "model", t.model);
     fm(b, "story_points", t.storyPoints);
-    fm(b, "sprint", t.sprint);
 
     fm(b, "basis", t.basis);
     fm(b, "assignee", t.assignee);
@@ -316,14 +315,20 @@ public final class TaskFileCodec {
     t.title = orEmpty(scalarString(raw.remove("title")));
     t.description = ""; // body-owned
     t.type = orDefault(scalarString(raw.remove("type")), "task");
-    t.status = orDefault(scalarString(raw.remove("status")), "product-backlog");
+    // Owner model 2026-11-20 (no backlogs): the legacy backlog statuses read as
+    // ready - migration on read, persisted on the next write.
+    String rawStatus = orDefault(scalarString(raw.remove("status")), "ready");
+    t.status =
+        "product-backlog".equals(rawStatus) || "sprint-backlog".equals(rawStatus)
+            ? "ready"
+            : rawStatus;
     t.priority = orDefault(scalarString(raw.remove("priority")), "medium");
     t.role = orDefault(scalarString(raw.remove("role")), "developer");
     t.stage = scalarString(raw.remove("stage"));
     t.model = scalarString(raw.remove("model"));
     Integer points = scalarInt(raw.remove("story_points"));
     t.storyPoints = points == null ? 0 : points;
-    t.sprint = scalarString(raw.remove("sprint"));
+    raw.remove("sprint"); // sprint field removed 2026-11-20 (owner: no sprints) - discard
     raw.remove(
         "epic"); // epic field removed 2026-11-19 (owner: the stage is the structure) - discard
     // stray legacy lines
@@ -341,7 +346,7 @@ public final class TaskFileCodec {
       t.status = "blocked";
       t.history(
           "migrated: blocked flag became the blocked state (resume_to="
-              + (t.resumeTo == null ? "sprint-backlog" : t.resumeTo)
+              + (t.resumeTo == null ? "ready" : t.resumeTo)
               + ")",
           "migration");
     }

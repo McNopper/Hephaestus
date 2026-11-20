@@ -16,8 +16,8 @@ second emoji for a concept already listed.
 
 | Concept | Emoji | Where it renders |
 |---|---|---|
-| product-backlog | 📌 | card status column, status headers, legend, fleet badges |
-| sprint-backlog | 📋 | same |
+| ready | 🆕 | card status column, status headers, legend, fleet badges |
+| not-implemented | ❌ | same |
 | in-progress | 🏃 | same |
 | in-review | 👀 | same |
 | done | ✅ | same |

@@ -168,7 +168,7 @@
 
 **What actually gates "usable" today (2026-11-17):**
 
-1. **The live acceptance loop (owner at the keyboard)** - six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173) plus T-040 stay in-progress/blocked until a live Eclipse run supplies the evidence; T-040 additionally waits on T-176 (the `eclipse-build` endpoint never starts in a deployed Eclipse). Non-blocking per T-039.
+1. **The live acceptance loop (owner at the keyboard)** - of the six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173), three now carry evidence and sit `in-review` (T-161 REST shape, T-171 openapi paths, T-173 live WS round-trip - all 2026-11-20); T-162/T-165/T-167 await a live run; T-040 stays `blocked` (owner deprecation of the `eclipse-build` endpoint, po comment 2026-11-18). Non-blocking per T-039.
 2. **The in-review drain** - 21 tickets sit `in-review` awaiting the engine verdict; the ticker was halted on owner directive 2026-11-17, so verdicts resume only with the next armed pass (`ticker-setup.ps1`) or an owner-directed review.
 3. **The patched release cut** - v0.4.1 mechanics are human-only (release.ps1, DENY-5): the tree, gates and docs are prepared; the owner runs the cut when ready.
 

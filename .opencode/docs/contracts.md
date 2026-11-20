@@ -20,8 +20,7 @@ deterministically.
 |---|---|---|
 | `basis` | *where did I come from?* | the one upstream ticket whose completion spawned me (the derivation edge); entry tickets carry none; the basis chain up to the requirement IS the scope (owner rule 2026-11-19: the `epic` field is gone) |
 | `stage` | *which V-level owns me?* | immutable at creation; drives dispatch and readiness |
-| `status` | *where am I in the lifecycle?* | six states; blocked/paused are states with resume rules, done/paused can never be blocked |
-| `sprint` | *which wave am I planned into?* | optional execution batch, orthogonal to everything above |
+| `status` | *where am I in the lifecycle?* | seven states (owner model 2026-11-20): `ready`, `in-progress`, `in-review`, `done`, `not-implemented`, `paused`, `blocked` - blocked/paused are states with resume rules, done/not-implemented/paused can never be blocked |
 
 **The derivation tree.** Division creates children: `basis` = the completed
 ticket. The V walks down the definition leg and up the
@@ -30,7 +29,7 @@ children / all children (`task_list`, `task_traceability`, `task_links`).
 **There are no milestones** - the cross-tree anchors are the requirement's
 basis chain and the release definition in `ROADMAP.md`. Classic mapping: Product Goal = GOAL
 ticket, story = a ticket (stage-sized), sub-task =
-todos, sprint = a wave.
+todos.
 
 ## Ticket contract (`task_*` tools, `.harness/tasks/` store)
 
@@ -42,9 +41,8 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `title` | string | active verb, states outcome |
 | `description` | string | what + why |
 | `type` | `story`/`task`/`bug`/`spike` | |
-| `status` | enum | `product-backlog` → `sprint-backlog` → `in-progress` → `in-review` → `done`, plus `paused` (U-038: parked for maintenance — visible, never blocked and never NEEDS-HUMAN; resume is a plain status update back to `in-progress`) |
+| `status` | enum | `ready` → `in-progress` → `in-review` → `done` (the normal case), plus `not-implemented` (a DONE state - decided not to build, reachable from any non-terminal state), `paused` (dependency wait: born paused while the basis is open; auto-resumes when it completes) and `blocked` (hard stop + `resume_to` + `blocker`; propagates up the basis chain to the requirement, clearing walks back down) |
 | `blocked` + `blocker` | bool + string | **orthogonal** flag, any active state; `blocked` always means needs-a-human |
-| `sprint` | `S-NN` / null | set by `task_plan_sprint`; null in backlog (the `sprint` field; the UI calls it a **wave** — a named batch of agent work, planned on demand and drained in minutes by the fleet; no weekly cadence, no time-box) |
 | `story_points` | int | relative size; `project-manager-estimate-costs` can later feed a `cost` field |
 | `priority` | `low`/`medium`/`high`/`critical` | drives self-claim order |
 | `role` | enum (extensible) | `architect`/`developer`/`tester`/`pm`/`cpp-engineer`/`graphics-engineer` → who claims it |
@@ -57,35 +55,34 @@ A ticket is the **hand-off unit**. Its authoritative shape (per project):
 | `todos` | `{text, done}[]` | checklist items (`task_todo` with `action=add/toggle/remove`) |
 | `history` | append-only | state transitions |
 | `comments` | append-only | human/agent notes |
-| `created_at` / `updated_at` | ISO-8601 instant (UTC, e.g. `2026-08-28T03:25:20.519Z`) | drives claim/backlog ordering |
+| `created_at` / `updated_at` | ISO-8601 instant (UTC, e.g. `2026-08-28T03:25:20.519Z`) | drives ready-queue claim ordering |
 
 ### The store (Maven-ready Markdown storage)
 
 One **file per ticket** — `<repo>/.harness/tasks/<project>/T-NNN.md` — Markdown with a
 frontmatter block (scalars + one-line JSON lists) and tool-owned body sections
 (`## Todos`, `## Artifacts`, `## Comments`, `## History`); the free-form description is the
-body. A `_meta.json` sidecar holds the per-prefix id counters and `sprint` metadata
-(goal/status/timestamps; the `sprints` map — the UI calls it wave history); the board is
-derived from the tickets. The files are
+body. A `_meta.json` sidecar holds the per-prefix id counters (the board is
+derived from the tickets). The files are
 **version-controlled** (`.gitattributes` pins LF; the codec tolerates CRLF/BOM on read) so
 task changes ride the normal git/Maven workflow — the seam the future
 `opencode-tasks:sync`/`plan` mojos build on.
 
 Store actions beyond the `task_*` tools: `newProject` scaffolds one project (directory +
-`_meta.json` shape) and `resetProject` wipes one project's tickets (live + archived) and wave
-history — **only that project**: other projects' reservations and fleet ownership bindings are
-untouched, and ticket ids survive a reset (never reused). `routeReviewDoubt` is the store's
+`_meta.json` shape) and `resetProject` wipes one project's tickets (live + archived) -
+**only that project**: other projects' tickets stay untouched, and ticket ids survive a
+reset (never reused). `routeReviewDoubt` is the store's
 review-doubt route (see the review contract below). These are store-level actions (the Board's
 New/Reset project actions and the fleet's doubt routing), not `task_*` MCP tools.
 
 ### Tool surface (`pm_*` → `task_*`)
 
 19 tools (T-032 consolidation): `task_create`, `task_get`, `task_list` (returns the
-prioritized order for `status=product-backlog` — the standalone backlog tool folded in),
+prioritized order for `status=ready`),
 `task_update`, `task_set_blocked`, `task_clear_blocked`, `task_claim`, `task_release`,
 `task_add_comment`, `task_add_artifact`, `task_remove_artifact`, `task_todo`
-(`action=add/toggle/remove`), `task_board`, `task_plan_sprint`, `task_close_sprint`
-(opt-in `auto_archive`, U-060), `task_traceability`, `task_doctor`, `task_readiness`,
+(`action=add/toggle/remove`), `task_board`,
+`task_archive_done`, `task_traceability`, `task_doctor`, `task_readiness`,
 `task_links` (the up/down/back link graph around a ticket). Served by the **`eclipse-build` MCP endpoint** when the Eclipse
 harness runs (plus the C++ tool pack) and by the stdio launchers for TUI-only sessions —
 The ``tasks`` stdio pack is served by ``eclipse/tasks-tools.ps1`` (the ``tasks`` MCP server; the retired ``fleet-tools.ps1`` launcher was removed with the fleet in U-110).
@@ -145,13 +142,11 @@ and only a doubt recurring within the same stage visit escalates the ticket to `
   writes) so concurrent agents — Eclipse-hosted sessions and stdio TUI processes alike —
   get distinct tickets. A claim with nothing to do returns the JSON literal `null`; worker
   loops terminate on it.
-- **Reassign:** a returned ticket (`task_release` → `sprint-backlog`, `assignee` cleared)
+- **Reassign:** a returned ticket (`task_release` → `ready`, `assignee` cleared)
   can be claimed by a *different* agent.
 - **Store:** `eclipse/bundles/com.opencode.ide.tasks` — one Markdown file per ticket,
   atomic transactions, id counters persisted in `_meta.json` (task ids are never reused,
-  even after a lost sidecar — they are recovered from the files; the sprint counter is
-  not, so a lost sidecar can re-mint a sprint id — harmless because the board derives
-  from the tickets).
+  even after a lost sidecar - they are recovered from the files).
 - **Direct edits:** hand edits to a task file are allowed between tool writes but the
   tools rewrite whole files — last writer wins. Treat direct edits as read-only hints.
 

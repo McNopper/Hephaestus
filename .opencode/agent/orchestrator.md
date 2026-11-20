@@ -42,9 +42,8 @@ state survives and loops terminate.
 
 - Consume the **execution manifest / wave board** produced by `manifest-author` /
   `project-manager-orchestrate-execution` and the `project-manager` agent.
-- **You do NOT hand tickets to workers one by one.** The PM plans a wave
-  (`task_plan_sprint`; the tool keeps the `sprint` name for schema stability);
-  workers then **self-claim** by calling `task_claim(role=…)`
+- **You do NOT hand tickets to workers one by one.** Tickets are born
+  `ready` (the pump - no planning step); workers then **self-claim** by calling `task_claim(role=.)`
   in a loop until no ticket of their role remains. This keeps claim concurrency safe
   (atomic) and lets a returned ticket be picked up by a *different* agent.
 - **Conditional relevance:** invoke a skill/agent only when its trigger applies — keep
@@ -56,7 +55,7 @@ state survives and loops terminate.
   read-only REVIEW session whose verdict (stage-shaped acceptance evidence)
   drives done+advance / send-back.
 - **Reconcile:** after the board drains, resolve any `blocked`/leftover tickets with the
-  `project-manager` agent; final group-level verification is the review pass's acceptance at wave review.
+  `project-manager` agent; final group-level verification is the review pass's acceptance at review.
 - **`very-high` reconcile:** escalate to the frontier model (the `very-high` tier in the
   mapping), launch two independent passes and reconcile before accepting.
 - **Auto-rubberduck:** invoke `rubberduck` (the cross-vendor critic model) before/after each
@@ -66,7 +65,7 @@ state survives and loops terminate.
   previous stage (blocked escalation to the basis with the reasons; the entry stage and
   unstaged tickets are blocked in place), the rework lands there and the affected
   verification re-runs until it converges.
-  Track rework; enforce the wave's iteration cap, then surface to the `project-manager` agent / human.
+  Track rework; enforce the iteration cap, then surface to the `project-manager` agent / human.
   When **objectives change**, have `manifest-author` amend the manifest — do not restart.
 - **Budget:** honor the spend cap. Price with `project-manager-estimate-costs`, schedule by
   `priority`, de-escalate/defer to fit, and **halt at the cap**.

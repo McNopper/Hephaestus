@@ -1,43 +1,27 @@
 package com.opencode.ide.mojo.tasks;
 
 import com.opencode.ide.tasks.Task;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Renders sprint boards as Markdown and as a standalone HTML page (inline CSS, escaped content, no
- * external assets). Output is deterministic — no timestamps — so identical store state renders
- * identical bytes.
+ * Renders the task board of every project as Markdown and as a standalone HTML page (inline CSS,
+ * escaped content, no external assets). Output is deterministic - no timestamps - so identical
+ * store state renders identical bytes. Owner model 2026-11-20: all seven status columns, no sprint
+ * scope (sprints are gone from the store).
  */
 public final class BoardRenderer {
-
-  /** Board title used when a project has no active sprint and none was requested. */
-  public static final String NO_SPRINT = "(no sprint)";
 
   /** One project's board, precomputed from loaded tasks. */
   public static final class ProjectBoard {
 
     public final String project;
-    public final String sprintId;
-    public final String sprintGoal;
-    public final String sprintStatus;
     public final Map<String, List<Task>> columns;
 
-    ProjectBoard(
-        String project,
-        String sprintId,
-        String sprintGoal,
-        String sprintStatus,
-        Map<String, List<Task>> columns) {
+    ProjectBoard(String project, Map<String, List<Task>> columns) {
       this.project = project;
-      this.sprintId = sprintId;
-      this.sprintGoal = sprintGoal;
-      this.sprintStatus = sprintStatus;
       this.columns = columns;
     }
 
@@ -62,60 +46,24 @@ public final class BoardRenderer {
     }
   }
 
-  private static final Comparator<Task.Sprint> SPRINT_ORDER =
-      Comparator.comparing((Task.Sprint s) -> s.createdAt() == null ? Instant.EPOCH : s.createdAt())
-          .thenComparing(Task.Sprint::id);
-
   private BoardRenderer() {}
 
   /**
-   * Scopes the tasks to the requested sprint (or each project's most recently created active one,
-   * or the unassigned ones when none is active) and groups them into the five canonical status
-   * columns.
+   * Groups the tasks into the seven canonical status columns (owner model 2026-11-20: ALL tickets,
+   * no sprint scope).
    */
-  public static ProjectBoard build(
-      String project, List<Task> tasks, Map<String, Task.Sprint> sprints, String requestedSprint) {
-    String sprintId =
-        requestedSprint != null && !requestedSprint.isBlank()
-            ? requestedSprint
-            : latestActiveSprintKey(sprints);
+  public static ProjectBoard build(String project, List<Task> tasks) {
     Map<String, List<Task>> columns = new LinkedHashMap<>();
     for (String status : Task.VALID_STATUSES) {
       columns.put(status, new ArrayList<>());
     }
-    Map<String, Task> byId = new HashMap<>();
     for (Task t : tasks) {
-      byId.put(t.id, t);
-      if (sprintId == null ? t.sprint == null : sprintId.equals(t.sprint)) {
-        List<Task> column = columns.get(t.status);
-        if (column != null) {
-          column.add(t);
-        }
+      List<Task> column = columns.get(t.status);
+      if (column != null) {
+        column.add(t);
       }
     }
-
-    Task.Sprint sprint = sprintId == null ? null : sprints.get(sprintId);
-    return new ProjectBoard(
-        project,
-        sprintId,
-        sprint == null ? null : sprint.goal(),
-        sprint == null ? null : sprint.status(),
-        columns);
-  }
-
-  private static String latestActiveSprintKey(Map<String, Task.Sprint> sprints) {
-    String bestKey = null;
-    Task.Sprint best = null;
-    for (Map.Entry<String, Task.Sprint> e : sprints.entrySet()) {
-      if (!"active".equals(e.getValue().status())) {
-        continue;
-      }
-      if (best == null || SPRINT_ORDER.compare(e.getValue(), best) > 0) {
-        best = e.getValue();
-        bestKey = e.getKey();
-      }
-    }
-    return bestKey;
+    return new ProjectBoard(project, columns);
   }
 
   // ------------------------------------------------------------------
@@ -137,8 +85,7 @@ public final class BoardRenderer {
   }
 
   private static void appendMarkdownBoard(StringBuilder b, ProjectBoard board) {
-    b.append("# opencode-tasks board — ").append(board.project).append("\n\n");
-    appendMarkdownSprint(b, board);
+    b.append("# opencode-tasks board - ").append(board.project).append("\n\n");
     for (Map.Entry<String, List<Task>> e : board.columns.entrySet()) {
       List<Task> column = e.getValue();
       b.append("## ").append(e.getKey()).append(" (").append(column.size()).append(")\n");
@@ -158,36 +105,16 @@ public final class BoardRenderer {
         .append(" points done.\n");
   }
 
-  private static void appendMarkdownSprint(StringBuilder b, ProjectBoard board) {
-    if (board.sprintId == null) {
-      b.append("Sprint: **")
-          .append(NO_SPRINT)
-          .append("** — tickets not assigned to any sprint.\n\n");
-      return;
-    }
-    b.append("Sprint: **").append(board.sprintId).append("**");
-    if (board.sprintStatus != null) {
-      b.append(" (").append(board.sprintStatus).append(")");
-    }
-    if (board.sprintGoal != null && !board.sprintGoal.isBlank()) {
-      b.append(" — ").append(board.sprintGoal);
-    }
-    if (board.sprintStatus == null) {
-      b.append(" — no sprint metadata in _meta.json");
-    }
-    b.append("\n\n");
-  }
-
   private static String ticketLine(Task t) {
     StringBuilder b =
         new StringBuilder("[").append(t.id).append("] ").append(t.title == null ? "" : t.title);
-    b.append(" — ").append(t.role);
+    b.append(" - ").append(t.role);
     b.append(", ").append(t.storyPoints).append(t.storyPoints == 1 ? " point" : " points");
     if (t.assignee != null && !t.assignee.isBlank()) {
       b.append(", ").append(t.assignee);
     }
     if (t.isBlocked()) {
-      b.append(", ⚠ blocked: ")
+      b.append(", ? blocked: ")
           .append(t.blocker == null || t.blocker.isBlank() ? "unspecified" : t.blocker);
     }
     return b.toString();
@@ -205,7 +132,6 @@ public final class BoardRenderer {
     b.append(
         "body{font-family:system-ui,sans-serif;max-width:56em;margin:2rem auto;padding:0 1rem;color:#222;background:#fff}\n");
     b.append("h1{font-size:1.4rem;margin-bottom:.2rem}\n");
-    b.append(".sprint{color:#444;margin-top:.2rem}\n");
     b.append(
         "h2{font-size:1.05rem;border-bottom:1px solid #ddd;padding-bottom:.2rem;margin-top:1.6rem}\n");
     b.append("ul{list-style:none;padding-left:0;margin:.4rem 0}\n");
@@ -230,25 +156,7 @@ public final class BoardRenderer {
   }
 
   private static void appendHtmlBoard(StringBuilder b, ProjectBoard board) {
-    b.append("<h1>opencode-tasks board — ").append(esc(board.project)).append("</h1>\n");
-    b.append("<p class=\"sprint\">");
-    if (board.sprintId == null) {
-      b.append("Sprint: <strong>")
-          .append(NO_SPRINT)
-          .append("</strong> — tickets not assigned to any sprint.");
-    } else {
-      b.append("Sprint: <strong>").append(esc(board.sprintId)).append("</strong>");
-      if (board.sprintStatus != null) {
-        b.append(" (").append(esc(board.sprintStatus)).append(")");
-      }
-      if (board.sprintGoal != null && !board.sprintGoal.isBlank()) {
-        b.append(" — ").append(esc(board.sprintGoal));
-      }
-      if (board.sprintStatus == null) {
-        b.append(" — no sprint metadata in _meta.json");
-      }
-    }
-    b.append("</p>\n");
+    b.append("<h1>opencode-tasks board - ").append(esc(board.project)).append("</h1>\n");
     for (Map.Entry<String, List<Task>> e : board.columns.entrySet()) {
       b.append("<section class=\"col\" id=\"").append(esc(e.getKey())).append("\">\n");
       b.append("<h2>")
@@ -279,13 +187,13 @@ public final class BoardRenderer {
         .append(esc(t.id))
         .append("]</span> ")
         .append(esc(t.title == null ? "" : t.title));
-    b.append(" — ").append(esc(t.role));
+    b.append(" - ").append(esc(t.role));
     b.append(", ").append(t.storyPoints).append(t.storyPoints == 1 ? " point" : " points");
     if (t.assignee != null && !t.assignee.isBlank()) {
       b.append(", ").append(esc(t.assignee));
     }
     if (t.isBlocked()) {
-      b.append(", <span class=\"blocked\">⚠ blocked: ")
+      b.append(", <span class=\"blocked\">? blocked: ")
           .append(esc(t.blocker == null || t.blocker.isBlank() ? "unspecified" : t.blocker))
           .append("</span>");
     }

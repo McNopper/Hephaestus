@@ -44,14 +44,12 @@ public class BoardColumnOrderTest {
     Map<String, Object> changes = new HashMap<>();
     changes.put("stage", stage);
     store.update("p", t.id, changes);
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
   }
 
   @Test
   public void pipelineColumnsFollowTheVModelOrder() {
     sprintTicket("solo", "design", "developer"); // one ticket; the board still carries all columns
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     model.setMode(BoardModel.BoardMode.PIPELINE);
 
     List<String> stages = new ArrayList<>();
@@ -66,19 +64,12 @@ public class BoardColumnOrderTest {
   public void flatColumnsFollowWorkflowProgressOrder() {
     sprintTicket("solo", "design", "developer");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     List<String> keys = new ArrayList<>(model.refresh().columns().keySet());
 
     assertEquals(
         List.of(
-            "product-backlog",
-            "sprint-backlog",
-            "in-progress",
-            "in-review",
-            "paused",
-            "done",
-            "blocked"),
+            "ready", "in-progress", "in-review", "done", "not-implemented", "paused", "blocked"),
         keys);
     assertEquals("flat order IS the workflow-progress order", Task.VALID_STATUSES, keys);
   }
@@ -89,7 +80,6 @@ public class BoardColumnOrderTest {
         new TaskStore.CreateSpec(
             title, "", "task", "developer", priority, 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
   }
 
@@ -101,10 +91,9 @@ public class BoardColumnOrderTest {
     priorityTicket("high thing", "high");
     priorityTicket("also high deeper stage", "high");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     List<String> titles = new ArrayList<>();
-    model.refresh().column("sprint-backlog").forEach(r -> titles.add(r.title()));
+    model.refresh().column("ready").forEach(r -> titles.add(r.title()));
 
     assertEquals(
         "critical first, then highs (id tiebreak), medium, low",
@@ -117,19 +106,17 @@ public class BoardColumnOrderTest {
   public void setStatusMovesTheTicketBetweenFlatColumns() {
     String id = priorityTicket("movable", "high");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     assertNull(model.setStatus(id, "in-progress"));
 
     assertEquals(1, model.refresh().column("in-progress").size());
-    assertTrue(model.refresh().column("sprint-backlog").isEmpty());
+    assertTrue(model.refresh().column("ready").isEmpty());
   }
 
   @Test
   public void setStageBackwardNeedsAReasonAndCarriesTheSendBackContract() {
     String id = sprintTicketAtStage("backmover", "design");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     assertNotNull("backward without a reason is refused", model.setStage(id, "requirements", null));
     assertNull(model.setStage(id, "requirements", "spec changed"));
@@ -137,7 +124,7 @@ public class BoardColumnOrderTest {
     Task moved = store.get("p", id);
     assertEquals("requirements", moved.stage);
     assertEquals("blocked", moved.status);
-    assertEquals("product-backlog", moved.resumeTo);
+    assertEquals("ready", moved.resumeTo);
     assertTrue(moved.isBlocked());
     assertEquals("sent back from design: spec changed", moved.blocker);
   }
@@ -146,7 +133,6 @@ public class BoardColumnOrderTest {
   public void setStageForwardIsAPlainStageUpdate() {
     String id = sprintTicketAtStage("forwardmover", "design");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     assertNull(model.setStage(id, "test-design", null));
 
@@ -159,7 +145,6 @@ public class BoardColumnOrderTest {
   public void setStageToNullIsRefused() {
     String id = sprintTicketAtStage("unstager", "system");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
 
     assertNotNull(
         "clearing a stage is refused: a ticket is born in a stage (owner directive 2026-11-19)",
@@ -177,7 +162,6 @@ public class BoardColumnOrderTest {
     Map<String, Object> changes = new HashMap<>();
     changes.put("stage", stage);
     store.update("p", t.id, changes);
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
   }
 }

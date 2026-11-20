@@ -168,8 +168,7 @@ $prompt =
     "divide: create the linked downstream ticket(s) per the division map (task_create " +
     "with stage/basis - the basis chain to the requirement is the scope; " +
     "task_doctor reports missing divisions and missing right-leg joins) plus the " +
-    "paired test ticket; (5) READY tickets: plan them " +
-    "into the ticker-v sprint (task_plan_sprint) then claim under the spawn cap of " +
+    "paired test ticket; (5) READY tickets: claim them under the spawn cap of " +
     "$Cap concurrent subagents (check your running subagents first - never exceed " +
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +
     "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +

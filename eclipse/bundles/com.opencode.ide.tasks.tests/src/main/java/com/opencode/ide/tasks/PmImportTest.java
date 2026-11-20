@@ -41,7 +41,7 @@ public class PmImportTest {
   @Test
   public void importsAllTasksWithFields() {
     assertEquals(5, count);
-    assertEquals(5, store.list("test", null, null, null, null).size());
+    assertEquals(5, store.list("test", null, null, null).size());
 
     Task t1 = store.get("test", "T-001");
     assertEquals("Capture requirements for demo tracker", t1.title);
@@ -73,11 +73,9 @@ public class PmImportTest {
   }
 
   @Test
-  public void importedTasksParticipateInSprintsAndClaims() {
-    Task.Sprint s = store.planSprint("test", null, java.util.List.of("T-003"), "finish the store");
-    assertEquals("S-01", s.id());
+  public void importedTasksParticipateInTheReadyQueueAndClaims() {
     Task claimed = store.claim("test", "developer", null, "agent-x");
-    assertEquals("T-003", claimed.id);
+    assertTrue("imported tickets are born ready and claimable", claimed != null);
     assertEquals("agent-x", claimed.assignee);
   }
 
@@ -88,7 +86,7 @@ public class PmImportTest {
       json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
     }
     store.importPmJson("test", json);
-    assertEquals(5, store.list("test", null, null, null, null).size());
+    assertEquals(5, store.list("test", null, null, null).size());
     // a claim made earlier in another test project does not leak
     assertEquals("T-003", store.get("test", "T-003").id);
   }

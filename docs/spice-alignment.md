@@ -57,7 +57,7 @@ reference model with primary (SYS/SWE/HWE/VAL/REU), supporting
 | SUP.9/SUP.10 problem & change request | **blocked → back to origin**: blocked escalation to the basis / clarification round-trips (U-023), a new requirement upstream answers the implementation question; **failed validation** blocks the ticket in its own stage and escalates to its basis (U-110), routed by the reviewer's FAIL verdict |
 | MAN.6 measurement | `fleet actuals:` (cost/tokens per run) + readiness/traceability verdicts = the effort record; this is why results/artifacts live ON the ticket |
 | CL1 Performed | a ticket whose stage work + review pass actually happened (gate green, verdict PASS) |
-| CL2 Managed | a wave: planned (`task_plan_sprint`), monitored (readiness, budgets, watchdog), work products verified (review) and configured (git + task store) |
+| CL2 Managed | a pass over the ready queue: born ready (no backlog), monitored (readiness, budgets, watchdog), work products verified (review) and configured (git + task store) |
 | CL3 Established | the repo itself: the standard process is defined, versioned and load-bearing (skills/agents), tailoring = role/stage maps per ticket |
 | CL4/CL5 | out of scope for now; the actuals + history trail are the raw material for quantitative tuning |
 | NPLF rating scale | precedent for a future *quality* verdict per ticket (today: PASS/FAIL/UNCLEAR + readiness kinds — a 4-point achievement scale is not needed yet) |

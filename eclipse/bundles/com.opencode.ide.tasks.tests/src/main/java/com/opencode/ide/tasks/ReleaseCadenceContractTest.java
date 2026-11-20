@@ -12,18 +12,22 @@ import org.junit.Test;
 
 /**
  * Component test pinning the release-cadence contracts where they actually live: the ticker's
- * prompt text ({@code .opencode/skills/stage-pipeline/SKILL.md}, T-138's landing, tick step 6(d))
- * and its wording source ({@code docs/release-cadence-flow.md} §4.1). The evaluation executes as
- * prompt text, so the carriage IS the contract surface ([DSG §6]: skills are the carriage of
- * process change) - which is why T-121's design verdict note prescribes exactly this pin: "pin
- * DS-002's write schedule in a component test" (T-139's body carries the note).
+ * prompt text ({@code .opencode/skills/stage-pipeline/SKILL.md}, T-138's landing, tick step 6) and
+ * its wording source ({@code docs/release-cadence-flow.md} §4.1). The evaluation executes as prompt
+ * text, so the carriage IS the contract surface ([DSG §6]: skills are the carriage of process
+ * change) - which is why T-121's design verdict note prescribes exactly this pin: "pin DS-002's
+ * write schedule in a component test" (T-139's body carries the note).
  *
- * <p>Pinned here: DS-002's two-write schedule (digest line on EVERY evaluation + instance comment
+ * <p>Pinned here: DS-002's two-write schedule (digest line on EVERY evaluation + goal-root comment
  * at first determination and every flip), the four-step evidence query with the owner set and
- * content floor, the fixed evaluation order (after the mint, before the close), and the structural
- * C2→C4 denial (the four do-NOTs; no execution verb on the evaluator path). Whitespace is
- * normalized before matching - these are prose documents with reflowed lines, and the contract is
- * the text, not its line breaks.
+ * content floor, the fixed order (pairing mint at division, evaluation at the close), and the
+ * structural C2→C4 denial (the four do-NOTs; no execution verb on the evaluator path). Whitespace
+ * is normalized before matching - these are prose documents with reflowed lines, and the contract
+ * is the text, not its line breaks.
+ *
+ * <p>Currency (T-202, owner model 2026-11-20): the sprint model is gone - no waves, no sprint
+ * records, no {@code (d)}/{@code (e)} close-step letters. The cadence unit is the pass's completed
+ * work; the pins below carry the post-rekey contract.
  */
 public class ReleaseCadenceContractTest {
 
@@ -57,12 +61,14 @@ public class ReleaseCadenceContractTest {
         ".opencode/skills/stage-pipeline/SKILL.md", "docs/release-cadence-flow.md");
   }
 
-  /** The step-6(d) block: from the evaluation's start to the close step that follows it. */
+  /**
+   * The step-6 evaluation block: from the evaluation's start to the tick summary that follows it.
+   */
   private static String evaluationBlock() {
-    int start = skill.indexOf("(d) RELEASE-CADENCE EVALUATION");
-    assertTrue("the evaluation rides tick step 6 as (d)", start >= 0);
-    int end = skill.indexOf("(e) close the record", start);
-    assertTrue("the close follows the evaluation as (e)", end > start);
+    int start = skill.indexOf("RELEASE-CADENCE EVALUATION");
+    assertTrue("the evaluation rides the close step", start >= 0);
+    int end = skill.indexOf("An empty ready queue costs one readiness query", start);
+    assertTrue("the tick summary follows the evaluation", end > start);
     return skill.substring(start, end);
   }
 
@@ -74,12 +80,12 @@ public class ReleaseCadenceContractTest {
 
     assertTrue(
         "write 1: ONE digest line on EVERY evaluation",
-        block.contains("pass digest on EVERY evaluation"));
+        block.contains("the pass digest, H7) on EVERY evaluation"));
     assertTrue(
         "write 1: the digest line's literal format",
-        block.contains("release cadence: wave <W id>"));
+        block.contains("release cadence: <UNLOCKED (evidence <ref>) | pending review>"));
 
-    assertTrue("write 2: the instance comment verb", block.contains("task_add_comment"));
+    assertTrue("write 2: the goal-root comment verb", block.contains("task_add_comment"));
     assertTrue("write 2: at first determination", block.contains("first determination"));
     assertTrue("write 2: and at every flip", block.contains("every flip"));
     assertTrue(
@@ -90,14 +96,16 @@ public class ReleaseCadenceContractTest {
   @Test
   public void flowWordingSourceCarriesTheSameSchedule() {
     assertTrue(
-        "the digest line in the wording source", flow.contains("release cadence: wave <W id>"));
+        "the digest line in the wording source",
+        flow.contains("release cadence: <UNLOCKED (evidence <ref>) | pending review>"));
     assertTrue(
-        "the instance comment in the wording source",
-        flow.contains("a comment on W's acceptance instance"));
-    assertTrue(
-        "the evaluation is pinned between mint and close",
+        "the goal-root comment in the wording source",
         flow.contains(
-            "after the wave-completion recurrence mint, before the sprint record closes"));
+            "a task_add_comment on it with the same outcome at first determination"
+                + " and at every flip"));
+    assertTrue(
+        "the evaluation is pinned at the close, once per pass",
+        flow.contains("run once per pass, at the close"));
   }
 
   // ---------- the four-step query (T-138 AC1) ----------
@@ -106,8 +114,13 @@ public class ReleaseCadenceContractTest {
   public void skillCarriesTheFourStepQueryVerbatim() {
     String block = evaluationBlock();
 
-    assertTrue("step 1: the wave's member list", block.contains("task_list(sprint=<W id>)"));
-    assertTrue("step 2: the instance + members read", block.contains("task_get"));
+    assertTrue(
+        "step 1: the completed work's rows",
+        block.contains("the live tickets in `done` and `not-implemented`")
+            && block.contains("`task_list` those rows"));
+    assertTrue(
+        "step 2: each row + the goal root read",
+        block.contains("`task_get` each plus the goal root"));
     assertTrue(
         "step 3: the owner set", block.contains("`owner`, `owner-directive`, `owner-acceptance`"));
     assertTrue("step 4: the content floor", block.contains("content floor"));
@@ -123,14 +136,21 @@ public class ReleaseCadenceContractTest {
   public void skillAndFlowAgreeOnTheFixedOrder() {
     String block = evaluationBlock();
     assertTrue(
-        "after the mint so the fresh instance is visible",
-        block.contains("AFTER the recurrence mint in (b)"));
-    assertTrue("before the record closes", block.contains("BEFORE the record closes in (e)"));
-    int stepC = skill.indexOf("(c) the sibling release-cadence");
-    int stepD = skill.indexOf("(d) RELEASE-CADENCE EVALUATION");
+        "the skill rekeys the cadence to the pass, once per pass",
+        block.contains("rekeyed from wave to pass, once per pass"));
     assertTrue(
-        "the read-only seam note sits in step 6(c), before the evaluation",
-        stepC > 0 && stepC < stepD && skill.contains("read-only across the seam"));
+        "the flow pins the same moment (at the close)",
+        flow.contains("run once per pass, at the close"));
+    assertTrue(
+        "the pairing mint stays at division (step 4) in the skill",
+        skill.contains("only the division-time pairing instance in step 4 remains"));
+    assertTrue(
+        "the flow orders mint (step 4) before evaluation (step 6)",
+        flow.contains("the sibling's pairing mint (R1) runs at tick step 4 (division)")
+            && flow.contains("this flow's evaluation runs at tick step 6 (close)"));
+    assertTrue(
+        "the skill cites the flow as its wording source",
+        block.contains("docs/release-cadence-flow.md section 3.4"));
   }
 
   // ---------- the structural C2->C4 denial (T-138 AC2) ----------
@@ -160,7 +180,7 @@ public class ReleaseCadenceContractTest {
     int total = countOccurrences(skill, "release.ps1");
     int block = countOccurrences(evaluationBlock(), "release.ps1");
     assertEquals("the whole skill mentions the cut exactly once", 1, total);
-    assertEquals("and that one mention is inside the step-6(d) block", 1, block);
+    assertEquals("and that one mention is inside the evaluation block", 1, block);
   }
 
   private static int countOccurrences(String haystack, String needle) {

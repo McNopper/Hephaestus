@@ -62,7 +62,6 @@ public class CrossProcessClaimTest {
     List<String> ids = new ArrayList<>();
     for (int i = 0; i < total; i++) {
       String id = setup.create("p", TaskStore.CreateSpec.of("t" + i)).id;
-      setup.planSprint("p", "S-01", List.of(id), "g");
       ids.add(id);
     }
 

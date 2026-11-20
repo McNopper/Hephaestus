@@ -106,7 +106,6 @@ public class BoardPolishPackTest {
                 List.of(row("T-1", "in-progress", "design")),
                 "done",
                 List.of(row("T-2", "done", "design"))),
-            "",
             2,
             0,
             null);

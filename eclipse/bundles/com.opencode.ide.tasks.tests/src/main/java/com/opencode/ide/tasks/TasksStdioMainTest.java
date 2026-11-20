@@ -1,9 +1,9 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.google.gson.JsonObject;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -67,9 +67,8 @@ public class TasksStdioMainTest {
     assertTrue(lines.get(0).contains("\"protocolVersion\":\"2025-03-26\""));
     assertTrue(lines.get(1).contains("via stdio"));
     assertTrue(lines.get(2).contains("T-001"));
-    assertEquals(
-        "claim with nothing claimable returns the JSON literal null",
-        "null",
+    // owner model: T-001 is born ready, so the claim takes it (no backlogs to drain first)
+    String claimText =
         com.google.gson.JsonParser.parseString(lines.get(3))
             .getAsJsonObject()
             .getAsJsonObject("result")
@@ -77,11 +76,18 @@ public class TasksStdioMainTest {
             .get(0)
             .getAsJsonObject()
             .get("text")
-            .getAsString());
+            .getAsString();
+    JsonObject claimed = com.google.gson.JsonParser.parseString(claimText).getAsJsonObject();
+    assertEquals(
+        "the claim returns the born-ready ticket in-progress",
+        "T-001",
+        claimed.get("id").getAsString());
+    assertEquals("in-progress", claimed.get("status").getAsString());
 
     // the write landed in the requested root
     TaskStore store = new TaskStore(root);
     assertEquals("via stdio", store.get("p", "T-001").title);
-    assertNull(store.get("p", "T-001").assignee);
+    assertEquals(
+        "the claim assignee is the claiming role", "developer", store.get("p", "T-001").assignee);
   }
 }

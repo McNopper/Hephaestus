@@ -768,8 +768,8 @@ public final class SessionDetailsController {
     ChatMessageInfo info = entry.info();
     List<ToolLine> tools = new ArrayList<>();
     for (ChatPart part : entry.parts()) {
-      if (part != null && part.isTool() && part.tool() != null) {
-        tools.add(new ToolLine(part.tool(), part.stateName()));
+      if (part != null && part.isTool() && part.name() != null) {
+        tools.add(new ToolLine(part.name(), part.stateName()));
       }
     }
     return new MessageRow(

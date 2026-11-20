@@ -35,12 +35,13 @@ public class TicketRowDisplayTest {
 
   @Test
   public void statusPrefixMapsEveryValidStatusPlusUnknown() {
-    assertEquals("📌", TicketRow.statusSymbol("product-backlog"));
-    assertEquals("📋", TicketRow.statusSymbol("sprint-backlog"));
+    assertEquals("🆕", TicketRow.statusSymbol("ready"));
     assertEquals("🏃", TicketRow.statusSymbol("in-progress"));
     assertEquals("👀", TicketRow.statusSymbol("in-review"));
     assertEquals("✅", TicketRow.statusSymbol("done"));
+    assertEquals("❌", TicketRow.statusSymbol("not-implemented"));
     assertEquals("⏸️", TicketRow.statusSymbol("paused"));
+    assertEquals("🚫", TicketRow.statusSymbol("blocked"));
     assertEquals("", TicketRow.statusSymbol("unknown-status"));
     assertEquals("", TicketRow.statusSymbol(""));
   }
@@ -49,10 +50,7 @@ public class TicketRowDisplayTest {
   public void statusHeaderTextCarriesTheGlyphBeforeTheName() {
     // U-065: every group header carries its kind's marker - the same
     // pictograph the cards' status column shows, then the status name
-    for (String status :
-        new String[] {
-          "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"
-        }) {
+    for (String status : new String[] {"ready", "in-progress", "in-review", "paused", "done"}) {
       String expected = TicketRow.statusSymbol(status) + " " + status;
       assertEquals(expected, TicketRow.statusHeaderText(status));
       assertTrue(
@@ -65,10 +63,7 @@ public class TicketRowDisplayTest {
 
   @Test
   public void statusHelpExplainsEveryValidStatus() {
-    for (String status :
-        new String[] {
-          "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"
-        }) {
+    for (String status : new String[] {"ready", "in-progress", "in-review", "paused", "done"}) {
       assertTrue("tooltip copy for " + status, !TicketRow.statusHelp(status).isBlank());
     }
     assertEquals("", TicketRow.statusHelp(null));
@@ -145,8 +140,7 @@ public class TicketRowDisplayTest {
     assertEquals("T-001 plain", row("plain", null, "developer", false, "done", null).label());
     assertEquals(
         "T-1",
-        new TicketRow(
-                "T-1", null, null, "pm", 1, null, false, null, "product-backlog", null, "medium")
+        new TicketRow("T-1", null, null, "pm", 1, null, false, null, "ready", null, "medium")
             .label());
   }
 
@@ -220,8 +214,8 @@ public class TicketRowDisplayTest {
 
   @Test
   public void storyTaskSpikeGetNeutralTagsAndAreNotBugs() {
-    TicketRow story = row("as a user", "story", "pm", false, "product-backlog", null);
-    TicketRow task = row("do work", "task", "developer", false, "sprint-backlog", null);
+    TicketRow story = row("as a user", "story", "pm", false, "ready", null);
+    TicketRow task = row("do work", "task", "developer", false, "ready", null);
     TicketRow spike = row("probe it", "spike", "architect", false, "in-progress", null);
 
     assertEquals("[story]", story.typeTag());
@@ -234,8 +228,8 @@ public class TicketRowDisplayTest {
     assertFalse(task.label().contains("[bug]"));
     assertFalse(spike.label().contains("[bug]"));
     // neutral types render uncolored: they carry no bug tag anywhere
-    assertEquals("📌 [story] as a user", story.pipelineLabel());
-    assertEquals("📋 [task] do work", task.pipelineLabel());
+    assertEquals(TicketRow.statusSymbol("ready") + " [story] as a user", story.pipelineLabel());
+    assertEquals(TicketRow.statusSymbol("ready") + " [task] do work", task.pipelineLabel());
   }
 
   @Test

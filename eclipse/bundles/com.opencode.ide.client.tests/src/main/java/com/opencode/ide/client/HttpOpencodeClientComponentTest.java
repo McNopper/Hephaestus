@@ -107,7 +107,7 @@ public class HttpOpencodeClientComponentTest {
                "time":{"created":2,"completed":9},
                "agent":"build","model":{"id":"llm-1","providerID":"opencode","variant":"high"},
                "content":[{"type":"text","text":"Verifying the state, then pushing:"},
-                          {"type":"tool","tool":"bash","state":{"status":"completed","output":"ok"}}],
+                          {"type":"tool","name":"bash","state":{"status":"completed","output":"ok"}}],
                "finish":"tool-calls"},
               {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
                "text":"push it"}
@@ -127,7 +127,7 @@ public class HttpOpencodeClientComponentTest {
                "time":{"created":2,"completed":9},
                "agent":"build","model":{"id":"llm-1","providerID":"opencode","variant":"high"},
                "content":[{"type":"text","text":"Verifying the state, then pushing:"},
-                          {"type":"tool","tool":"bash","state":{"status":"completed","output":"ok"}}],
+                          {"type":"tool","name":"bash","state":{"status":"completed","output":"ok"}}],
                "finish":"tool-calls"},
               {"id":"msg_u1","sessionID":"ses_new","type":"user","time":{"created":1},
                "text":"push it"}

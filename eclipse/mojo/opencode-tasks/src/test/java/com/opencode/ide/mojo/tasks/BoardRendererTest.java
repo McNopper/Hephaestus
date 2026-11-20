@@ -15,21 +15,14 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * Board rendering from a real fixture store: goal line, the canonical status columns with correct
- * counts, blocked marker, totals; plus the no-sprint fallback, the explicit sprint parameter, and
- * HTML escaping.
+ * Board rendering from a real fixture store: the canonical seven status columns with correct
+ * counts, blocked marker, totals; plus the born-ready fallback and HTML escaping (owner model
+ * 2026-11-20: no sprints - every ticket renders).
  */
 public class BoardRendererTest {
 
   private static final List<String> STATUSES =
-      List.of(
-          "product-backlog",
-          "sprint-backlog",
-          "in-progress",
-          "in-review",
-          "paused",
-          "done",
-          "blocked");
+      List.of("ready", "in-progress", "in-review", "done", "not-implemented", "paused", "blocked");
 
   @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
@@ -45,18 +38,15 @@ public class BoardRendererTest {
     store.update("demo", "T-002", Map.of("story_points", 2));
     store.create("demo", TaskStore.CreateSpec.of("Test the flux"));
     store.update("demo", "T-003", Map.of("story_points", 3, "assignee", "agent-2"));
-    store.create("demo", TaskStore.CreateSpec.of("Unplanned backlog item"));
-    store.planSprint("demo", "S-01", List.of("T-001", "T-002", "T-003"), "Ship the flux capacitor");
+    store.create("demo", TaskStore.CreateSpec.of("Unplanned item"));
     store.update("demo", "T-002", Map.of("status", "done"));
     store.update("demo", "T-003", Map.of("status", "in-review"));
     store.setBlocked("demo", "T-001", "waiting on parts", "pm");
   }
 
   @Test
-  public void markdownHasGoalColumnsCountsBlockedMarkerAndTotals() throws Exception {
-    String md = render(null);
-    assertTrue(md.contains("Ship the flux capacitor"));
-    assertTrue(md.contains("Sprint: **S-01** (active)"));
+  public void markdownHasColumnsCountsBlockedMarkerAndTotals() throws Exception {
+    String md = render();
 
     int previous = -1;
     for (String status : STATUSES) {
@@ -66,60 +56,44 @@ public class BoardRendererTest {
       previous = at;
       assertEquals(headerCount(md, status), ticketCount(md, status));
     }
-    assertEquals(0, ticketCount(md, "product-backlog"));
-    // U-067: the blocked ticket left sprint-backlog for the blocked column
-    assertEquals(0, ticketCount(md, "sprint-backlog"));
+    // born ready: the untouched ticket sits in ready, no sprint scope anywhere
+    assertEquals(1, ticketCount(md, "ready"));
     assertEquals(0, ticketCount(md, "in-progress"));
     assertEquals(1, ticketCount(md, "in-review"));
     assertEquals(1, ticketCount(md, "done"));
+    assertEquals(0, ticketCount(md, "not-implemented"));
     assertEquals(0, ticketCount(md, "paused"));
     assertEquals(1, ticketCount(md, "blocked"));
 
     assertTrue(
         md.contains(
-            "- [T-001] Ship the capacitor — developer, 5 points, "
-                + "⚠ blocked: waiting on parts"));
-    assertTrue(md.contains("- [T-003] Test the flux — developer, 3 points, agent-2"));
+            "- [T-001] Ship the capacitor - developer, 5 points, "
+                + "? blocked: waiting on parts"));
+    assertTrue(md.contains("- [T-003] Test the flux - developer, 3 points, agent-2"));
     assertFalse(
         "unblocked ticket must not carry the blocked marker",
-        md.contains("[T-003] Test the flux — developer, 3 points, agent-2, ⚠"));
-    assertFalse(
-        "tickets outside the sprint must not appear", md.contains("Unplanned backlog item"));
+        md.contains("[T-003] Test the flux - developer, 3 points, agent-2, ?"));
+    assertTrue("every ticket renders (no sprint scope)", md.contains("[T-004] Unplanned item"));
 
     assertTrue(md.contains("**Totals:** 10 points total, 2 points done."));
   }
 
   @Test
-  public void noActiveSprintFallsBackToUnassignedTickets() throws Exception {
+  public void aFreshStoreRendersEveryTicketInReady() throws Exception {
     Path solo = tmp.newFolder("solo-store").toPath();
     TaskStore store = new TaskStore(solo);
-    store.create("solo", TaskStore.CreateSpec.of("Lonely backlog item"));
+    store.create("solo", TaskStore.CreateSpec.of("Lonely item"));
 
-    String md = BoardRenderer.markdown(StoreBoards.load(solo, null, s -> {}));
-    assertTrue(md.contains("Sprint: **" + BoardRenderer.NO_SPRINT + "**"));
-    assertEquals(1, ticketCount(md, "product-backlog"));
-    assertTrue(md.contains("[T-001] Lonely backlog item"));
-  }
-
-  @Test
-  public void explicitSprintParameterSelectsTheSprint() throws Exception {
-    String md = render("S-01");
-    assertTrue(md.contains("Ship the flux capacitor"));
-    assertEquals(1, ticketCount(md, "done"));
-
-    String unknown = render("S-99");
-    assertTrue(unknown.contains("Sprint: **S-99**"));
-    assertTrue(unknown.contains("no sprint metadata in _meta.json"));
-    for (String status : STATUSES) {
-      assertEquals(0, ticketCount(unknown, status));
-    }
+    String md = BoardRenderer.markdown(StoreBoards.load(solo, s -> {}));
+    assertEquals(1, ticketCount(md, "ready"));
+    assertTrue(md.contains("[T-001] Lonely item"));
   }
 
   @Test
   public void htmlIsStandaloneAndEscapesContent() throws Exception {
     TaskStore store = new TaskStore(root);
     store.update("demo", "T-002", Map.of("title", "Escape <b> & \"quotes\""));
-    String html = BoardRenderer.html(StoreBoards.load(root, null, s -> {}));
+    String html = BoardRenderer.html(StoreBoards.load(root, s -> {}));
 
     assertTrue(html.startsWith("<!DOCTYPE html>"));
     assertTrue(html.contains("<style>"));
@@ -128,26 +102,19 @@ public class BoardRendererTest {
     for (String status : STATUSES) {
       assertTrue(html.contains("id=\"" + status + "\""));
     }
-    assertTrue(html.contains("Ship the flux capacitor"));
+    assertTrue(html.contains("Ship the capacitor"));
     assertTrue(html.contains("&lt;b&gt;"));
     assertTrue(html.contains("&amp;"));
     assertTrue(html.contains("&quot;quotes&quot;"));
     assertFalse("raw markup must not survive escaping", html.contains("<b>"));
-    assertTrue(html.contains("⚠ blocked: waiting on parts"));
+    assertTrue(html.contains("? blocked: waiting on parts"));
   }
 
   @Test
-  public void htmlRendersSprintLineAndTicketFields() throws Exception {
-    // U-091: pins the HTML sprint-status suffix and per-ticket
-    // fields (points pluralization, assignee) that contains() checks skipped
-    String html = BoardRenderer.html(StoreBoards.load(root, null, s -> {}));
-    assertTrue(html.contains("Sprint: <strong>S-01</strong> (active)"));
+  public void htmlRendersTicketFields() throws Exception {
+    String html = BoardRenderer.html(StoreBoards.load(root, s -> {}));
     assertTrue(html.contains("<span class=\"id\">[T-001]</span> Ship the capacitor"));
     assertTrue(html.contains(", 3 points, agent-2"));
-
-    // an unknown requested sprint has no metadata: the HTML must say so
-    String unknown = BoardRenderer.html(StoreBoards.load(root, "S-99", s -> {}));
-    assertTrue(unknown.contains("no sprint metadata in _meta.json"));
   }
 
   @Test
@@ -157,7 +124,7 @@ public class BoardRendererTest {
     store.create("solo", TaskStore.CreateSpec.of("Small ticket"));
     store.update("solo", "T-001", Map.of("story_points", 1));
 
-    String html = BoardRenderer.html(StoreBoards.load(solo, null, s -> {}));
+    String html = BoardRenderer.html(StoreBoards.load(solo, s -> {}));
     // singular "point" for story_points == 1, plural otherwise
     assertTrue(html.contains(", 1 point</li>"));
     // columns without tickets render the (empty) placeholder
@@ -170,7 +137,7 @@ public class BoardRendererTest {
     TaskStore store = new TaskStore(two);
     store.create("demo", TaskStore.CreateSpec.of("Demo ticket"));
     store.create("beta", TaskStore.CreateSpec.of("Beta ticket"));
-    List<BoardRenderer.ProjectBoard> boards = StoreBoards.load(two, null, s -> {});
+    List<BoardRenderer.ProjectBoard> boards = StoreBoards.load(two, s -> {});
     assertEquals(2, boards.size());
 
     String md = BoardRenderer.markdown(boards);
@@ -187,8 +154,8 @@ public class BoardRendererTest {
         html.indexOf("<hr class=\"sep\">") > html.indexOf("</h1>"));
   }
 
-  private String render(String sprint) throws IOException {
-    return BoardRenderer.markdown(StoreBoards.load(root, sprint, s -> {}));
+  private String render() throws IOException {
+    return BoardRenderer.markdown(StoreBoards.load(root, s -> {}));
   }
 
   private static int headerCount(String md, String status) {

@@ -62,7 +62,7 @@ public class ReviewDoubtTest {
     assertFalse("doubt is never the first-outcome block (FR-011)", after.isBlocked());
     assertEquals(
         "the stage keeps the originator (FR-009: the stage's own backlog)", "system", after.stage);
-    assertEquals("product-backlog", after.status);
+    assertEquals("ready", after.status);
     assertNull(after.assignee);
     assertTrue(
         after.history.stream()

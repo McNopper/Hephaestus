@@ -58,12 +58,13 @@ public class TicketRowStageTest {
 
   @Test
   public void statusPrefixCoversTheLegend() {
-    assertEquals("📌", TicketRow.statusSymbol("product-backlog"));
-    assertEquals("📋", TicketRow.statusSymbol("sprint-backlog"));
+    assertEquals("🆕", TicketRow.statusSymbol("ready"));
     assertEquals("🏃", TicketRow.statusSymbol("in-progress"));
     assertEquals("👀", TicketRow.statusSymbol("in-review"));
     assertEquals("✅", TicketRow.statusSymbol("done"));
+    assertEquals("❌", TicketRow.statusSymbol("not-implemented"));
     assertEquals("⏸️", TicketRow.statusSymbol("paused"));
+    assertEquals("🚫", TicketRow.statusSymbol("blocked"));
     assertEquals("", TicketRow.statusSymbol("mystery"));
     assertEquals("", TicketRow.statusSymbol(null));
   }

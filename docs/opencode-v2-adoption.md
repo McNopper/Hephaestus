@@ -335,7 +335,7 @@ live service after each cross-check.
 |---|---|---|
 | **Well-known integration registration** | `POST experimental/integration/wellknown` (`integration.wellknown.add`) | **Not for us** - server/enterprise config; we consume the catalog |
 | **Server-side file write** | `POST experimental/fs/write` | **Not for us** - the harness edits locally |
-| **PTY connect token + persistent-PTY lifecycle** (`shutdown`, `handoff` between clients, `connect-token`) | `POST pty/{id}/connect-token`; `experimental/persistent-pty/*` (3) | **Evaluate with the parked PTY host** (ROADMAP upstream-blocked): these are the WebSocket stdin handshake and session-to-client handoff verbs the interactive terminal would need |
+| **PTY connect token + persistent-PTY lifecycle** (`shutdown`, `handoff` between clients, `connect-token`) | `POST pty/{id}/connect-token`; `experimental/persistent-pty/*` (3) | **Handshake proven live (T-173, 2026-11-20):** the ticket-gated `GET .../connect` WS stream round-tripped `echo PROBE_INPUT_OK` on a self-created PTY (echoed + executed; `DELETE` 204; `connect-token` 403 without a live ticket - side note). What remains is the **client-side WS transport piece in the Eclipse client** (the parked PTY host, ROADMAP); the handoff verbs wait on that |
 
 | New since the matrix | Operations | Decision |
 |---|---|---|

@@ -26,19 +26,17 @@ public final class Task {
   public static final List<String> VALID_TYPES = List.of("story", "task", "bug", "spike");
 
   /**
-   * The status machine (U-067: {@code blocked} is a STATE - the ticket sits in it while something
-   * outside its control is unresolved, and {@link #resumeTo} remembers where clearing returns it).
-   * Update is deliberately lax (any of these, no transition graph), as in the pm server.
+   * The status machine (owner model 2026-11-20): NO backlogs - a ticket is born {@code ready} (or
+   * {@code paused} while its basis is open), the ticker claims it into {@code in-progress}, verify
+   * hands to {@code in-review}, the engine accepts into {@code done} (the only divide state) or
+   * {@code not-implemented} (task complete, feature deliberately not built); {@code blocked} is a
+   * STATE that escalates up the basis chain to the requirement, {@code paused} is the dependency
+   * wait (U-067: {@link #resumeTo} remembers where clearing returns it). Update is deliberately lax
+   * (any of these, no transition graph), as in the pm server. This order is the Board's column
+   * order.
    */
   public static final List<String> VALID_STATUSES =
-      List.of(
-          "product-backlog",
-          "sprint-backlog",
-          "in-progress",
-          "in-review",
-          "paused",
-          "done",
-          "blocked");
+      List.of("ready", "in-progress", "in-review", "done", "not-implemented", "paused", "blocked");
 
   /** Priority weight for claim/backlog ordering (higher = first). */
   public static final Map<String, Integer> PRIORITY_ORDER =
@@ -70,35 +68,23 @@ public final class Task {
   /** One append-only history event. */
   public record HistoryEvent(Instant ts, String action, String by) {}
 
-  /** A sprint (metadata sidecar; the board itself is derived from the tasks). */
-  public record Sprint(String id, String goal, String status, Instant createdAt, Instant closedAt) {
-
-    /** Serializes with the pm server's sprint field names and order. */
-    public JsonObject toJson() {
-      JsonObject o = new JsonObject();
-      o.addProperty("id", id);
-      o.addProperty("goal", goal);
-      o.addProperty("status", status);
-      o.addProperty("created_at", formatTs(createdAt));
-      o.addProperty("closed_at", closedAt == null ? null : formatTs(closedAt));
-      return o;
-    }
-  }
-
   public String id;
   public String title = "";
   public String description = "";
   public String type = "task";
-  public String status = "product-backlog";
+
+  /**
+   * Born {@code ready} (or {@code paused} while the basis is open) - see {@link #VALID_STATUSES}.
+   */
+  public String status = "ready";
 
   /**
    * U-067: the status a {@code clear-blocked} returns to - only meaningful while {@code status ==
-   * "blocked"}; {@code null} defaults the resume to {@code sprint-backlog}.
+   * "blocked"}; {@code null} defaults the resume to {@code ready}.
    */
   public String resumeTo;
 
   public String blocker;
-  public String sprint;
   public int storyPoints;
   public String priority = "medium";
   public String role = "developer";
@@ -193,6 +179,16 @@ public final class Task {
   }
 
   /**
+   * The terminal outcomes (owner model 2026-11-20): {@code done} (built + verified) and {@code
+   * not-implemented} (task complete, feature deliberately not built - a done state, per the owner).
+   * Neither divides, readiness reports NOT_APPLICABLE for both, neither is ever claimable or
+   * blockable.
+   */
+  public boolean isTerminal() {
+    return "done".equals(status) || "not-implemented".equals(status);
+  }
+
+  /**
    * U-067: the ONE door into the blocked state - remembers where clearing returns (the status at
    * entry) and records the reason. Re-entering an already-blocked ticket only updates the reason.
    */
@@ -206,14 +202,14 @@ public final class Task {
 
   /**
    * U-067: the ONE door out of the blocked state - returns to {@code resumeTo} (default {@code
-   * sprint-backlog} when unset or no longer valid) and forgets the reason.
+   * ready} when unset or no longer valid) and forgets the reason.
    */
   public void leaveBlocked() {
     if (isBlocked()) {
       status =
           resumeTo != null && VALID_STATUSES.contains(resumeTo) && !"blocked".equals(resumeTo)
               ? resumeTo
-              : "sprint-backlog";
+              : "ready";
     }
     resumeTo = null;
     blocker = null;
@@ -231,7 +227,6 @@ public final class Task {
     o.addProperty("resume_to", resumeTo);
     o.addProperty("review", review);
     o.addProperty("blocker", blocker);
-    o.addProperty("sprint", sprint);
     o.addProperty("story_points", storyPoints);
     o.addProperty("priority", priority);
     o.addProperty("role", role);

@@ -18,12 +18,13 @@
   is **ONE steward session + ONE `ticker-v` schedule** walking every stage in
   canonical order (AGENTS.md's arming bullet; `.opencode/skills/stage-pipeline/ticker-setup.ps1`);
   `docs/unified-ticker-architecture.md` records the supersession row. §4's
-  rolling-record and interval bullets were corrected in place by T-037.
+  rolling-record and interval bullets were corrected in place by T-037; T-202
+  then removed §4's record machinery entirely (no sprints, no backlogs).
 
 ## Scope decision (owner, 2026-11-14)
 
 **The harness keeps: the task store and the pipeline designed here.** Tasks
-(tickets, basis links, readiness, claims, sprints) plus the stage tickers,
+(tickets, basis links, readiness, claims) plus the stage tickers,
 goal-driven subagents, the artifacts store, and the engine-owned verdict.
 Everything else enters adopt-and-remove: the FleetRunner and its dispatch /
 merge-back / watchdog / admission machinery, the `fleet_*` MCP tools, the
@@ -36,7 +37,7 @@ wandering-V verbs, and RecurringWaves. The D-005 minimal core shrinks to:
 basis links                 schedules (W1)           subagents (2.3.0)
      │                            │                        │
 [stationary tickets] ──► per-stage tickers ──► spawn cap ──► goal-driven workers
-     │                    (= sprint kickoffs)                ("finish this ticket")
+     │                    (= one pass each)                ("finish this ticket")
      │                            │                        │
      └── artifacts store (W12) ◄──┴── readiness/claims ────┘
                     │
@@ -48,8 +49,8 @@ basis links                 schedules (W1)           subagents (2.3.0)
 | Role | Who | Does | Never does |
 |---|---|---|---|
 | **Product Owner** | the user | states intent and goals, prioritizes, decides scope, resolves NEEDS-HUMAN escalations | works tickets |
-| **Assistant (main chat agent)** | the chat session | the PO's proxy: turns statements into tickets/goals (intake), plans and stages them, **kicks off and steers the machinery** (ticker lifecycle, spawn cap, waves), surfaces state, files findings | works tickets; self-accepts; runs unattended (it exists only while the PO talks to it) |
-| **Stage tickers** | one steward session per stage (schedules) | run micro-sprints over their stage's backlog: kickoff, spawn workers, divide + link downstream, close | self-accept; exceed the spawn cap; touch other stages' tickets |
+| **Assistant (main chat agent)** | the chat session | the PO's proxy: turns statements into tickets/goals (intake), plans and stages them, **kicks off and steers the machinery** (ticker lifecycle, spawn cap), surfaces state, files findings | works tickets; self-accepts; runs unattended (it exists only while the PO talks to it) |
+| **Stage tickers** | one steward session per stage (schedules) | run one pass over their stage's ready queue: scan, claim + spawn workers, divide + link downstream, close | self-accept; exceed the spawn cap; touch other stages' tickets |
 | **Workers (subagents)** | spawned per ticket | finish exactly their ticket goal-driven, produce artifacts, set `in-review` | accept; wander to other stages |
 | **Review pass + quality gate** | the engine | the only `done` authority | — |
 
@@ -61,15 +62,16 @@ control plane (H7) with the orchestrator role absorbed into the assistant.
 
 1. **Tickets are stationary.** A ticket is born in one stage and never moves:
    the `stage:` field is *ownership*, not a cursor. Its lifecycle is the
-   ordinary status walk within its stage (`product-backlog → sprint-backlog →
-   in-progress → in-review → done`).
+   ordinary status walk within its stage (seven states, owner model
+   2026-11-20: `ready → in-progress → in-review → done`, plus `paused`,
+   `blocked` and `not-implemented`).
 2. **The pipeline is the link graph.** Completing an upstream ticket *divides*:
    the stage agent creates the derived ticket(s) for the next stage and links
    them (`basis` = the completed ticket). One basis fans out to several children
    (ASPICE work-product derivation).
-3. **Per-stage tickers** (upstream `experimental.automations`, W1 (renamed from schedules in 2.3.1) — adopted): one
-   steward session per stage. Each schedule trigger is a **sprint kickoff**: a
-   micro-sprint over the stage's READY backlog.
+3. **Per-stage tickers** (upstream `experimental.automations`, W1 (renamed from schedules in 2.3.1) - adopted): one
+   steward session per stage. Each schedule trigger is one **pass** over the
+   stage's ready queue (owner model 2026-11-20: no sprints, no backlogs).
 4. **Goal-driven subagents** (native default since 2.3.0): the ticker spawns a
    background subagent per claimed ticket with exactly one objective — *finish
    this ticket*. Admission is one knob: the **subagent spawn cap**.
@@ -82,8 +84,8 @@ control plane (H7) with the orchestrator role absorbed into the assistant.
 - **Immutable ownership:** `stage:` is set at creation and never rewritten.
   The ten canonical stages stay as-is (`VStages.STAGES`); `null` stays legal
   for non-pipeline tickets.
-- **Status walk within the stage** — unchanged store semantics (the status
-  machine, claims, blocked states, plan/claim/review all keep working as-is).
+- **Status walk within the stage** - the seven-state machine (owner model
+  2026-11-20): claims, blocked/paused states and review keep working as-is.
 - **Done-time enforcement (migrated from advance-time):** a definition-stage
   ticket (`requirements`..`implementation`) cannot reach `done` without ≥1
   recorded artifact (the stage's product). Enforcement point: the store's
@@ -136,35 +138,32 @@ Therefore:
   project milestone could be the completion of a certain task, but it's not
   the task itself." No new construct.
 - **Anti-pattern guardrails encoded:** no evergreen wandering requirements
-  (a requirement with open descendants across many waves is a smell -
-  Atlassian puts long-lived programs in *initiatives above*); waves without
-  goals are a smell (the sprint goal is the commitment); milestones never
+  (a requirement with open descendants across many passes is a smell -
+  Atlassian puts long-lived programs in *initiatives above*); work without
+  goals is a smell (the goal is the commitment); milestones never
   become scope containers.
 - `task_traceability` reports the basis relation (order and traceability);
   its three signals pair via the basis link (role + basis).
 
-## 4. Micro-sprints and the ticker cadence
+## 4. The ticker cadence (no records: the pass is the unit)
 
-- **The schedule trigger is a sprint kickoff.** Each tick runs the existing
-  wave lifecycle per stage: kickoff → work → close.
-  1. *Kickoff:* readiness scan of the stage's backlog; `task_plan_sprint` pulls
-     the READY tickets under the admission cap; the sprint `goal:` is set
-     (e.g. "process READY design tickets T-103, T-104").
-  2. *Work:* spawn one goal-driven subagent per claimed ticket (Section 5).
-  3. *Close:* `task_close_sprint` — unfinished tickets return to the stage
-     backlog (existing semantics); the wave digest is recorded (U-061);
-     completed work's downstream links grow the next stage's READY set.
-- **Rolling sprint record (unified ten→one):** the ONE ticker reuses a single
-  named record (`ticker-v`), reopened at kickoff (U-108's
-  reopen semantics) and closed at the tick boundary. This keeps the sprint
-  namespace compact (no per-tick id explosion) while history, goal and digest
-  stay per-tick. The auto-minted `S-xx` records remain for human-run waves.
-  The per-stage `ticker-<stage>` records this design originally specified are
-  SUPERSEDED with the ten→one unification (`docs/unified-ticker-architecture.md`).
+- **The schedule trigger is one pass.** Each tick runs the fixed per-stage
+  walk: scan → verdict → divide → kickoff → close.
+  1. *Scan:* readiness query of the stage's ready queue; the READY tickets are
+     claimable directly (owner model 2026-11-20: born ready, no plan step).
+  2. *Work:* claim under the spawn cap, then spawn one goal-driven subagent per
+     claimed ticket (Section 5).
+  3. *Close:* no sprint record exists to close - the pass digest goes to the
+     tick's chat output; completed work's downstream links grow the next
+     stage's ready set.
+- **No sprint records (owner model 2026-11-20, T-202):** the `ticker-v`
+  rolling record, the auto-minted `S-xx` records and the reopen/close
+  semantics (U-108) are REMOVED with the sprint model; history lives in the
+  tickets' own `history[]` and in the tick output.
 - **Interval and cap (decided with chunk 3's bootstrap; cadence owner-set
   2026-11-16):** default **5 minutes for the single schedule**
   (`ticker-setup.ps1 -IntervalMinutes` - ONE `when` covers the whole canonical
-  walk, not one interval per stage); stages with an empty READY backlog cost one thin
+  walk, not one interval per stage); stages with an empty ready queue cost one thin
   readiness query per tick. **Spawn cap:** default **4** concurrent
   subagents (`-Cap`), owner-adjustable on the Board panel (chunk 5).
 
@@ -187,10 +186,10 @@ TICK(stage):
                references; the next stage's READY set grows.
   4. READY    → KICKOFF: claim under the spawn cap, spawn one goal-driven
                subagent per ticket ("finish this ticket").
-  5. CLOSE    the micro-sprint record; record the digest; next tick repeats.
+  5. CLOSE    the pass: record the digest in the tick output; next tick repeats.
 ```
 
-The same loop runs whether the backlog is empty (steps 1–2 find nothing,
+The same loop runs whether the ready queue is empty (steps 1–2 find nothing,
 step 5 closes — one thin readiness query) or full. Determinism is the point:
 every stage agent executes the identical process; only its stage's data
 differs.
@@ -248,8 +247,8 @@ adding a stage = adding its division map + skill, nothing else.
   session does today.
 - **Watchdog shrinks:** background idle reporting (#63382/#63675) plus
   `experimental.job.list` probing (W13 — first consumer) for subagents that
-  never go idle. Stalled spawns are aborted and their tickets returned to the
-  stage backlog with a blocker note.
+  never go idle. Stalled spawns are aborted and their tickets released back to
+  `ready` with a blocker note.
 - **Cost observability:** `usage.limits` + `session.generate` tokens/cost feed
   the cap decisions; no parallel bookkeeping.
 
@@ -258,7 +257,7 @@ adding a stage = adding its division map + skill, nothing else.
 - **One common skill — `stage-pipeline` (new)** — encodes the shared procedure
   every stage agent executes: readiness query → claim under the cap →
   goal-driven fulfillment loop → artifact recording → division + downstream
-  linking → `in-review` handoff → micro-sprint close. The tickers' tick prompt
+  linking → `in-review` handoff → pass close. The tickers' tick prompt
   is thin glue over this skill; the workers' goal prompt references it. One
   process, ten parameterizations — not ten divergent copies.
 - **The per-stage discipline knowledge already exists** and stays: the stage's
@@ -299,7 +298,7 @@ adding a stage = adding its division map + skill, nothing else.
 | `task_advance` / `task_pass_stage` / `task_report_horizontal` / wandering `send_back` | division + link creation; send-back-as-movement becomes rework (a failed downstream blocks/stales its upstream link) | Chunk 5, after tickers hold parity live |
 | RecurringWaves (batch waves) | per-stage ticker kickoffs | Chunk 5 |
 | FleetRunner, `fleet_*` MCP tools, fleet bundle + board fleet views | ticker-spawned subagents + the spawn cap | **Last** — only after live parity evidence (the acceptance run, ex-U-037, validates the whole loop) |
-| **Board's Fleet on/off toggle** | kept — becomes the **enable/disable switch for the tickers' schedules**: ON = schedules armed (micro-sprint kickoffs run), OFF = dormant. Re-labeled (e.g. Auto/Tickers) in Chunk 5; the same panel gains the owner-adjustable spawn cap and interval fields | Chunk 5 |
+| **Board's Fleet on/off toggle** | kept — becomes the **enable/disable switch for the tickers' schedules**: ON = schedules armed (ticker passes run), OFF = dormant. Re-labeled (e.g. Auto/Tickers) in Chunk 5; the same panel gains the owner-adjustable spawn cap and interval fields | Chunk 5 |
 | `send_back` as clarification routing (`clarification:` → originator, U-023) | kept — routing, not movement | stays |
 
 ## 10. Migration of live state
@@ -311,8 +310,9 @@ adding a stage = adding its division map + skill, nothing else.
   unbasis'd tickets), so legacy ticket files re-encode once through fix mode
   (`-Dopencode.tasks.fix=true` or the next fix-mode sync) to gain the empty
   `basis: null` line — mechanical, no data change.
-- Open sprint records (`S-08`.., `ticker-*` for new stages) continue under the
-  existing reopen semantics (U-108).
+- Sprint records are GONE (T-202): the `S-xx` / `ticker-*` records and the
+  reopen semantics (U-108) were removed with the sprint model; the codec
+  strips the legacy `sprint:` key on read.
 - The Board's V-pipeline projection becomes a **stage-column × link-graph**
   view (columns = stages, tickets stationary, edges = basis links). UI chunk.
 - The traceability report keeps its three signals; the "wandered ticket pairs
@@ -344,7 +344,7 @@ Eclipse host surfaces.
 | Chunk | Content | Gate |
 |---|---|---|
 | 1 | This design doc (integration of the decomposition research into §3) | lint |
-| 2 | Store: done-time artifact guard (moved from `advance`), division/link helpers, `ticker-*` sprint records | full verify |
+| 2 | Store: done-time artifact guard (moved from `advance`), division/link helpers; the `ticker-*` records retired later with the sprint model, T-202 | full verify |
 | 3 | Ticker substrate: schedules config (flag on), per-stage sessions, **the `stage-pipeline` common skill (§6)**, tick prompt, kickoff/work/close loop | full verify + live ticker evidence |
 | 4 | Fulfillment: subagent spawn + cap + lane discipline + goal prompts; U-052 stamp lands first (readiness dependency) | full verify + live evidence |
 | 5 | Board stage-columns projection; docs/skills rewrite (AGENTS.md V-section, fleet-quickstart, operating model) | full verify |

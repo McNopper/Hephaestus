@@ -126,8 +126,8 @@ Per stage:
    basis tickets divided, never child tickets created, and one basis
    ticket's division is atomic: all its children + the paired `test-*` in
    one step. Quota exhausted → the remaining done tickets stay
-   done-without-children and are re-discovered next pass (a burst after a
-   wave landing drains over several ticks - the pipeline's normal async
+   done-without-children and are re-discovered next pass (a burst after work
+   lands drains over several ticks - the pipeline's normal async
    behavior). Pairing: also create
    the paired `test-*` ticket linked to the same basis when the child is a
    definition stage. Live-in-Eclipse rule (owner requirement 2026-11-15,
@@ -137,24 +137,23 @@ Per stage:
    live-in-Eclipse verification is ACCEPTANCE verification and belongs to
    the last V stage, not in ad-hoc blocked/in-review states or manual
    follow-up notes. The child is the recurrence pattern, NON-BLOCKING:
-   every successful wave/release produces a fresh test-requirements
-   acceptance ticket (the T-002 pattern systematized) — it hardens
-   acceptance and never gates; no verdict, wave or release waits on it.
-   The recurrence entry is division-map DATA (C-C5-3, E4 — the tick
-   algorithm stays unchanged while it fires) and it lands the same
-   ticket shape at either firing: this child instance and the
-   wave-close sweep in step 6(b). The ticket
+   every done definition ticket with live-in-Eclipse checks produces a
+   fresh test-requirements acceptance ticket (the T-002 pattern
+   systematized) - it hardens acceptance and never gates; no verdict
+   waits on it. The recurrence entry is division-map DATA (C-C5-3, E4 -
+   the tick algorithm stays unchanged while it fires) and it lands at
+   its single firing: this division-time child instance. The ticket
    (`docs/autonomy-spectrum-design.md` DS-3) is an ordinary staged
    `test-requirements` ticket created through the division/link verbs at
    the boundary — the write goes through the store, the E3-observable —
    and it is a derivation LEAF by construction: nothing's `basis` or
    readiness references it (no ticket ever takes it as its `basis`), so
    no component waits on it; it walks its own `in-review → done` on the
-   ordinary verdict lane (step 3) and never gates the wave that spawned
+   ordinary verdict lane (step 3) and never gates the definition ticket that spawned
    it (docs/live-in-eclipse-recurrence-flow.md I4/I5). Idempotency heals
    like any division — the consumed [AR-D §2.2 C-M2-3] heal discipline:
    at the next boundary the firing actor re-reads existing derivations
-   and creates only the missing ticket — one per successful wave/release
+   and creates only the missing ticket — one per matching definition ticket
    (DS-3, autonomy-spectrum design §5 W-3 step 2).
    The LIVE-CHECK PAIRING extension (design C-1/W-1; wording:
    docs/live-in-eclipse-recurrence-flow.md §5.1) operationalizes the rule
@@ -171,21 +170,18 @@ Per stage:
    priority, no model, description = flow §3.2 verbatim — the
    NON-BLOCKING paragraph never reworded, acceptance criteria = flow
    §3.3's pairing shape: the live check operationalized + the evidence
-   line): `task_create` with the field set, then `task_update` status
-   `in-progress` + assignee `owner-acceptance` — confirmed is read-back
-   truth (`task_get`), never the minter's intent (DS-002). The engine
-   refuses the direct landing → retry in-pass, then the fallback
-   `sprint-backlog` + `owner-acceptance` (the assignee pre-check keeps it
-   out of targeted claims); an unconfirmed update is repaired by
-   re-asserting the update — NEVER re-created (the title scan would see
-   the created ticket and dedup would skip the mint, leaving the state
-   wrong). Do NOT plan the instance into a sprint record, do NOT spawn a
-   worker for it (DR-3).
-5. READY → KICKOFF: **plan first, then claim** — READY tickets born from
-   division sit in `product-backlog` without a sprint, and `task_claim`
-   only takes `sprint-backlog` tickets: `task_plan_sprint` them into the
-   rolling `ticker-v` sprint record in the same tick, then claim under the
-   spawn cap (`task_claim`), then spawn ONE
+   line): `task_create` with the field set - the instance is BORN READY
+   (its basis D is done, so the birth rule lands it `ready`) - then
+   `task_update` assignee `owner-acceptance`: the assignee is the SHIELD
+   (a claim only ever takes UNASSIGNED tickets, so no worker takes it).
+   Confirmed is read-back truth (`task_get`), never the minter's intent
+   (DS-002); an unconfirmed update is repaired by re-asserting the
+   update - NEVER re-created (the title scan would see the created
+   ticket and dedup would skip the mint, leaving the state wrong). Do
+   NOT claim the instance, do NOT spawn a worker for it (DR-3).
+5. READY → KICKOFF: **claim, then spawn** - READY tickets born from
+   division are claimable directly (the birth rule lands them `ready`):
+   claim under the spawn cap (`task_claim`), then spawn ONE
    background subagent per claimed ticket **with the stage's agent** (U-104,
    STAGE-AGENT MAP below) and the fulfillment brief (below). A ticket that
    carries a `model` pins the head (the per-ticket override wins). Claims are
@@ -237,72 +233,46 @@ step 2); UNCLEAR → the doubt stays as a comment on the `in-review` ticket
 round-trip against). Verdicts only: stageless tickets never divide (step 4
 needs a stage's division map), are never kicked off (step 5 needs a stage's
 agent), and this lane never claims one.
-6. CLOSE the pass - the order inside the close is fixed (DR-6/DR-9, the
-   W-2 composition seam): (a) reopen the `ticker-v` sprint record with
-   the digest (U-108 reopen semantics keep the record rolling); (b) the
-   WAVE-COMPLETION RECURRENCE sweep (T-039; design C-1/W-2; wording:
-   docs/live-in-eclipse-recurrence-flow.md §5.1), once per pass: for
-   each sprint record W of the project, W is a completed wave iff W's id
-   does not start with `ticker-` (micro-records are never waves), W
-   holds at least one ticket, and zero members are open (open = any
-   status except done; a `paused` member keeps the wave open). Per
-   completed wave: source token `(wave <W id>)`; if any
-   test-requirements ticket's title already carries the token (open or
-   done), skip W — the instance exists; the scan surface unavailable →
-   defer the mint to a later pass, never mint blind (DS-004). Create per
-   flow §3 (title with the token suffix, basis = null - scope container only, role tester, stage
-   test-requirements, type task / 0 points / medium priority, no model,
-   description = flow §3.2 verbatim, acceptance criteria = flow §3.3's
-   wave shape: the four fixed lines naming the wave's agent-facing
-   surfaces, evidence line last): `task_create` with the field set, then
-   `task_update` status `in-progress` + assignee `owner-acceptance` —
-   confirmed is read-back truth (`task_get`, DS-002); refused landing →
-   retry in-pass, then the fallback `sprint-backlog` +
-   `owner-acceptance`; an unconfirmed update is re-asserted, NEVER
-   re-created. One digest note per mint (U-061). Do NOT plan the
-   instance into a sprint record, do NOT spawn a worker for it (DR-3); a
-   record failing the predicate is skipped, not a failure — the sweep
-   re-derives every pass (QA-002); (c) the sibling release-cadence
-   evaluation READS the instances the sweep created or kept
-   (docs/release-cadence-flow.md §6 — read-only across the seam, DR-9);
-   (d) RELEASE-CADENCE EVALUATION (owner requirement 2026-11-15, T-041;
-   wording = flow §4.1's STEP 6 EXTENSION, run once per pass AFTER the
-   recurrence mint in (b) so the fresh instance is visible, BEFORE the
-   record closes in (e)):
+6. CLOSE the pass - the sprint model is gone (owner 2026-11-20): no record
+   to reopen or close, no wave to sweep (recurrence R2 retired with it -
+   only the division-time pairing instance in step 4 remains). The close
+   runs the RELEASE-CADENCE EVALUATION (owner requirement 2026-11-15,
+   T-041; rekeyed from wave to pass, once per pass):
 
-      1. For each completed wave W (flow §1 carve-out applies): run the
-         evidence query (flow §3.4), verbatim four steps — (1)
-         `task_list(sprint=<W id>)` for the wave's members, completed iff
-         every member is `done`; (2) `task_get` W's acceptance instance
-         and every member; (3) scan `comments` + `artifacts` for `by` in
-         the owner set (`owner`, `owner-directive`, `owner-acceptance`);
-         (4) content floor: the matched text must STATE an outcome
-         (accept, approve, review verdict) — a question, a direction or a
-         drive-by note is not acceptance. Never history, never assignees,
-         never git authorship, never chat text; ambiguity → PENDING (R4,
-         the conservative asymmetry).
-      2. Owner-set evidence passing the floor → outcome `UNLOCKED
+      1. Run the evidence query (docs/release-cadence-flow.md section
+         3.4), rekeyed to the completed work - the live tickets in `done`
+         and `not-implemented`: (1) `task_list` those rows; (2) `task_get`
+         each plus the goal root when one exists; (3) scan `comments` +
+         `artifacts` for `by` in the owner set (`owner`,
+         `owner-directive`, `owner-acceptance`); (4) content floor: the
+         matched text must STATE an outcome (accept, approve, review
+         verdict) - a question, a direction or a drive-by note is not
+         acceptance. Never history, never assignees, never git
+         authorship, never chat text; ambiguity means PENDING (R4, the
+         conservative asymmetry).
+      2. Owner-set evidence passing the floor means outcome `UNLOCKED
          (evidence: <ticket id> + author + ts)`. Otherwise `PENDING
          REVIEW`.
-      3. Record it (DS-002 write schedule — two writes, no state): ONE
-         line in the pass digest on EVERY evaluation — `release cadence:
-         wave <W id> <UNLOCKED (evidence <ref>) | pending review>` — plus
-         a `task_add_comment` on W's acceptance instance with the same
-         outcome at first determination and at every flip (the state lives
-         on a ticket, where comments and history work; the record itself
-         has no comment channel).
+      3. Record it (DS-002 write schedule - two writes, no state): ONE
+         line in the tick's chat output (the pass digest, H7) on EVERY
+         evaluation - `release cadence: <UNLOCKED (evidence <ref>) |
+         pending review>` - plus, when a goal root exists, a
+         `task_add_comment` on it with the same outcome at first
+         determination and at every flip (the state lives on a ticket,
+         where comments and history work).
       4. Do NOT run `release.ps1`. Do NOT block anything. Do NOT spawn.
-         Do NOT escalate a PENDING REVIEW as NEEDS-HUMAN — the open
-         instance already surfaces it to the owner on the Board.
+         Do NOT escalate a PENDING REVIEW as NEEDS-HUMAN - a pending
+         release is an absence, not a datum (DS-4), and the open work
+         already surfaces on the Board.
 
-      The verbs on this path are the reads above plus the two recordings
-      — no execution verb exists here (the cut is C3's motion on the
-      owner's EXPLICIT GO, flow §4.2: the ticker never runs the script).
-      No ticker armed: the kickoff assistant is the fallback evaluator
-      with the same query, announced in chat (H7).
-   (e) close the record. The next tick repeats.
+      The verbs on this path are the reads above plus the recordings -
+      no execution verb exists here (the cut is C3's motion on the
+      owner's EXPLICIT GO, docs/release-cadence-flow.md section 4.2: the
+      ticker never runs the script). No ticker armed: the kickoff
+      assistant is the fallback evaluator with the same query, announced
+      in chat (H7). The next tick repeats.
 
-An empty backlog costs one readiness query. That is a successful tick.
+An empty ready queue costs one readiness query. That is a successful tick.
 
 ## Fulfillment (worker subagents - one ticket, nothing else)
 
@@ -340,20 +310,15 @@ product define done.
 ## Field observations (live acceptance run, 2026-11-14)
 
 - **Claims are targeted, not role-based.** A blind role-claim grabs the next
-  sprint-backlog ticket of the role — which can cross into ANOTHER sprint's
-  backlog. Pre-check the candidate's assignee/status, then claim with a
-  targeted `task_update` (status + assignee in one move), the assignee
-  `ticker-v:<ticketId>` (the machinery claim namespace the preamble's
-  classification keys on).
+  ready ticket of the role. Pre-check the candidate's assignee/status, then
+  claim with a targeted `task_update` (status + assignee in one move), the
+  assignee `ticker-v:<ticketId>` (the machinery claim namespace the
+  preamble's classification keys on).
 - **Division-with-rationale for legacy done tickets:** a done ticket whose
   derivation already exists in substance (delivered under the old model,
   `basis: null`) gets division recorded SATISFIED with a comment on the
   ticket - do not mint duplicate children for shipped work. The PO can
   override with one comment and the next tick divides literally.
-- **Rolling records stay open while work is in flight:** `task_close_sprint`
-  ejects unfinished tickets to product-backlog, corrupting in-flight
-  fulfillment. Leave the record active until the work lands; a later tick
-  closes it.
 - **Nested steward sessions need `experimental.subagent_depth >= 2`** in the
   user-global config (setup-local per D-004) - the ticker itself is one
   subagent level, its workers the second.

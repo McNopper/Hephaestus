@@ -1018,7 +1018,7 @@ public final class ChatSessionController {
       if (part.isTool()) {
         tools.add(
             new ToolLine(
-                part.tool() != null ? part.tool() : "",
+                part.name() != null ? part.name() : "",
                 part.stateName() != null ? part.stateName() : ""));
       }
     }

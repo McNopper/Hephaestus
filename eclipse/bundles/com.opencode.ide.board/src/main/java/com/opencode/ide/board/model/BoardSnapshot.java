@@ -8,24 +8,23 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Immutable result of {@link BoardModel#refresh()}: the five kanban columns (all statuses always
- * present, in store order), the selected sprint's goal, totals, an error/notice string ({@code
- * null} when the board loaded fine - e.g. "task store not found at ..." when the store root is
- * missing), and the per-ticket {@link StageReadiness} dispatch verdicts (U-018: the board surfaces
- * what should run NOW - ready counts and stale/waiting chips feed the ticker-v pump and the board
- * badges; keyed by ticket id, empty when unknown).
+ * Immutable result of {@link BoardModel#refresh()}: the seven status columns (all statuses always
+ * present, in store order), totals, an error/notice string ({@code null} when the board loaded fine
+ * - e.g. "task store not found at ..." when the store root is missing), and the per-ticket {@link
+ * StageReadiness} dispatch verdicts (U-018: the board surfaces what should run NOW - ready counts
+ * and stale/waiting chips feed the ticker-v pump and the board badges; keyed by ticket id, empty
+ * when unknown).
  *
  * <p>In {@link BoardModel.BoardMode#PIPELINE} the snapshot additionally carries a {@link
  * PipelineSnapshot} (all ten V stages); in {@link BoardModel.BoardMode#FLAT} {@link #pipeline()} is
  * {@code null} and the flat columns are the authoritative grouping.
  *
  * <p>U-026: the snapshot also carries the per-ticket {@link StageJourney}s (keyed by ticket id)
- * parsed from the same store read — the card progress and the movement trace project from them;
+ * parsed from the same store read - the card progress and the movement trace project from them;
  * empty when unknown.
  */
 public record BoardSnapshot(
     Map<String, List<TicketRow>> columns,
-    String sprintGoal,
     int total,
     int blockedCount,
     String error,
@@ -35,33 +34,27 @@ public record BoardSnapshot(
 
   /** FLAT-mode shape: no pipeline grouping. */
   public BoardSnapshot(
-      Map<String, List<TicketRow>> columns,
-      String sprintGoal,
-      int total,
-      int blockedCount,
-      String error) {
-    this(columns, sprintGoal, total, blockedCount, error, null, Map.of(), Map.of());
+      Map<String, List<TicketRow>> columns, int total, int blockedCount, String error) {
+    this(columns, total, blockedCount, error, null, Map.of(), Map.of());
   }
 
   public BoardSnapshot(
       Map<String, List<TicketRow>> columns,
-      String sprintGoal,
       int total,
       int blockedCount,
       String error,
       PipelineSnapshot pipeline) {
-    this(columns, sprintGoal, total, blockedCount, error, pipeline, Map.of(), Map.of());
+    this(columns, total, blockedCount, error, pipeline, Map.of(), Map.of());
   }
 
   public BoardSnapshot(
       Map<String, List<TicketRow>> columns,
-      String sprintGoal,
       int total,
       int blockedCount,
       String error,
       PipelineSnapshot pipeline,
       Map<String, StageReadiness.Readiness> readiness) {
-    this(columns, sprintGoal, total, blockedCount, error, pipeline, readiness, Map.of());
+    this(columns, total, blockedCount, error, pipeline, readiness, Map.of());
   }
 
   /** An all-empty board carrying an error/notice message. */
@@ -70,7 +63,7 @@ public record BoardSnapshot(
     for (String status : Task.VALID_STATUSES) {
       columns.put(status, new ArrayList<>());
     }
-    return new BoardSnapshot(columns, "", 0, 0, error);
+    return new BoardSnapshot(columns, 0, 0, error);
   }
 
   /** One column's rows; never {@code null}, missing statuses read as empty. */

@@ -42,7 +42,6 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
    */
   private void createEveryKind() throws InterruptedException {
     call("task_create", "{\"project\":\"p\",\"title\":\"ready\",\"stage\":\"requirements\"}");
-    call("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"],\"goal\":\"g\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"waiting\",\"stage\":\"system\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"legacy\"}");
     call("task_create", "{\"project\":\"p\",\"title\":\"stale child\",\"stage\":\"design\"}");
@@ -107,7 +106,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
   public void kindsAndReasonsMatchStageReadinessOverTheSameStore() throws Exception {
     createEveryKind();
     Map<String, StageReadiness.Readiness> verdicts =
-        StageReadiness.evaluate(new TaskStore(root).list("p", null, null, null, null));
+        StageReadiness.evaluate(new TaskStore(root).list("p", null, null, null));
     JsonArray rows = callArray("task_readiness", "{\"project\":\"p\"}");
     assertEquals(verdicts.size(), rows.size());
     for (int i = 0; i < rows.size(); i++) {
@@ -208,7 +207,7 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
     assertFalse(
         "control: without the archive pool the archived parent is invisible"
             + " (library-pinned in ArchiveReadinessTest)",
-        StageReadiness.evaluate(store.list("p", null, null, null, null)).get(child.id).kind()
+        StageReadiness.evaluate(store.list("p", null, null, null)).get(child.id).kind()
             == StageReadiness.Kind.READY);
 
     JsonArray rows = callArray("task_readiness", "{\"project\":\"p\"}");

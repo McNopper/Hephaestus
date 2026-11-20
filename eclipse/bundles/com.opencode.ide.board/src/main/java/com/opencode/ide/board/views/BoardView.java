@@ -7,7 +7,6 @@ import com.opencode.ide.board.model.BoardSnapshot;
 import com.opencode.ide.board.model.FreshnessStamp;
 import com.opencode.ide.board.model.PipelineSnapshot;
 import com.opencode.ide.board.model.RefreshGate;
-import com.opencode.ide.board.model.SprintSelection;
 import com.opencode.ide.board.model.StageColumn;
 import com.opencode.ide.board.model.StageJourney;
 import com.opencode.ide.board.model.StageSelection;
@@ -15,7 +14,6 @@ import com.opencode.ide.board.model.TaskStoreWatcher;
 import com.opencode.ide.board.model.TasksOverrideMigration;
 import com.opencode.ide.board.model.TicketRow;
 import com.opencode.ide.board.model.VStageLayout;
-import com.opencode.ide.board.model.WaveDigest;
 import com.opencode.ide.core.TasksRootResolution;
 import com.opencode.ide.git.StoreGitStatus;
 import com.opencode.ide.git.StoreSync;
@@ -101,9 +99,8 @@ import org.eclipse.ui.part.ViewPart;
  * carry the send-back reason contract). The board refreshes live via {@link TaskStoreWatcher} on
  * {@code <root>/<project>} — including peer-agent writes and git-checkout file replacements (B-002)
  * — and survives a missing store (notice instead of exception, polling continues). The watched root
- * is the adopted repo store ({@link TasksRootResolution}); a refresh that finds the unpicked
- * (backlog) default empty while real sprints exist auto-selects the newest sprint instead of
- * silently showing an empty board.
+ * is the adopted repo store ({@link TasksRootResolution}); a refresh always shows the full board
+ * (owner model 2026-11-20: no backlogs, no sprint scope).
  *
  * <p>Blocked tickets are unmissable in both layouts: red bold rows, a red blocked count in every
  * V-model stage column header. The stage columns always render — all ten, empty ones included, each
@@ -113,12 +110,12 @@ import org.eclipse.ui.part.ViewPart;
  * The context menu on a ticket row mirrors the toolbar (Open ticket… / Copy ticket id) and adds the
  * V-pipeline moves "Advance stage →" / "Send back…" (failures surface in the status line).
  *
- * <p>Threading: refreshes are single-flight — the snapshot (and sprint list) is computed on a
- * background thread and only the apply runs on the UI thread via {@code Display.asyncExec}. While a
- * compute is in flight further refresh requests just mark it dirty; the drain loop then re-computes
- * once more (latest-wins), so bursts of watcher events never queue up or overlap. Part activation
- * ({@code setFocus}) requests a refresh too, rate-limited to once per 5s (U-035) - the same
- * peer-pickup cadence the tickers own, without a poller thread.
+ * <p>Threading: refreshes are single-flight - the snapshot is computed on a background thread and
+ * only the apply runs on the UI thread via {@code Display.asyncExec}. While a compute is in flight
+ * further refresh requests just mark it dirty; the drain loop then re-computes once more
+ * (latest-wins), so bursts of watcher events never queue up or overlap. Part activation ({@code
+ * setFocus}) requests a refresh too, rate-limited to once per 5s (U-035) - the same peer-pickup
+ * cadence the tickers own, without a poller thread.
  */
 public class BoardView extends ViewPart {
 
@@ -149,7 +146,7 @@ public class BoardView extends ViewPart {
 
   /** The compact status-prefix legend (tooltip text on pipeline rows). */
   private static final String STATUS_LEGEND =
-      "\uD83D\uDCCC product-backlog · \uD83D\uDCCB sprint-backlog · \uD83C\uDFC3 in-progress · \uD83D\uDC40 in-review · \u23F8\uFE0F paused · \u2705 done \u00b7 \uD83D\uDEAB blocked";
+      "🆕 ready · 🏃 in-progress · 👀 in-review · ✅ done · ❌ not-implemented · ⏸️ paused · 🚫 blocked";
 
   /** U-035: the minimum time between two activation-triggered refreshes. */
   private static final Duration ACTIVATION_REFRESH_MIN_INTERVAL = Duration.ofSeconds(5);
@@ -199,7 +196,6 @@ public class BoardView extends ViewPart {
   private Action resetProjectAction;
   private Action adoptRepoAction;
 
-  private Action waveDigestAction;
   private Action blockedOnlyAction;
 
   /** U-005's optional triage filter: show only bug tickets (model: {@code bugsOnly}). */
@@ -210,13 +206,6 @@ public class BoardView extends ViewPart {
 
   /** Selected stage ids for the visibility filter; {@code null} = all visible. */
   private Set<String> visibleStages;
-
-  /**
-   * True once the user picked a sprint in the selector this session; the B-002 auto-select only
-   * acts while this is false (an explicit pick is never overridden). Not persisted: a fresh session
-   * may auto-select again.
-   */
-  private boolean sprintPicked;
 
   private boolean updatingModeCombo;
   private String rootOverride = "";
@@ -979,7 +968,7 @@ public class BoardView extends ViewPart {
       };
     }
 
-    /** The status glyph's color: done green, running blue, review amber, backlog gray. */
+    /** The status glyph's color: done green, running blue, review amber, ready gray. */
     /** The problem chip for a verdict; empty for READY/RUNNING/absent. */
     private static String chipOf(StageReadiness.Readiness verdict) {
       if (verdict == null) {
@@ -1284,21 +1273,6 @@ public class BoardView extends ViewPart {
             + "project - a root .project with the repo nature, so the Board, the Server "
             + "view and chat resolve to it from first open");
 
-    // U-026 FR-005/FR-006: the per-wave movement digest as plain text -
-    // the same render a chat/tool surface would produce (US-004)
-    waveDigestAction =
-        new Action("Wave digest") {
-          @Override
-          public void run() {
-            openWaveDigest();
-          }
-        };
-    waveDigestAction.setToolTipText(
-        "How the current wave moved: advances, passes, send-backs "
-            + "and reports, the tickets that moved back (with reasons), and the ones that never "
-            + "moved \u2014 plain text, ready to paste into chat or a ticket comment");
-    waveDigestAction.setImageDescriptor(icon("summarize"));
-
     // U-017: dedicated header rows replace the single cramped view
     // toolbar — grouped by meaning (user direction 2026-09-17, refined
     // by the rubberduck review: Refresh/Sync are store-level and sit
@@ -1319,10 +1293,6 @@ public class BoardView extends ViewPart {
     scopeRow.add(bugsOnlyAction);
     scopeRow.add(stageFilterAction);
     scopeRow.add(statusFilterAction);
-    // Wave digest rides the scope row: it reports on the wave the
-    // selector points at, and is a read-only projection of recorded
-    // history (no dispatch machinery involved).
-    scopeRow.add(waveDigestAction);
     scopeRow.update(true);
 
     // Icon-paint fix (user report 2026-09-17): embedded tool bars created
@@ -1383,9 +1353,6 @@ public class BoardView extends ViewPart {
     rootOverride = newRoot;
     projectName = newProject;
     if (changed) {
-      // fresh project/root context: the sprint choice does not carry
-      // over, so the auto-select may act again (B-002)
-      sprintPicked = false;
       model.setProject(newProject);
       model.setRoot(resolveTasksRoot(rootOverride));
       restartWatcher();
@@ -1416,11 +1383,9 @@ public class BoardView extends ViewPart {
   private void drainRefresh() {
     while (dirty.compareAndSet(true, false)) {
       BoardSnapshot snapshot = null;
-      List<String> sprints = List.of();
       StoreGitStatus store = StoreGitStatus.NONE;
       try {
         snapshot = model.refresh();
-        sprints = model.sprints();
         store = StoreGitStatus.load(model.root());
       } catch (RuntimeException e) {
         logError("Board refresh failed", e);
@@ -1433,7 +1398,6 @@ public class BoardView extends ViewPart {
         break;
       }
       BoardSnapshot toApply = snapshot;
-      List<String> sprintList = sprints;
       StoreGitStatus storeStatus = store;
       display.asyncExec(
           () -> {
@@ -1441,7 +1405,7 @@ public class BoardView extends ViewPart {
               return;
             }
             try {
-              applySnapshot(toApply, sprintList, storeStatus);
+              applySnapshot(toApply, storeStatus);
             } catch (RuntimeException e) {
               logError("Applying board snapshot failed", e);
             }
@@ -1458,7 +1422,7 @@ public class BoardView extends ViewPart {
   }
 
   /** UI-thread apply of a snapshot computed in the background (mode-aware). */
-  private void applySnapshot(BoardSnapshot snapshot, List<String> sprints, StoreGitStatus store) {
+  private void applySnapshot(BoardSnapshot snapshot, StoreGitStatus store) {
     // U-018: readiness chips on every card (U-026: stage journeys ride
     // the same path - progress + setbacks)
     for (BoardRowLabel label : rowLabels) {
@@ -1470,7 +1434,6 @@ public class BoardView extends ViewPart {
     } else {
       applyFlatSnapshot(snapshot);
     }
-    maybeAutoSelectSprint(sprints);
     if (snapshot.error() != null) {
       setContentDescription(snapshot.error());
     } else {
@@ -1482,9 +1445,6 @@ public class BoardView extends ViewPart {
               .append(" tickets");
       if (snapshot.blockedCount() > 0) {
         description.append("  \u2022  ").append(snapshot.blockedCount()).append(" blocked");
-      }
-      if (!BoardModel.BACKLOG.equals(model.sprint())) {
-        description.append("  \u2022  wave ").append(model.sprint());
       }
       if (store != null && store.exists() && !store.summary().isBlank()) {
         description.append("  \u2022  store ").append(store.summary());
@@ -1575,23 +1535,6 @@ public class BoardView extends ViewPart {
     }
     pipelineContent.layout(true, true);
     pipelineScroll.setMinSize(pipelineContent.computeSize(SWT.DEFAULT, SWT.DEFAULT));
-  }
-
-  /**
-   * B-002: when the model still sits on the unpicked {@code (backlog)} default while real waves
-   * exist, point the selection at the newest wave so the board surfaces live work instead of an
-   * empty default. The board's DISPLAY is wave-agnostic now (all tickets, user direction
-   * 2026-09-18), so this no longer re-renders anything.
-   */
-  private void maybeAutoSelectSprint(List<String> sprints) {
-    if (model == null || sprints == null || sprints.isEmpty()) {
-      return;
-    }
-    String candidate = SprintSelection.autoSelect(model.sprint(), sprintPicked, sprints, 0);
-    if (candidate == null) {
-      return;
-    }
-    model.setSprint(candidate);
   }
 
   private void restartWatcher() {
@@ -1698,23 +1641,7 @@ public class BoardView extends ViewPart {
     new TicketDetailsDialog(getSite().getShell(), task, repoRoot()).open();
   }
 
-  /**
-   * U-026 "Wave digest" toolbar action (FR-005/FR-006): the selected wave's movement digest as
-   * plain text — counts by kind, the moved-back tickets with reasons, the never-moved ones.
-   * Read-only (FR-007): the digest is a projection of recorded history.
-   */
-  private void openWaveDigest() {
-    if (model == null) {
-      return;
-    }
-    String wave = model.sprint();
-    new TextDialog(
-            getSite().getShell(),
-            "Wave digest \u2014 " + wave,
-            WaveDigest.render(wave, model.sprintTasks()))
-        .open();
-  }
-
+  /** Writes a confirmation line into the view's status bar. */
   private void statusMessage(String message) {
     if (getViewSite() == null || getViewSite().getActionBars() == null) {
       return;

@@ -45,7 +45,7 @@ public class TaskStoreArchiveTest {
     assertTrue(
         "archive file written",
         Files.isRegularFile(projectDir.resolve("_archive").resolve(id + ".md")));
-    assertTrue("live listing is empty", store.list("p", null, null, null, null).isEmpty());
+    assertTrue("live listing is empty", store.list("p", null, null, null).isEmpty());
     List<Task> archived = store.archived("p");
     assertEquals(1, archived.size());
     assertEquals(id, archived.get(0).id);
@@ -67,23 +67,19 @@ public class TaskStoreArchiveTest {
   }
 
   @Test
-  public void closingAWaveKeepsDoneTicketsVisibleForTheReadinessChain() {
-    // U-025 lesson (live 2026-09-19): archiving on wave close orphaned
-    // WAIT_UPSTREAM children - the done upstream must stay visible to
-    // the readiness basis chain; archiving stays manual until readiness
-    // consults the archive
+  public void doneTicketsStayVisibleForTheReadinessChain() {
+    // U-025 lesson (live 2026-09-19): archiving orphaned WAIT_UPSTREAM
+    // children - the done upstream must stay visible to the readiness
+    // basis chain; archiving stays manual until readiness consults the
+    // archive (task_archive_done is the chain-safe sweep).
     String done = create();
     String wip = create();
-    store.planSprint("p", "S-01", List.of(done, wip), "goal");
     store.update("p", done, java.util.Map.of("status", (Object) "done"));
     store.update("p", wip, java.util.Map.of("status", (Object) "in-progress"));
 
-    var out = store.closeSprint("p", "S-01");
-
-    assertEquals(List.of(wip), out.get("returned_to_backlog"));
     assertTrue(
         "done ticket stays live for the chain",
-        store.list("p", null, null, null, null).stream().anyMatch(t -> t.id.equals(done)));
+        store.list("p", null, null, null).stream().anyMatch(t -> t.id.equals(done)));
     assertTrue(store.archived("p").isEmpty());
   }
 

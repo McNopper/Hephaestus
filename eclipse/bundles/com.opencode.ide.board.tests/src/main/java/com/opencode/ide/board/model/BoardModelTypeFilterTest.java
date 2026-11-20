@@ -37,13 +37,11 @@ public class BoardModelTypeFilterTest {
         new TaskStore.CreateSpec(
             title, "", type, "developer", "medium", 0, List.of(), List.of(), "T");
     var t = store.create("p", spec);
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
   }
 
   private BoardModel model() {
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     return model;
   }
 
@@ -57,8 +55,8 @@ public class BoardModelTypeFilterTest {
     flat.setBugsOnly(true);
     BoardSnapshot snapshot = flat.refresh();
     assertEquals(1, snapshot.total());
-    assertEquals(bug, snapshot.column("sprint-backlog").get(0).id());
-    assertTrue(snapshot.column("sprint-backlog").get(0).isBug());
+    assertEquals(bug, snapshot.column("ready").get(0).id());
+    assertTrue(snapshot.column("ready").get(0).isBug());
 
     BoardModel pipeline = model();
     pipeline.setBugsOnly(true);
@@ -116,7 +114,7 @@ public class BoardModelTypeFilterTest {
     BoardSnapshot snapshot = model.refresh();
 
     assertEquals(0, snapshot.total());
-    assertTrue(snapshot.column("sprint-backlog").isEmpty());
+    assertTrue(snapshot.column("ready").isEmpty());
     assertNull("the empty board carries no error", snapshot.error());
   }
 
@@ -125,7 +123,7 @@ public class BoardModelTypeFilterTest {
     sprintTicket("typed", "bug");
 
     BoardModel model = model();
-    TicketRow row = model.refresh().column("sprint-backlog").get(0);
+    TicketRow row = model.refresh().column("ready").get(0);
     assertEquals("bug", row.type());
     assertEquals("[bug]", row.typeTag());
     assertTrue(row.isBug());

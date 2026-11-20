@@ -33,7 +33,7 @@ public class TicketRowSortTest {
   @Test
   public void statusSortsInPipelineOrderWithUnknownStatusLast() {
     TicketRow done = row("T-4", "done", "bug", "t", 0);
-    TicketRow backlog = row("T-1", "product-backlog", "bug", "t", 0);
+    TicketRow backlog = row("T-1", "ready", "bug", "t", 0);
     TicketRow progress = row("T-3", "in-progress", "bug", "t", 0);
     TicketRow unknown = row("T-9", "mystery", "bug", "t", 0);
     assertEquals(
@@ -46,19 +46,19 @@ public class TicketRowSortTest {
 
   @Test
   public void typeIsCaseInsensitiveAndBlankTypeSortsLast() {
-    TicketRow bug = row("T-1", "sprint-backlog", "Bug", "t", 0);
-    TicketRow spike = row("T-2", "sprint-backlog", "spike", "t", 0);
-    TicketRow untyped = row("T-3", "sprint-backlog", null, "t", 0);
+    TicketRow bug = row("T-1", "ready", "Bug", "t", 0);
+    TicketRow spike = row("T-2", "ready", "spike", "t", 0);
+    TicketRow untyped = row("T-3", "ready", null, "t", 0);
     assertEquals(List.of("T-1", "T-2", "T-3"), ids("type", true, bug, spike, untyped));
     assertEquals(List.of("T-2", "T-1", "T-3"), ids("type", false, bug, spike, untyped));
   }
 
   @Test
   public void titleIsCaseInsensitiveAndBlankTitleSortsLast() {
-    TicketRow zebra = row("T-1", "sprint-backlog", "task", "Zebra", 0);
-    TicketRow apple = row("T-2", "sprint-backlog", "task", "apple", 0);
-    TicketRow mango = row("T-3", "sprint-backlog", "task", "Mango", 0);
-    TicketRow untitled = row("T-4", "sprint-backlog", "task", "  ", 0);
+    TicketRow zebra = row("T-1", "ready", "task", "Zebra", 0);
+    TicketRow apple = row("T-2", "ready", "task", "apple", 0);
+    TicketRow mango = row("T-3", "ready", "task", "Mango", 0);
+    TicketRow untitled = row("T-4", "ready", "task", "  ", 0);
     assertEquals(
         List.of("T-2", "T-3", "T-1", "T-4"), ids("title", true, zebra, apple, mango, untitled));
     assertEquals(

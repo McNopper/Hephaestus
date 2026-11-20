@@ -22,8 +22,7 @@ import java.util.regex.Pattern;
  * mode, applies the safe normalizations. Checks per project: frontmatter schema (parse, id/filename
  * agreement, valid status/type/priority, valid V-model stage or absent, non-blank role, parseable
  * timestamps), codec round-trip stability and canonical form, LF line endings, {@code _meta.json}
- * counter consistency (per-prefix seq and sprint counter), duplicate ids, and sprint references
- * (warning only).
+ * counter consistency (per-prefix seq; legacy sprint keys are normalized away) and duplicate ids.
  *
  * <p>Fixes never delete or rename ticket files and never write outside the project directory:
  * CRLF/drift files are re-encoded through {@link TaskFileCodec} (only when the ticket is otherwise
@@ -41,8 +40,7 @@ public final class StoreSync {
 
   /**
    * One finding. Fixable ERROR findings are applied in fix mode and fail the build only in strict
-   * mode without fix; unfixable ERROR findings always fail; WARNING findings (sprint references)
-   * are informational.
+   * mode without fix; unfixable ERROR findings always fail; WARNING findings are informational.
    */
   public record Finding(Severity severity, boolean fixable, String file, String message) {
 
@@ -225,17 +223,6 @@ public final class StoreSync {
       if (fix && !hardError && normalized != null && !raw.equals(normalized)) {
         StoreIo.writeAtomic(file, normalized);
         applied.add(name + ": re-encoded to canonical LF form");
-      }
-      if (task.sprint != null) {
-        maxSprint = Math.max(maxSprint, sprintNumber(task.sprint));
-        if (meta != null
-            && meta.get("sprints") != null
-            && meta.get("sprints").isJsonObject()
-            && !meta.getAsJsonObject("sprints").has(task.sprint)) {
-          findings.add(
-              Finding.warning(
-                  name, "sprint '" + task.sprint + "' has no entry in _meta.json sprints"));
-        }
       }
     }
 

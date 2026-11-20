@@ -80,7 +80,7 @@ Both come from `opencode.json` — no Eclipse running required:
 
 | Server | Launcher | Serves |
 |---|---|---|
-| `tasks` | `eclipse/tasks-tools.ps1` | the `task_*` pack — tickets, sprints, claims, comments, artifacts |
+| `tasks` | `eclipse/tasks-tools.ps1` | the `task_*` pack — tickets, claims, comments, artifacts |
 | `fleet` | `eclipse/fleet-tools.ps1` | the `fleet_*` pack — dispatch, jobs, permissions, store sync |
 
 opencode prefixes tool names with the server name, so in a session you call
@@ -117,10 +117,10 @@ was never connected for this directory.
 
 ### Optional automatic dispatch
 
-After planning tickets into a sprint, call `fleet_fleet_auto_start`:
+With born-ready tickets in the store, call `fleet_fleet_auto_start`:
 
 ```json
-{ "project": "myproject", "sprint": "S-01", "max_concurrent": 4,
+{ "project": "myproject", "max_concurrent": 4,
   "cost_budget_usd": 5, "include_stale": false }
 ```
 
@@ -144,7 +144,7 @@ it is not automatically adopted or deleted.
 
 ### One-ticket dispatch
 
-**1. Seed a ticket** — `tasks_task_create` (status lands in `product-backlog`):
+**1. Seed a ticket** — `tasks_task_create` (born `ready` (or `paused` while its basis is open)):
 
 ```json
 { "project": "myproject", "title": "Add a greeting endpoint",
@@ -153,13 +153,8 @@ it is not automatically adopted or deleted.
   "acceptance_criteria": ["GET /greet returns 200 with a greeting body"] }
 ```
 
-**2. Plan a sprint** — `tasks_task_plan_sprint` moves tickets to `sprint-backlog`
-(the dispatchable state):
-
-```json
-{ "project": "myproject", "sprint_id": "S-01",
-  "goal": "Ship the greeting.", "ticket_ids": ["T-001"] }
-```
+**2. Ready state** - born-ready tickets need no planning step: `tasks_task_create` lands them
+directly in the dispatchable state (`ready`):
 
 **3. Dispatch** — `fleet_fleet_dispatch` is async and returns immediately:
 
@@ -264,7 +259,7 @@ repo (see `eclipse/DISTRIBUTED-FLEETS.md`), keep the rhythm **pull → claim →
 
 | Symptom | Meaning | Recovery |
 |---|---|---|
-| job `FAILED`, ticket **released to sprint-backlog + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout — the no-progress window elapsed with zero progress (progress resets it, B-008; a busy-but-progressing session is only ever stopped by the absolute 4 h hard run cap); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
+| job `FAILED`, ticket **released to `ready` + `blocked` with reason** (the claim never lingers as in-progress) | submit failure; budget timeout — the no-progress window elapsed with zero progress (progress resets it, B-008; a busy-but-progressing session is only ever stopped by the absolute 4 h hard run cap); stall (idle and silent ~5 min — aborted); merge conflict; empty result ("worker produced no changes") | fix the cause, `tasks_task_clear_blocked`, re-dispatch |
 | worktree still in `.git/opencode-fleet/` | kept for post-mortem after failures (successful settles reap worktree+branch automatically) | inspect it, then delete |
 | dispatch refused: "refusing to auto-reclaim" | the stale branch carries real unmerged commits or uncommitted edits — never raised for mere bookkeeping (B-006) | inspect the worktree/branch, then `fleet_reset` or merge by hand |
 | dispatch refused: "already in flight" | one launch per ticket at a time | poll `fleet_fleet_jobs`, wait for `MERGED`/`FAILED` |

@@ -28,7 +28,6 @@ public class TaskFileCodecTest {
     t.priority = "high";
     t.role = "developer";
     t.storyPoints = 8;
-    t.sprint = "S-01";
 
     t.assignee = "agent-7";
     t.status = "blocked";
@@ -61,7 +60,6 @@ public class TaskFileCodecTest {
     assertEquals(t.priority, back.priority);
     assertEquals(t.role, back.role);
     assertEquals(t.storyPoints, back.storyPoints);
-    assertEquals(t.sprint, back.sprint);
 
     assertEquals(t.assignee, back.assignee);
     assertEquals(t.isBlocked(), back.isBlocked());
@@ -288,7 +286,7 @@ public class TaskFileCodecTest {
     assertNull(t.assignee);
     assertNotNull(t.createdAt);
     assertEquals("task", t.type);
-    assertEquals("product-backlog", t.status);
+    assertEquals("ready", t.status);
     assertEquals("medium", t.priority);
     assertEquals("developer", t.role);
   }

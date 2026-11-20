@@ -2,7 +2,6 @@ package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Files;
@@ -82,41 +81,41 @@ public class BlockedStateTest {
             t.id,
             Map.of("blocked", true, "blocker", "sent back from architecture: the design lies"));
     assertEquals("blocked", back.status);
-    assertEquals("product-backlog", back.resumeTo);
+    assertEquals("ready", back.resumeTo);
     assertEquals("design", back.stage);
     assertTrue(back.blocker.contains("the design lies"));
     Task cleared = store.clearBlocked("p", back.id, "dev");
-    assertEquals("product-backlog", cleared.status);
+    assertEquals("ready", cleared.status);
     assertEquals(null, cleared.blocker);
   }
 
   @Test
   public void updateAppliesStatusAndBlockedAsOneOrderFreeMove() {
     // the board's backward drop contract: any iteration order of the
-    // change map must yield resume_to=product-backlog, status=blocked
+    // change map must yield resume_to=ready, status=blocked
     for (int attempt = 0; attempt < 4; attempt++) {
       Task t = staged("drop" + attempt);
       Map<String, Object> changes = new HashMap<>();
       changes.put("stage", "architecture");
-      changes.put("status", "product-backlog");
+      changes.put("status", "ready");
       changes.put("assignee", null);
       changes.put("blocked", true);
       changes.put("blocker", "sent back from design: reason");
       Task moved = store.update("p", t.id, changes);
       assertEquals("blocked", moved.status);
-      assertEquals("product-backlog", moved.resumeTo);
+      assertEquals("ready", moved.resumeTo);
       assertEquals("architecture", moved.stage);
     }
   }
 
   @Test
-  public void clearWithoutResumeFallsBackToSprintBacklog() throws Exception {
+  public void clearWithoutResumeFallsBackToReady() throws Exception {
     Task t =
         writeTicketFile(
             "B-9", "id: B-9\ntitle: stuck\nstatus: blocked\nresume_to: no-such-status\n");
     assertTrue(t.isBlocked());
     Task cleared = store.clearBlocked("p", "B-9", "pm");
-    assertEquals("sprint-backlog", cleared.status);
+    assertEquals("ready", cleared.status);
     assertEquals(null, cleared.resumeTo);
   }
 
@@ -145,32 +144,23 @@ public class BlockedStateTest {
   }
 
   @Test
-  public void blockedTicketsCannotBePlanned() {
+  public void blockedTicketsCannotBeClaimed() {
     Task t = staged("frozen");
     store.update("p", t.id, Map.of("status", "in-review"));
     store.setBlocked("p", t.id, "hold", "pm");
-    assertThrows(TaskStore.Invalid.class, () -> store.planSprint("p", null, List.of(t.id), "goal"));
-  }
-
-  @Test
-  public void waveCloseKeepsBlockedInsteadOfSilentlyUnblocking() {
-    Task t = staged("wave");
-    store.planSprint("p", "S-9", List.of(t.id), "goal");
-    store.setBlocked("p", t.id, "hold", "pm");
-    store.closeSprint("p", "S-9");
-    Task after = store.get("p", t.id);
-    assertTrue("stays blocked until a human clears it", after.isBlocked());
-    assertEquals("product-backlog", after.resumeTo);
-    assertEquals(null, after.sprint);
+    assertTrue(
+        "a blocked ticket never surfaces in a claim",
+        store.claim("p", "developer", null, null) == null);
+    assertEquals("blocked", store.get("p", t.id).status);
   }
 
   @Test
   public void listFilterSpeaksTheState() {
     Task t = staged("filter");
     store.setBlocked("p", t.id, "hold", "pm");
-    List<Task> onlyBlocked = store.list("p", null, null, null, true);
+    List<Task> onlyBlocked = store.list("p", null, null, true);
     assertTrue(onlyBlocked.stream().anyMatch(x -> x.id.equals(t.id)));
-    List<Task> onlyUnblocked = store.list("p", null, null, null, false);
+    List<Task> onlyUnblocked = store.list("p", null, null, false);
     assertTrue(onlyUnblocked.stream().noneMatch(x -> x.id.equals(t.id)));
   }
 }

@@ -30,8 +30,7 @@ public class StageToolsEdgeTest extends ToolRpcHarness {
     String text =
         callErrorText("task_create", "{\"project\":\"p\",\"title\":\"a\",\"stage\":\"waterfall\"}");
     assertTrue(text.contains("stage"));
-    assertTrue(
-        "nothing was written", new TaskStore(root).list("p", null, null, null, null).isEmpty());
+    assertTrue("nothing was written", new TaskStore(root).list("p", null, null, null).isEmpty());
   }
 
   @Test

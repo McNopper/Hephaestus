@@ -133,9 +133,6 @@ final class TicketDetailsDialog extends Dialog {
     if (task.type != null && !task.type.isBlank()) {
       sb.append("  •  ").append(task.type.trim());
     }
-    if (task.sprint != null) {
-      sb.append("  •  sprint ").append(task.sprint);
-    }
     if (task.role != null) {
       sb.append("  •  ").append(task.role);
     }

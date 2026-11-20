@@ -22,8 +22,9 @@ import org.junit.rules.TemporaryFolder;
 
 /**
  * Semantics-parity suite: every rule the retired Python pm MCP server enforced (claim
- * ordering/null, lax update, sprint force-set, close-sprint returns, board columns, traceability
- * pairing, id minting) must hold one-for-one on the Markdown store.
+ * ordering/null, lax update, board columns, traceability pairing, id minting) must hold one-for-one
+ * on the Markdown store - except the status model, which is the owner's 2026-11-20 seven-state pump
+ * (no backlogs, no sprints).
  */
 public class TaskStoreSemanticsTest {
 
@@ -36,24 +37,19 @@ public class TaskStoreSemanticsTest {
     store = new TaskStore(tmp.getRoot().toPath().resolve("tasks"));
   }
 
-  private String mkSprintBacklog(String role, String priority) {
+  private String mkReady(String role, String priority) {
     Task t = store.create("p", TaskStore.CreateSpec.of("t-" + System.nanoTime()));
     store.update("p", t.id, Map.of("role", role, "priority", priority));
-    store.planSprint("p", "S-01", List.of(t.id), "g");
     return t.id;
   }
 
   @Test
   public void archiveDoneIsChainSafeScopedAndRecencyAware() {
-    // in-sprint done: stays (current wave / ticker history)
-    Task inWave = store.create("p", TaskStore.CreateSpec.of("in wave"));
-    store.planSprint("p", "S-9", List.of(inWave.id), "g");
-    store.update("p", inWave.id, Map.of("status", "done"));
     // chain-protected: a LIVE parent blocks archiving its done child
     Task parent = store.create("p", TaskStore.CreateSpec.of("parent"));
     Task child = store.create("p", TaskStore.CreateSpec.of("child"));
     store.update("p", child.id, Map.of("status", "done", "basis", parent.id));
-    // plain sprint-less history
+    // plain history
     Task old = store.create("p", TaskStore.CreateSpec.of("old"));
     store.update("p", old.id, Map.of("status", "done"));
     // recent arc work
@@ -65,21 +61,19 @@ public class TaskStoreSemanticsTest {
     assertEquals(List.of(), past.get("archived"));
     assertTrue(past.get("skipped").toString().contains(recent.id + ":recent"));
 
-    // future cutoff: candidates = every sprint-less done (recent INCLUDED - it is older
-    // than the cutoff); sprint + chain rules still hold
+    // future cutoff: candidates = every done (recent INCLUDED - it is older
+    // than the cutoff); the chain rule still holds
     Map<String, Object> future = store.archiveDone("p", "test", "2999-01-01T00:00:00Z");
     List<String> moved = (List<String>) future.get("archived");
     assertEquals(2, moved.size());
     assertTrue("old history moved: " + moved, moved.contains(old.id));
     assertTrue("recent moves under a future cutoff: " + moved, moved.contains(recent.id));
     String skipped = future.get("skipped").toString();
-    assertTrue("in-sprint stays: " + skipped, skipped.contains(inWave.id + ":in-sprint"));
     assertTrue("chain-needed stays: " + skipped, skipped.contains(child.id + ":chain-needed"));
 
-    // live visibility: parent and inWave remain; both moved tickets are archived
-    List<String> live = store.list("p", null, null, null, null).stream().map(t -> t.id).toList();
+    // live visibility: the parent remains; both moved tickets are archived
+    List<String> live = store.list("p", null, null, null).stream().map(t -> t.id).toList();
     assertTrue(live.contains(parent.id));
-    assertTrue(live.contains(inWave.id));
     assertFalse(live.contains(old.id));
     assertFalse(live.contains(recent.id));
     List<String> archivedIds = store.archived("p").stream().map(t -> t.id).toList();
@@ -123,7 +117,7 @@ public class TaskStoreSemanticsTest {
             new TaskStore.CreateSpec(
                 "third", "", "task", "pm", "low", 1, List.of(), List.of(), "FR"));
     assertEquals("FR-001", fr.id);
-    assertEquals("product-backlog", a.status);
+    assertEquals("ready", a.status);
     assertEquals(1, a.history.size());
     assertEquals("created", a.history.get(0).action());
     // prefix sanitization: "x y!" -> "xy"
@@ -174,14 +168,14 @@ public class TaskStoreSemanticsTest {
     store.create("p", TaskStore.CreateSpec.of("a"));
     Task b = store.create("p", TaskStore.CreateSpec.of("b"));
     store.update("p", b.id, Map.of("role", "tester"));
-    assertEquals(2, store.list("p", null, null, null, null).size());
-    assertEquals(1, store.list("p", "tester", null, null, null).size());
-    assertEquals(2, store.list("p", null, "product-backlog", null, null).size());
+    assertEquals(2, store.list("p", null, null, null).size());
+    assertEquals(1, store.list("p", "tester", null, null).size());
+    assertEquals(2, store.list("p", null, "ready", null).size());
     store.update("p", b.id, Map.of("status", "in-review"));
-    assertEquals(1, store.list("p", null, "product-backlog", null, null).size());
+    assertEquals(1, store.list("p", null, "ready", null).size());
     store.setBlocked("p", b.id, "x", null);
-    assertEquals(1, store.list("p", null, null, null, true).size());
-    assertEquals(1, store.list("p", null, null, null, false).size());
+    assertEquals(1, store.list("p", null, null, true).size());
+    assertEquals(1, store.list("p", null, null, false).size());
   }
 
   @Test
@@ -247,22 +241,6 @@ public class TaskStoreSemanticsTest {
   }
 
   @Test
-  public void closeSprintKeepsDoneTicketsUnblocked() {
-    String id = mkSprintBacklog("developer", "high");
-    store.update("p", id, Map.of("status", "done"));
-    // U-067: done is terminal - entering the blocked state is refused
-    TaskStore.Invalid refused =
-        assertThrows(TaskStore.Invalid.class, () -> store.setBlocked("p", id, "stale flag", null));
-    assertTrue(refused.getMessage().contains("done"));
-    store.closeSprint("p", "S-01");
-    Task after = store.get("p", id);
-    assertEquals("done", after.status);
-    assertEquals("done tickets keep their sprint on close", "S-01", after.sprint);
-    assertFalse(after.isBlocked());
-    assertNull(after.blocker);
-  }
-
-  @Test
   public void corruptHistoryLineKeepsTicketVisible() throws IOException {
     Task t = store.create("p", TaskStore.CreateSpec.of("live incident"));
     store.update("p", t.id, Map.of("status", "in-progress"));
@@ -280,22 +258,23 @@ public class TaskStoreSemanticsTest {
     assertTrue(got.quarantinedLines.get(0).startsWith("History: `n"));
     assertTrue(
         "the ticket stays listed",
-        store.list("p", null, null, null, null).stream().anyMatch(x -> t.id.equals(x.id)));
+        store.list("p", null, null, null).stream().anyMatch(x -> t.id.equals(x.id)));
   }
 
   @Test
-  public void inconsistenciesReportsDriftAndGoesQuietWhenHealed() {
-    // U-067: done-but-blocked no longer exists as a pair (structural);
-    // the live drift is sprint-with-product-backlog
-    Task sprintPb = store.create("p", TaskStore.CreateSpec.of("sprint but pb"));
-    store.planSprint("p", "S-05", List.of(sprintPb.id), "g");
-    store.update("p", sprintPb.id, Map.of("status", "product-backlog"));
+  public void inconsistenciesReportsUnknownStatusAndGoesQuietWhenHealed() throws IOException {
+    // owner model 2026-11-20: a status outside the seven-state model is
+    // doctor-visible drift (hand edit / legacy file); rewriting it heals the report
+    Task hand = store.create("p", TaskStore.CreateSpec.of("hand-edited"));
+    Path file = store.root().resolve("p").resolve(hand.id + ".md");
+    Files.writeString(file, Files.readString(file).replace("status: ready", "status: limbo"));
     Task clean = store.create("p", TaskStore.CreateSpec.of("clean"));
     store.update("p", clean.id, Map.of("status", "done"));
     List<String> drift = store.inconsistencies("p");
     assertEquals(1, drift.size());
-    assertEquals(sprintPb.id + ": status=product-backlog but sprint=S-05", drift.get(0));
-    store.update("p", sprintPb.id, Map.of("status", "in-progress"));
+    assertEquals(
+        hand.id + ": unknown status 'limbo' (not in " + Task.VALID_STATUSES + ")", drift.get(0));
+    Files.writeString(file, Files.readString(file).replace("status: limbo", "status: ready"));
     assertEquals(List.of(), store.inconsistencies("p"));
   }
 
@@ -308,7 +287,7 @@ public class TaskStoreSemanticsTest {
     assertEquals(
         "list skips the broken file",
         List.of(kept.id),
-        store.list("p", null, null, null, null).stream().map(t -> t.id).toList());
+        store.list("p", null, null, null).stream().map(t -> t.id).toList());
     List<String> drift = store.inconsistencies("p");
     assertEquals("only the doctor makes the skipped file visible", 1, drift.size());
     assertTrue(drift.get(0), drift.get(0).startsWith("X-001.md: unparsable ticket file"));
@@ -319,7 +298,7 @@ public class TaskStoreSemanticsTest {
   public void readsOnAMissingProjectNeverMaterializeIt() {
     // Review S5: task_doctor/task_list on a typo'd project used to
     // create the directory as a side effect of the read path.
-    assertTrue(store.list("ghost", null, null, null, null).isEmpty());
+    assertTrue(store.list("ghost", null, null, null).isEmpty());
     assertEquals(List.of(), store.inconsistencies("ghost"));
     try {
       store.get("ghost", "T-001");
@@ -334,14 +313,14 @@ public class TaskStoreSemanticsTest {
 
   @Test
   public void claimOrdersByPriorityThenCreatedThenReturnsNull() {
-    String low = mkSprintBacklog("developer", "low");
-    String high = mkSprintBacklog("developer", "high");
-    String mid = mkSprintBacklog("developer", "medium");
+    String low = mkReady("developer", "low");
+    String high = mkReady("developer", "high");
+    String mid = mkReady("developer", "medium");
     Task first = store.claim("p", "developer", null, "agent-a");
     assertEquals(high, first.id);
     assertEquals("in-progress", first.status);
     assertEquals("agent-a", first.assignee);
-    Task second = store.claim("p", "developer", "sprint-backlog", null);
+    Task second = store.claim("p", "developer", "ready", null);
     assertEquals(mid, second.id);
     assertEquals("developer", second.assignee); // by defaults to role
     Task third = store.claim("p", "developer", null, null);
@@ -353,24 +332,24 @@ public class TaskStoreSemanticsTest {
 
   @Test
   public void claimFiltersRoleAndBlockedAndRejectsOtherStatus() {
-    mkSprintBacklog("tester", "high");
+    mkReady("tester", "high");
     assertNull("role mismatch", store.claim("p", "developer", null, null));
-    String id = mkSprintBacklog("developer", "high");
+    String id = mkReady("developer", "high");
     store.setBlocked("p", id, "waiting", null);
     assertNull("blocked tickets are not claimable", store.claim("p", "developer", null, null));
     try {
-      store.claim("p", "developer", "product-backlog", null);
+      store.claim("p", "developer", "in-progress", null);
       fail("expected Invalid");
     } catch (TaskStore.Invalid expected) {
-      assertTrue(expected.getMessage().contains("sprint-backlog"));
+      assertTrue(expected.getMessage().contains("ready"));
     }
   }
 
   @Test
-  public void releaseOnlyFromSprintBacklogOrInProgress() {
-    String id = mkSprintBacklog("developer", "high");
+  public void releaseOnlyFromReadyOrInProgress() {
+    String id = mkReady("developer", "high");
     store.release("p", id, null);
-    assertEquals("sprint-backlog", store.get("p", id).status);
+    assertEquals("ready", store.get("p", id).status);
     assertNull(store.get("p", id).assignee);
     store.update("p", id, Map.of("status", "in-review"));
     try {
@@ -423,21 +402,6 @@ public class TaskStoreSemanticsTest {
       assertTrue(expected.getMessage().contains("non-null"));
     }
     assertEquals(0, store.get("p", t.id).labels.size());
-  }
-
-  @Test
-  public void closeSprintTwiceIsSafe() {
-    String id = mkSprintBacklog("developer", "high");
-    store.closeSprint("p", "S-01");
-    Map<String, Object> second = store.closeSprint("p", "S-01");
-    @SuppressWarnings("unchecked")
-    List<String> returned = (List<String>) second.get("returned_to_backlog");
-    assertEquals("second close returns nothing new", List.of(), returned);
-    assertEquals("closed", ((Task.Sprint) second.get("sprint")).status());
-    assertEquals(
-        "the unfinished ticket already sits in product-backlog after the first close",
-        "product-backlog",
-        store.get("p", id).status);
   }
 
   @Test
@@ -608,77 +572,28 @@ public class TaskStoreSemanticsTest {
   }
 
   @Test
-  public void backlogSortedByPriorityThenCreated() {
+  public void readyQueueSortedByPriorityThenCreated() {
     Task low = store.create("p", TaskStore.CreateSpec.of("low"));
     store.update("p", low.id, Map.of("priority", "low"));
     Task high = store.create("p", TaskStore.CreateSpec.of("high"));
     store.update("p", high.id, Map.of("priority", "high"));
     Task done = store.create("p", TaskStore.CreateSpec.of("done"));
     store.update("p", done.id, Map.of("status", "done"));
-    List<Task> backlog = store.backlog("p");
-    assertEquals(2, backlog.size());
-    assertEquals(high.id, backlog.get(0).id);
-    assertEquals(low.id, backlog.get(1).id);
+    List<Task> ready = store.list("p", null, "ready", null);
+    ready.sort(TaskStore.prioritized());
+    assertEquals(2, ready.size());
+    assertEquals(high.id, ready.get(0).id);
+    assertEquals(low.id, ready.get(1).id);
   }
 
   @Test
-  public void boardAlwaysHasAllFiveColumns() {
-    String id = mkSprintBacklog("developer", "high");
+  public void boardAlwaysHasAllSevenColumns() {
+    String id = mkReady("developer", "high");
     store.claim("p", "developer", null, null);
-    Map<String, List<Task>> board = store.board("p", null);
+    Map<String, List<Task>> board = store.board("p");
     assertEquals(Task.VALID_STATUSES, List.copyOf(board.keySet()));
     assertEquals(1, board.get("in-progress").size());
-    // sprint filter: no ticket in S-99
-    assertTrue(store.board("p", "S-99").get("in-progress").isEmpty());
-  }
-
-  @Test
-  public void planSprintForceSetsStatusAndValidatesFirst() throws IOException {
-    Task a = store.create("p", TaskStore.CreateSpec.of("a"));
-    Task b = store.create("p", TaskStore.CreateSpec.of("b"));
-    store.update("p", b.id, Map.of("status", "done"));
-    Task.Sprint s = store.planSprint("p", null, List.of(a.id, b.id), "the goal");
-    assertEquals("S-01", s.id());
-    assertEquals("the goal", s.goal());
-    assertEquals("active", s.status());
-    assertEquals("sprint-backlog", store.get("p", a.id).status); // even done ones (pm parity)
-    assertEquals("sprint-backlog", store.get("p", b.id).status);
-    assertEquals("S-01", store.get("p", a.id).sprint);
-
-    // invalid batch: nothing is written at all (validate-before-write)
-    Path dir = store.root().resolve("p");
-    try {
-      store.planSprint("p", "S-02", List.of(a.id, "T-999"), "g");
-      fail("expected Invalid");
-    } catch (TaskStore.Invalid expected) {
-      assertEquals("ticket T-999 not found", expected.getMessage());
-    }
-    assertFalse(
-        "no S-02 sprint metadata must be created",
-        Files.exists(dir.resolve("_meta.json"))
-            && Files.readString(dir.resolve("_meta.json")).contains("S-02"));
-  }
-
-  @Test
-  public void closeSprintReturnsUnfinishedToBacklog() throws IOException {
-    String stay = mkSprintBacklog("developer", "high");
-    String finish = mkSprintBacklog("developer", "high");
-    store.claim("p", "developer", null, null); // claims the first created of equal priority
-    store.update("p", finish, Map.of("status", "done"));
-    Map<String, Object> out = store.closeSprint("p", "S-01");
-    @SuppressWarnings("unchecked")
-    List<String> returned = (List<String>) out.get("returned_to_backlog");
-    assertEquals(List.of(stay), returned);
-    assertEquals("product-backlog", store.get("p", stay).status);
-    assertNull(store.get("p", stay).sprint);
-    assertEquals("done", store.get("p", finish).status);
-    assertEquals("closed", ((Task.Sprint) out.get("sprint")).status());
-    try {
-      store.closeSprint("p", "S-99");
-      fail("expected NotFound");
-    } catch (TaskStore.NotFound expected) {
-      assertEquals("sprint S-99 not found", expected.getMessage());
-    }
+    assertNotNull(id);
   }
 
   @Test
@@ -777,7 +692,7 @@ public class TaskStoreSemanticsTest {
     // traversal is impossible: separators fold to underscores (".." is rejected, "../escape" folds)
     assertEquals(".._escape", TaskStore.sanitizeProject("../escape"));
     assertEquals(
-        0, new TaskStore(tmp.getRoot().toPath()).list(".._escape", null, null, null, null).size());
+        0, new TaskStore(tmp.getRoot().toPath()).list(".._escape", null, null, null).size());
   }
 
   @Test
@@ -785,7 +700,7 @@ public class TaskStoreSemanticsTest {
     Task good = store.create("p", TaskStore.CreateSpec.of("good"));
     Path dir = store.root().resolve("p");
     Files.writeString(dir.resolve("T-900.md"), "not a task file at all");
-    List<Task> all = store.list("p", null, null, null, null);
+    List<Task> all = store.list("p", null, null, null);
     assertEquals(1, all.size());
     assertEquals(good.id, all.get(0).id);
   }

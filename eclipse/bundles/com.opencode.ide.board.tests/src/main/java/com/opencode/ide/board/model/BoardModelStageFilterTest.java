@@ -26,7 +26,6 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
     if (stage != null) {
       store.update("p", t.id, Map.of("stage", (Object) stage));
     }
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
   }
 
@@ -45,7 +44,6 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
 
   private BoardModel pipelineModel() {
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     model.setMode(BoardModel.BoardMode.PIPELINE);
     return model;
   }
@@ -97,7 +95,6 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
     sprintTicket("stage-less", null, "research");
     sprintTicket("staged", "design", "developer");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     // the retired id (an old settings file may still carry it before the view's
     // sanitization kicks in) behaves like any unknown id: matches nothing
     model.setStageFilter(java.util.Set.of("(untracked)"));
@@ -118,7 +115,6 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
     store.setBlocked("p", blockedDesign, "waiting", "pm");
     BoardModel model = new BoardModel(root, "p");
     model.setMode(BoardModel.BoardMode.PIPELINE);
-    assertEquals(BoardModel.BACKLOG, model.sprint());
     model.setBlockedOnly(true);
     model.setStageFilter(java.util.Set.of("design"));
 

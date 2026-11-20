@@ -10,9 +10,9 @@ import org.junit.Test;
 
 /**
  * B-026: task_create honors blocked/blocker arguments instead of silently dropping them. A ticket
- * born blocked enters the U-067 state through the one door: status moves to blocked, resume_to
- * remembers product-backlog (where clearing returns it), and the reason is mandatory; a blocker
- * without blocked=true is a caller mistake and is rejected, not ignored.
+ * born blocked enters the blocked state through the one door: status moves to blocked, resume_to
+ * remembers ready (where clearing returns it), and the reason is mandatory; a blocker without
+ * blocked=true is a caller mistake and is rejected, not ignored.
  */
 public class TaskCreateBlockedTest extends ToolRpcHarness {
 
@@ -31,13 +31,13 @@ public class TaskCreateBlockedTest extends ToolRpcHarness {
   }
 
   @Test
-  public void bornBlockedEntersTheStateAndClearingReturnsToProductBacklog() {
+  public void bornBlockedEntersTheStateAndClearingReturnsToReady() {
     JsonObject t =
         callCreate(
             "{\"project\":\"p\",\"title\":\"born blocked\",\"blocked\":true,"
                 + "\"blocker\":\"waiting on the PO decision\"}");
     assertEquals("blocked", t.get("status").getAsString());
-    assertEquals("product-backlog", t.get("resume_to").getAsString());
+    assertEquals("ready", t.get("resume_to").getAsString());
     assertEquals("waiting on the PO decision", t.get("blocker").getAsString());
     assertTrue(t.get("blocked").getAsBoolean());
 
@@ -55,7 +55,7 @@ public class TaskCreateBlockedTest extends ToolRpcHarness {
             .getAsJsonObject();
     assertEquals(
         "clearing returns to the status remembered at birth",
-        "product-backlog",
+        "ready",
         after.get("status").getAsString());
     assertTrue(after.get("resume_to").isJsonNull());
     assertTrue(after.get("blocker").isJsonNull());
@@ -86,7 +86,7 @@ public class TaskCreateBlockedTest extends ToolRpcHarness {
   @Test
   public void plainCreateStaysUnblocked() {
     JsonObject t = callCreate("{\"project\":\"p\",\"title\":\"ordinary\"}");
-    assertEquals("product-backlog", t.get("status").getAsString());
+    assertEquals("ready", t.get("status").getAsString());
     assertFalse(t.get("blocked").getAsBoolean());
     assertTrue(t.get("blocker").isJsonNull());
     assertTrue(t.get("resume_to").isJsonNull());

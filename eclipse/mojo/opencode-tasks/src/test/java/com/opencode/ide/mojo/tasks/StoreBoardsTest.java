@@ -15,137 +15,24 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * Board loading straight from hand-written store fixtures (U-091): the readSprints/instantOrNull
- * branches that decide which active sprint a board shows. Each test writes _meta.json and ticket
- * files directly, then renders through StoreBoards.load and asserts which sprint won.
- *
- * <p>Equivalent-mutant note (PIT NO_COVERAGE, deliberately untested): the early {@code return
- * sprints} statements in readSprints (unreadable/absent sprints metadata) are mutated to {@code
- * return Collections.emptyMap()} - the map is empty at both points, so the mutant is
- * observationally identical and no test can kill it.
+ * Board loading straight from hand-written store fixtures: the loader reads EVERY task file of a
+ * project (owner model 2026-11-20 - no sprint scope, sprints are gone from the store), skips
+ * unparsable files with a warning, and renders the seven status columns. Legacy fixtures carry the
+ * retired backlog statuses and a {@code sprint:} key - both migrate on read (backlog statuses read
+ * as {@code ready}, the sprint key is discarded), so they land in the ready column.
  */
 public class StoreBoardsTest {
 
   @Rule public TemporaryFolder tmp = new TemporaryFolder();
 
   @Test
-  public void latestActiveSprintIsTheNewestActiveOne() throws Exception {
-    // insertion order favors S-02; the newer created_at of S-01 must win
-    // (kills the Instant.parse -> null mutant: with both timestamps gone the
-    // id tiebreak would pick the lexicographically larger S-02)
-    Path dir =
-        project(
-            "sprint-store",
-            "{\"sprints\":{"
-                + "\"S-02\":{\"id\":\"S-02\",\"status\":\"active\",\"goal\":\"older goal\","
-                + "\"created_at\":\"2026-01-01T00:00:00Z\"},"
-                + "\"S-01\":{\"id\":\"S-01\",\"status\":\"active\",\"goal\":\"newer goal\","
-                + "\"created_at\":\"2026-01-02T00:00:00Z\"}},"
-                + "\"seq\":{\"T\":2},\"counter\":2}");
-    ticket(dir, "T-001", "Newer ticket", "S-01");
-    ticket(dir, "T-002", "Older ticket", "S-02");
-
-    String md = render(dir);
-    assertTrue(md.contains("Sprint: **S-01** (active)"));
-    assertTrue(md.contains("Newer ticket"));
-    assertFalse(md.contains("Older ticket"));
-  }
-
-  @Test
-  public void missingCreatedAtLosesToAKnownInstant() throws Exception {
-    // S-Z has no created_at (treated as Instant.EPOCH), S-A has one; S-A must
-    // win even though S-Z sorts after it by id (kills the null-createdAt
-    // comparator mutants: they NPE or flip the winner to S-Z)
-    Path dir =
-        project(
-            "instant-store",
-            "{\"sprints\":{"
-                + "\"S-Z\":{\"id\":\"S-Z\",\"status\":\"active\",\"goal\":\"no timestamp\"},"
-                + "\"S-A\":{\"id\":\"S-A\",\"status\":\"active\",\"goal\":\"known instant\","
-                + "\"created_at\":\"2026-03-01T00:00:00Z\"}},"
-                + "\"seq\":{\"T\":2},\"counter\":2}");
-    ticket(dir, "T-001", "Zephyr ticket", "S-Z");
-    ticket(dir, "T-002", "Anchor ticket", "S-A");
-
-    String md = render(dir);
-    assertTrue(md.contains("Sprint: **S-A** (active)"));
-    assertTrue(md.contains("Anchor ticket"));
-    assertFalse(md.contains("Zephyr ticket"));
-  }
-
-  @Test
-  public void offsetCreatedAtIsDecodedForSprintOrdering() throws Exception {
-    // 06:30+02:00 == 04:30Z, later than 04:00Z, so S-M must win; the minute-
-    // precision offset form is rejected by Instant.parse and only decodes via
-    // the OffsetDateTime fallback, killing its replaced-null mutant (S-N would
-    // win instead)
-    Path dir =
-        project(
-            "offset-store",
-            "{\"sprints\":{"
-                + "\"S-N\":{\"id\":\"S-N\",\"status\":\"active\",\"goal\":\"zulu\","
-                + "\"created_at\":\"2026-02-01T04:00:00Z\"},"
-                + "\"S-M\":{\"id\":\"S-M\",\"status\":\"active\",\"goal\":\"offset\","
-                + "\"created_at\":\"2026-02-01T06:30+02:00\"}},"
-                + "\"seq\":{\"T\":2},\"counter\":2}");
-    ticket(dir, "T-001", "Offset ticket", "S-M");
-
-    String md = render(dir);
-    assertTrue(md.contains("Sprint: **S-M** (active)"));
-  }
-
-  @Test
-  public void sprintIdFallsBackToTheMetaKeyWhenIdIsAbsent() throws Exception {
-    // equal created_at -> the id tiebreak decides; SB carries no "id" field so
-    // its id falls back to the meta key "SB", which sorts after "IGNORED-ID";
-    // SB must win. Kills the negated id-fallback conditional (SB's id becomes
-    // null and the comparison crashes instead).
-    Path dir =
-        project(
-            "fallback-store",
-            "{\"sprints\":{"
-                + "\"SA\":{\"id\":\"IGNORED-ID\",\"status\":\"active\",\"goal\":\"goal from sa\","
-                + "\"created_at\":\"2026-05-01T00:00:00Z\"},"
-                + "\"SB\":{\"status\":\"active\",\"goal\":\"goal from sb\","
-                + "\"created_at\":\"2026-05-01T00:00:00Z\"}},"
-                + "\"seq\":{\"T\":1},\"counter\":2}");
-    ticket(dir, "T-001", "Fallback ticket", "SB");
-
-    String md = render(dir);
-    assertTrue(md.contains("Sprint: **SB** (active) \u2014 goal from sb"));
-    assertTrue(md.contains("Fallback ticket"));
-  }
-
-  @Test
-  public void equalSprintTieKeepsTheFirstEntry() throws Exception {
-    // identical created_at AND identical id: compare() == 0 and the first
-    // entry stays the winner (kills the > -> >= boundary mutant, which would
-    // let the later entry steal the board)
-    Path dir =
-        project(
-            "tie-store",
-            "{\"sprints\":{"
-                + "\"K1\":{\"id\":\"DUP\",\"status\":\"active\",\"goal\":\"first goal\","
-                + "\"created_at\":\"2026-06-01T00:00:00Z\"},"
-                + "\"K2\":{\"id\":\"DUP\",\"status\":\"active\",\"goal\":\"second goal\","
-                + "\"created_at\":\"2026-06-01T00:00:00Z\"}},"
-                + "\"seq\":{\"T\":1},\"counter\":2}");
-    ticket(dir, "T-001", "Tie ticket", null);
-
-    String md = render(dir);
-    assertTrue(md.contains("Sprint: **K1** (active) \u2014 first goal"));
-    assertFalse(md.contains("second goal"));
-  }
-
-  @Test
   public void unparsableTaskFilesAreSkippedAndWarned() throws Exception {
     Path dir = project("warn-store", "{}");
-    ticket(dir, "T-001", "Healthy ticket", null);
+    ticket(dir, "T-001", "Healthy ticket", "ready", null);
     Files.writeString(dir.resolve("broken.md"), "not a ticket at all\n", StandardCharsets.UTF_8);
 
     List<String> warnings = new ArrayList<>();
-    List<BoardRenderer.ProjectBoard> boards =
-        StoreBoards.load(dir.getParent(), null, warnings::add);
+    List<BoardRenderer.ProjectBoard> boards = StoreBoards.load(dir.getParent(), warnings::add);
 
     assertEquals(1, boards.size());
     assertEquals(1, warnings.size());
@@ -157,31 +44,62 @@ public class StoreBoardsTest {
   }
 
   @Test
-  public void unreadableMetaWarnsAndFallsBackToNoSprint() throws Exception {
+  public void everyValidStatusColumnRendersEvenWhenEmpty() throws Exception {
+    Path dir = project("columns-store", "{}");
+    ticket(dir, "T-001", "Only ready work", "ready", null);
+
+    String md = render(dir);
+
+    for (String status : com.opencode.ide.tasks.Task.VALID_STATUSES) {
+      assertTrue("column header for " + status, md.contains("## " + status + " ("));
+    }
+    assertTrue(md.contains("## ready (1)"));
+    assertTrue("empty columns say so", md.contains("_(empty)_"));
+    assertTrue(md.contains("Only ready work"));
+  }
+
+  @Test
+  public void legacyBacklogTicketsLandInTheReadyColumn() throws Exception {
+    // a pre-model fixture: the retired backlog statuses read as ready (migration
+    // on read) and the sprint key is discarded - no sprint scope anywhere
+    Path dir = project("legacy-store", "{}");
+    ticket(dir, "T-001", "Legacy backlog work", "product-backlog", "S-01");
+    ticket(dir, "T-002", "Legacy sprint work", "sprint-backlog", "S-01");
+
+    String md = render(dir);
+
+    assertTrue(md.contains("## ready (2)"));
+    assertTrue(md.contains("Legacy backlog work"));
+    assertTrue(md.contains("Legacy sprint work"));
+    assertFalse("no backlog columns exist anymore", md.contains("## product-backlog"));
+    assertFalse(md.contains("## sprint-backlog"));
+    assertFalse("no sprint line in the render", md.contains("Sprint:"));
+    assertFalse(md.contains("S-01"));
+  }
+
+  @Test
+  public void brokenMetaDoesNotStopTheProjectFromRendering() throws Exception {
+    // the loader never parses _meta.json (only its presence marks a project
+    // directory), so corrupt sidecar metadata cannot break the board
     Path dir = project("meta-store", "{ this is not json");
-    ticket(dir, "T-001", "Orphaned ticket", null);
+    ticket(dir, "T-001", "Orphaned ticket", "ready", null);
 
     List<String> warnings = new ArrayList<>();
-    String md = BoardRenderer.markdown(StoreBoards.load(dir.getParent(), null, warnings::add));
+    String md = BoardRenderer.markdown(StoreBoards.load(dir.getParent(), warnings::add));
 
-    assertEquals(1, warnings.size());
-    assertTrue(warnings.get(0).contains("cannot read"));
-    assertTrue(warnings.get(0).contains("_meta.json"));
-    assertTrue(md.contains("Sprint: **" + BoardRenderer.NO_SPRINT + "**"));
+    assertTrue("nothing parsed, nothing warned", warnings.isEmpty());
     assertTrue(md.contains("Orphaned ticket"));
   }
 
   @Test
-  public void metaWithoutSprintsKeyRendersNoSprint() throws Exception {
-    Path dir = project("nokey-store", "{\"seq\":{}}");
-    ticket(dir, "T-001", "Unassigned ticket", null);
+  public void totalsLineCountsStoryPointsAcrossTheBoard() throws Exception {
+    Path dir = project("points-store", "{}");
+    ticket(dir, "T-001", "Three points", "ready", null, 3);
+    ticket(dir, "T-002", "Two points done", "done", null, 2);
 
-    List<String> warnings = new ArrayList<>();
-    String md = BoardRenderer.markdown(StoreBoards.load(dir.getParent(), null, warnings::add));
+    String md = render(dir);
 
-    assertTrue(warnings.isEmpty());
-    assertTrue(md.contains("Sprint: **" + BoardRenderer.NO_SPRINT + "**"));
-    assertTrue(md.contains("Unassigned ticket"));
+    assertTrue(md.contains("**Totals:** 5 points total, 2 points done."));
   }
 
   // -- fixture helpers -----------------------------------------------------
@@ -195,8 +113,15 @@ public class StoreBoardsTest {
     return dir;
   }
 
-  /** Writes one canonical task file into the project directory. */
-  private static void ticket(Path dir, String id, String title, String sprint) throws IOException {
+  /** Writes one task file into the project directory (legacy status/sprint keys allowed). */
+  private static void ticket(Path dir, String id, String title, String status, String sprint)
+      throws IOException {
+    ticket(dir, id, title, status, sprint, 0);
+  }
+
+  private static void ticket(
+      Path dir, String id, String title, String status, String sprint, int points)
+      throws IOException {
     Files.writeString(
         dir.resolve(id + ".md"),
         "---\n"
@@ -207,12 +132,16 @@ public class StoreBoardsTest {
             + title
             + "\n"
             + "type: task\n"
-            + "status: product-backlog\n"
+            + "status: "
+            + status
+            + "\n"
             + "priority: medium\n"
             + "role: developer\n"
             + "stage: null\n"
             + "model: null\n"
-            + "story_points: 0\n"
+            + "story_points: "
+            + points
+            + "\n"
             + "sprint: "
             + (sprint == null ? "null" : sprint)
             + "\n"
@@ -230,6 +159,6 @@ public class StoreBoardsTest {
   }
 
   private static String render(Path projectDir) throws IOException {
-    return BoardRenderer.markdown(StoreBoards.load(projectDir.getParent(), null, s -> {}));
+    return BoardRenderer.markdown(StoreBoards.load(projectDir.getParent(), s -> {}));
   }
 }

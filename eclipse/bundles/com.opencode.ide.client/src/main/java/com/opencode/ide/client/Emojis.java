@@ -28,12 +28,12 @@ public final class Emojis {
 
   /**
    * The pipeline status symbol (board vocabulary; the board view colors it - done green, running
-   * blue, review amber, backlog gray). Unknown reads as {@code ""}.
+   * blue, review amber, ready gray). Unknown reads as {@code ""}.
    */
   public static String statusSymbol(String status) {
     return switch (status == null ? "" : status) {
-      case "product-backlog" -> "\uD83D\uDCCC"; // 📌
-      case "sprint-backlog" -> "\uD83D\uDCCB"; // 📋
+      case "ready" -> "🆕"; // fresh, unclaimed
+      case "not-implemented" -> "❌"; // task done, feature not built
       case "in-progress" -> "\uD83C\uDFC3"; // 🏃 running
       case "in-review" -> "\uD83D\uDC40"; // 👀
       case "done" -> "\u2705"; // ✅

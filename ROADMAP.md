@@ -59,10 +59,11 @@ set on the release commit per D-002 (script: T-030). The release is cut
 when all of the following hold:
 
 1. **Store at steady state** — the working set carries open tickets only;
-   done work flows to `_archive/` via the opt-in `auto_archive` on
-   `task_close_sprint` (U-060, landed), and readiness consults the archive
+   done work flows to `_archive/` via the chain-safe `task_archive_done`
+   sweep (U-060; the wave-close auto-archiver retired with the sprint model,
+   T-202), and readiness consults the archive
    (U-059).
-2. **Store correctness** — U-109 (nextId POST-FILTER prefix validation)
+2. **Store correctness** - U-109 (nextId POST-FILTER prefix validation)
    closed; no known id/malformation bypasses.
 3. **Docs coherent** — README, `eclipse/` docs, `AGENTS.md` and the skills
    read as documentation and match the code (2026-11-14 alignment pass;
@@ -94,7 +95,7 @@ when all of the following hold:
 | U-109 | ✅ done: store id correctness - the composed malformed-id bypass is closed |
 | U-059 | ✅ done: archive-aware production readiness (all three production sites + `staleCause` pass the archive pool; per-host tests green) |
 | T-007 | ✅ built, in-review: build perf phase 1 (target-platform diet, dev/gate profiles, jgit qualifier) - verdict pending |
-| T-008 | ⬜ build perf phase 2: hybrid test lane + coverage manifest (released back to sprint-backlog 2026-11-17; **not started** - if the cut proceeds without it, record the deferral) |
+| T-008 | ⬜ build perf phase 2: hybrid test lane + coverage manifest (released back to `ready` 2026-11-17; **not started** - if the cut proceeds without it, record the deferral) |
 | T-027 | ✅ resolved: CI runs `verify.yml` on push (owner directive 2026-11-14, `61b9434`) |
 | T-177 | ✅ built, in-review: build guard - concurrent-build cap + commit-headroom floor in `build.ps1` (owner directive 2026-11-17, landed so the gate and the cut can run without starving the machine) |
 | - | store steady state (condition 1): run the opt-in `auto_archive` on the next wave close - U-060 is landed but has **never been run** (`_archive/` does not exist, 343 done tickets still in the working set) |
@@ -132,7 +133,7 @@ into, so "what is still to do" is readable here without re-counting tickets:
 
 - **Chat TUI parity** — ✅ implementation lane closed: `T-059…T-070` (CP-04…CP-14) all **done** with their paired unit tests `T-071…T-082` (CP-01/T-057 and CP-02/T-058 landed earlier); their criteria tickets `T-170` / `T-172` (CP-03 `/btw`, CP-13 PTY probes) are built and `in-review`. *TUI parity is the floor* (Standing rules).
 - **Acceptance-run / autonomy spectrum** — ✅ closed: `T-132`/`T-134`/`T-136`/`T-138` done with their test pairs `T-133`/`T-135`/`T-137`/`T-139` and the criteria tickets `T-108`, `T-124`, `T-126`, `T-128`, `T-131` - all nine FAIL round-trips reworked and re-verdicted PASS 2026-11-17.
-- **Build perf** — `T-007` built/in-review (phase 1); `T-008` (phase 2) back in sprint-backlog (also unblocks the interactive PTY host).
+- **Build perf** — `T-007` built/in-review (phase 1); `T-008` (phase 2) back in `ready` (also unblocks the interactive PTY host).
 - **Docs de-fleet & coherence** — `T-087…T-092` done except `T-091` (verdict deferred with the ticker halt), `T-037` closed (rework PASS), umbrella `E-006` waits on **U-052's** verdict + the Coherence section removal (its AC2).
 - **Gaps still to ticket** — G2 (assistant footer parity), G3 (subagent/shell live counts) from `docs/tui-visible-surface-review.md`.
 - **Owner-gated** — T-040 (blocked; owner clears after T-176 lands + deploy), T-156 (interactive instrumentation), U-098 (paused), U-013 (paused), the six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173).
@@ -179,12 +180,15 @@ places; this file only lists the one currently open question: none.
 - Interactive PTY host - stdin is **metadata-only over REST** (live 2.3.0 probe
   2026-11-17: `PUT /api/pty/{ptyID}` body = `title`/resize fields), and
   interactive input rides the ticket-gated stream `GET /api/pty/{ptyID}/connect`
-  (query `cursor`/`ticket`) + `POST /api/pty/{ptyID}/connect-token` (`x-
-  opencode-ticket`) - a flow the REST-only client cannot reach: blocked on a
-  **client-side WebSocket transport piece plus a live frame-protocol probe**
-  (T-070 records the evidence), NOT on the terminal widget - the earlier claim
-  that `org.eclipse.tm.terminal` was absent is stale: `org.eclipse.terminal
-  .feature.feature.group` is declared in `eclipse/releng/opencode-eclipse.target`.
+  (query `cursor`/`ticket`) - **the live frame-protocol probe is DONE**
+  (T-173, 2026-11-20: a self-created PTY round-tripped `echo PROBE_INPUT_OK`
+  over the WS stream - echoed and executed - and `DELETE` answered 204;
+  the sibling `POST .../connect-token` handshake answered 403 without a live
+  ticket, recorded as a side note). What remains is the **client-side
+  WebSocket transport piece in the Eclipse client**, NOT the terminal widget -
+  the earlier claim that `org.eclipse.tm.terminal` was absent is stale:
+  `org.eclipse.terminal.feature.feature.group` is declared in
+  `eclipse/releng/opencode-eclipse.target`.
   (pairs with T-007/T-008 for the pane work)
 
 *(Resolved since the last pass: the Attention QUESTION popup kind - the live

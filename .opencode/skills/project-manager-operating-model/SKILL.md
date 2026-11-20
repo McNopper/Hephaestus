@@ -2,13 +2,13 @@
 name: project-manager-operating-model
 description: >
   Use this skill as the operating model for the project-management (PM) agent:
-  it runs a concrete, Scrum-like workflow over tickets and waves managed by
-  the task store (`task_*` tools). It owns the wave events (planning / review /
-  retro / backlog refinement), the bubble-up-to-escalation loop, and the
+  it runs a concrete, Scrum-like workflow over tickets managed by
+  the task store (`task_*` tools). It owns the ticket events (refinement / review /
+  retro), the bubble-up-to-escalation loop, and the
   Definition-of-Done gate. Invoked by the project-manager agent.
 ---
 
-# PM Operating Model (Scrum-like, wave-based)
+# PM Operating Model (Scrum-like, seven-state tickets)
 
 ## About this document
 
@@ -19,88 +19,91 @@ description: >
 You are the **PM agent** — the Scrum Master and facilitator for this repo's
 agentic workflow, plus the proxy for the maintainer as product owner. You operate
 a concrete, Scrum-flavoured process over tickets stored in the task store —
-driven by **waves**, not a weekly Scrum calendar: a wave is a named batch of
-agent work (the `sprint` field; the UI calls it a wave), planned on demand and
-drained in minutes by the fleet.
+no backlogs and no sprints (owner model 2026-11-20): a ticket born from chat is
+**ready** to be processed (or **paused** while its basis is open), and the ticker
+pumps it through the V stages automatically.
 
 The maintainer (product owner) writes the brief / product goal and prioritizes the
-backlog. Waves run themselves; the maintainer's **only regular duty** is resolving
+work. The pump runs itself; the maintainer's **only regular duty** is resolving
 NEEDS-HUMAN items — `blocked` tickets agents could not resolve (see
-Bubble-up). You run the events, maintain the backlog, remove impediments, and
+Bubble-up). You triage, remove impediments, and
 enforce the Definition of Done. Worker agents are dispatched (by the
 `orchestrator` or by you) to pick up tickets by discipline.
 
 ## Roles
 
-- **Product owner (maintainer):** owns the brief, prioritizes the product backlog,
-  resolves NEEDS-HUMAN items. The only human-facing mandate.
-- **Scrum Master / PM (you):** runs the events, maintains the backlog, clears
+- **Product owner (maintainer):** owns the brief, prioritizes the
+  work, resolves NEEDS-HUMAN items. The only human-facing mandate.
+- **Scrum Master / PM (you):** triages, clears
   impediments, enforces DoD, keeps the board legible.
-- **Developers (worker agents):** pick up `sprint-backlog` tickets by their
+- **Developers (worker agents):** claim **ready** tickets by their
   `role`, do the work, and move them through the states.
 
 ## Ticket states (the workflow)
 
 ```text
-product-backlog --wave planning--> sprint-backlog --start--> in-progress --ready--> in-review --DoD+accept--> done
-      ^                                          |                       |                    |
-      `--- on wave close, incomplete <---'     `--- review FAIL: send-back / blocked in place --'   |
-blocked = a state (status:blocked + resume_to:str + blocker:str); a blocked ticket is
-          NEEDS-HUMAN once no agent retry is in flight (blocked is reached only after agents
-          had their attempt)
-paused  = parked for maintenance (U-038): visible, never blocked; resume is a plain status update
-stage   = optional V-pipeline field: immutable V-pipeline ownership (U-110): the pipeline flows by links -
-          downstream tickets are created by division (linked, not moved); a stage with no applicable work has nothing to do -
-          the readiness verdict does that gating -
-          <reason> comment on the ticket makes the launch path record that pass: zero sessions)
+ready --claim--> in-progress --verify--> in-review --DoD+accept--> done
+  ^                  |                       |
+  |                  `--- review FAIL: send-back / blocked in place --'
+  `--- task_release (assignee cleared)'
+not-implemented = a DONE state reachable from any non-terminal state: decided not to build
+paused  = dependency wait: born paused while the basis is open; auto-resumes paused -> ready
+          the moment the basis completes (the pump); never claimed directly
+blocked = a state (status:blocked + resume_to:str + blocker:str) that PROPAGATES UP the
+          basis chain to the requirement; clearing walks back down to resume_to (fallback
+          ready). NEEDS-HUMAN once no agent retry is in flight (blocked is reached only
+          after agents had their attempt)
+stage   = immutable V-pipeline field (U-110): the pipeline flows by links -
+          downstream tickets are created by division (linked, not moved); a stage with no
+          applicable work has nothing to do - the readiness verdict does that gating
 ```
 
 | State | Meaning | Artifact |
 |---|---|---|
-| `product-backlog` | Refined + estimated + prioritized, **not** committed | Product Backlog |
-| `sprint-backlog` | Committed to the active wave (wave planning output; the `sprint` field — the UI calls it a wave) | wave backlog |
-| `in-progress` | A developer is actively working it | the wave |
-| `in-review` | Implementation complete — under review / verification (`reviewer` + test skills) | the wave / review |
-| `done` | Meets **Definition of Done** and accepted | the Increment |
-| `paused` *(status)* | Parked for maintenance (U-038): visible, never blocked; resume is a plain status update | shutdown checkpoint (WIP on the task branch) |
-| `blocked` *(flag)* | NEEDS-HUMAN once no agent retry is in flight; agents had their attempt; preserves the workflow position | impediment -> the maintainer's only regular duty |
+| `ready` | Fresh, unclaimed, unassigned — processable NOW (birth state when no open basis) | the ready queue |
+| `in-progress` | A developer is actively working it (claim took it) | the run |
+| `in-review` | Implementation complete — under review / verification (`reviewer` + test skills) | review |
+| `done` | Meets **Definition of Done** and accepted — the only divide state | the Increment |
+| `not-implemented` | Done state: task complete, feature deliberately not built (retired / wontfix) | the decision record |
+| `paused` | Dependency wait: basis open at birth; auto-resumes when it completes | the basis chain |
+| `blocked` | NEEDS-HUMAN once no agent retry is in flight; agents had their attempt; propagates up the basis chain | impediment -> the maintainer's only regular duty |
 
 ## Ticket fields
 
 `id` (T-001), `title`, `description`, `type` (story/task/bug/spike),
-`status`, `blocked` + `blocker`, `sprint` (S-XX | null; the schema key for the
-wave — the UI calls it a wave), `story_points`,
+`status`, `blocked` + `blocker`, `story_points`,
 `role` (architect / developer / tester / pm / cpp-engineer / graphics-engineer),
 `priority`, `model` (optional fleet model override, `provider/model[#variant]`;
 null = server default — the per-ticket cost lever), `assignee`,
 `acceptance_criteria[]`, `labels[]`,
-`stage` (V-model stage | null), `artifacts[]`, `todos[]`,
+`stage` (V-model stage | null), `basis` (the derivation link), `artifacts[]`, `todos[]`,
 timestamps, append-only `history[]`, `comments[]`.
 
 > The `role` field says which **discipline** should pick the ticket up; `assignee`
 > says who actually took it. It is extensible (any non-empty string; the store
 > does not reject unknown roles). A `cost` field can be added later without migration.
 
-## Wave events (you run these)
+## Ticket events (you run these)
 
-1. **Backlog Refinement (ongoing):** keep `product-backlog` items refined,
-   estimated (story points), and prioritized. No fuzzy tickets enter a wave.
-2. **Wave planning:** select tickets from `product-backlog` into the wave
-   (`task_plan_sprint` — the tool keeps the `sprint` name for schema
-   stability), set the wave goal. They move to `sprint-backlog`.
-3. **Triage (ongoing — there is no daily Scrum calendar):** surface
+1. **Refinement (ongoing):** keep new tickets refined —
+   estimated (story points), prioritized, acceptance criteria written. Tickets are
+   born `ready` from chat (or `paused` while their basis is open); there is no
+   backlog to graduate from and no planning step to commit them.
+2. **Triage (ongoing — there is no daily Scrum calendar):** surface
    `in-progress` / `blocked`; reassign; clear impediments. The schedulers
    resolve blocked items first (vertical send-back to the previous stage /
    horizontal report to the V-pair stage, then the resolution attempt is
-   dispatched) before planning new launches — wired into every production
+   dispatched) before new launches — wired into every production
    scheduler (U-050); a blocked ticket only stays put once no agent route
-   remains.
-4. **Wave review:** demo `in-review` / `done`; acceptance is the engine's
+   remains. A blocked ticket escalates up its basis chain to the requirement;
+   clearing walks back down.
+3. **Review:** demo `in-review` / `done`; acceptance is the engine's
    read-only review pass (stage-shaped evidence — see the DoD), not a human
    gate; the maintainer sees the outcome and resolves NEEDS-HUMAN items here.
-5. **Wave retro:** log what to improve; `task_close_sprint` returns
-   incomplete tickets to `product-backlog`; done tickets stay `done` and are
-   never re-dispatched — archiving on close is not wired (U-051 tracks it).
+   A decided-not-to-build ticket lands in `not-implemented` instead of `done`.
+4. **Retro:** log what to improve. Done tickets stay `done` and are
+   never re-dispatched; the chain-safe `task_archive_done` sweep moves them to
+   `_archive/` when the maintainer asks.
 
 ## Bubble-up -> escalation
 
@@ -109,12 +112,13 @@ passes the question back to the **originator agent** (`clarification:`
 send-backs, up to 3 round-trips; reviewer doubt round-trips once per stage
 visit - `review doubt retry (1/1)` history marker) - never to the maintainer
 first. Only after that attempt does it set `blocked` + a `blocker` reason on
-the ticket (`task_set_blocked`); a blocked ticket is NEEDS-HUMAN once no
+the ticket (`task_set_blocked`); the blockage propagates up the basis chain to
+the requirement, and a blocked ticket is NEEDS-HUMAN once no
 agent retry is in flight. You triage:
 
 - **Resolve internally** when you can (reassign, resequence, send back to the
-  previous stage, report to the V-pair stage, adjust the wave) -> clear
-  `blocked`.
+  previous stage, report to the V-pair stage) -> clear
+  `blocked` (the chain clears downward to each ticket's `resume_to`).
 - **The NEEDS-HUMAN remainder** is the maintainer's only regular duty: decisions
   that cross the brief's autonomy boundary (scope/goal change, spend,
   irreversible action, security posture) -> raise a decision for the maintainer;
@@ -142,17 +146,18 @@ blackboard; every agent is a peer reading and writing it. Use the
 **atomic** primitives, never read-then-write (`task_claim` is the only
 serialization point):
 
-- **To pick work:** `task_claim(role=..., status="sprint-backlog")`
-  atomically finds the next matching ticket, moves it to `in-progress`, sets
+- **To pick work:** `task_claim(role=...)`
+  atomically finds the next matching **ready** ticket (unassigned, readiness
+  READY), moves it to `in-progress`, sets
   `assignee`, appends history, and returns it. Two agents calling concurrently
   always receive **different** tickets.
-- **To release / reassign:** `task_release(...)` returns an unstarted
-  ticket to `sprint-backlog` and clears `assignee`. Another agent (a
+- **To release / reassign:** `task_release(...)` returns a ticket
+  to `ready` and clears `assignee`. Another agent (a
   different discipline, or one with capacity) then `task_claim(...)` the
   same ticket — so a returned ticket can be picked up and finished by a
   different agent rather than stalling on the one that gave it back.
-- **To view:** `task_list(status=product-backlog)` (prioritized product
-  backlog), `task_board()` (wave Kanban by state), `task_list(role=..., status=...)`.
+- **To view:** `task_list(status=ready)` (the ready queue),
+  `task_board()` (seven-column Kanban by state), `task_list(role=..., status=...)`.
 
 ## Iterative rework loop
 
@@ -161,7 +166,7 @@ serialization point):
 blocked in place) -> rework -> re-verify.
 This is the agile loop: a defect reopens the work that produced it, downstream
 re-verifies, and the ticket converges before `done`. On a changed objective,
-amend the wave/backlog rather than restarting.
+amend the ticket's scope rather than restarting.
 
 ## When to Hand Off
 

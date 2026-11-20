@@ -3,7 +3,7 @@ name: project-manager-orchestrate-execution
 description: >
   Use this skill on demand to plan and orchestrate execution of a Hephaestus
   plan: decompose into tickets, map work to disciplines, drive the agile loop
-  (sprint-backlog -> in-progress -> in-review -> done with rework), and bubble
+  (ready -> in-progress -> in-review -> done with rework), and bubble
   up blockers to their resolution (NEEDS-HUMAN last). opencode workflow utility;
   pairs with the project-manager agent and the task store (`task_*` tools).
 ---
@@ -107,7 +107,7 @@ For each plan item, emit tickets with `role` set so the right agent claims them:
 ## The agile loop (per ticket)
 
 ```text
-sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept--> done
+ready --claim--> in-progress --done+verify--> in-review --DoD+accept--> done
                           ^                                  |
                           `-- review FAIL: send-back / blocked in place --'
 ```
@@ -122,7 +122,7 @@ sprint-backlog --claim--> in-progress --done+verify--> in-review --DoD+accept-->
   expects code+tests (AC-named paths); test-* stages expect tests/goldens.
   Reviewer doubt round-trips to the **originator** (one retry per stage visit,
   `review doubt retry (1/1)` history marker) before anything is blocked.
-- Review FAIL -> the engine sends the ticket back to the previous stage's backlog
+- Review FAIL -> the engine sends the ticket back to the previous stage
   (blocked with the reviewer's reasons; the first stage and unstaged tickets are
   blocked in place). Converge, don't restart.
 - A returned/unclaimed ticket can be released (`task_release`) and picked
@@ -184,5 +184,5 @@ When an agent cannot proceed:
 
 ## Notes / Hand Off
 
-- Use `project-manager-operating-model` for the running wave events and DoD.
+- Use `project-manager-operating-model` for the running ticket events and DoD.
 - Use `project-manager-route-request` when the next step is ambiguous.

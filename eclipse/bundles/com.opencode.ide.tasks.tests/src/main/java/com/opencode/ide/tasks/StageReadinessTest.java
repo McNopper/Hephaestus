@@ -64,7 +64,7 @@ public class StageReadinessTest {
 
   @Test
   public void basisStillRunningWaits() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "IMP-0";
     Task impl = ticket("IMP-0", "implementation", "in-progress");
     var v = verdictOf(design, List.of(design, impl));
@@ -74,7 +74,7 @@ public class StageReadinessTest {
 
   @Test
   public void basisDoneWithoutArtifactWaitsForTheProduct() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "SYS-1";
     Task sys = ticket("SYS-1", "system", "done");
     sys.artifacts.clear(); // the bare claim: U-081
@@ -85,7 +85,7 @@ public class StageReadinessTest {
 
   @Test
   public void basisDoneSatisfiesTheTicket() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "SYS-1";
     Task sys = ticket("SYS-1", "system", "done");
     var v = verdictOf(design, List.of(design, sys));
@@ -105,7 +105,7 @@ public class StageReadinessTest {
 
   @Test
   public void basisChangedAfterTheTicketRanIsStale() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "SYS-1";
     design.history("kicked off", null); // ranBefore: any history beyond "created"
     Task sys = ticket("SYS-1", "system", "done");
@@ -117,7 +117,7 @@ public class StageReadinessTest {
 
   @Test
   public void rerunAfterTheBasisChangedIsReadyAgain() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "SYS-1";
     design.history("kicked off", null);
     design.updatedAt = T3;
@@ -128,7 +128,7 @@ public class StageReadinessTest {
 
   @Test
   public void missingBasisTicketWaits() {
-    Task design = ticket("D-1", "design", "product-backlog");
+    Task design = ticket("D-1", "design", "ready");
     design.basis = "GONE-9";
     var v = verdictOf(design, List.of(design));
     assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, v.kind());
@@ -137,7 +137,7 @@ public class StageReadinessTest {
 
   @Test
   public void entryStageWithoutBasisIsReady() {
-    Task req = ticket("REQ-1", "requirements", "product-backlog");
+    Task req = ticket("REQ-1", "requirements", "ready");
     assertEquals(StageReadiness.Kind.READY, verdictOf(req, List.of(req)).kind());
   }
 
@@ -152,7 +152,7 @@ public class StageReadinessTest {
 
   @Test
   public void noStageAtAllIsNotApplicable() {
-    Task legacy = ticket("LEG-1", null, "product-backlog");
+    Task legacy = ticket("LEG-1", null, "ready");
     assertEquals(StageReadiness.Kind.NOT_APPLICABLE, verdictOf(legacy, List.of(legacy)).kind());
   }
 
@@ -160,7 +160,7 @@ public class StageReadinessTest {
   public void basisLessTicketResolvesThroughItsOwnFlowHistoryOnly() {
     // epic removed (owner model 2026-11-19): a basis-less non-root ticket has NO second chain -
     // without its own gated flow history it waits on the upstream stage like any other
-    Task design = ticket("D-9", "design", "product-backlog");
+    Task design = ticket("D-9", "design", "ready");
     Task sys = ticket("SYS-1", "architecture", "done");
     assertEquals(StageReadiness.Kind.WAIT_UPSTREAM, verdictOf(design, List.of(design, sys)).kind());
   }
@@ -188,7 +188,7 @@ public class StageReadinessTest {
                 null,
                 sys.id), // basis: the derivation edge
             "implementation");
-    var v = StageReadiness.evaluate(store.list("p", null, null, null, null)).get(impl.id);
+    var v = StageReadiness.evaluate(store.list("p", null, null, null)).get(impl.id);
     assertEquals(StageReadiness.Kind.READY, v.kind());
   }
 }

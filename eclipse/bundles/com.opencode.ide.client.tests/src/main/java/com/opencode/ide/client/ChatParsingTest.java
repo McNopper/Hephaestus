@@ -11,6 +11,7 @@ import com.google.gson.reflect.TypeToken;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatEntryDeserializer;
 import com.opencode.ide.client.model.ChatMessageInfo;
+import com.opencode.ide.client.model.ChatPart;
 import java.util.List;
 import org.junit.Test;
 
@@ -150,6 +151,34 @@ public class ChatParsingTest {
     assertEquals("exited", entry.info().finish());
     assertNull(history().get(0).command());
     assertNull(history().get(0).shellOutput());
+  }
+
+  /**
+   * T-181 (real capture from the live 2.3.2 service, 2026-11-20): a tool part carries its name in
+   * {@code name} (openapi {@code Session.Message.Assistant.Tool}) - the pre-2.x {@code tool} key no
+   * longer exists. Reading the wrong key made every transcript and Session Details tool line render
+   * nameless ("tool: unknown") while every hand-built fixture kept passing; this parses the LIVE
+   * shape through the production deserializer so the field can never drift silently again.
+   */
+  @Test
+  public void toolPartsCarryTheirNameInTheLiveNameField() {
+    ChatEntry entry =
+        GSON.fromJson(
+            """
+            {"id":"msg_01tool","time":{"created":1795158594590,"ran":1795158608906},
+             "type":"assistant",
+             "content":[{"type":"tool","id":"call_52fb8b6efb84443290ff1568","name":"shell",
+                         "executed":false,
+                         "state":{"status":"running",
+                                  "input":{"command":"echo hi"},"metadata":{}},
+                         "time":{"created":1795158594590,"ran":1795158608906}}]}
+            """,
+            ChatEntry.class);
+    assertEquals(1, entry.parts().size());
+    ChatPart part = entry.parts().get(0);
+    assertTrue("tool part recognized", part.isTool());
+    assertEquals("the live name field is the tool name", "shell", part.name());
+    assertEquals("running", part.stateName());
   }
 
   @Test

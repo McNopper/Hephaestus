@@ -51,7 +51,7 @@ public class InputsChangedStampTest {
   }
 
   private StageReadiness.Kind kind(String id) {
-    return StageReadiness.evaluate(store.list("p", null, null, null, null)).get(id).kind();
+    return StageReadiness.evaluate(store.list("p", null, null, null)).get(id).kind();
   }
 
   private Instant stamp(String id) {
@@ -140,16 +140,17 @@ public class InputsChangedStampTest {
     store.removeArtifact("p", t.id, 0, "pm");
     assertTrue("artifact remove bumps", stamp(t.id).isAfter(s5));
 
-    // the claim/plan status moves bump too
+    // the claim status move bumps too (owner model: born ready, claimed in)
     tick();
     Instant plannedBorn = stamp(planned.id);
-    store.planSprint("p", null, List.of(planned.id), "g");
-    assertTrue("plan bumps", stamp(planned.id).isAfter(plannedBorn));
+    store.update("p", planned.id, Map.of("status", "ready"));
+    assertTrue("a status write bumps", stamp(planned.id).isAfter(plannedBorn));
     tick();
-    store.planSprint("p", null, List.of(claimable.id), "g");
+    // deterministic queue: the critical ticket wins over the other born-ready ones
+    store.update("p", claimable.id, Map.of("priority", "critical"));
     Instant afterPlan = stamp(claimable.id);
-    tick();
-    store.claim("p", claimable.role, "sprint-backlog", "worker");
+    Task claimed = store.claim("p", claimable.role, "ready", "worker");
+    assertEquals("the critical ready ticket wins the claim", claimable.id, claimed.id);
     assertTrue("claim bumps", stamp(claimable.id).isAfter(afterPlan));
   }
 
@@ -263,7 +264,7 @@ public class InputsChangedStampTest {
     assertEquals(
         "the verdict stays decidable from the reloaded stamps",
         StageReadiness.Kind.STALE,
-        StageReadiness.evaluate(new TaskStore(root).list("p", null, null, null, null))
+        StageReadiness.evaluate(new TaskStore(root).list("p", null, null, null))
             .get(ids[1])
             .kind());
   }

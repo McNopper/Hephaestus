@@ -34,13 +34,12 @@ breaks. This skill keeps every ticket claimable and verifiable.
 | `type` | `story` (user value), `task` (internal), `bug`, `spike` (research). |
 | `role` | The **discipline that owns it** — see the role map below. This decides who claims it. **Set it explicitly:** `task_create` defaults a missing `role` to `developer`, which mis-routes non-developer work. |
 | `stage` | Optional V-model stage (`requirements` … `test-requirements`); null = the ticket is untracked by the V pipeline. When you set a stage, set its owning `role` too: `requirements` -> `pm`; `system` / `architecture` -> `architect`; `design` / `implementation` -> `developer`; `test-*` -> `tester` (the default `developer` would mis-claim it). |
-| `priority` | `low`/`medium`/`high`/`critical`; drives claim order within a wave. |
+| `priority` | `low`/`medium`/`high`/`critical`; drives claim order in the ready queue. |
 | `story_points` | Relative size (Fibonacci-ish: 1/2/3/5/8/13). Estimate, don't overthink; later `project-manager-estimate-costs` can feed a `cost` field. |
 | `model` | Optional fleet model override (`provider/model[#variant]`). The cost lever of decomposition: a small, well-specified ticket can run on a cheap model — pin one when the work is mechanical; leave null (server default) when it needs the strong default. |
 | `acceptance_criteria` | Concrete, checkable bullets ("Given … When … Then …"). Verification passes only when all are met. |
 | `labels` | Free tags for filtering (e.g. `vulkan`, `regression`). |
 | `basis` | Upstream/parent ticket id for traceability (the derivation edge: definition ticket on a verification ticket, upstream on downstream). Optional but strongly recommended for linking. |
-| `sprint` | Leave null — the PM commits it at wave planning (`task_plan_sprint`; the UI calls it a wave). |
 
 ## Role map (who owns / claims the ticket)
 
@@ -87,7 +86,6 @@ tests/goldens.
   (one file lane, one mechanism, one doc pass). Past ~3 story points or mixing
   concerns, split it; todos are the steps *within* one change, not a
   substitute for decomposition.
-- Don't pre-assign `sprint` — let the PM plan it.
 - Don't write "fix stuff" — name the artifact and the outcome.
 
 ## Recording artifacts (the hand-off contract)

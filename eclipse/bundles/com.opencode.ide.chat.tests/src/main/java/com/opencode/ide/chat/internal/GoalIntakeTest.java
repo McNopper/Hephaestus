@@ -16,10 +16,10 @@ import org.junit.rules.TemporaryFolder;
 /**
  * U-105 - the governed /goal seam's store logic (AC1/AC3 + the engine-only completion rule of AC2):
  * the objective lands VERBATIM as a requirements-stage ticket; pause parks the goal ticket (never
- * blocked) with the open-descendant count; resume puts it back to the pump ({@code
- * product-backlog}); clear closes-or-splits WITHOUT stranding the pipeline - the split closes the
- * original with the continuation FILE as its artifact so every child's basis chain stays satisfied
- * (done + artifact, never an archived live base).
+ * blocked) with the open-descendant count; resume puts it back to the pump ({@code ready}); clear
+ * closes-or-splits WITHOUT stranding the pipeline - the split closes the original with the
+ * continuation FILE as its artifact so every child's basis chain stays satisfied (done + artifact,
+ * never an archived live base).
  */
 public class GoalIntakeTest {
 
@@ -71,7 +71,7 @@ public class GoalIntakeTest {
         "[requirements] Ship the whole thing",
         goal.title);
     assertTrue("discovery label", goal.labels.contains(GoalIntake.GOAL_LABEL));
-    assertEquals("born into the pump, not dispatched from here", "product-backlog", goal.status);
+    assertEquals("born into the pump, not dispatched from here", "ready", goal.status);
   }
 
   @Test
@@ -98,7 +98,7 @@ public class GoalIntakeTest {
     assertTrue(paused.notice().contains("disarm the ticker"));
 
     GoalIntake.Result resumed = GoalIntake.verb(store, "p", goalId, "resume");
-    assertEquals("back to the pump", "product-backlog", store.get("p", goalId).status);
+    assertEquals("back to the pump", "ready", store.get("p", goalId).status);
     assertTrue(resumed.notice().contains("back to the pump"));
 
     // idempotence guards

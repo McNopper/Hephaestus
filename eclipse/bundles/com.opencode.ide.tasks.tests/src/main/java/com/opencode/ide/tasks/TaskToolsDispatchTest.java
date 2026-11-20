@@ -9,6 +9,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.opencode.ide.tools.McpDispatcher;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -18,10 +19,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * MCP-surface checks over the dispatcher: the 25 task_* tools are advertised with input schemas,
- * results are pretty JSON with the pm field names, a claim with nothing to do returns the JSON
- * literal null, domain errors are isError text results (not protocol errors) and missing parameters
- * map to JSON-RPC -32602.
+ * MCP-surface checks over the dispatcher: the 20 task_* tools are advertised with input schemas,
+ * results are pretty JSON with the pm field names, a claim takes the born-ready queue, domain
+ * errors are isError text results (not protocol errors) and missing parameters map to JSON-RPC
+ * -32602.
  */
 public class TaskToolsDispatchTest {
 
@@ -43,8 +44,6 @@ public class TaskToolsDispatchTest {
           "task_todo",
           "task_links",
           "task_board",
-          "task_plan_sprint",
-          "task_close_sprint",
           "task_archive_done",
           "task_traceability",
           "task_readiness",
@@ -128,13 +127,13 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void toolsListAdvertisesAllTwentyTwoToolsWithSchemas() {
+  public void toolsListAdvertisesAllTwentyToolsWithSchemas() {
     JsonObject response =
         JsonParser.parseString(
                 dispatcher.handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .getAsJsonObject();
     JsonArray tools = response.getAsJsonObject("result").getAsJsonArray("tools");
-    assertEquals(22, tools.size());
+    assertEquals(20, tools.size());
     for (int i = 0; i < tools.size(); i++) {
       JsonObject tool = tools.get(i).getAsJsonObject();
       assertEquals(EXPECTED_TOOLS.get(i), tool.get("name").getAsString());
@@ -164,7 +163,7 @@ public class TaskToolsDispatchTest {
                 + "\"priority\":\"high\",\"story_points\":3,"
                 + "\"acceptance_criteria\":[\"GIVEN a\",\"WHEN b\"]}");
     assertEquals("T-001", created.get("id").getAsString());
-    assertEquals("product-backlog", created.get("status").getAsString());
+    assertEquals("ready", created.get("status").getAsString());
     assertTrue("snake_case field names preserved", created.has("story_points"));
     assertTrue(created.has("created_at"));
 
@@ -187,9 +186,6 @@ public class TaskToolsDispatchTest {
     callOk(
         "task_create",
         "{\"project\":\"p\",\"title\":\"b\",\"role\":\"developer\",\"priority\":\"low\"}");
-    callOk(
-        "task_plan_sprint",
-        "{\"project\":\"p\",\"ticket_ids\":[\"T-001\",\"T-002\"],\"goal\":\"g\"}");
     JsonObject claimed =
         callOk("task_claim", "{\"project\":\"p\",\"role\":\"developer\",\"by\":\"agent-1\"}");
     assertEquals("T-001", claimed.get("id").getAsString()); // high before low
@@ -202,7 +198,7 @@ public class TaskToolsDispatchTest {
         board.size());
     assertEquals(0, board.getAsJsonArray("paused").size());
     assertEquals(1, board.getAsJsonArray("in-progress").size());
-    assertEquals(1, board.getAsJsonArray("sprint-backlog").size());
+    assertEquals(1, board.getAsJsonArray("ready").size());
   }
 
   @Test
@@ -253,13 +249,12 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void backlogOrderThroughListTool() {
+  public void readyQueueOrderThroughListTool() {
     callOk("task_create", "{\"project\":\"p\",\"title\":\"low first\",\"priority\":\"low\"}");
     callOk(
         "task_create", "{\"project\":\"p\",\"title\":\"high second\",\"priority\":\"critical\"}");
     JsonArray arr =
-        JsonParser.parseString(
-                callText("task_list", "{\"project\":\"p\",\"status\":\"product-backlog\"}"))
+        JsonParser.parseString(callText("task_list", "{\"project\":\"p\",\"status\":\"ready\"}"))
             .getAsJsonArray();
     assertEquals(2, arr.size());
     assertEquals(
@@ -349,39 +344,18 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void closeSprintReturnsListThroughTools() {
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"unfinished\"}");
-    callOk("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"]}");
-    JsonObject out = callOk("task_close_sprint", "{\"project\":\"p\",\"sprint_id\":\"S-01\"}");
-    assertEquals("closed", out.getAsJsonObject("sprint").get("status").getAsString());
-    assertEquals(1, out.getAsJsonArray("returned_to_backlog").size());
-  }
-
-  @Test
-  public void closeSprintAutoArchiveThroughTools() {
-    callOk("task_create", "{\"project\":\"p\",\"title\":\"done wave work\"}");
-    callOk("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"]}");
-    callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"done\"}");
-    JsonObject out =
-        callOk(
-            "task_close_sprint",
-            "{\"project\":\"p\",\"sprint_id\":\"S-01\",\"auto_archive\":true}");
-    assertEquals(1, out.getAsJsonArray("auto_archived").size());
-  }
-
-  @Test
-  public void doctorReportsDriftAndGoesQuietWhenHealed() {
-    // clean store: ok with an empty report
+  public void doctorReportsDriftAndGoesQuietWhenHealed() throws IOException {
+    // clean store: ok with an empty report (the drift semantics - an unknown
+    // status outside the seven-state model - are pinned at the store layer
+    // in TaskStoreSemanticsTest)
     JsonObject clean = callOk("task_doctor", "{\"project\":\"p\"}");
     assertTrue(clean.get("ok").getAsBoolean());
     assertEquals(0, clean.getAsJsonArray("inconsistencies").size());
 
-    // sprint set while sitting in product-backlog (hand-drifted state)
+    // unknown status written by hand (drift) -> reported
     callOk("task_create", "{\"project\":\"p\",\"title\":\"drifter\"}");
-    callOk("task_plan_sprint", "{\"project\":\"p\",\"ticket_ids\":[\"T-001\"],\"goal\":\"g\"}");
-    callOk(
-        "task_update",
-        "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"product-backlog\"}");
+    Path file = tmp.getRoot().toPath().resolve("tasks").resolve("p").resolve("T-001.md");
+    Files.writeString(file, Files.readString(file).replace("status: ready", "status: limbo"));
     JsonObject drift = callOk("task_doctor", "{\"project\":\"p\"}");
     assertFalse(drift.get("ok").getAsBoolean());
     assertEquals(1, drift.getAsJsonArray("inconsistencies").size());
@@ -390,10 +364,10 @@ public class TaskToolsDispatchTest {
             .getAsJsonArray("inconsistencies")
             .get(0)
             .getAsString()
-            .contains("status=product-backlog but sprint="));
+            .contains("unknown status 'limbo'"));
 
-    // healed (sprint cleared) -> quiet again
-    callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":null}");
+    // healed (rewritten to a valid state) -> quiet again
+    Files.writeString(file, Files.readString(file).replace("status: limbo", "status: ready"));
     JsonObject healed = callOk("task_doctor", "{\"project\":\"p\"}");
     assertTrue(healed.get("ok").getAsBoolean());
   }
@@ -413,20 +387,14 @@ public class TaskToolsDispatchTest {
   }
 
   @Test
-  public void updateSupportsSprintAndExplicitNullsParity() {
-    // pm parity: update could set sprint/assignee to a value AND clear them with null
+  public void updateSupportsExplicitNullsParity() {
+    // pm parity: update could set assignee to a value AND clear it with null
     callOk("task_create", "{\"project\":\"p\",\"title\":\"a\"}");
     JsonObject set =
-        callOk(
-            "task_update",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":\"S-09\",\"assignee\":\"x\"}");
-    assertEquals("S-09", set.get("sprint").getAsString());
+        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"assignee\":\"x\"}");
     assertEquals("x", set.get("assignee").getAsString());
     JsonObject cleared =
-        callOk(
-            "task_update",
-            "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"sprint\":null,\"assignee\":null}");
-    assertTrue("explicit null clears the sprint", cleared.get("sprint").isJsonNull());
+        callOk("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"assignee\":null}");
     assertTrue(cleared.get("assignee").isJsonNull());
     // story_points null is a no-op (cannot null an int)
     JsonObject points =

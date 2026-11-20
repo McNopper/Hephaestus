@@ -11,9 +11,9 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
 /**
- * Renders the sprint board of every project in the opencode task store into {@code board.md} and
+ * Renders the task board of every project in the opencode task store into {@code board.md} and
  * {@code board.html} under {@code opencode.tasks.out} (default {@code target/opencode-tasks/}). Has
- * no default phase — invoke it directly as {@code mvn opencode-tasks:plan}. Read-only against the
+ * no default phase - invoke it directly as {@code mvn opencode-tasks:plan}. Read-only against the
  * store.
  */
 @Mojo(name = "plan")
@@ -22,10 +22,6 @@ public class PlanMojo extends AbstractMojo {
   /** The store root (the tasks directory itself). Default: nearest .harness/tasks walking up. */
   @Parameter(property = "opencode.tasks.root")
   private File tasksRoot;
-
-  /** Selects a sprint id explicitly; default is the most recently created active sprint. */
-  @Parameter(property = "opencode.tasks.sprint")
-  private String sprint;
 
   /** Output directory for board.md and board.html. */
   @Parameter(
@@ -52,7 +48,7 @@ public class PlanMojo extends AbstractMojo {
     }
     List<BoardRenderer.ProjectBoard> boards;
     try {
-      boards = StoreBoards.load(root, sprint, getLog()::warn);
+      boards = StoreBoards.load(root, getLog()::warn);
     } catch (IOException e) {
       throw new MojoExecutionException("cannot read task store at " + root, e);
     }

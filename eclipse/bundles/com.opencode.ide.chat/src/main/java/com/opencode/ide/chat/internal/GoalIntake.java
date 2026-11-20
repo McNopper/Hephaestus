@@ -19,8 +19,8 @@ import java.util.Set;
  *       as pipeline stages on the Board;
  *   <li>{@code /goal pause} - the goal ticket -&gt; {@code paused} (never blocked), with the open
  *       descendant count and the ticker-disarm hint in the notice (U-038 semantics);
- *   <li>{@code /goal resume} - back to the pump ({@code product-backlog} - the ticker plans, claims
- *       and spawns it again);
+ *   <li>{@code /goal resume} - back to the pump ({@code ready} - the ticker claims and spawns it
+ *       again);
  *   <li>{@code /goal clear} - close-or-split with the pipeline state preserved: no open children
  *       -&gt; archive the goal; open children -&gt; a continuation ticket carries the objective,
  *       the goal's direct children re-home under its {@code basis}, and the original CLOSES
@@ -131,11 +131,11 @@ public final class GoalIntake {
     if (!"paused".equals(goal.status)) {
       return new Result("goal " + goal.id + " is " + goal.status + " - nothing to resume", goal.id);
     }
-    store.update(project, goal.id, Map.of("status", "product-backlog"));
+    store.update(project, goal.id, Map.of("status", "ready"));
     return new Result(
         "goal "
             + goal.id
-            + " resumed - back to the pump (product-backlog; the ticker plans/claims/spawns it"
+            + " resumed - back to the pump (ready; the ticker claims/spawns it"
             + " with its staged children)",
         goal.id);
   }
@@ -224,7 +224,7 @@ public final class GoalIntake {
    * root itself is excluded.
    */
   static List<Task> openDescendants(TaskStore store, String project, String rootId) {
-    List<Task> all = store.list(project, null, null, null, null);
+    List<Task> all = store.list(project, null, null, null);
     Set<String> inTree = new HashSet<>();
     inTree.add(rootId);
     List<Task> open = new ArrayList<>();

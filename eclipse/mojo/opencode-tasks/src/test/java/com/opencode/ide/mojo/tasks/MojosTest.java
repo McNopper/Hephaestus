@@ -4,8 +4,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.opencode.ide.tasks.TaskStore;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,8 +22,8 @@ import org.junit.rules.TemporaryFolder;
  * Drives the two mojos directly (U-091): plain instantiation with a recording {@link Log} and
  * reflective field injection replaces the Maven plugin test harness the module deliberately does
  * not carry. Covers the full execute() decision tree: store resolution, the not-a-directory guard,
- * empty stores, fix/strict escalation, unfixable failure, sprint warnings and the counters quoted
- * in the final consistency line.
+ * empty stores, fix/strict escalation, unfixable failure and the counters quoted in the final
+ * consistency line.
  */
 public class MojosTest {
 
@@ -42,7 +40,6 @@ public class MojosTest {
     TaskStore store = new TaskStore(root);
     store.create("demo", TaskStore.CreateSpec.of("First ticket"));
     store.create("demo", TaskStore.CreateSpec.of("Second ticket"));
-    store.planSprint("demo", null, List.of("T-001", "T-002"), "Ship the mojo slice");
     log = new RecordingLog();
   }
 
@@ -58,9 +55,9 @@ public class MojosTest {
     String md = Files.readString(out.resolve("board.md"), StandardCharsets.UTF_8);
     String html = Files.readString(out.resolve("board.html"), StandardCharsets.UTF_8);
     assertTrue(md.contains("# opencode-tasks board"));
-    assertTrue(md.contains("Ship the mojo slice"));
+    assertTrue(md.contains("[T-001] First ticket"));
     assertTrue(html.startsWith("<!DOCTYPE html>"));
-    assertTrue(html.contains("Ship the mojo slice"));
+    assertTrue(html.contains("<span class=\"id\">[T-002]</span> Second ticket"));
     assertTrue(log.infos.toString().contains("Rendered 1 project board(s)"));
   }
 
@@ -188,27 +185,6 @@ public class MojosTest {
         assertThrows(MojoExecutionException.class, () -> sync(root, false, false).execute());
     assertTrue(e.getMessage().contains("found 1 unfixable problem(s)"));
     assertTrue(log.errors.toString().contains("invalid status 'bogus'"));
-    // the sprint reference of the broken ticket is a warning next to the error
-    assertTrue(log.warns.toString().contains("sprint 'S-42'"));
-  }
-
-  @Test
-  public void syncSprintWarningIsCountedButDoesNotFail() throws Exception {
-    // keep the counters ahead of the new ticket so the sprint warning is the
-    // only finding (SPRINT-X is not S-<digits>, so it does not move counter)
-    Path metaFile = dir.resolve("_meta.json");
-    JsonObject meta =
-        JsonParser.parseString(Files.readString(metaFile, StandardCharsets.UTF_8))
-            .getAsJsonObject();
-    meta.getAsJsonObject("seq").addProperty("T", 3);
-    Files.writeString(metaFile, meta.toString(), StandardCharsets.UTF_8);
-    writeRawTicket(dir, "T-003", "Sprint warning ticket", "SPRINT-X");
-
-    sync(root, false, false).execute();
-
-    assertTrue(log.warns.toString().contains("sprint 'SPRINT-X'"));
-    assertTrue(log.infos.toString().contains("is consistent (0 fixable finding(s), 1 warning(s))"));
-    assertTrue(log.errors.isEmpty());
   }
 
   @Test
@@ -277,41 +253,6 @@ public class MojosTest {
     Path file = dir.resolve(name);
     String content = Files.readString(file, StandardCharsets.UTF_8);
     Files.writeString(file, content.replace("\n", "\r\n"), StandardCharsets.UTF_8);
-  }
-
-  private static void writeRawTicket(Path dir, String id, String title, String sprint)
-      throws IOException {
-    Files.writeString(
-        dir.resolve(id + ".md"),
-        "---\n"
-            + "id: "
-            + id
-            + "\n"
-            + "title: "
-            + title
-            + "\n"
-            + "type: task\n"
-            + "status: product-backlog\n"
-            + "priority: medium\n"
-            + "role: developer\n"
-            + "stage: null\n"
-            + "model: null\n"
-            + "story_points: 0\n"
-            + "sprint: "
-            + sprint
-            + "\n"
-            + "basis: null\n"
-            + "assignee: null\n"
-            + "resume_to: null\n"
-            + "blocker: null\n"
-            + "labels: []\n"
-            + "acceptance_criteria: []\n"
-            + "created_at: 2026-08-01T00:00:00.000Z\n"
-            + "updated_at: 2026-08-01T00:00:00.000Z\n"
-            + "---\n\n"
-            + title
-            + "\n",
-        StandardCharsets.UTF_8);
   }
 
   /** In-memory Log so the tests can pin what the mojos report. */

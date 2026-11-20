@@ -30,13 +30,11 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
       changes.put("stage", stage);
     }
     store.update("p", t.id, changes);
-    store.planSprint("p", "S-01", List.of(t.id), "goal");
     return t.id;
   }
 
   private BoardModel pipelineModel() {
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     model.setMode(BoardModel.BoardMode.PIPELINE);
     return model;
   }
@@ -150,7 +148,6 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
     store.setBlocked("p", blockedId, "waiting", "pm");
 
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     model.setBlockedOnly(true);
     BoardSnapshot snapshot = model.refresh();
 
@@ -171,11 +168,9 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
 
     BoardModel model = new BoardModel(root, "p");
     model.setMode(BoardModel.BoardMode.PIPELINE);
-    model.setSprint("S-01");
     PipelineSnapshot sprintBoard = model.refresh().pipeline();
     assertEquals(2, sprintBoard.column("design").rows().size());
 
-    model.setSprint(BoardModel.BACKLOG);
     PipelineSnapshot backlogBoard = model.refresh().pipeline();
     assertEquals(2, backlogBoard.column("design").rows().size());
   }
@@ -184,16 +179,15 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
   public void flatModeStillGroupsByStatusWithoutPipeline() {
     sprintTicket("flat view", "design", "developer");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     BoardSnapshot snapshot = model.refresh();
 
     assertNull(snapshot.pipeline());
     assertEquals(
-        "flat columns = the valid statuses (incl. U-038's paused and U-067's blocked)",
+        "flat columns = the valid statuses (the owner's 7-state model)",
         7,
         snapshot.columns().size());
-    assertTrue(snapshot.column("product-backlog").isEmpty());
-    assertEquals(1, snapshot.column("sprint-backlog").size());
+    assertTrue(snapshot.column("not-implemented").isEmpty());
+    assertEquals(1, snapshot.column("ready").size());
   }
 
   // ---------- stage visibility filter ----------
@@ -254,14 +248,13 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
     sprintTicket("req work", "requirements", "pm");
     sprintTicket("impl work", "implementation", "developer");
     BoardModel model = new BoardModel(root, "p");
-    model.setSprint("S-01");
     model.setStageFilter(java.util.Set.of("requirements"));
 
     BoardSnapshot snapshot = model.refresh();
 
     assertEquals(1, snapshot.total());
     // T-175: the staged create tags the name - the Board shows the tagged title
-    assertEquals("[requirements] req work", snapshot.column("sprint-backlog").get(0).title());
+    assertEquals("[requirements] req work", snapshot.column("ready").get(0).title());
   }
 
   @Test

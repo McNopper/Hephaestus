@@ -128,8 +128,8 @@ public record TicketRow(
       return "";
     }
     return switch (status) {
-      case "product-backlog" -> "[PB]";
-      case "sprint-backlog" -> "[SB]";
+      case "ready" -> "[RD]";
+      case "not-implemented" -> "[NI]";
       case "in-progress" -> "[IP]";
       case "in-review" -> "[IR]";
       case "done" -> "[D]";
@@ -139,12 +139,12 @@ public record TicketRow(
 
   /**
    * The status pictograph for pipeline/swimlane cards (user direction 2026-09-18: glyphs read
-   * faster than bracket codes; the view colors them - done green, running blue, review amber,
-   * backlog gray):
+   * faster than bracket codes; the view colors them - done green, running blue, review amber, ready
+   * gray):
    *
    * <pre>
-   * product-backlog  📌  outlined box (idea, not yet in a wave)
-   * sprint-backlog   📋  queued (in a wave, waiting to run)
+   * ready            🆕  fresh (no agent has taken it yet)
+   * not-implemented ❌  crossed (task done, the feature deliberately not built)
    * in-progress      🏃  running
    * in-review        👀  half-full (being judged)
    * done             ✅  done
@@ -223,11 +223,11 @@ public record TicketRow(
    */
   public static String statusHelp(String status) {
     return switch (status == null ? "" : status) {
-      case "product-backlog" -> "not yet planned into a wave";
-      case "sprint-backlog" -> "planned into the wave, ready to claim";
+      case "ready" -> "fresh - no agent has taken it yet";
+      case "not-implemented" -> "task done, the feature deliberately not built";
       case "in-progress" -> "claimed - a worker is running";
       case "in-review" -> "worker finished - awaiting acceptance";
-      case "paused" -> "parked for maintenance (never blocked)";
+      case "paused" -> "waiting for a dependent ticket - resumes when it completes";
       case "done" -> "accepted - shipped";
       case "blocked" -> "waiting on a human or an input - clearing returns it to resume";
       default -> "";
