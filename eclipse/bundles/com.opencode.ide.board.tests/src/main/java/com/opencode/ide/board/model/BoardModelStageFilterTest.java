@@ -14,10 +14,9 @@ import org.junit.Test;
 
 /**
  * Model tests for the stage visibility filter's edge cases beyond {@link BoardModelPipelineTest}:
- * populated-but-hidden columns (stages and untracked), invalid stage ids in the filter set, the
- * flat-mode untracked case, the combination with blockedOnly in the BACKLOG pseudo-sprint, clearing
- * the filter, and stored-stage-wins filtering for tickets whose role would derive a different
- * stage.
+ * populated-but-hidden columns, invalid stage ids in the filter set, stage-less rows under a
+ * filter, the combination with blockedOnly in the BACKLOG pseudo-sprint, clearing the filter, and
+ * stored-stage-wins filtering for tickets whose role would derive a different stage.
  */
 public class BoardModelStageFilterTest extends BoardModelTestHarness {
 
@@ -58,10 +57,10 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void requirementsOnlyFilterHidesPopulatedDesignAndUntracked() {
+  public void requirementsOnlyFilterHidesPopulatedDesignAndStageless() {
     sprintTicket("req work", "requirements", "pm");
     sprintTicket("design work", "design", "developer");
-    sprintTicket("stage-less", null, "research"); // untracked
+    sprintTicket("stage-less", null, "research"); // no stage: matches no selection
     BoardModel model = pipelineModel();
     model.setStageFilter(java.util.Set.of("requirements"));
 
@@ -69,25 +68,7 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
 
     assertEquals(List.of("requirements"), stageColumns(snapshot.pipeline()));
     assertEquals(1, snapshot.pipeline().column("requirements").rows().size());
-    assertEquals(
-        "untracked group must be hidden even though it has a ticket",
-        0,
-        snapshot.pipeline().column(PipelineSnapshot.UNTRACKED).rows().size());
-    assertEquals(1, snapshot.total());
-  }
-
-  @Test
-  public void untrackedOnlyFilterHidesStagedColumnsEvenWhenPopulated() {
-    String untracked = sprintTicket("stage-less", null, "research");
-    sprintTicket("design work", "design", "developer");
-    BoardModel model = pipelineModel();
-    model.setStageFilter(java.util.Set.of(PipelineSnapshot.UNTRACKED));
-
-    BoardSnapshot snapshot = model.refresh();
-
-    assertEquals(List.of(PipelineSnapshot.UNTRACKED), stageColumns(snapshot.pipeline()));
-    assertEquals(
-        untracked, snapshot.pipeline().column(PipelineSnapshot.UNTRACKED).rows().get(0).id());
+    // the stage-less row is filtered out with the design row: only req work counts
     assertEquals(1, snapshot.total());
   }
 
@@ -112,26 +93,28 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void flatModeUntrackedOnlyFilterHidesAllStagedRows() {
+  public void flatModeRetiredUntrackedFilterIdMatchesNothingWithoutCrashing() {
     sprintTicket("stage-less", null, "research");
     sprintTicket("staged", "design", "developer");
     BoardModel model = new BoardModel(root, "p");
     model.setSprint("S-01");
-    model.setStageFilter(java.util.Set.of(PipelineSnapshot.UNTRACKED));
+    // the retired id (an old settings file may still carry it before the view's
+    // sanitization kicks in) behaves like any unknown id: matches nothing
+    model.setStageFilter(java.util.Set.of("(untracked)"));
 
     BoardSnapshot snapshot = model.refresh();
 
-    assertEquals(1, snapshot.total());
-    assertEquals("stage-less", snapshot.column("sprint-backlog").get(0).title());
+    assertNull("an unknown id must not make the refresh fail", snapshot.error());
+    assertEquals(0, snapshot.total());
     int rows = snapshot.columns().values().stream().mapToInt(List::size).sum();
-    assertEquals(1, rows);
+    assertEquals(0, rows);
   }
 
   @Test
   public void blockedOnlyAndStageFilterCombineInBacklogScope() {
     String blockedDesign = backlogTicket("blocked design", "design", "developer");
     backlogTicket("free design", "design", "developer");
-    backlogTicket("blocked stray", null, "research"); // blocked + untracked
+    backlogTicket("blocked stray", null, "research"); // blocked + stage-less (filtered out)
     store.setBlocked("p", blockedDesign, "waiting", "pm");
     BoardModel model = new BoardModel(root, "p");
     model.setMode(BoardModel.BoardMode.PIPELINE);
@@ -148,7 +131,7 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void clearingTheFilterRestoresAllElevenColumns() {
+  public void clearingTheFilterRestoresAllTenColumns() {
     sprintTicket("design work", "design", "developer");
     BoardModel model = pipelineModel();
     model.setStageFilter(java.util.Set.of("design"));
@@ -157,9 +140,7 @@ public class BoardModelStageFilterTest extends BoardModelTestHarness {
     model.setStageFilter(null);
 
     assertNull(model.stageFilter());
-    List<String> expected = new ArrayList<>(VStages.STAGES);
-    expected.add(PipelineSnapshot.UNTRACKED);
-    assertEquals(expected, stageColumns(model.refresh().pipeline()));
+    assertEquals(new ArrayList<>(VStages.STAGES), stageColumns(model.refresh().pipeline()));
     assertEquals(1, model.refresh().total());
   }
 

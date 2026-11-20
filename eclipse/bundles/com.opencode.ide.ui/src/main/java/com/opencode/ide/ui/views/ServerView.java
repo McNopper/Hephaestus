@@ -2,6 +2,7 @@ package com.opencode.ide.ui.views;
 
 import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeEventListener;
+import com.opencode.ide.client.OpencodeException;
 import com.opencode.ide.client.activity.ActivityTracker;
 import com.opencode.ide.client.activity.FileActivity;
 import com.opencode.ide.client.model.Agent;
@@ -467,8 +468,7 @@ public class ServerView extends ViewPart implements Refreshable {
     openInChat.setToolTipText("Resume this session in a chat window");
     menu.add(openInChat);
     // U-096: answer a selected Questions row inline - the standard reply
-    // route (once/always/reject), same as the Background view, so the
-    // question clears on every surface
+    // route (once/always/reject), so the question clears on every surface
     Action answerOnce =
         new Action("Allow once") {
           @Override
@@ -1599,9 +1599,13 @@ public class ServerView extends ViewPart implements Refreshable {
    */
   private void updateBusyPollers(List<ServerNode> nodes) {
     Set<OpencodeClient> wanted = new HashSet<>();
+    OpencodeClient primaryClient = null;
     for (ServerNode node : nodes) {
       if (node.client != null) {
         wanted.add(node.client);
+        if (node.primary) {
+          primaryClient = node.client;
+        }
       }
     }
     busyPollers
@@ -1616,16 +1620,72 @@ public class ServerView extends ViewPart implements Refreshable {
               return true;
             });
     for (OpencodeClient client : wanted) {
+      boolean primary = client == primaryClient;
       busyPollers.computeIfAbsent(
           client,
           c -> {
             SessionBusyPoller poller =
                 new SessionBusyPoller(
                     c, SessionBusyPoller.DEFAULT_INTERVAL_MILLIS, this::logBusyPollError);
-            poller.addListener(busy -> onBusySessions(c, busy));
+            poller.addListener(
+                busy -> {
+                  onBusySessions(c, busy); // deliver the busy set first (UI freshness)
+                  if (primary) {
+                    reconcileQuestions(c); // U-096 floor: the primary's pending asks
+                  }
+                });
             poller.start();
             return poller;
           });
+    }
+  }
+
+  /**
+   * Transition flag for {@link #reconcileQuestions}: one WARNING per outage, not one per poll - the
+   * rule {@link #logBusyPollError} already establishes for the status poll itself.
+   */
+  private volatile boolean questionsReconcileFailed;
+
+  /**
+   * U-096's floor: the questions registry is fed from the primary connection's SSE stream, but a
+   * dropped or missed event - or an ask raised before any surface installed the feed - would stay
+   * invisible forever. This periodic {@code GET /permission/request} (UNSCOPED, exactly like {@link
+   * PendingQuestionsFeed}'s warm pass - the stream itself is global, so the floor must be too)
+   * re-offers the service's own pending list, so the registry catches up; the list is a FLOOR,
+   * never a replacement ({@link PendingQuestions#reconcile}). Carried by this view's busy poller
+   * since the Background view's poll was removed (owner feedback 2026-11-19) - runs on the poller
+   * thread right after a successful status poll, at the poller's 2s cadence.
+   */
+  private void reconcileQuestions(OpencodeClient client) {
+    try {
+      PendingQuestions.getDefault().reconcile(client.listPermissionRequests());
+      questionsReconcileFailed = false;
+    } catch (OpencodeException | RuntimeException e) {
+      // one WARNING per outage (transition only): a failing endpoint at the
+      // poller's cadence must not flood the error log (logBusyPollError's rule)
+      if (!questionsReconcileFailed) {
+        questionsReconcileFailed = true;
+        logQuestionsReconcileFailure(e);
+      }
+    }
+  }
+
+  /**
+   * Logs one reconcile failure. WARNING, not ERROR, and only on the transition into failure - the
+   * next successful pass clears the flag, so a recovered server logs nothing.
+   */
+  private void logQuestionsReconcileFailure(Exception error) {
+    UiActivator activator = UiActivator.getDefault();
+    if (activator != null) {
+      activator
+          .getLog()
+          .log(
+              new Status(
+                  Status.WARNING,
+                  UiActivator.PLUGIN_ID,
+                  "Reconciling pending questions from /permission/request failed; "
+                      + "the registry stays on the streamed truth until it recovers",
+                  error));
     }
   }
 

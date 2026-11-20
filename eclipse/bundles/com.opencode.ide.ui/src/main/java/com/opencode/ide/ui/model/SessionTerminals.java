@@ -43,7 +43,8 @@ public final class SessionTerminals {
 
   /**
    * Groups session-bound shell tasks by session id, preserving input order. Session-less tasks are
-   * dropped (Background view covers them); {@code null}/empty input yields an empty map.
+   * dropped (no surface shows them since the Background view's removal); {@code null}/empty input
+   * yields an empty map.
    */
   public static Map<String, List<Row>> group(List<ShellTask> tasks) {
     Map<String, List<Row>> out = new LinkedHashMap<>();

@@ -554,9 +554,9 @@ public interface OpencodeClient {
 
   /**
    * {@code GET /api/session/:id/message} - the RAW message array (the unwrapped {@code data} list,
-   * untouched by the chat-shaped parsing). {@link com.opencode.ide.client.activity.SessionObserver}
-   * needs this full fidelity: tool input and shell detail are deliberately dropped by the {@link
-   * ChatEntry} mapping. Default returns an empty array so test fakes stay compiling.
+   * untouched by the chat-shaped parsing). Consumers needing the full fidelity - tool input and
+   * shell detail, which the {@link ChatEntry} mapping deliberately drops - read this raw array.
+   * Default returns an empty array so test fakes stay compiling.
    */
   default com.google.gson.JsonArray getMessagesJson(String sessionId) throws OpencodeException {
     return new com.google.gson.JsonArray();

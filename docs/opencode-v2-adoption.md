@@ -46,7 +46,7 @@ model/session machinery.
 
 **Panel review under the policy:** every panel cross-checked against the
 tiers. ChatView / SessionDetailsView = v2 capability parity; ServerView /
-BackgroundView / ProvidersView / RepoView = projections of v2 data (RepoView
+ProvidersView / RepoView = projections of v2 data (RepoView
 stays SERVICE-scoped - local workspace browsing is Eclipse Navigator's job,
 tier 2); BoardView = the justified store/display tier (the fleet-era FleetView was removed in U-110) (no
 v2 task API). No panel duplicates a host capability; no retired (daemon-era)
@@ -80,11 +80,11 @@ Eclipse.
 |---|---|---|
 | **Session rename** | `renameSession` | "Rename session..." (SessionDetailsView.java:601 -> SessionDetailsController.java:181) |
 | **Background sessions** | `backgroundSession` | ChatView.java:1533 + "Send to background" (SessionDetailsController.java:343) |
-| **Shells per session** | `runShell` (+ `listShellTasks`/shell output reads) | "Run shell command..." (SessionDetailsController.java:414), the Background view's Shells pane (BackgroundView.java:238) |
+| **Shells per session** | `runShell` (+ `listShellTasks`/shell output reads) | "Run shell command..." (SessionDetailsController.java:414), the Server view's terminal rows (SessionTerminals, T-179 expand-to-poll) |
 | **Queue/steer inbox** | `sendMessage(..., delivery)` = `POST /prompt` with `delivery`, `listInbox`, `updateInboxItem`, inbox cancel | the chat's Steer now / Deliver next / Cancel (T-005): ChatSessionController.java:701/:986/:927-934, ChatView.java:350 |
 | **opencode worktrees (reads)** | `listWorktrees` | the fleet-era consumers (PeerJobReconstructor/FleetView) were removed in U-110; the verb stays client-side (`HttpOpencodeClient.listWorktrees`) for today's Board reconciliation |
 | **VCS reads** | `getFileStatus`, `getSessionDiff` | WorkingSet.java:60 / ProjectVcs.java:165; the fleet-era FleetView consumer was removed in U-110; revision-level content reads stay git-CLI (exceptions table) |
-| **Permission REST** | `listPermissionRequests` (+ reply/set) | the fleet-era watchdog consumer was removed in U-110, BackgroundView.java:243, `ChatPermissionRecovery` |
+| **Permission REST** | `listPermissionRequests` (+ reply/set) | the fleet-era watchdog consumer was removed in U-110, the Server view's busy-poll reconcile (reconcileQuestions), `ChatPermissionRecovery` |
 | **Two-phase revert** | `revertMessage`, `unrevertSession`, `commitSessionRevert` | "Revert to here…" / "Undo revert…" / "Commit revert…" (SessionDetailsView.java:666-722 -> SessionDetailsController.java:198); the chat's message revert (ChatSessionController.java:1949) |
 | **Session fork** | `forkSession` | the chat's fork button (ChatSessionController.java:1255) + Session Details (SessionDetailsController.java:503) |
 | **Forms** | `listForms` (+ reply/cancel) | form cards in the chat (ChatSessionController.java:1059) + "Forms..." (SessionDetailsController.java:314, `FormsDialog` over `FormSchema`); the reply posts the declared `Form.Reply {answer}` shape |

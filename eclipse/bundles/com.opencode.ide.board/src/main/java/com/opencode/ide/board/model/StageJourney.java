@@ -129,7 +129,7 @@ public record StageJourney(List<Movement> movements, int visitedCount) {
   /**
    * The parse core: walks the history once (O(history size), NFR-PERF-001) collecting movements and
    * the distinct stages entered. The ticket's CURRENT stage counts once entered (FR-002) — the
-   * stored stage wins, the role fallback covers legacy tickets, untracked tickets enter nothing.
+   * stored stage wins, the role fallback covers legacy tickets, stage-less rows enter nothing.
    */
   public static StageJourney of(String stage, String role, List<Task.HistoryEvent> history) {
     List<Movement> movements = new ArrayList<>();
@@ -260,7 +260,7 @@ public record StageJourney(List<Movement> movements, int visitedCount) {
     }
   }
 
-  /** The card progress (FR-002): {@code <visited>/10}; untracked tickets read {@code 0/10}. */
+  /** The card progress (FR-002): {@code <visited>/10}; stage-less rows read {@code 0/10}. */
   public String progressLabel() {
     return visitedCount + "/" + VStages.STAGES.size();
   }

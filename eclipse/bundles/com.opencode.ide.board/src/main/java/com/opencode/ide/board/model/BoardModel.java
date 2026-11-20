@@ -23,9 +23,9 @@ import java.util.TreeSet;
  * of an exception.
  *
  * <p>Two layouts: {@link BoardMode#FLAT} (the seven status columns (paused and blocked included))
- * and {@link BoardMode#PIPELINE} (the ten V-model stage columns plus a trailing untracked group —
- * tickets land in their {@link TicketRow#effectiveStage()}, legacy tickets by role fallback). The
- * {@code blockedOnly} filter applies in both modes.
+ * and {@link BoardMode#PIPELINE} (the ten V-model stage columns - tickets land in their {@link
+ * TicketRow#effectiveStage()}, legacy tickets by role fallback; there is NO stage-less group, owner
+ * directive 2026-11-19). The {@code blockedOnly} filter applies in both modes.
  */
 public final class BoardModel {
 
@@ -62,8 +62,7 @@ public final class BoardModel {
 
   /**
    * Stage visibility filter: {@code null} = all visible (default); otherwise only tickets whose
-   * {@link TicketRow#effectiveStage()} is in the set are shown. May contain {@link
-   * PipelineSnapshot#UNTRACKED} to include the untracked group. An empty/null set is normalized to
+   * {@link TicketRow#effectiveStage()} is in the set are shown. An empty/null set is normalized to
    * no filtering. Applies in BOTH modes (pipeline: hides stage columns; flat: hides rows).
    */
   private java.util.Set<String> stageFilter;
@@ -175,8 +174,7 @@ public final class BoardModel {
 
   /**
    * Restricts the board to the given effective stages. {@code null} or an empty set clears the
-   * filter (everything visible). The special id {@link PipelineSnapshot#UNTRACKED} includes
-   * stage-less tickets.
+   * filter (everything visible).
    */
   public void setStageFilter(java.util.Set<String> stages) {
     this.stageFilter = (stages == null || stages.isEmpty()) ? null : java.util.Set.copyOf(stages);
@@ -190,7 +188,9 @@ public final class BoardModel {
       return true;
     }
     if (effectiveStage == null || !VStages.isValid(effectiveStage)) {
-      return stageFilter.contains(PipelineSnapshot.UNTRACKED);
+      // no stage = no place on the V (the stage-less group is retired): a stage
+      // filter hides it; without a filter the early return above already showed it
+      return false;
     }
     return stageFilter.contains(effectiveStage);
   }
@@ -262,22 +262,20 @@ public final class BoardModel {
   }
 
   /**
-   * Groups rows into the ten canonical V stages (always all ten, in {@link VStages#STAGES} order)
-   * plus the trailing untracked group for tickets whose effective stage is {@code null} or not a
-   * canonical stage.
+   * Groups rows into the ten canonical V stages (always all ten, in {@link VStages#STAGES} order).
+   * A row whose effective stage is null or non-canonical has NO column: the stage-less group is
+   * retired (owner directive 2026-11-19 - a ticket is born in a stage), flat mode still lists such
+   * rows, the V does not.
    */
   private PipelineSnapshot pipelineOf(List<TicketRow> rows) {
     Map<String, List<TicketRow>> byStage = new LinkedHashMap<>();
     for (String stage : VStages.STAGES) {
       byStage.put(stage, new ArrayList<>());
     }
-    List<TicketRow> untracked = new ArrayList<>();
     for (TicketRow row : rows) {
       String stage = row.effectiveStage();
       List<TicketRow> target = stage == null ? null : byStage.get(stage);
-      if (target == null) {
-        untracked.add(row);
-      } else {
+      if (target != null) {
         target.add(row);
       }
     }
@@ -287,9 +285,6 @@ public final class BoardModel {
         byStage.get(stage).sort(WITHIN_COLUMN);
         columns.add(stageColumn(stage, byStage.get(stage)));
       }
-    }
-    if (stageFilter == null || stageFilter.contains(PipelineSnapshot.UNTRACKED)) {
-      columns.add(stageColumn(PipelineSnapshot.UNTRACKED, sorted(untracked)));
     }
     return new PipelineSnapshot(List.copyOf(columns));
   }
@@ -337,14 +332,22 @@ public final class BoardModel {
    * contract: the reason becomes the blocker text, and — like the store's one-step {@link
    * #sendBack(String, String)} — the ticket returns to the product backlog unassigned.
    *
-   * @param targetStage the stage id to move to, {@code null} to clear the stage (drop on the
-   *     untracked group)
+   * @param targetStage the stage id to move to ({@code null} is refused - a ticket is born in a
+   *     stage, owner directive 2026-11-19)
    * @param reason required (non-blank) when the move goes backward, ignored otherwise
    * @return {@code null} on success, a human-readable failure message otherwise.
    */
   public String setStage(String id, String targetStage, String reason) {
+    if (targetStage == null) {
+      return "Cannot move " + id + " to no stage: a ticket is born in a stage";
+    }
     TicketRow row = row(id);
-    int from = row == null ? -1 : VStages.STAGES.indexOf(row.effectiveStage());
+    // null-safe like TicketRow.stageDepth (U-026): a stage-less row has no
+    // depth, so the move reads as a forward jump rather than NPE-ing
+    int from =
+        row == null || row.effectiveStage() == null
+            ? -1
+            : VStages.STAGES.indexOf(row.effectiveStage());
     int to = targetStage == null ? -1 : VStages.STAGES.indexOf(targetStage);
     boolean backward = row != null && from >= 0 && to >= 0 && to < from;
     if (backward && (reason == null || reason.isBlank())) {
@@ -425,15 +428,6 @@ public final class BoardModel {
     } catch (RuntimeException e) {
       return 0;
     }
-  }
-
-  /**
-   * Sorts a mutable copy of the rows into the within-column order (for lists not sorted in place).
-   */
-  private static List<TicketRow> sorted(List<TicketRow> rows) {
-    java.util.ArrayList<TicketRow> copy = new java.util.ArrayList<>(rows);
-    copy.sort(WITHIN_COLUMN);
-    return copy;
   }
 
   private static String failure(String what, String id, RuntimeException e) {

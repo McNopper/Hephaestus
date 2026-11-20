@@ -195,7 +195,7 @@ public class StageJourneyTest {
         "role fallback (legacy ticket)",
         "1/10",
         StageJourney.of(null, "developer", null).progressLabel());
-    assertEquals("untracked role", "0/10", StageJourney.of(null, "research", null).progressLabel());
+    assertEquals("stage-less row", "0/10", StageJourney.of(null, "research", null).progressLabel());
     assertEquals("no stage, no role", "0/10", StageJourney.of(null, null, null).progressLabel());
   }
 

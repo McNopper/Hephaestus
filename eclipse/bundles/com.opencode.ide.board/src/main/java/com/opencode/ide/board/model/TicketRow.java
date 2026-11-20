@@ -60,10 +60,10 @@ public record TicketRow(
 
   /**
    * The row's depth along the V ladder ({@link VStages#STAGES} index of the effective stage),
-   * {@code -1} for untracked rows; the secondary within-column sort key after priority.
+   * {@code -1} for stage-less rows; the secondary within-column sort key after priority.
    */
   public int stageDepth() {
-    // null-safe by contract (-1 for untracked): List.of(...).indexOf(null)
+    // null-safe by contract (-1 for stage-less): List.of(...).indexOf(null)
     // throws NPE, which used to crash the whole board refresh the moment
     // one role-untrackable ticket existed (U-026 acceptance found it)
     String effective = effectiveStage();
@@ -72,8 +72,8 @@ public record TicketRow(
 
   /**
    * The pipeline column this row belongs to: the stored stage when present, else the display-only
-   * role fallback ({@link VStages#deriveFromRole}). May be {@code null} (no stage, unknown role) —
-   * such rows are untracked.
+   * role fallback ({@link VStages#deriveFromRole}). May be {@code null} (no stage, unknown role) -
+   * such rows have no V column (the stage-less group is retired, owner directive 2026-11-19).
    */
   public String effectiveStage() {
     return stage != null ? stage : VStages.deriveFromRole(role);

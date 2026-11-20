@@ -152,10 +152,25 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
   /** Debounce for SSE-driven reloads: streaming bursts coalesce into ~3 loads/sec max. */
   private static final int EVENT_REFRESH_DEBOUNCE_MILLIS = 300;
 
+  /** Bold title line of the structured header (or the no-session notice). */
   private Label headerLabel;
 
+  /** The caption/value grid between title and tree (owner feedback: never a one-line blob). */
+  private Composite fieldsComposite;
+
+  /** The error note under the fields (red; hidden while the snapshot carries none). */
+  private Label errorLabel;
+
+  /** One captioned row of the header grid: gray right-aligned caption + value. */
+  private record HeaderField(Label caption, Label value) {}
+
+  private HeaderField sessionField;
+  private HeaderField modelField;
+  private HeaderField costField;
+  private HeaderField tokensField;
+
   /** T-151: the TUI sidebar's Context block ({@code Context / N tokens / P% used / $X spent}). */
-  private Label contextLabel;
+  private HeaderField contextField;
 
   private TreeViewer viewer;
   private SessionDetailsController controller;
@@ -200,15 +215,33 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     layout.verticalSpacing = 2;
     outer.setLayout(layout);
 
+    // Structured header (owner feedback 2026-11-19: no one-line blob): a bold
+    // title, then one captioned row per fact the snapshot carries - each row
+    // hides itself while it has nothing to show (T-151's Context block is the
+    // last row of the same grid, same words as the TUI sidebar).
     headerLabel = new Label(outer, SWT.WRAP);
     headerLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    headerLabel.setFont(JFaceResources.getFontRegistry().getBold(JFaceResources.DEFAULT_FONT));
 
-    // T-151: the TUI sidebar's Context block directly under the header (sidebar/context.tsx:
-    // "Context" + "<N> tokens" / "<P>% used" / "$<X> spent"); hidden until a snapshot carries it
-    contextLabel = new Label(outer, SWT.WRAP);
-    contextLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-    contextLabel.setText("");
-    contextLabel.setVisible(false);
+    fieldsComposite = new Composite(outer, SWT.NONE);
+    GridLayout fieldsLayout = new GridLayout(2, false);
+    fieldsLayout.marginWidth = 0;
+    fieldsLayout.marginHeight = 0;
+    fieldsLayout.horizontalSpacing = 10;
+    fieldsLayout.verticalSpacing = 1;
+    fieldsComposite.setLayout(fieldsLayout);
+    fieldsComposite.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    sessionField = addField(fieldsComposite, "Session:");
+    modelField = addField(fieldsComposite, "Model:");
+    costField = addField(fieldsComposite, "Cost:");
+    tokensField = addField(fieldsComposite, "Tokens:");
+    contextField = addField(fieldsComposite, "Context:");
+
+    errorLabel = new Label(outer, SWT.WRAP);
+    errorLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    errorLabel.setForeground(outer.getDisplay().getSystemColor(SWT.COLOR_RED));
+    errorLabel.setVisible(false);
+    ((GridData) errorLabel.getLayoutData()).exclude = true;
 
     Composite treeComposite = new Composite(outer, SWT.NONE);
     TreeColumnLayout treeLayout = new TreeColumnLayout();
@@ -1565,8 +1598,26 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
       return;
     }
     currentSnapshot = snapshot; // feeds the editor actions (content + enablement)
-    headerLabel.setText(headerText(snapshot));
+    headerLabel.setText(
+        snapshot.title() == null || snapshot.title().isBlank() ? "(untitled)" : snapshot.title());
+    setField(sessionField, snapshot.sessionId());
+    setField(modelField, snapshot.modelLabel());
+    setField(
+        costField,
+        snapshot.totalCost() == null
+            ? null
+            : String.format(java.util.Locale.ROOT, "$%.4f", snapshot.totalCost()));
+    setField(
+        tokensField,
+        snapshot.tokens() == null || snapshot.tokens().isEmpty()
+            ? null
+            : snapshot.tokens().summary());
     applyContext(snapshot.context());
+    boolean hasError = snapshot.errorNote() != null && !snapshot.errorNote().isBlank();
+    errorLabel.setText(hasError ? snapshot.errorNote() : "");
+    errorLabel.setVisible(hasError);
+    ((GridData) errorLabel.getLayoutData()).exclude = !hasError;
+    headerLabel.getParent().layout(true, true); // re-flow hidden/shown rows
     if (snapshot.errorNote() != null) {
       viewer.setInput(List.of());
       setContentDescription(snapshot.errorNote());
@@ -1580,34 +1631,60 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
   }
 
   /**
-   * T-151: renders the TUI sidebar's Context block under the header - the {@code Context} header
-   * plus whichever of {@code <N> tokens / <P>% used / $<X> spent} the snapshot carries ({@code
-   * sidebar/context.tsx:21-41} verbatim); the whole block hides when there is nothing to show (no
-   * usage and nothing spent - the TUI's {@code Show when(state() || cost() > 0)}).
+   * T-151: renders the TUI sidebar's Context block as ONE captioned header row - the {@code
+   * Context} caption plus whichever of {@code <N> tokens / <P>% used / $<X> spent} the snapshot
+   * carries ({@code sidebar/context.tsx:21-41} verbatim, joined on one line); the row hides when
+   * there is nothing to show (no usage and nothing spent - the TUI's {@code Show when(state() ||
+   * cost() > 0)}).
    */
   private void applyContext(SessionDetails.ContextBlock block) {
-    if (contextLabel == null || contextLabel.isDisposed()) {
+    if (contextField == null || contextField.value().isDisposed()) {
       return;
     }
     boolean show = block != null && (block.tokens() != null || block.spent() != null);
     StringBuilder text = new StringBuilder();
     if (show) {
-      text.append("Context");
+      String sep = "";
       if (block.tokens() != null) {
-        text.append('\n').append(block.tokens());
+        text.append(block.tokens());
+        sep = "  \u00b7  ";
       }
       if (block.percent() != null) {
-        text.append('\n').append(block.percent());
+        text.append(sep).append(block.percent());
+        sep = "  \u00b7  ";
       }
       if (block.spent() != null) {
-        text.append('\n').append(block.spent());
+        text.append(sep).append(block.spent());
       }
     }
-    contextLabel.setText(text.toString());
-    if (contextLabel.getVisible() != show) {
-      contextLabel.setVisible(show);
-      contextLabel.getParent().layout(true, true);
-    }
+    setField(contextField, show ? text.toString() : null);
+  }
+
+  /** Adds one captioned row to the header grid; rows start hidden until they get a value. */
+  private static HeaderField addField(Composite parent, String caption) {
+    Label cap = new Label(parent, SWT.NONE);
+    cap.setText(caption);
+    cap.setForeground(parent.getDisplay().getSystemColor(SWT.COLOR_DARK_GRAY));
+    cap.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false));
+    Label val = new Label(parent, SWT.WRAP);
+    val.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+    HeaderField field = new HeaderField(cap, val);
+    setField(field, null);
+    return field;
+  }
+
+  /** Fills one header row; a blank value collapses the row out of the layout. */
+  private static void setField(HeaderField field, String text) {
+    boolean show = text != null && !text.isBlank();
+    field.value().setText(show ? text : "");
+    field.caption().setVisible(show);
+    field.value().setVisible(show);
+    GridData captionData = (GridData) field.caption().getLayoutData();
+    captionData.exclude = !show;
+    field.caption().setLayoutData(captionData);
+    GridData valueData = (GridData) field.value().getLayoutData();
+    valueData.exclude = !show;
+    field.value().setLayoutData(valueData);
   }
 
   /**
@@ -1703,12 +1780,6 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
     UiActivator.getDefault()
         .getLog()
         .log(new Status(Status.ERROR, UiActivator.PLUGIN_ID, "Failed to load session details", e));
-  }
-
-  /** Null-tolerant one-line header: title • id • model • cost • tokens (+ error note). */
-  private static String headerText(SessionDetails snapshot) {
-    String header = com.opencode.ide.ui.session.SessionTranscript.header(snapshot);
-    return snapshot.errorNote() == null ? header : header + "\n" + snapshot.errorNote();
   }
 
   // ---------- label helpers (all null-safe) ----------

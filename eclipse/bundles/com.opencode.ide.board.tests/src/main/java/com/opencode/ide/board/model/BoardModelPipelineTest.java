@@ -16,8 +16,8 @@ import org.junit.Test;
 
 /**
  * Unit tests for the PIPELINE layout of the SWT-free {@link BoardModel}: all-ten-columns grouping
- * (stored stage, role fallback, untracked), blocked counts/points per column, the blockedOnly
- * filter in both modes, and the sprint selector's effect on the pipeline.
+ * (stored stage, role fallback), blocked counts/points per column, the blockedOnly filter in both
+ * modes, and the sprint selector's effect on the pipeline.
  */
 public class BoardModelPipelineTest extends BoardModelTestHarness {
 
@@ -50,16 +50,14 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void allTenStageColumnsAlwaysPresentInCanonicalOrderPlusUntracked() {
+  public void allTenStageColumnsAlwaysPresentInCanonicalOrder() {
     sprintTicket("one", "design", "developer");
     PipelineSnapshot pipeline = pipelineModel().refresh().pipeline();
 
     assertNotNull(pipeline);
     List<String> stages = new ArrayList<>();
     pipeline.columns().forEach(c -> stages.add(c.stage()));
-    List<String> expected = new ArrayList<>(VStages.STAGES);
-    expected.add(PipelineSnapshot.UNTRACKED);
-    assertEquals(expected, stages);
+    assertEquals(new ArrayList<>(VStages.STAGES), stages);
   }
 
   @Test
@@ -99,13 +97,16 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void unknownRoleTicketLandsInUntracked() {
+  public void stagelessRowLandsInNoVColumn() {
     String id = sprintTicket("odd role", null, "research");
     PipelineSnapshot pipeline = pipelineModel().refresh().pipeline();
 
-    assertEquals(id, pipeline.column(PipelineSnapshot.UNTRACKED).rows().get(0).id());
+    // the stage-less group is retired (owner directive 2026-11-19): a row with
+    // no resolvable stage has no V column - flat mode still lists it
     for (String stage : VStages.STAGES) {
-      assertTrue(pipeline.column(stage).rows().isEmpty());
+      assertTrue(
+          "stage-less row must not appear in " + stage,
+          pipeline.column(stage).rows().stream().noneMatch(r -> id.equals(r.id())));
     }
   }
 
@@ -225,20 +226,27 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
   }
 
   @Test
-  public void stageFilterIncludesUntrackedOnlyWhenSelected() {
-    sprintTicket("scope-ish", null, "weird-role"); // untracked: role maps to no stage
+  public void stageFilterHidesStagelessRows() {
+    sprintTicket("scope-ish", null, "weird-role"); // no stage: role maps to no stage
     BoardModel model = pipelineModel();
 
+    // with a filter active a stage-less row matches no stage selection -> hidden
     model.setStageFilter(java.util.Set.of("design"));
-    List<String> withoutUntracked = new ArrayList<>();
-    model.refresh().pipeline().columns().forEach(c -> withoutUntracked.add(c.stage()));
-    assertFalse(withoutUntracked.contains(PipelineSnapshot.UNTRACKED));
+    BoardSnapshot filtered = model.refresh();
+    List<String> stages = new ArrayList<>();
+    filtered.pipeline().columns().forEach(c -> stages.add(c.stage()));
+    assertEquals("only the selected stage column may be present", List.of("design"), stages);
+    assertEquals(0, filtered.total());
 
-    model.setStageFilter(java.util.Set.of("design", PipelineSnapshot.UNTRACKED));
-    List<String> withUntracked = new ArrayList<>();
-    model.refresh().pipeline().columns().forEach(c -> withUntracked.add(c.stage()));
-    assertTrue(withUntracked.contains(PipelineSnapshot.UNTRACKED));
-    assertEquals(1, model.refresh().pipeline().column(PipelineSnapshot.UNTRACKED).rows().size());
+    // without a filter it is visible again (flat mode lists it), but it still
+    // has no V column to land in
+    model.setStageFilter(null);
+    BoardSnapshot unfiltered = model.refresh();
+    assertEquals(1, unfiltered.total());
+    assertTrue(
+        unfiltered.pipeline().columns().stream()
+            .flatMap(c -> c.rows().stream())
+            .noneMatch(r -> "scope-ish".equals(r.title())));
   }
 
   @Test
@@ -263,11 +271,11 @@ public class BoardModelPipelineTest extends BoardModelTestHarness {
     BoardModel model = pipelineModel();
 
     assertNull(model.stageFilter());
-    assertEquals(VStages.STAGES.size() + 1, model.refresh().pipeline().columns().size());
+    assertEquals(VStages.STAGES.size(), model.refresh().pipeline().columns().size());
 
     model.setStageFilter(java.util.Set.of());
     assertNull("empty set normalizes to no filter", model.stageFilter());
-    assertEquals(VStages.STAGES.size() + 1, model.refresh().pipeline().columns().size());
+    assertEquals(VStages.STAGES.size(), model.refresh().pipeline().columns().size());
   }
 
   @Test

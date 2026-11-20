@@ -788,7 +788,7 @@ public class ChatView extends ViewPart {
     backgroundButton.setToolTipText(
         "Background this session (Ctrl+B in the composer, "
             + "Ctrl+Alt+Shift+B globally): it keeps working while you do other things "
-            + "- watch it in the Background view");
+            + "- watch it in the Server view");
     backgroundButton.setLayoutData(new GridData(GridData.FILL, GridData.CENTER, false, false));
     backgroundButton.addListener(SWT.Selection, e -> backgroundRequested());
 
@@ -925,7 +925,7 @@ public class ChatView extends ViewPart {
   /**
    * Backgrounds this session's long-running work (U-064): the inline Background button in the input
    * row, the composer's Ctrl+B, the toolbar Background action and the {@code Ctrl+Alt+Shift+B}
-   * binding all end up here. The session keeps running; the Background view lists it.
+   * binding all end up here. The session keeps running; the Server view lists it.
    */
   public void backgroundRequested() {
     backgroundSession();
@@ -1779,7 +1779,7 @@ public class ChatView extends ViewPart {
           }
           String sid = controller == null ? null : controller.sessionId();
           if (sid != null && request.sessionId() != null && !sid.equals(request.sessionId())) {
-            return; // this banner = this session; the Background view shows every ask
+            return; // this banner = this session; the Server view shows every ask
           }
           Display.getDefault().asyncExec(() -> showAsk(request, client));
         }
@@ -2015,7 +2015,7 @@ public class ChatView extends ViewPart {
                 .backgroundSession(sid);
             message =
                 "session backgrounded - long tools keep running while you work "
-                    + "- watch it in the Background view (Window > Show View > Other... > Background)";
+                    + "- watch it in the Server view";
           } catch (Exception e) {
             message = "background failed: " + e.getMessage();
           }

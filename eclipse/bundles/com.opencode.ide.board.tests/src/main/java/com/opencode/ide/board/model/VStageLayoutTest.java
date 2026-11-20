@@ -1,7 +1,6 @@
 package com.opencode.ide.board.model;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 
 import com.opencode.ide.tasks.VStages;
@@ -12,9 +11,8 @@ import org.junit.Test;
 /**
  * Pins the two-arm V-model layout (U-016, orientation reworked 2026-09-18 on user direction): the
  * LEFT column carries the definition leg top to bottom, the RIGHT column carries the verification
- * leg level-paired with it (test-requirements at the top, test-implementation at the vertex), the
- * untracked group sits beside the vertex, and the snake reading order equals {@link
- * VStages#STAGES}.
+ * leg level-paired with it (test-requirements at the top, test-implementation at the vertex), and
+ * the snake reading order equals {@link VStages#STAGES}.
  */
 public class VStageLayoutTest {
 
@@ -66,16 +64,6 @@ public class VStageLayoutTest {
   }
 
   @Test
-  public void untrackedIsNotPartOfTheVGeometry() {
-    assertNull(VStageLayout.cellOf(PipelineSnapshot.UNTRACKED));
-    boolean anyUntracked =
-        VStageLayout.grid().stream()
-            .flatMap(List::stream)
-            .anyMatch(PipelineSnapshot.UNTRACKED::equals);
-    assertFalse("untracked renders in its own row, not the V grid", anyUntracked);
-  }
-
-  @Test
   public void cellOfPlacesTheCorners() {
     assertEquals(new VStageLayout.Cell(0, 0), VStageLayout.cellOf("requirements"));
     assertEquals(new VStageLayout.Cell(4, 0), VStageLayout.cellOf("implementation"));
@@ -91,8 +79,8 @@ public class VStageLayoutTest {
     for (String stage : VStages.STAGES) {
       assertEquals(stage, expected++, VStageLayout.stageNumber(stage));
     }
-    assertEquals(0, VStageLayout.stageNumber(PipelineSnapshot.UNTRACKED));
     assertEquals(0, VStageLayout.stageNumber("no-such-stage"));
+    assertEquals(0, VStageLayout.stageNumber(null));
   }
 
   @Test
@@ -105,8 +93,7 @@ public class VStageLayoutTest {
         }
       }
     }
-    // the V grid carries exactly the ten canonical stages; untracked
-    // is not part of the geometry (own row in the view)
+    // the V grid carries exactly the ten canonical stages
     assertEquals(VStages.STAGES.size(), seen.size());
     for (String stage : VStages.STAGES) {
       assertEquals(

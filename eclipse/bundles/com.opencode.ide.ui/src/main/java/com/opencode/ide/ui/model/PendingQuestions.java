@@ -14,10 +14,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * The collected agent-questions registry (U-096): EVERY pending permission ask of the primary
  * opencode server, across all sessions - chat sessions, fleet workers and their subagents alike -
  * so several questions can wait at once and every surface (Server view's Questions category, the
- * Background view's Questions tab, the Session Details questions section) renders the SAME truth.
- * "Question" is the TUI-parity word for what the wire calls a permission request: the agent stalls
- * until the human answers (the fleet watchdog pauses its stall clock while one pends - a session
- * waiting for an answer is WAITING, not hung).
+ * Session Details questions section) renders the SAME truth. "Question" is the TUI-parity word for
+ * what the wire calls a permission request: the agent stalls until the human answers (the fleet
+ * watchdog pauses its stall clock while one pends - a session waiting for an answer is WAITING, not
+ * hung).
  *
  * <p>Feeding (see {@code PendingQuestionsFeed} for the wiring): the opencode {@code /api/event} SSE
  * stream, parsed by the client bundle's {@code PermissionEvents} (reused - no second parser), lands

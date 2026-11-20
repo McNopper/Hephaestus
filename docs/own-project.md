@@ -99,8 +99,8 @@ Use the `project-manager-create-ticket` skill (or the Board's New Ticket):
 
 Open **your repo** as the workspace: the tasks root is adopted from the
 workspace project (anything under a git repo carrying `.harness/tasks`
-qualifies; there is also a preference override). The PM Board, Fleet and
-Background views then show your project, not Hephaestus'.
+qualifies; there is also a preference override). The PM Board and the
+Server view then show your project, not Hephaestus'.
 
 ## First Eclipse start (how Eclipse finds your repo)
 

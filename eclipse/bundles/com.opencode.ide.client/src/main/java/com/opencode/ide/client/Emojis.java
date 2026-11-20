@@ -38,6 +38,7 @@ public final class Emojis {
       case "in-review" -> "\uD83D\uDC40"; // 👀
       case "done" -> "\u2705"; // ✅
       case "blocked" -> "\uD83D\uDEAB"; // 🚫
+      case "paused" -> "\u23F8\uFE0F"; // ⏸️
       default -> "";
     };
   }

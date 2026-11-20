@@ -66,7 +66,7 @@ public class BoardModelTypeFilterTest {
     BoardSnapshot piped = pipeline.refresh();
     assertEquals(1, piped.total());
     assertFalse(
-        "the story/task rows must not hide in the untracked group either",
+        "the story/task rows must not appear in any V column either",
         piped.pipeline().columns().stream()
             .flatMap(c -> c.rows().stream())
             .anyMatch(r -> !"bug".equals(r.type())));

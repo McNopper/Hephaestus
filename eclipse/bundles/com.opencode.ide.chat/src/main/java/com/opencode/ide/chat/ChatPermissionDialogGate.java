@@ -7,9 +7,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * SWT-free decision of which permission asks open the U-014 in-chat permission <b>dialog</b> (as
  * opposed to the always-on banner row): an ask opens at most ONE dialog per request id, and only
- * for the view's CURRENT session — an ask of another session (or of any session while this view has
- * none yet, e.g. before the first message) stays on the banner row, which the Background view
- * complements for every session.
+ * for the view's CURRENT session - an ask of another session (or of any session while this view has
+ * none yet, e.g. before the first message) stays on the banner row, which the Server view's
+ * Questions category complements for every session.
  *
  * <p>View-lifetime state, thread-safe: {@link #offer} is called on the UI thread (from the banner's
  * show path, itself dispatched from the SSE thread by the sink), while the recovery path may

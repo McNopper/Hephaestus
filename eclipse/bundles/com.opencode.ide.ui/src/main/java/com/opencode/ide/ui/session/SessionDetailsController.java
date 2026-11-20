@@ -172,8 +172,8 @@ public final class SessionDetailsController {
   /**
    * U-096: answers one pending question of this session's subtree through the standard reply route
    * ({@code POST /session/:id/permission/:requestID/reply}, once/always/reject) - the same route
-   * the Background view, the Server view and the fleet queue answer with, so an answer clears the
-   * question on every surface (the server's {@code replied} event reaches them all).
+   * the Server view and the fleet queue answer with, so an answer clears the question on every
+   * surface (the server's {@code replied} event reaches them all).
    *
    * @param askSessionId the session that RAISED the question (possibly a subagent of this session)
    */

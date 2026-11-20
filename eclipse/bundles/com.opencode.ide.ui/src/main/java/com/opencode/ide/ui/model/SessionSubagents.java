@@ -16,9 +16,8 @@ import java.util.Map;
  * SessionViewIds} secondary-id seam).
  *
  * <p>SWT-free so the nesting is unit-testable; the view only renders. The same rows serve chat
- * sessions and fleet worker sessions — both are ordinary sessions of their server, so the join
- * needs nothing session-kind-specific. Precedent: {@code SessionObserver#childOf} (client bundle)
- * builds the same child projection for fleet observability.
+ * sessions and fleet worker sessions - both are ordinary sessions of their server, so the join
+ * needs nothing session-kind-specific.
  */
 public final class SessionSubagents {
 
@@ -30,7 +29,7 @@ public final class SessionSubagents {
    *     are kept
    * @param statuses the active-session map ({@code GET /session/active} lists BUSY sessions only,
    *     so an absent id is idle); may be {@code null}
-   * @return rows sorted by session id (stable order, SessionObserver's rule)
+   * @return rows sorted by session id (stable order)
    */
   public static List<Row> rows(
       String parentSessionId, List<Session> sessions, Map<String, SessionStatus> statuses) {

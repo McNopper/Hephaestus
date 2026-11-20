@@ -63,6 +63,7 @@ public class TicketRowStageTest {
     assertEquals("🏃", TicketRow.statusSymbol("in-progress"));
     assertEquals("👀", TicketRow.statusSymbol("in-review"));
     assertEquals("✅", TicketRow.statusSymbol("done"));
+    assertEquals("⏸️", TicketRow.statusSymbol("paused"));
     assertEquals("", TicketRow.statusSymbol("mystery"));
     assertEquals("", TicketRow.statusSymbol(null));
   }
@@ -99,12 +100,12 @@ public class TicketRowStageTest {
   }
 
   /**
-   * U-026 acceptance found this: the Javadoc promises {@code -1} for untracked rows, but {@code
-   * List.of(...).indexOf(null)} throws NPE — one role-untrackable ticket used to crash the whole
+   * U-026 acceptance found this: the Javadoc promises {@code -1} for stage-less rows, but {@code
+   * List.of(...).indexOf(null)} throws NPE - one role-untrackable ticket used to crash the whole
    * board refresh.
    */
   @Test
-  public void stageDepthIsMinusOneForUntrackedRows() {
+  public void stageDepthIsMinusOneForStagelessRows() {
     assertEquals(-1, row(null, "research").stageDepth());
     assertEquals(-1, row(null, null).stageDepth());
     assertEquals(3, row("design", "tester").stageDepth());

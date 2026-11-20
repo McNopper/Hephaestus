@@ -40,6 +40,7 @@ public class TicketRowDisplayTest {
     assertEquals("🏃", TicketRow.statusSymbol("in-progress"));
     assertEquals("👀", TicketRow.statusSymbol("in-review"));
     assertEquals("✅", TicketRow.statusSymbol("done"));
+    assertEquals("⏸️", TicketRow.statusSymbol("paused"));
     assertEquals("", TicketRow.statusSymbol("unknown-status"));
     assertEquals("", TicketRow.statusSymbol(""));
   }
@@ -49,7 +50,9 @@ public class TicketRowDisplayTest {
     // U-065: every group header carries its kind's marker - the same
     // pictograph the cards' status column shows, then the status name
     for (String status :
-        new String[] {"product-backlog", "sprint-backlog", "in-progress", "in-review", "done"}) {
+        new String[] {
+          "product-backlog", "sprint-backlog", "in-progress", "in-review", "paused", "done"
+        }) {
       String expected = TicketRow.statusSymbol(status) + " " + status;
       assertEquals(expected, TicketRow.statusHeaderText(status));
       assertTrue(

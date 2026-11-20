@@ -83,8 +83,9 @@ public final class SessionTranscript {
   }
 
   /**
-   * One-line header: title • id • model • cost • tokens. Null-tolerant. Shared with {@code
-   * SessionDetailsView} (one builder, CPD finding 2026-09-23).
+   * One-line header: title • id • model • cost • tokens. Null-tolerant. Used by the transcript
+   * export body; the Session Details view renders the same facts as structured caption/value rows
+   * instead (owner feedback 2026-11-19 - no one-line blob above the table).
    */
   public static String header(SessionDetails snapshot) {
     StringBuilder sb = new StringBuilder();

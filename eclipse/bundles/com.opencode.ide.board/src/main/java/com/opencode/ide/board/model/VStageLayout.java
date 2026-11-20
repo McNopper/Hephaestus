@@ -13,10 +13,9 @@ import java.util.List;
  * (test-implementation at the vertex, test-requirements at the top). Each height level pairs a
  * definition stage with its verification stage (requirements | test-requirements, &#x2026;,
  * implementation | test-implementation), which is exactly the classic V-diagram orientation; the
- * flow snakes down the left arm, turns at the vertex, and climbs the right arm. The trailing
- * untracked group parks in the spare third column cell beside the vertex.
+ * flow snakes down the left arm, turns at the vertex, and climbs the right arm.
  *
- * <p>The reading order of the snake equals {@link VStages#STAGES} — the canonical ladder — so the
+ * <p>The reading order of the snake equals {@link VStages#STAGES} - the canonical ladder - so the
  * geometry can never drift from it: stage number {@code n} (1-based, for the numbered column
  * headers) is simply the index in that list plus one. The Board view renders {@link #grid()} cell
  * by cell ({@code null} cells become spacers); the tests pin the shape, the level pairing, and both
@@ -24,10 +23,7 @@ import java.util.List;
  */
 public final class VStageLayout {
 
-  /**
-   * Grid columns: the two arms. The untracked group is NOT part of the V - the view renders it in
-   * its own row below, separated and hideable.
-   */
+  /** Grid columns: the two arms of the V. */
   public static final int GRID_COLUMNS = 2;
 
   /** Grid rows: one per V level (both arms carry five stages). */
@@ -42,8 +38,7 @@ public final class VStageLayout {
    * The two-arm arrangement row by row: {@code grid().get(r).get(c)} is the stage id at that cell,
    * {@code null} for an empty spacer cell (none today - both arms are complete - but spacers stay
    * supported). Every row has exactly {@link #GRID_COLUMNS} cells, so the grid maps 1:1 onto an SWT
-   * {@code GridLayout} with that many columns. The untracked group is deliberately absent (see
-   * class doc).
+   * {@code GridLayout} with that many columns. Every cell is a canonical stage.
    */
   public static List<List<String>> grid() {
     String[][] cells = new String[GRID_ROWS][GRID_COLUMNS];
@@ -59,15 +54,14 @@ public final class VStageLayout {
   }
 
   /**
-   * The grid cell of a canonical stage; {@code null} for unknown or {@code null} ids - and for
-   * {@link PipelineSnapshot#UNTRACKED}: the untracked group is not part of the V geometry (own row,
-   * separator, hideable).
+   * The grid cell of a canonical stage; {@code null} for unknown or {@code null} ids (the V
+   * geometry carries only the ten canonical stages).
    *
    * <p>Definition stage {@code i} (0-based, requirements first) sits in the left arm at row {@code
    * i}. Its verification pair sits in the right arm at the SAME level.
    */
   public static Cell cellOf(String stage) {
-    if (stage == null || PipelineSnapshot.UNTRACKED.equals(stage)) {
+    if (stage == null) {
       return null;
     }
     int index = VStages.STAGES.indexOf(stage);
@@ -86,10 +80,13 @@ public final class VStageLayout {
   /**
    * The 1-based reading number of a canonical stage (its position along the V: 1 = requirements
    * &#x2026; 5 = implementation (the vertex), 6 = test-implementation &#x2026; 10 =
-   * test-requirements); 0 for the untracked group and unknown ids. The numbered headers use this so
-   * the two-arm layout still reads unambiguously as one sequence.
+   * test-requirements); 0 for unknown ids. The numbered headers use this so the two-arm layout
+   * still reads unambiguously as one sequence.
    */
   public static int stageNumber(String stage) {
+    if (stage == null) {
+      return 0;
+    }
     int index = VStages.STAGES.indexOf(stage);
     return index < 0 ? 0 : index + 1;
   }
@@ -127,8 +124,7 @@ public final class VStageLayout {
   /**
    * The connector LEAVING a stage: {@code ↓} down the definition leg, {@code →} the vertex turn,
    * {@code ↑} up the verification leg; {@code null} at the V tip (nothing follows stage 10), for
-   * unknown ids and for the untracked group. Escaped literals on purpose - the source stays pure
-   * ASCII.
+   * unknown ids. Escaped literals on purpose - the source stays pure ASCII.
    */
   public static String connectorGlyph(String stage) {
     if (stage == null) {

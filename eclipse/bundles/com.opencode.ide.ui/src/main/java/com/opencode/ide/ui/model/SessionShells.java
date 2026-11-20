@@ -12,22 +12,22 @@ import java.util.Map;
 /**
  * Rows for the shell tasks of ONE session (U-041): the transcript is the association — every {@code
  * type:"shell"} message in the session's RAW message list carries the {@code shellID} ({@code
- * ^sh_}) of the task that wrote it, plus command, lifecycle, exit and an output tail (the same
- * derivation {@code SessionObserver} uses for fleet observability; {@code
- * SessionObserverTest.shellRunsCarryCommandExitAndOutputTail} pins the wire shape). The live {@code
- * GET /api/shell} list (running tasks only at the 2.0.19 pin) overlays those rows by id so a
- * running task's status is authoritative while it runs.
+ * ^sh_}) of the task that wrote it, plus command, lifecycle, exit and an output tail (the wire
+ * shape the v2.0.19 {@code Session.Message.Shell} schema defines; {@code SessionShellsTest} pins
+ * it). The live {@code GET /api/shell} list (running tasks only at the 2.0.19 pin) overlays those
+ * rows by id so a running task's status is authoritative while it runs.
  *
  * <p>Association honesty: a live task with no shell message in THIS session's transcript is not
- * shown — its {@code Shell.Info.metadata} would carry the originating session id, but the client's
- * {@link ShellTask} record does not map metadata, so we cannot claim it. Unassociated tasks remain
- * the Background view's service-wide surface; this per-session list never guesses.
+ * shown - its {@code Shell.Info.metadata} would carry the originating session id, but the client's
+ * {@link ShellTask} record does not map metadata, so we cannot claim it. Unassociated tasks are
+ * shown nowhere since the Background view's removal (2026-11-19); this per-session list never
+ * guesses.
  *
  * <p>SWT-free so the join is unit-testable; the view only renders.
  */
 public final class SessionShells {
 
-  /** Kept tail of a task's output (characters, like SessionObserver's TAIL). */
+  /** Kept tail of a task's output (characters). */
   public static final int OUTPUT_TAIL = 200;
 
   /**

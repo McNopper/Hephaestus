@@ -56,7 +56,6 @@ public class OpencodePerspective implements IPerspectiveFactory {
     tools.addView(BOARD_VIEW_ID);
     // the newer panels join the SAME left stack (user 2026-09-23:
     // "all new ones, all in the left one")
-    tools.addView(com.opencode.ide.ui.views.BackgroundView.ID);
     tools.addView(com.opencode.ide.ui.views.SessionDetailsView.ID);
 
     // The chat fills everything to the right of the tab column.
@@ -70,7 +69,6 @@ public class OpencodePerspective implements IPerspectiveFactory {
     layout.addShowViewShortcut(SessionViewIds.CHAT_VIEW_ID);
     layout.addShowViewShortcut(com.opencode.ide.ui.views.ProvidersView.ID);
     layout.addShowViewShortcut(BOARD_VIEW_ID);
-    layout.addShowViewShortcut(com.opencode.ide.ui.views.BackgroundView.ID);
     layout.addShowViewShortcut(com.opencode.ide.ui.views.SessionDetailsView.ID);
     layout.addPerspectiveShortcut(ID);
   }

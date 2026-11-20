@@ -11,8 +11,8 @@ import org.eclipse.ui.handlers.HandlerUtil;
 
 /**
  * Delegates to the active {@link ChatView}'s background action (U-064): the session keeps working
- * while the user does other things; backgrounded sessions are listed in the Background view. Bound
- * to Ctrl+Alt+Shift+B globally; the chat composer additionally takes the TUI's Ctrl+B ({@code
+ * while the user does other things; the Server view keeps listing it. Bound to Ctrl+Alt+Shift+B
+ * globally; the chat composer additionally takes the TUI's Ctrl+B ({@code
  * com.opencode.ide.chat.BackgroundKeys}). When the active part is not a chat view, the first chat
  * view with a reply in flight is backgrounded, so the binding also works while the focus sits in
  * another view.

@@ -34,7 +34,7 @@ public class EmojisTest {
     assertEquals("👀", Emojis.statusSymbol("in-review"));
     assertEquals("✅", Emojis.statusSymbol("done"));
     assertEquals("🚫", Emojis.statusSymbol("blocked"));
-    assertEquals("", Emojis.statusSymbol("paused"));
+    assertEquals("⏸️", Emojis.statusSymbol("paused"));
     assertEquals("", Emojis.statusSymbol(null));
   }
 

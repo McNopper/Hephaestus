@@ -16,9 +16,8 @@ import java.util.Map;
  * badges; keyed by ticket id, empty when unknown).
  *
  * <p>In {@link BoardModel.BoardMode#PIPELINE} the snapshot additionally carries a {@link
- * PipelineSnapshot} (all ten V stages plus the trailing untracked group); in {@link
- * BoardModel.BoardMode#FLAT} {@link #pipeline()} is {@code null} and the flat columns are the
- * authoritative grouping.
+ * PipelineSnapshot} (all ten V stages); in {@link BoardModel.BoardMode#FLAT} {@link #pipeline()} is
+ * {@code null} and the flat columns are the authoritative grouping.
  *
  * <p>U-026: the snapshot also carries the per-ticket {@link StageJourney}s (keyed by ticket id)
  * parsed from the same store read — the card progress and the movement trace project from them;

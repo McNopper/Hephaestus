@@ -14,8 +14,7 @@ import org.junit.Test;
 /**
  * Unit tests for {@link SessionShells}: the per-session shell-task rows of the Session Details view
  * (U-041). The transcript is the association — {@code type:"shell"} messages carry the {@code sh_}
- * id — and the live task list overlays them. The wire shape follows {@code
- * SessionObserverTest.shellRunsCarryCommandExitAndOutputTail} and the v2.0.19 {@code
+ * id - and the live task list overlays them. The wire shape follows the v2.0.19 {@code
  * Session.Message.Shell} schema. SWT-free.
  */
 public class SessionShellsTest {

@@ -40,7 +40,7 @@ public class SessionTerminalsTest {
                 task("sh_1", "running", "mvn verify", "ses_a"),
                 task("sh_2", "exited", "git status", "ses_a"),
                 task("sh_3", "running", "ls", "ses_b"),
-                task("sh_global", "exited", "make", null), // orphans stay in BackgroundView
+                task("sh_global", "exited", "make", null), // orphans are dropped
                 null));
 
     assertEquals(2, groups.size());

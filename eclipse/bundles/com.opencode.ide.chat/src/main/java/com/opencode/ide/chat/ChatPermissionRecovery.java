@@ -88,7 +88,7 @@ public final class ChatPermissionRecovery {
         }
         String scope = sessionId.get();
         if (scope != null && !scope.equals(request.sessionId())) {
-          continue; // this banner = this session; the Background view shows every ask
+          continue; // this banner = this session; the Server view shows every ask
         }
         deliver(request, client);
         surfaced++;

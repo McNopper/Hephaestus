@@ -46,7 +46,6 @@ public class BoardPolishPackTest {
     assertEquals("\u2192", VStageLayout.connectorGlyph("implementation"));
     assertEquals("\u2191", VStageLayout.connectorGlyph("test-implementation"));
     assertNull("the V tip has no successor", VStageLayout.connectorGlyph(VStages.last()));
-    assertNull(VStageLayout.connectorGlyph(PipelineSnapshot.UNTRACKED));
     assertNull(VStageLayout.connectorGlyph(null));
     assertNull(VStageLayout.connectorGlyph("nonsense"));
     for (VStageLayout.Connector connector : VStageLayout.connectors()) {
@@ -88,7 +87,7 @@ public class BoardPolishPackTest {
                     5),
                 new StageColumn("test-design", List.of(row("T-4", "done", "test-design")), 0, 2),
                 new StageColumn(
-                    PipelineSnapshot.UNTRACKED, List.of(row("T-5", "in-progress", null)), 0, 1)));
+                    "test-system", List.of(row("T-5", "in-progress", "test-system")), 0, 1)));
 
     assertEquals("every column contributes", 4, snapshot.wipTotal());
 

@@ -21,7 +21,7 @@ second emoji for a concept already listed.
 | in-progress | 🏃 | same |
 | in-review | 👀 | same |
 | done | ✅ | same |
-| paused | (no emoji — blank symbol, name only) | same |
+| paused | ⏸️ | same |
 | blocked | 🚫 | card title cell prefix |
 | type: bug | 🐞 | card type column |
 | type: story | 📖 | card type column |

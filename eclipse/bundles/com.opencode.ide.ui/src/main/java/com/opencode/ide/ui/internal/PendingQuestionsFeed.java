@@ -22,14 +22,14 @@ import java.util.List;
  * <p>The stream is the fast path; {@link #install()} also runs ONE best-effort reconciliation
  * ({@code GET /permission/request}, unscoped) so an ask raised before the feed installed - a
  * subagent question that pended while no surface was open - is visible immediately instead of
- * waiting for the next event. The Background view's poll keeps reconciling afterwards (the list
+ * waiting for the next event. The Server view's busy poll keeps reconciling afterwards (the list
  * stays a floor; removal rides replied events and session deletion).
  *
- * <p>Install is idempotent and lazy: every consuming view (Server view, Background view, Session
- * Details) calls it from its control creation, so the registry is live whenever a surface can show
- * it; {@link #uninstall()} pairs from {@code UiActivator#stop}. Events flow from the primary
- * connection's stream only (v2's single stream carries every session the server processes,
- * subagents included - the attention classifier's coverage note).
+ * <p>Install is idempotent and lazy: every consuming view (Server view, Session Details) calls it
+ * from its control creation, so the registry is live whenever a surface can show it; {@link
+ * #uninstall()} pairs from {@code UiActivator#stop}. Events flow from the primary connection's
+ * stream only (v2's single stream carries every session the server processes, subagents included -
+ * the attention classifier's coverage note).
  */
 public final class PendingQuestionsFeed {
 

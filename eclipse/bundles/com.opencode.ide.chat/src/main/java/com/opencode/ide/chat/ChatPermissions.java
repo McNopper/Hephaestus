@@ -8,7 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Global registry for permission-ask listeners (the multiplexer - IA must-not-do item 1): the chat
  * bundle dispatches parsed permission events here and EVERY registered listener sees them. Hosts
  * register with {@link #addSink(ChatPermissionSink)}/{@link #removeSink(ChatPermissionSink)} (a
- * chat banner, a background view, a queue - any number, coexisting).
+ * chat banner, the Server view, a queue - any number, coexisting).
  *
  * <p>The legacy single-slot API ({@link #setSink}/{@link #clearSink}) is kept for the fleet's queue
  * and routed through its OWN slot: setting it can never steal another listener's feed (before this

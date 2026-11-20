@@ -19,9 +19,9 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * U-016 AC5: the board model's column ordering — the V-model order (definition leg descending,
- * verification leg ascending, untracked last) for the stage layout, and the workflow-progress order
- * for the flat status kanban (None grouping).
+ * U-016 AC5: the board model's column ordering - the V-model order (definition leg descending,
+ * verification leg ascending) for the stage layout, and the workflow-progress order for the flat
+ * status kanban (None grouping).
  */
 public class BoardColumnOrderTest {
 
@@ -59,9 +59,7 @@ public class BoardColumnOrderTest {
 
     List<String> v = new ArrayList<>(VStageLayout.definitionLeg());
     v.addAll(VStageLayout.verificationLeg());
-    v.add(PipelineSnapshot.UNTRACKED);
-    assertEquals(
-        "stage columns = definition leg, then verification leg, then untracked", v, stages);
+    assertEquals("stage columns = definition leg, then verification leg", v, stages);
   }
 
   @Test
@@ -158,14 +156,16 @@ public class BoardColumnOrderTest {
   }
 
   @Test
-  public void setStageToNullClearsTheStage() {
+  public void setStageToNullIsRefused() {
     String id = sprintTicketAtStage("unstager", "system");
     BoardModel model = new BoardModel(root, "p");
     model.setSprint("S-01");
 
-    assertNull(model.setStage(id, null, null));
+    assertNotNull(
+        "clearing a stage is refused: a ticket is born in a stage (owner directive 2026-11-19)",
+        model.setStage(id, null, null));
 
-    assertNull(store.get("p", id).stage);
+    assertEquals("system", store.get("p", id).stage);
   }
 
   /** Creates a sprint-planned ticket pinned to a stage (update-after-create). */
