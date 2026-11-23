@@ -510,6 +510,22 @@ public final class ChatSessionController {
    */
   private volatile boolean compactionActive;
 
+  /**
+   * T-181: a {@code session.shell.*} event for the active session arrived while another owner of
+   * the transcript held the screen (a reply in flight, or this chat's own inline shell run) - the
+   * reload it warrants is deferred to the moment that owner releases the screen, never dropped.
+   */
+  private volatile boolean shellRefreshPending;
+
+  /**
+   * T-181: how many of THIS chat's own inline shell runs ({@link #runInlineShell}) are in flight.
+   * They render their own strip ({@link Renderer#appendShell}), so the shell lifecycle events of
+   * that very run must not also reload the transcript - the same run would render twice (the strip
+   * plus the {@code role=shell} history row).
+   */
+  private final java.util.concurrent.atomic.AtomicInteger inlineShellRuns =
+      new java.util.concurrent.atomic.AtomicInteger();
+
   /** Proposal cap of the {@code @}-file autocomplete (U-012). */
   private static final int MAX_FILE_PROPOSALS = 8;
 
@@ -634,6 +650,21 @@ public final class ChatSessionController {
             refreshStatus(null);
             return;
           }
+          // T-181: a shell run created OUTSIDE this writer (the TUI's "!", a bare
+          // POST /session/:id/shell, another client) lands in the transcript only
+          // as served data - no delta/final render covers it, so the row never
+          // appeared (owner: "the shell is not visible in the eclipse harness").
+          // The shell lifecycle - the same two events the Session Details view
+          // refreshes on (SessionEventFilter) - reloads THIS session's transcript
+          // from server truth; another session's shell is none of this view's
+          // business.
+          if ("session.shell.started".equals(event.type())
+              || "session.shell.ended".equals(event.type())) {
+            if (sid.equals(event.string("sessionID"))) {
+              requestShellRefresh();
+            }
+            return;
+          }
           // v2 split the single v1 "message.part.delta" (which carried a
           // "field" discriminator) into one event type PER CHANNEL, so the
           // channel is the event NAME now - no payload inspection needed.
@@ -746,6 +777,98 @@ public final class ChatSessionController {
                   cancelled,
                   usageLabel(tokens, "failed")));
     }
+  }
+
+  /**
+   * T-181: a {@code session.shell.started/ended} event for the active session means a shell run
+   * appeared in the transcript outside every incremental render path. Reload from server truth -
+   * deferred while another owner of the screen (a reply in flight, this chat's own inline shell
+   * run) is active, consumed when it releases.
+   */
+  private void requestShellRefresh() {
+    if (sending || inlineShellRuns.get() > 0) {
+      shellRefreshPending = true; // the owner of the screen refreshes when it settles
+      return;
+    }
+    reloadTranscript("shell event");
+  }
+
+  /**
+   * T-181: runs a deferred shell refresh - called when an owner of the screen releases it (the send
+   * settling in {@link #finishSend}, an inline shell run completing in {@code runInlineShellJob}).
+   * Another owner that took over meanwhile keeps the refresh pending.
+   */
+  private void consumePendingShellRefresh() {
+    if (!shellRefreshPending) {
+      return;
+    }
+    shellRefreshPending = false;
+    if (sending || inlineShellRuns.get() > 0) {
+      shellRefreshPending = true; // someone else holds the screen now
+      return;
+    }
+    reloadTranscript("shell event");
+  }
+
+  /**
+   * T-181: reloads the transcript from the authoritative history (resume()'s load path without the
+   * "Resumed" notice - same rows, same rendering) so a shell run that appeared outside this writer
+   * shows as its CP-02 {@code role=shell} row. Delivered on the UI thread; a session switch or a
+   * send started meanwhile re-defers the refresh instead of clobbering that transcript.
+   */
+  private void reloadTranscript(String reason) {
+    String sid = sessionId;
+    if (sid == null) {
+      return;
+    }
+    host.runInBackground(
+        "Refreshing chat history " + sid,
+        () -> {
+          try {
+            List<ChatEntry> entries = connection.getClient().getMessages(sid);
+            if (!sid.equals(sessionId)) {
+              return; // the chat switched sessions while the fetch ran
+            }
+            if (sending || inlineShellRuns.get() > 0) {
+              shellRefreshPending = true; // the screen owner consumes it on release
+              return;
+            }
+            renderTranscriptAuthoritatively(entries, this::fireUndoRedoChanged);
+            host.info("transcript refreshed (" + reason + ") for session " + sid);
+          } catch (OpencodeException e) {
+            host.error("transcript refresh failed (" + reason + ") for session " + sid, e);
+          }
+        });
+  }
+
+  /**
+   * Applies the served history to the transcript state and renders it - the shared body of both
+   * authoritative load paths ({@link #resume(String)} and {@link #reloadTranscript(String)}), so
+   * they stay in lockstep: history-derived flags first ({@code historyHasUserMessage}, rows, then
+   * {@code compactionActive} - T-147: a RUNNING compaction in the served history means its row is
+   * on screen after the render below, so /compact and late events update THAT row instead of
+   * seeding a second one), then the T-149 dedupe (goal notices history already rendered must not
+   * append a duplicate row on a later {@code rpc.opencode.goal.changed} for the same goal - the
+   * same dedupe in both paths), then the render on the UI thread: the messages, the reasoning
+   * preference (it survives across messages) and finally the caller's own tail ({@code
+   * afterRender}) - resume's "Resumed" notice plus the undo/redo re-fire, the shell-refresh path's
+   * re-fire alone.
+   */
+  private void renderTranscriptAuthoritatively(List<ChatEntry> entries, Runnable afterRender) {
+    historyHasUserMessage = lastUserMessageId(entries) != null;
+    List<Map<String, Object>> rows = historyRows(entries);
+    compactionActive = hasRunningCompaction(entries);
+    for (ChatEntry entry : entries) {
+      if (entry.isNotice() && entry.notice() != null && entry.notice().goalId() != null) {
+        renderedNoticeGoalIds.add(entry.notice().goalId());
+      }
+    }
+    host.runOnUi(
+        () -> {
+          renderer.setMessages(rows);
+          renderer.setReasoningVisible(reasoningVisible); // the preference survives across messages
+          afterRender.run();
+        });
   }
 
   /** Unsubscribes from the event stream (view dispose). */
@@ -897,25 +1020,9 @@ public final class ChatSessionController {
         () -> {
           try {
             List<ChatEntry> entries = connection.getClient().getMessages(sid);
-            historyHasUserMessage = lastUserMessageId(entries) != null;
-            List<Map<String, Object>> rows = historyRows(entries);
-            // T-147: a RUNNING compaction in the served history means its row is on screen
-            // after the render below - keep the gate closed so /compact and late events
-            // update THAT row instead of seeding a second one.
-            compactionActive = hasRunningCompaction(entries);
-            // T-149: record which goal notices history already rendered - a later
-            // rpc.opencode.goal.changed for the SAME goal (a pause/resume re-fires it)
-            // must not append a duplicate row.
-            for (ChatEntry entry : entries) {
-              if (entry.isNotice() && entry.notice() != null && entry.notice().goalId() != null) {
-                renderedNoticeGoalIds.add(entry.notice().goalId());
-              }
-            }
-            host.runOnUi(
+            renderTranscriptAuthoritatively(
+                entries,
                 () -> {
-                  renderer.setMessages(rows);
-                  renderer.setReasoningVisible(
-                      reasoningVisible); // the preference survives across messages
                   renderer.notice("Resumed session " + sid + " - continuing the conversation.");
                   fireUndoRedoChanged();
                 });
@@ -1500,6 +1607,7 @@ public final class ChatSessionController {
   }
 
   private void runInlineShellJob(String command) {
+    inlineShellRuns.incrementAndGet(); // T-181: this run renders its own strip - its events defer
     try {
       String sid = ensureSession();
       host.info("inline shell: " + command);
@@ -1510,6 +1618,9 @@ public final class ChatSessionController {
     } catch (OpencodeException e) {
       String failure = e.getMessage();
       host.runOnUi(() -> renderer.appendShell(command, null, "failed: " + failure));
+    } finally {
+      inlineShellRuns.decrementAndGet();
+      consumePendingShellRefresh(); // T-181: a shell event arrived while this run held the screen
     }
   }
 
@@ -2358,6 +2469,8 @@ public final class ChatSessionController {
       startSubmissionJob(next);
       return;
     }
+    // T-181: a shell event that arrived while this turn held the screen refreshes now
+    consumePendingShellRefresh();
     host.runOnUi(() -> host.sendingChanged(false));
   }
 

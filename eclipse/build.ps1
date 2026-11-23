@@ -222,6 +222,9 @@ function Exit-BuildGuard {
 }
 
 $guardState = Enter-BuildGuard -Command ("build.ps1 " + ($args -join ' '))
+# T-008: build start stamps the coverage-manifest check below - only reports
+# written at/after this instant belong to THIS build (stale files age out).
+$buildStart = Get-Date
 try {
     if ($IsWindowsOS) {
         & $mvnwPath @args
@@ -234,3 +237,23 @@ try {
     Exit-BuildGuard -Guard $guardState
 }
 if ($buildExit -ne 0) { exit $buildExit }
+
+# --- T-008 coverage manifest gate -----------------------------------------------------
+# After a successful test-bearing reactor run (verify/install/deploy reach every
+# lane's test phase), diff the test ids + skip reasons THIS build produced against
+# the committed baseline (releng/coverage-manifest-baseline.txt). Any drift - a
+# vanished id, a new one, a changed skip reason - fails the gate. Deliberately
+# skipped test runs report the bypass loudly instead of pretending a clean manifest.
+$reachesTests = @($args | Where-Object { $_ -in 'verify', 'install', 'deploy' }).Count -gt 0
+$partialReactor = @($args | Where-Object { $_ -in '-pl', '--projects', '-am', '--also-make', '-rf', '--resume-from', '-N', '--non-recursive' }).Count -gt 0
+if ($reachesTests) {
+    $testsSkipped = @($args | Where-Object { $_ -match 'skipTests|maven\.test\.skip' }).Count -gt 0
+    if ($partialReactor) {
+        Write-Host '[manifest] coverage-manifest check SKIPPED - partial reactor (-pl/-am/-rf/-N): not a gate run' -ForegroundColor DarkYellow
+    } elseif ($testsSkipped) {
+        Write-Host '[manifest] coverage-manifest check SKIPPED - tests were skipped on this command line' -ForegroundColor DarkYellow
+    } else {
+        & (Join-Path $PSScriptRoot 'releng/coverage-manifest.ps1') -Since ($buildStart.ToString('o'))
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+}

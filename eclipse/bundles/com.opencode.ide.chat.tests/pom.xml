@@ -14,4 +14,15 @@
   <artifactId>com.opencode.ide.chat.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
 
+  <!-- T-008 plain-lane AUDIT RESULT (kept on the OSGi lane): chat's tests are
+       plain-JVM-safe EXCEPT the U-105 governed /goal seam
+       (ChatSessionControllerTest#theGoalCommandIsInterceptedAndNeverReachesTheServer):
+       ChatViewSettings persists the remembered goal ticket through
+       ChatActivator.getDefault(), which is null outside an OSGi runtime
+       ("persistence is a no-op (tests)"), so in a plain JVM /goal pause never
+       finds the captured ticket (status stays ready) while the OSGi run passes
+       it. One test pins the whole bundle to the lane where its production seam
+       really exists - the audit the ticket conditions chat's participation on.
+       See eclipse/QUALITY.md, "The hybrid test lane". -->
+
 </project>

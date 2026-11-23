@@ -1084,6 +1084,33 @@ public class SessionDetailsView extends ViewPart implements Refreshable {
               "The session's controlled terminal, read-only (v2 .../terminal/read)");
           terminalAction.setEnabled(currentSnapshot != null);
           menu.add(terminalAction);
+          Action interactiveTerminal =
+              new Action("Interactive terminal") {
+                @Override
+                public void run() {
+                  if (currentSnapshot == null) {
+                    return;
+                  }
+                  final String sessionId = currentSnapshot.sessionId();
+                  final String title = currentSnapshot.title();
+                  ViewLoadSupport.load(
+                      "Starting interactive terminal",
+                      () ->
+                          com.opencode.ide.ui.console.InteractiveTerminalDialog.start(
+                              supplyClient(), sessionId, title),
+                      terminal ->
+                          com.opencode.ide.ui.console.InteractiveTerminalDialog.open(
+                              getSite().getShell(), terminal, title),
+                      error ->
+                          showActionError(
+                              "Starting interactive terminal", ViewLoadSupport.message(error)));
+                }
+              };
+          interactiveTerminal.setToolTipText(
+              "Type into a PTY for this session's directory (v2 POST /api/pty + WebSocket"
+                  + " GET /api/pty/{id}/connect - the only stdin route, FR-CP-13)");
+          interactiveTerminal.setEnabled(currentSnapshot != null);
+          menu.add(interactiveTerminal);
           menu.add(new Separator());
           Action forms =
               new Action("Forms...") {

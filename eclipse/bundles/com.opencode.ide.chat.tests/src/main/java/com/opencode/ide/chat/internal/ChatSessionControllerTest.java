@@ -205,9 +205,20 @@ public class ChatSessionControllerTest {
    * T-071 / FR-CP-01 AC2 (transcript oracle): a prompt sent WITH attachments echoes into the
    * transcript carrying its attachment views - one {@code name|kind} per file, so the renderer
    * draws the compact rows above the prompt text inside the user bubble.
+   *
+   * <p>T-204 (cross-platform): the attachment path AND the expected view name are built from the
+   * platform's own temp dir with {@code Path.resolve}/{@code Path.getFileName} - the same platform
+   * logic {@code ChatAttachment.of} uses - so the expectation evaluates to the concrete,
+   * separator-free "pic.png|image,notes.txt|file" on Windows AND Linux. The pre-T-204 input was the
+   * Windows literal {@code C:\tmp\pic.png}, which parses as ONE file name on Linux (where {@code \}
+   * is not a separator) and broke the ubuntu leg.
    */
   @Test
   public void promptWithAttachmentsEchoesIntoTheTranscriptWithAttachmentViews() {
+    // T-204: platform-derived input - tmpdir + resolve keeps separator parsing with the platform,
+    // so getFileName() is "pic.png" on Windows AND Linux.
+    Path picPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("pic.png");
+
     controller.send(
         new ChatSessionController.OutgoingMessage(
             null,
@@ -217,12 +228,15 @@ public class ChatSessionControllerTest {
             null,
             "look at these",
             List.of(
-                ChatAttachment.of(java.nio.file.Path.of("C:\\tmp\\pic.png")),
+                ChatAttachment.of(picPath),
                 new ChatAttachment("file:///tmp/notes.txt", "notes.txt"))));
 
     assertEquals("look at these", renderer.users.get(renderer.users.size() - 1));
+    // T-204: expectation from the same platform logic production uses (Path.getFileName) - it
+    // evaluates to the CONCRETE "pic.png|image,notes.txt|file" on every platform
     assertEquals(
-        "pic.png|image,notes.txt|file", renderer.attachments.get(renderer.attachments.size() - 1));
+        picPath.getFileName() + "|image,notes.txt|file",
+        renderer.attachments.get(renderer.attachments.size() - 1));
   }
 
   /** T-071 AC3 (no-regression oracle): a plain prompt still echoes text-only. */
@@ -3100,6 +3114,75 @@ public class ChatSessionControllerTest {
         "New Session clears the persisted id (null)",
         java.util.Arrays.asList("ses_1", "ses_42", null),
         host.sessionChanges);
+  }
+
+  // ---------- external shell visibility (T-181) ----------
+
+  /**
+   * T-181 AC2 (regression): a shell run created OUTSIDE this writer (the TUI's "!", a bare {@code
+   * POST /session/:id/shell}, another client) never reaches the incremental render paths - no
+   * delta, no final render - so without this handler the transcript keeps no shell row at all
+   * (owner 2026-11-18: "the shell is not visible in the eclipse harness"; live pass 2026-11-23: 0
+   * re-renders after the shell landed in the served transcript). The shell lifecycle event for the
+   * ACTIVE session must reload the transcript from server truth (carrying the {@code role=shell}
+   * row); another session's shell must not touch this transcript.
+   */
+  @Test
+  public void shellLifecycleEventForTheActiveSessionReloadsTheTranscript() {
+    controller.subscribe();
+    controller.send(msg("hello")); // binds ses_1 and settles
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hello"),
+            shellEntry("msg_sh", "git status", "On branch main", "exited"));
+    int before = renderer.histories.size();
+
+    connection.fire(typedEvent("session.shell.started", "{\"sessionID\":\"ses_1\"}"));
+
+    assertEquals(
+        "the active session's shell event reloads the transcript",
+        before + 1,
+        renderer.histories.size());
+    List<Map<String, Object>> rows = renderer.histories.get(renderer.histories.size() - 1);
+    assertEquals(
+        "the reload carries the shell row", "shell", rows.get(rows.size() - 1).get("role"));
+    assertEquals("msg_sh", rows.get(rows.size() - 1).get("id"));
+
+    connection.fire(typedEvent("session.shell.ended", "{\"sessionID\":\"ses_other\"}"));
+
+    assertEquals(
+        "another session's shell never re-renders this transcript",
+        before + 1,
+        renderer.histories.size());
+  }
+
+  /**
+   * T-181 AC2: the deferred half of the contract - a shell event that arrives while a reply is in
+   * flight must NOT clobber the streaming transcript (the settle render owns it); it consumes the
+   * moment the send settles, so the shell row is still never lost.
+   */
+  @Test
+  public void shellEventDuringAnInFlightSendRefreshesOnlyAfterTheSettle() {
+    controller.subscribe();
+    controller.send(msg("hello")); // binds ses_1 and settles
+    host.holdBackground = true;
+    controller.send(msg("again")); // a reply is in flight now
+    connection.client.history =
+        List.of(
+            entry("u1", "user", "hello"),
+            shellEntry("msg_sh", "git status", "On branch main", "exited"));
+
+    connection.fire(typedEvent("session.shell.started", "{\"sessionID\":\"ses_1\"}"));
+
+    assertEquals(
+        "the in-flight transcript is never clobbered by a reload", 0, renderer.histories.size());
+
+    host.holdBackground = false;
+    drainBackground();
+
+    assertEquals("the settle consumes the deferred shell refresh", 1, renderer.histories.size());
+    List<Map<String, Object>> rows = renderer.histories.get(0);
+    assertEquals("shell", rows.get(rows.size() - 1).get("role"));
   }
 
   @Test

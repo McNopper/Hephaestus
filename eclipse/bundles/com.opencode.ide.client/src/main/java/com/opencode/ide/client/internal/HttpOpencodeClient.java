@@ -18,6 +18,7 @@ import com.opencode.ide.client.OpencodeClient;
 import com.opencode.ide.client.OpencodeConnectionException;
 import com.opencode.ide.client.OpencodeEventStream;
 import com.opencode.ide.client.OpencodeException;
+import com.opencode.ide.client.PtyStream;
 import com.opencode.ide.client.model.Agent;
 import com.opencode.ide.client.model.ChatEntry;
 import com.opencode.ide.client.model.ChatEntryDeserializer;
@@ -54,6 +55,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -552,6 +554,67 @@ public final class HttpOpencodeClient implements OpencodeClient {
   @Override
   public void removePty(String ptyId) throws OpencodeException {
     request("DELETE", "/pty/" + ptyId, "{}");
+  }
+
+  /**
+   * The PTY connect stream (FR-CP-13): opens {@code GET /api/pty/{id}/connect} as a WebSocket with
+   * the same Basic auth the REST calls carry (no connect ticket - the ticket-gated {@code
+   * connect-token} handshake is for browser clients and 403s without one, T-201's probe note) and
+   * blocks until the handshake completes. The frame pump is {@link HttpPtyStream}.
+   */
+  @Override
+  public PtyStream connectPty(String ptyId, PtyStream.Listener listener) throws OpencodeException {
+    URI wsUri = wsUri(baseUri, ptyId);
+    WebSocket.Builder builder = http.newWebSocketBuilder();
+    if (authHeader != null) {
+      builder.header("Authorization", authHeader);
+    }
+    HttpPtyStream stream = new HttpPtyStream(listener);
+    try {
+      WebSocket socket =
+          builder
+              .buildAsync(wsUri, stream)
+              .get(
+                  ClientTuning.REQUEST_TIMEOUT.toMillis(),
+                  java.util.concurrent.TimeUnit.MILLISECONDS);
+      stream.connected(socket);
+      return stream;
+    } catch (java.util.concurrent.ExecutionException e) {
+      Throwable cause = (e.getCause() != null) ? e.getCause() : e;
+      throw new OpencodeException(
+          "opencode pty connect " + wsUri + " failed: " + cause.getMessage(), cause);
+    } catch (java.util.concurrent.TimeoutException e) {
+      throw new OpencodeConnectionException(
+          "opencode pty connect "
+              + wsUri
+              + " timed out after "
+              + ClientTuning.REQUEST_TIMEOUT.toSeconds()
+              + "s",
+          e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new OpencodeConnectionException("Interrupted while connecting to " + wsUri, e);
+    }
+  }
+
+  /**
+   * The WebSocket URI of the PTY connect stream: the REST resolve rule ({@code /api} + path on the
+   * configured base) with the scheme swapped {@code http -> ws} / {@code https -> wss}; the pty id
+   * is path-encoded (ids are server-generated, this keeps odd input harmless).
+   *
+   * <p>Public for the same reason as {@link #sessionListPath}: the URL shape is byte-pinned by a
+   * test in the client.tests bundle (OSGi forbids same-package-across-bundles access at runtime).
+   */
+  public static URI wsUri(URI baseUri, String ptyId) {
+    String encodedId =
+        URLEncoder.encode(ptyId == null ? "" : ptyId, StandardCharsets.UTF_8).replace("+", "%20");
+    String resolved = baseUri.resolve("/api/pty/" + encodedId + "/connect").toString();
+    if (resolved.startsWith("https://")) {
+      resolved = "wss://" + resolved.substring("https://".length());
+    } else if (resolved.startsWith("http://")) {
+      resolved = "ws://" + resolved.substring("http://".length());
+    }
+    return URI.create(resolved);
   }
 
   @Override

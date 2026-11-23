@@ -16,6 +16,15 @@
     <tycho.version>5.0.3</tycho.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>21</maven.compiler.release>
+    <!-- T-008 hybrid test lane switches. Defaults = the plain (non-OSGi) lane
+         for the Eclipse-free *.tests bundles: tycho-surefire skipped, plain
+         maven-surefire runs. `-Posgi-parity` flips both (weekly OSGi-parity run
+         of the plain lane). The Eclipse-free bundles reference these properties
+         in their own pom (ui/cdt/board/core/mcp stay on tycho-surefire
+         untouched; chat.tests was AUDITED OUT of the plain lane - its U-105
+         /goal seam round-trips through the OSGi activator, see QUALITY.md). -->
+    <plainLane.skipTychoSurefire>true</plainLane.skipTychoSurefire>
+    <plainLane.skipSurefire>false</plainLane.skipSurefire>
   </properties>
 
   <modules>
@@ -235,6 +244,21 @@
                  prepare-agent sets tycho.testArgLine (not argLine) - resolved at
                  mojo injection, deliberately NOT declared in <properties> -->
             <argLine>${tycho.testArgLine}</argLine>
+          </configuration>
+        </plugin>
+        <!-- T-008 plain test lane: pin the surefire line the plain-lane
+             executions run on (deterministic across Maven versions; equals the
+             line the mojo/arch modules already resolve from the super POM).
+             failIfNoTests=true keeps the silent-zero-discovery failure mode a
+             BUILD FAILURE everywhere surefire runs - the plain-lane bundles
+             additionally point testClassesDirectory at target/classes (their
+             own pom), because their tests live in src/main/java. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.2.5</version>
+          <configuration>
+            <failIfNoTests>true</failIfNoTests>
           </configuration>
         </plugin>
       </plugins>
@@ -480,6 +504,23 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+
+    <!-- T-008 OSGi-parity run (weekly): flips the Eclipse-free test bundles
+         BACK to tycho-surefire (real OSGi boot against the manifests) and off
+         plain surefire, without touching the OSGi-native bundles (ui/cdt/
+         board/core/mcp) or the plain-javac modules (mojo, arch.tests). Both
+         lanes write the same target/surefire-reports, so the coverage manifest
+         of a `-Posgi-parity` run must be IDENTICAL to a normal run - that
+         byte-level equality is the dual-lane parity proof and the MANIFEST
+         fidelity check (OSGi classloading only succeeds if Require-Bundle /
+         Import-Package still describe what the tests actually load). -->
+    <profile>
+      <id>osgi-parity</id>
+      <properties>
+        <plainLane.skipTychoSurefire>false</plainLane.skipTychoSurefire>
+        <plainLane.skipSurefire>true</plainLane.skipSurefire>
+      </properties>
     </profile>
   </profiles>
 </project>

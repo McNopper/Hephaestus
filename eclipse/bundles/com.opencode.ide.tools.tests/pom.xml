@@ -14,4 +14,58 @@
   <artifactId>com.opencode.ide.tools.tests</artifactId>
   <packaging>eclipse-test-plugin</packaging>
 
+  <!-- T-008 plain test lane: this bundle is Eclipse-free, so its tests run on
+       plain maven-surefire (Tycho's preferred path for plain unit tests) instead
+       of booting an OSGi runtime with tycho-surefire. Packaging STAYS
+       eclipse-test-plugin (target-platform compile fidelity); only the test
+       executor swaps. `-Posgi-parity` flips both switches back for the weekly
+       OSGi-parity run. -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <!-- JUnit4 provider FORCED as a plugin dependency: these tests are
+             JUnit4, but the junit jar reaches the classpath as a Tycho p2
+             artifact (p2.eclipse.plugin:org.junit), whose coordinates do not
+             satisfy surefire's provider auto-detection - it fell back to the
+             JUnit3 provider (0 tests executed, caught by failIfNoTests).
+             Plugin dependencies never enter the target platform. -->
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-junit4</artifactId>
+            <version>3.2.5</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <id>plain-lane-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <!-- rubberduck landmine (T-008): tests live in src/main/java and
+               compile to target/classes - plain surefire's default
+               target/test-classes holds nothing and would silently discover
+               ZERO tests (failIfNoTests=true turns that into a build failure) -->
+          <testClassesDirectory>${project.build.outputDirectory}</testClassesDirectory>
+          <failIfNoTests>true</failIfNoTests>
+          <skipTests>${plainLane.skipSurefire}</skipTests>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-surefire-plugin</artifactId>
+        <configuration>
+          <!-- plain lane: the OSGi test boot is skipped (flipped by
+               -Posgi-parity, the weekly OSGi-parity run) -->
+          <skipTests>${plainLane.skipTychoSurefire}</skipTests>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

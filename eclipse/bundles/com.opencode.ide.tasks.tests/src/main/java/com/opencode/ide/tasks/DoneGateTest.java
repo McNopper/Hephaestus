@@ -97,6 +97,30 @@ public class DoneGateTest extends ToolRpcHarness {
     TaskStore fresh = new TaskStore(root);
     Task child = fresh.get("p", "T-002");
     assertEquals("T-001", child.basis);
+    // AC1: the BIRTH rule - the basis exists and is NOT done -> the child lands paused
+    // (the dependency wait; the pump resumes it the moment the basis completes)
+    assertEquals("paused", child.status);
+  }
+
+  @Test
+  public void birthIsReadyWithoutAnOpenBasis() {
+    // AC1, the ready branch of the birth rule: no basis at all -> born ready
+    ok("task_create", "{\"project\":\"p\",\"title\":\"root\",\"stage\":\"system\"}");
+    ok("task_create", "{\"project\":\"p\",\"title\":\"entry\",\"stage\":\"requirements\"}");
+    TaskStore fresh = new TaskStore(root);
+    assertEquals("ready", fresh.get("p", "T-002").status);
+    // a DONE basis is closed too -> born ready (division's normal case)
+    ok(
+        "task_add_artifact",
+        "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"kind\":\"doc\","
+            + "\"ref\":\"docs/system-product.md\",\"note\":\"stage product\",\"by\":\"w\"}");
+    ok("task_update", "{\"project\":\"p\",\"ticket_id\":\"T-001\",\"status\":\"done\"}");
+    ok(
+        "task_create",
+        "{\"project\":\"p\",\"title\":\"child of done\",\"stage\":\"design\","
+            + "\"basis\":\"T-001\"}");
+    fresh = new TaskStore(root);
+    assertEquals("ready", fresh.get("p", "T-003").status);
   }
 
   @Test

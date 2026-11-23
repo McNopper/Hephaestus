@@ -28,7 +28,9 @@ import java.util.Map;
  * &gt; RUNNING (in-progress/in-review) &gt; WAIT_UPSTREAM &gt; STALE &gt; READY. BLOCKED outranks
  * RUNNING because a blocked ticket has no live work on it - a stale blocked claim must read as
  * failed, never as running. A ticket already {@code done} with unchanged inputs falls through to
- * NOT_APPLICABLE (READY would re-dispatch finished work).
+ * NOT_APPLICABLE (READY would re-dispatch finished work); {@code not-implemented} (also a done
+ * state, owner model 2026-11-20) short-circuits to NOT_APPLICABLE on EVERY path - a terminal
+ * done-state ticket is never dispatchable (AGENTS.md H6).
  */
 public final class StageReadiness {
 
@@ -158,6 +160,14 @@ public final class StageReadiness {
       return new Readiness(
           Kind.BLOCKED, "ticket is blocked" + (t.blocker == null ? "" : ": " + t.blocker));
     }
+    // AC3/H6 (owner model 2026-11-20): not-implemented is a DONE state - terminal,
+    // never re-dispatched, never divided. It short-circuits here so EVERY path
+    // (basis, flow history, entry stage) reads NOT_APPLICABLE, mirroring the done
+    // treatment - READY would re-dispatch finished work.
+    if ("not-implemented".equals(t.status)) {
+      return new Readiness(
+          Kind.NOT_APPLICABLE, "stage '" + t.stage + "' is not-implemented (decided not to build)");
+    }
     if ("in-progress".equals(t.status)) {
       return new Readiness(Kind.RUNNING, "stage '" + t.stage + "' work is in-progress");
     }
@@ -176,12 +186,14 @@ public final class StageReadiness {
 
     String flow = flowEvidence(t, upstream);
     if (flow == null) {
-      if ("done".equals(t.status)) {
+      if (finished(t.status)) {
         return new Readiness(
             Kind.NOT_APPLICABLE,
             "stage '"
                 + t.stage
-                + "' finished (done); the ticket"
+                + "' finished ("
+                + t.status
+                + "); the ticket"
                 + " entered the V pipeline here - no '"
                 + upstream
                 + "' ticket to wait on");
@@ -218,11 +230,21 @@ public final class StageReadiness {
   }
 
   private static Readiness finishedOrBacklog(Task t, String satisfiedReason) {
-    if ("done".equals(t.status)) {
+    if (finished(t.status)) {
       return new Readiness(
-          Kind.NOT_APPLICABLE, "stage '" + t.stage + "' finished (done) and inputs unchanged");
+          Kind.NOT_APPLICABLE,
+          "stage '" + t.stage + "' finished (" + t.status + ") and inputs unchanged");
     }
     return new Readiness(Kind.READY, satisfiedReason);
+  }
+
+  /**
+   * The two DONE states (owner model 2026-11-20): {@code done} and {@code not-implemented}.
+   * Finished work is never re-dispatched (AGENTS.md H6) - both read NOT_APPLICABLE wherever the
+   * done treatment applies.
+   */
+  private static boolean finished(String status) {
+    return "done".equals(status) || "not-implemented".equals(status);
   }
 
   /**
@@ -310,7 +332,7 @@ public final class StageReadiness {
    * "created" - planning a sprint alone does not count as running).
    */
   private static boolean ranBefore(Task t) {
-    if ("in-progress".equals(t.status) || "in-review".equals(t.status) || "done".equals(t.status)) {
+    if ("in-progress".equals(t.status) || "in-review".equals(t.status) || finished(t.status)) {
       return true;
     }
     for (Task.HistoryEvent e : t.history) {

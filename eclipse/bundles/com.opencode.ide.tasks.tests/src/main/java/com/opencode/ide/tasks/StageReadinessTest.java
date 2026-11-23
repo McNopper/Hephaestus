@@ -166,6 +166,54 @@ public class StageReadinessTest {
   }
 
   @Test
+  public void notImplementedEntryStageTicketIsNotApplicable() {
+    // AC3 (the live-probe shape: T-198 - requirements, no basis): a DONE state must never
+    // read READY (AGENTS.md H6: a done-state ticket is never re-dispatched)
+    Task req = ticket("REQ-198", "requirements", "not-implemented");
+    var v = verdictOf(req, List.of(req));
+    assertEquals(StageReadiness.Kind.NOT_APPLICABLE, v.kind());
+    assertTrue(v.reason().contains("not-implemented"));
+  }
+
+  @Test
+  public void notImplementedTicketWithoutFlowHistoryIsNotApplicable() {
+    // the basis-less mid-V branch: where a ready ticket would WAIT_UPSTREAM, the terminal
+    // done state short-circuits to NOT_APPLICABLE
+    Task design = ticket("D-1", "design", "not-implemented");
+    assertEquals(StageReadiness.Kind.NOT_APPLICABLE, verdictOf(design, List.of(design)).kind());
+  }
+
+  @Test
+  public void notImplementedTicketWithAnOpenBasisIsNotApplicable() {
+    // terminal on EVERY path: even WAIT_UPSTREAM would park finished work as a dependency wait
+    Task design = ticket("D-1", "design", "not-implemented");
+    design.basis = "SYS-1";
+    Task sys = ticket("SYS-1", "system", "ready");
+    assertEquals(
+        StageReadiness.Kind.NOT_APPLICABLE, verdictOf(design, List.of(design, sys)).kind());
+  }
+
+  @Test
+  public void notImplementedTicketWithASatisfiedBasisIsNotApplicable() {
+    Task design = ticket("D-1", "design", "not-implemented");
+    design.basis = "SYS-1";
+    Task sys = ticket("SYS-1", "system", "done");
+    assertEquals(
+        StageReadiness.Kind.NOT_APPLICABLE, verdictOf(design, List.of(design, sys)).kind());
+  }
+
+  @Test
+  public void notImplementedOverTheRealStoreIsNotApplicable() {
+    // end-to-end over the store: the exact inputs the production readiness tick
+    // (task_readiness -> StageReadiness.evaluate over store.list) serves
+    Task req = store.create("p", TaskStore.CreateSpec.of("retired requirement"), "requirements");
+    store.update("p", req.id, java.util.Map.of("status", "not-implemented"));
+    var v = StageReadiness.evaluate(store.list("p", null, null, null)).get(req.id);
+    assertEquals(StageReadiness.Kind.NOT_APPLICABLE, v.kind());
+    assertTrue(v.reason().contains("not-implemented"));
+  }
+
+  @Test
   public void realStoreDivisionProducesAReadyChild() {
     // end-to-end over the store: SYS-1 done -> its implementation child (basis=SYS-1) is READY
     Task sys = store.create("p", TaskStore.CreateSpec.of("system work"), "system");

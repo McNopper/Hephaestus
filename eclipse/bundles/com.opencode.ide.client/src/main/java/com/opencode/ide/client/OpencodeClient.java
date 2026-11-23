@@ -310,6 +310,21 @@ public interface OpencodeClient {
   }
 
   /**
+   * {@code GET /api/pty/{id}/connect} - the interactive PTY stream (the WebSocket the openapi marks
+   * {@code x-websocket:true}: "streaming PTY output and accepting terminal input"). This is the
+   * ONLY stdin route that exists - the REST surface is title/resize only (live-probed 2026-11-23 on
+   * 2.4.0: raw text frames both ways, Basic auth without a connect ticket, control frames binary
+   * with a leading {@code 0x00} - see {@link PtyStdin} for the payload rules).
+   *
+   * <p>Blocks until the socket is open (or fails with {@link OpencodeException}); output then flows
+   * through {@code listener} on the transport thread. The PTY process itself outlives the socket -
+   * terminate it with {@link #removePty}.
+   */
+  default PtyStream connectPty(String ptyId, PtyStream.Listener listener) throws OpencodeException {
+    throw new UnsupportedOperationException("connectPty");
+  }
+
+  /**
    * {@code GET /api/experimental/session/{id}/terminal/read} - the session's controlled terminal as
    * {@code PersistentPty.ReadResult} (rendered {@code screen} + {@code foregroundProcess}). The
    * read-only terminal pane rides this - no emulator on our side.

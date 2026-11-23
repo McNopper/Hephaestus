@@ -21,6 +21,7 @@
 | Bug patterns | SpotBugs (`-Pquality`, effort Max / threshold High) | `verify -Pquality` | no — report-only for now |
 | Coverage | JaCoCo (`0.8.15`, report-only — no failing threshold) | every `verify`; HTML per module at `*/target/site/jacoco/index.html`; test-module execs carry the full-run instrumentation (production-bundle HTML aggregation: `-Pcoverage`, see the Coverage gate row below) | no — report lane |
 | Coverage gate (opt-in) | JaCoCo check rule (`-Pcoverage`, 55% line at bundle scope on production bundles, aggregate report at target/site/jacoco-aggregate) | on demand: `.\build.ps1 verify -Pcoverage` | yes, when the profile is on |
+| Coverage manifest (test ids + skip reasons) | `releng/coverage-manifest.ps1` diff of this build's surefire XML reports against `releng/coverage-manifest-baseline.txt` (both lanes) | after every successful `verify`/`install`/`deploy` through `build.ps1` (CI + pre-push ride that path; `-Update -Since <build-start>` re-baselines) | **yes** (any id/skip drift fails the gate) |
 | PowerShell lint | PSScriptAnalyzer (`PSScriptAnalyzerSettings.psd1`; Write-Host excluded with rationale — console scripts' interface) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
 | Markdown lint | markdownlint-cli2 (`.markdownlint-cli2.yaml`; MD013/MD060 trimmed with rationale — repo voice; task store excluded) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
 | Third-party license inventory (opt-in) | osv-scanner `--licenses` via `scan-deps.ps1 -Licenses` (the matrix-cited `license-maven-plugin` goal was removed from every maintained mycila version; osv is the free+reliable tool already pinned here) | on demand: `.\releng\scan-deps.ps1 -Licenses` | no — report-only. Landscape reviewed 2026-10-11: the "non-standard ×3" were osv metadata gaps on SNAPSHOT-parent poms, real licenses verified at Maven Central (ArchUnit = Apache-2.0, JUnit = EPL-1.0). **Policy: what WE introduce must be standard-permissive (MIT/Apache-2.0/BSD/ISC/0BSD); Eclipse-platform licenses accepted as-is.** Allowlist enforcement stays deferred until osv resolves license metadata through local parents |
@@ -38,6 +39,75 @@ The release gate is `.\build.ps1 clean verify -Pquality`; the inner loop is
 `main` that CI has not already passed locally: the pre-push gate runs the CI
 verify workflow's checks before every push, so a green push is a green CI run
 (barring runner drift).
+
+## The hybrid test lane — plain surefire vs tycho-surefire (T-008)
+
+Test bundles split by what they need at runtime:
+
+| Lane | Bundles | Executor |
+|---|---|---|
+| Plain (Eclipse-free) | `tools.tests`, `tasks.tests`, `client.tests`, `git.tests` | `maven-surefire-plugin` 3.2.5, plain JVM, no OSGi boot |
+| OSGi (needs DS/platform) | `ui.tests`, `cdt.tests`, `board.tests`, `core.tests`, `mcp.tests`, `chat.tests` | `tycho-surefire-plugin` (Equinox test runtime), unchanged |
+
+**chat.tests audit result (T-008):** chat was a *candidate* for the plain
+lane ("audited chat"), but its tests are plain-JVM-safe only **except** the
+U-105 governed `/goal` seam
+(`ChatSessionControllerTest#theGoalCommandIsInterceptedAndNeverReachesTheServer`):
+`ChatViewSettings` persists the remembered goal ticket through
+`ChatActivator.getDefault()`, which is `null` outside an OSGi runtime
+("persistence is a no-op (tests)"), so in a plain JVM `/goal pause` never
+finds the captured ticket (status stays `ready`) while the OSGi run passes.
+One test pins the whole bundle to the lane where its production seam really
+exists - chat stays on the OSGi lane, full coverage intact. The failure was
+observed live in both the single-bundle probe and the full-reactor plain run
+(2026-11-23, expected `paused`, got `ready`).
+
+Both lanes keep packaging `eclipse-test-plugin` (target-platform compile
+fidelity — only the TEST EXECUTOR swaps), and the plain-javac modules
+(`mojo`, `arch.tests`) keep the default surefire binding. The plain-lane poms
+carry these guards, each with a written rationale in the pom itself:
+
+- **`testClassesDirectory` → `target/classes`** — these tests live in
+  `src/main/java`; without the override surefire scans the empty
+  `target/test-classes` and silently discovers ZERO tests. `failIfNoTests=true`
+  (parent pluginManagement, enforced everywhere surefire runs) turns that
+  failure mode into a build failure instead of a green no-op.
+- **Forced `surefire-junit4` plugin dependency** — the JUnit jar reaches the
+  classpath as a Tycho p2 artifact (`p2.eclipse.plugin:org.junit`) whose
+  coordinates miss surefire's provider auto-detection (it fell back to the
+  JUnit3 provider: 0 tests executed). Plugin dependencies never enter the
+  target platform.
+- **`argLine` → `${tycho.testArgLine}`** — jacoco's `prepare-agent` sees
+  tycho-surefire declared in the module and sets `tycho.testArgLine`; the
+  plain fork must be handed that string or coverage silently becomes exec-less.
+- **Fork env vars mirrored** (`CLIENT_REPLY_POLL_MS`/`CLIENT_TURN_QUIET_MS`,
+  `GIT_CONFIG_NOSYSTEM=1`) — the plain fork runs with the same environment as
+  the OSGi fork.
+
+**Weekly OSGi-parity run (MANIFEST fidelity).** `.\build.ps1 verify
+-Posgi-parity` flips the four plain-lane bundles back to tycho-surefire (and plain
+surefire off) without touching the OSGi-native bundles. Run it weekly in the
+maintenance pass and before any release: both lanes write the same
+`target/surefire-reports`, the coverage manifest is lane-agnostic, and the
+manifest must stay CLEAN (byte-identical test ids + skip reasons against the
+baseline). A DRIFT means the plain lane and the OSGi runtime no longer agree.
+This is also the MANIFEST fidelity proof — the OSGi boot honors
+`Require-Bundle`/`Import-Package` only if the manifests still describe what
+the tests actually load, while the plain lane runs on Tycho's manifest-resolved
+dependency closure as its classpath. (There is no `tycho-dependency-analyzer`
+artifact in Tycho 5.0.x — this documented weekly OSGi run is the fidelity
+check the T-008 acceptance criteria allow.)
+
+**Coverage manifest mechanics.** `releng/coverage-manifest.ps1` collects
+`TEST-*.xml` from every test-bearing module of THIS build — `-Since <build
+start>` (stamped by `build.ps1` before mvnw) excludes stale leftovers, so a
+test deleted since the last `clean` shows up as a MISSING id instead of being
+masked by an old report. Gate modes: diff (default, exit 1 on drift) and
+`-Update` (re-baseline; do it consciously in the same change that adds,
+removes or re-skips tests, and cite the rationale on the ticket). Partial
+reactor runs (`-pl`/`-am`/`-rf`/`-N`) and test-skipped commands
+(`-DskipTests`, `-Dmaven.test.skip`) skip the diff with a loud console note —
+never silently.
 
 ## Clean architecture — the dependency rules
 

@@ -51,7 +51,7 @@ ticker can divide each gap into a child ticket.
 
 | Reference | Role | Citation |
 |---|---|---|
-| opencode **TUI** (v2 docs; repo pin 2.3.2) | the parity floor | <https://opencode.ai/docs/cli/tui/>, <https://opencode.ai/docs/cli/keybinds/>, <https://opencode.ai/docs/cli/commands/>, <https://opencode.ai/docs/permissions/>; V1 floor commands archived at <https://opencode.ai/docs/tui/> |
+| opencode **TUI** (v2 docs; repo pin 2.4.0) | the parity floor | <https://opencode.ai/docs/cli/tui/>, <https://opencode.ai/docs/cli/keybinds/>, <https://opencode.ai/docs/cli/commands/>, <https://opencode.ai/docs/permissions/>; V1 floor commands archived at <https://opencode.ai/docs/tui/> |
 | opencode **desktop client** | second reference where its behavior differs usefully | `docs/opencode-v2-adoption.md` release-note rows (cited inline below) — no local desktop source; repo/docs only per ticket scope |
 | **Standing rule** | "TUI parity is the floor, not the goal": hold "same or more features than the official TUI" and use the harness where it is genuinely better | `ROADMAP.md` L168-169 |
 | Doctrine | capability parity, not UI simulation; host tier (Eclipse editor/themes/keybindings/LSP) strictly reused | `docs/opencode-v2-adoption.md` L55-60, L352, L359 |
