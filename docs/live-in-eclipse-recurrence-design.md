@@ -26,6 +26,11 @@
   preserved by reference, §5 W-2 and §7); `AGENTS.md` (the store state
   machine; the chat-first control plane; paired verification); tickets
   T-039 (the rule), T-002 (the origin instance), T-040 (the first instance).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## 1. Design scope
 

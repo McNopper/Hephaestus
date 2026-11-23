@@ -31,10 +31,17 @@ public class LintAndFormatToolsTest {
 
   private final CppToolProvider tools = new CppToolProvider();
 
+  // ONE canonical skip reason for cppcheckDetectsUninitializedPointerBug: the
+  // method skips at two stages (tool absent / installed-but-broken) and which
+  // stage fires is environment-dependent - stage-specific wording would read as
+  // both-skip reason DRIFT in the coverage-manifest gate across machines. The
+  // per-stage absent-vs-broken distinction is deliberately given up for a
+  // deterministic datum.
+  private static final String CPPCHECK_SKIP_REASON = "cppcheck toolchain env not available";
+
   @Test(timeout = 120_000)
   public void cppcheckDetectsUninitializedPointerBug() throws IOException {
-    Assume.assumeTrue(
-        "cppcheck not present on this machine", ToolchainRegistry.cppcheck().isPresent());
+    Assume.assumeTrue(CPPCHECK_SKIP_REASON, ToolchainRegistry.cppcheck().isPresent());
     Path dir = Files.createTempDirectory("mcp-lint-");
     try {
       Files.writeString(
@@ -47,7 +54,7 @@ public class LintAndFormatToolsTest {
           "at least one file checked: " + result.text(),
           payload.get("files_checked").getAsInt() >= 1);
       Assume.assumeFalse(
-          "cppcheck install is broken on this machine (library cfg failed to load)",
+          CPPCHECK_SKIP_REASON,
           payload
               .get("output")
               .getAsString()

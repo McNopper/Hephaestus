@@ -27,6 +27,11 @@
   actor), and engine attribution rests on the review pass's observable
   marks. Source of truth: [SYS §Interfaces 1] as amended by T-097; this
   doc re-points its wording only, it does not restate the rule.
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## Scope
 

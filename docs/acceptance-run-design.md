@@ -29,6 +29,11 @@
   §1); `docs/acceptance-run-design.tests.md` (T-096 — the criteria this
   artifact is judged by). Design decisions are **DD-01..DD-06**, data
   structures **DS-1..DS-5** (doc-local ids).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## 1. Design scope
 

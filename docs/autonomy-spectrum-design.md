@@ -29,6 +29,11 @@
   spectrum (the operating model, owner requirement 2026-11-15)" (the
   doctrine; cited [AGENTS]). Design decisions are **DD-01..DD-06**, data
   structures **DS-1..DS-4**, workflows **W-1..W-4** (doc-local ids).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## 1. Design scope
 

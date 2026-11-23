@@ -24,11 +24,18 @@ public class ToolchainRegistryTest {
   private static final Path VSWHERE =
       Paths.get("C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe");
 
+  // ONE canonical skip reason per test method: which of a method's staged assumes
+  // fires is environment-dependent (MSYS2 present vs absent), and the
+  // coverage-manifest gate compares both-skip reason strings strictly across
+  // machines - stage-specific wording would read as DRIFT on every other runner.
+  private static final String UCRT64_SKIP_REASON = "ucrt64 toolchain env not available";
+  private static final String CLANG64_SKIP_REASON = "clang64 toolchain env not available";
+
   @Test
   public void ucrt64DetectedWithCmakeNinjaAndNoGdb() {
-    Assume.assumeTrue("no MSYS2 on this machine", Files.isDirectory(MSYS2));
+    Assume.assumeTrue(UCRT64_SKIP_REASON, Files.isDirectory(MSYS2));
     Optional<Toolchain> ucrt64 = ToolchainRegistry.byId("ucrt64");
-    Assume.assumeTrue("no ucrt64 env", ucrt64.isPresent());
+    Assume.assumeTrue(UCRT64_SKIP_REASON, ucrt64.isPresent());
     Toolchain tc = ucrt64.get();
     assertTrue("ucrt64 cmake expected", tc.cmake().isPresent());
     assertTrue("ucrt64 ninja expected", tc.ninja().isPresent());
@@ -40,10 +47,10 @@ public class ToolchainRegistryTest {
 
   @Test
   public void clang64AndMingw64DetectedWhenPresent() {
-    Assume.assumeTrue("no MSYS2 on this machine", Files.isDirectory(MSYS2));
+    Assume.assumeTrue(CLANG64_SKIP_REASON, Files.isDirectory(MSYS2));
     for (String id : new String[] {"clang64", "mingw64"}) {
       Optional<Toolchain> tc = ToolchainRegistry.byId(id);
-      Assume.assumeTrue("env " + id + " not present", tc.isPresent());
+      Assume.assumeTrue(CLANG64_SKIP_REASON, tc.isPresent());
       assertTrue(
           id + " must have cmake+compiler or would not be reported",
           tc.get().cmake().isPresent() || tc.get().compiler().isPresent());

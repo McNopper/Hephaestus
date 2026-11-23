@@ -16,6 +16,12 @@
   prototype the model must match), `docs/design-stage-pipeline.md`
   (superseded-on-ten→one context), ticket `T-056` (this doc's recording
   ticket; the verdict is also recorded there).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps, sprint records and backlog statuses quoted below are historical;
+  their verdicts stand as recorded on their dates.
 
 ## How these tests ran
 

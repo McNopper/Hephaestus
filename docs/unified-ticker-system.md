@@ -21,6 +21,11 @@
   [Supersession](#supersession)), `docs/opencode-v2-adoption.md` (W1: the
   `experimental.automation.*` surface this system composes (renamed from `experimental.schedule.*` in 2.3.1, #64160)), `AGENTS.md`
   (the ticket/sprint workflow this system mechanizes).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## Overview
 

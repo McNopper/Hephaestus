@@ -19,6 +19,12 @@
   **Provenance note:** the tasks MCP namespace dropped before T-099's
   completion comment could be written; this file is the durable record of the
   criteria and verdict, to be linked onto ticket T-099 by the reviewer/ticker.
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps, sprint records and backlog statuses quoted below are historical;
+  their verdicts stand as recorded on their dates.
 
 ## Part I — amendment verification of T-098 (ticket T-099)
 

@@ -1272,10 +1272,10 @@ com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.NativeToolchainTest#make
 com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.NativeToolchainTest#nativeLookupRejectsWindowsExeAndDirectories|pass|-
 com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.NativeToolchainTest#nativeLookupRequiresExecutePermissionAndPreservesPathOrder|pass|-
 com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.NativeToolchainTest#requiresBothLanguagesFromOneInstallation|pass|-
-com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#clang64AndMingw64DetectedWhenPresent|skip|env clang64 not present
+com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#clang64AndMingw64DetectedWhenPresent|skip|clang64 toolchain env not available
 com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#detectedListOrderPutsMsvcFirstAndDefaultMatchesFirst|pass|-
 com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#msvcDetectedWithVisualStudioGenerator|pass|-
-com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#ucrt64DetectedWithCmakeNinjaAndNoGdb|skip|no ucrt64 env
+com.opencode.ide.tools.tests|com.opencode.ide.tools.cpp.ToolchainRegistryTest#ucrt64DetectedWithCmakeNinjaAndNoGdb|skip|ucrt64 toolchain env not available
 com.opencode.ide.ui.tests|com.opencode.ide.ui.attention.AttentionClassifierTest#answeredAndCancelledFormsRaiseNothing|pass|-
 com.opencode.ide.ui.tests|com.opencode.ide.ui.attention.AttentionClassifierTest#busyThenIdleRaisesSessionCompletedOnce|pass|-
 com.opencode.ide.ui.tests|com.opencode.ide.ui.attention.AttentionClassifierTest#executionFailedAfterBusyRaisesSessionError|pass|-

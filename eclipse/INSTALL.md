@@ -189,10 +189,10 @@ one-time setup:
       highlighted code fences) via a per-request system prompt
       (`ChatCapabilities.RENDERER_SYSTEM_PROMPT`), **on by default**; toggle:
       *Preferences -> OpenCode -> Advertise rendering* (U-055).
-5. The **Board** view (PM kanban over the repo's `.harness/tasks/` store: six status
-    columns - *paused* included - or the ten V-stage pipeline columns, sprint selector
-    - goal, blocked flags, ticket details with artifact links, live refresh) drives the
-    workflow: select a sprint-backlog/in-progress ticket, work it to `in-review` (the
+5. The **Board** view (PM kanban over the repo's `.harness/tasks/` store: seven status
+    columns - *paused* and *blocked* included - or the ten V-stage pipeline columns, stage
+    filter - blocked flags, ticket details with artifact links, live refresh) drives the
+    workflow: select a ready ticket, claim it to `in-progress`, work it to `in-review` (the
     ticker's reviewers give the engine verdict), or use the context-menu actions (open,
     copy id, copy stage journey, archive). The ticker-v schedule drives claims and
     verdicts unattended when armed.

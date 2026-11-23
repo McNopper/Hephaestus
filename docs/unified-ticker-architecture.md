@@ -29,6 +29,11 @@
   `.opencode/skills/stage-pipeline/ticker-setup.ps1` (the prototype arming
   script, read-only provenance; cited as [SETUP]); ticket T-103 (this stage,
   basis T-055).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## Scope
 

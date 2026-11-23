@@ -25,6 +25,11 @@
   "The two dials (goal intake)" (the intake procedure; cited as [PO]);
   tickets T-113 (this stage) and T-114 (the paired verification of this
   doc).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## Scope
 

@@ -21,6 +21,12 @@
   `.opencode/skills/stage-pipeline/ticker-setup.ps1` ([SETUP]),
   `.opencode/agent/reviewer.md` ([REV]); tickets T-103 (architecture, done by
   engine verdict), T-104 (this verification ticket).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps, sprint records and backlog statuses quoted below are historical;
+  their verdicts stand as recorded on their dates.
 
 ## Library under test
 

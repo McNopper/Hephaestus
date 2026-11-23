@@ -18,6 +18,12 @@
   T-040 (pre-flow instance), T-039 (the rule).
 - **Verdict recorded:** also on ticket T-086 as a comment (the hand-off
   contract); this file carries the full evidence.
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps, sprint records and backlog statuses quoted below are historical;
+  their verdicts stand as recorded on their dates.
 
 ## System under test
 

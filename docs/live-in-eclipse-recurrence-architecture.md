@@ -22,6 +22,14 @@
   live-pass checklist); `AGENTS.md` (paired-verification paragraph; the
   chat-first control plane); tickets T-039 (the rule), T-002 (the origin
   instance), T-040 (the first minted instance).
+- **Currency (T-202, owner model 2026-11-20, release v0.4.5):** the sprint
+  model is removed - no plan/close-sprint steps, sprint records, backlog
+  statuses or `sprint` field; the store is the seven-state model (born
+  ready/paused, claims ready-only) and the mint lands born `ready` + the
+  `owner-acceptance` assignee shield (the flow's currency note). The
+  sprint-membership branches, the §3 landing rows and the record-ejection
+  clauses narrated below are historical; §8's T-040 observation and §9's
+  G1 row carry the corrected current facts.
 
 ## 1. Chosen pattern
 
@@ -264,13 +272,15 @@ ruleset; this architecture records the seam and modifies neither file:
   AD-004, QA-002's wave-detection note) rather than re-opened.
 - **Pass-through observation (live data, not structure):** T-040 — the first
   instance minted under the rule but before the flow existed — sits
-  `sprint-backlog`, unassigned, `basis: null`, and live readiness evidence
-  showed it READY via the then-legacy epic-chain fallback (removed with
-  the epic field, 2026-11-19; flow §7). The one-time
-  transition (apply `in-progress` + `owner-acceptance` once, so G1 holds for
-  it too) is a store motion outside this architecture's lane; until it runs,
-  G1 for T-040 rests on no `test-requirements` kickoff claiming it. T-002
-  itself is `done` — an instance, not the mechanism (flow §7).
+  `blocked` (`resume_to: ready`, unassigned, `basis: U-112`; owner-deprecation
+  blocker, 2026-11-18); its earlier live readiness evidence had shown it
+  READY via the then-legacy epic-chain fallback (removed with the epic field,
+  2026-11-19; flow §7). The one-time transition to the flow's current mint
+  landing (born `ready` + the `owner-acceptance` assignee shield) is a store
+  motion outside this architecture's lane; until it runs, G1 for T-040 rests
+  on no `test-requirements` kickoff claiming it — and on the blocker, since
+  claims take `ready` only. T-002 itself is `done` — an instance, not the
+  mechanism (flow §7).
 
 ## 9. Traceability matrix (T-107 AC-2)
 
@@ -288,7 +298,7 @@ evidence it rests on:
 | §2 actor row 3 — product owner: executes the pass, files findings, may mint or override manually | C-4; manual override is the owner's standing prerogative (the owner can override any machine rule) | flow §2; `docs/TESTING.md` (the checklist) |
 | §2 actor row 4 — engine review pass: only `done` authority; never accepts self-assessment | C-5; DR-5 | flow §2; SKILL.md step 3; design-stage-pipeline §8 |
 | §2 pseudo-actor `owner-acceptance` (owner as pass executor) | §3 (`assignee` field); routing marker, not evidence | flow §2 closing paragraph + §6 G1; release-cadence §3.1 (assignees are never evidence) |
-| §6 G1 — never dispatched | DR-3; C-3's branches (claims `sprint-backlog` only; readiness RUNNING for `in-progress`; no record membership); AD-002 + the fallback shape | flow §6 G1; SKILL.md step 5 (claim walk) + field observation (assignee pre-check); AGENTS.md state machine; live readiness observation (T-055, T-085) |
+| §6 G1 — never dispatched | DR-3; C-3's branches (claims `ready` only, and only unassigned tickets; readiness RUNNING for `in-progress`); AD-002 + the fallback shape | flow §6 G1; SKILL.md step 5 (claim walk) + field observation (assignee pre-check); AGENTS.md state machine; live readiness observation (T-055, T-085) |
 | §6 G2 — nothing derives from it | DR-4; C-1's empty division map for the last stage; C-3 (no readiness edge into instances) | flow §6 G2; AGENTS.md V-stage table (`test-requirements` is the last stage) |
 | §6 G3 — parent verdicts unaffected | DR-5; C-5's disjoint review scope | flow §6 G3; the U-009 precedent (quoted there) |
 | §6 G4 — wave completion unaffected | DR-6 (mint after completion is true, fixed order); C-1; C-3 (completion computed on members) | flow §6 G4 |

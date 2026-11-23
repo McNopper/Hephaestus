@@ -25,6 +25,12 @@
   this doc follows); the store files `.harness/tasks/hephaestus/T-113.md`
   and `.harness/tasks/hephaestus/T-114.md` (the real store path every
   store-path oracle below cites).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps, sprint records and backlog statuses quoted below are historical;
+  their verdicts stand as recorded on their dates.
 
 ## Library under test
 

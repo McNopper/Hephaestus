@@ -20,6 +20,11 @@
   (the per-stage-era requirements — this document amends exactly its
   ticker-topology aspect), `.opencode/skills/stage-pipeline/SKILL.md`
   (the one-pass tick procedure the prototype arms).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The plan/close
+  steps and sprint records narrated below are historical.
 
 ## Coverage (upstream definitions addressed)
 
