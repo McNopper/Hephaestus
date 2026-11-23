@@ -31,7 +31,7 @@ the measured baseline per role/task-type so future estimates stop guessing.
 Standalone, on-demand. Invoke after a fleet batch, at wave close, or whenever the maintainer
 asks "what did this cost so far?". Never runs automatically.
 
-## The live surface (opencode v2; `/openapi.json` last cross-checked live on 2.3.2, 2026-11-18)
+## The live surface (opencode v2; `/openapi.json` last cross-checked live on 2.4.0, 2026-11-23)
 
 Three v2 facts shape every query: **every path is prefixed `/api`**, the server **requires
 HTTP Basic auth**, and the **port is dynamic** — so discovery comes first:

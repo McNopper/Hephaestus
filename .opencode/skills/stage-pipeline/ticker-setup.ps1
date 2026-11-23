@@ -21,7 +21,9 @@
 #     pattern the Eclipse host uses), or -BaseUrl/-Token overrides
 #   - "experimental": { "automations": true } in the service config
 #     (2.3.1 renamed schedules -> automations, #64160; the old "schedules"
-#     flag still works - either grants the surface)
+#     flag still works - either grants the surface; 2.4.0 #65296: the
+#     endpoints are FLAGLESS - the flag no longer gates them, kept here
+#     for pre-2.4.0 services)
 #   - the stage-pipeline skill (this directory)
 #
 # Usage: pwsh -NoProfile -File ticker-setup.ps1 [-IntervalMinutes 5] [-Cap 4]
