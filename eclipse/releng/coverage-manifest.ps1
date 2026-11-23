@@ -22,8 +22,9 @@
 #     tamper case (c)): reasons are compared strictly whenever a test is
 #     skipped on both sides. Known accepted edge (documented in QUALITY.md):
 #     two machines may skip the same test with differently-worded env reasons
-#     ('cppcheck not present on this machine' vs 'cppcheck install is broken
-#     ...'), which would hard-fail - mitigate by re-baselining from CI.
+#     (e.g. hypothetically 'tool not on this machine' vs 'tool install is
+#     broken on this machine'), which would hard-fail - mitigate by
+#     re-baselining from CI.
 #
 # -Since marks the build start: ONLY reports written at/after it count, so
 # stale leftovers from earlier runs (a test class deleted since the last

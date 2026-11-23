@@ -111,6 +111,18 @@ reactor runs (`-pl`/`-am`/`-rf`/`-N`) and test-skipped commands
 (`-DskipTests`, `-Dmaven.test.skip`) skip the diff with a loud console note —
 never silently.
 
+**Gate regression suite (opt-in, T-213).** The gate's six-case verdict
+contract (missing baseline, removed id, tampered both-skip reason, pristine
+CLEAN, and both pass↔skip flip directions) re-runs on demand:
+`cd eclipse; .\releng\coverage-manifest-tests.ps1` (or
+`pwsh -NoProfile -File eclipse\releng\coverage-manifest-tests.ps1`) — it
+requires surefire reports from a recent build (`.\build.ps1 verify` first;
+fails with a "run a build first" message otherwise), swaps only temp copies
+with a try/finally byte-restore plus a before/after SHA256 proof, prints one
+row per case + overall PASS/FAIL, and exits 0 only when all six expectations
+hold — deliberately NOT wired into `build.ps1` or CI, so the local gate stays
+exactly as fast.
+
 **Diff semantics (T-209).** Three different kinds of difference, three
 different verdicts:
 
@@ -136,14 +148,15 @@ code, not invented by the gate (the 5-row baseline↔source mapping lives on
 ticket T-208).
 
 *Known accepted edge (cross-env wording):* two machines can skip the *same*
-test with *differently-worded* environment reasons (e.g.
-`cppcheck not present on this machine` vs `cppcheck install is broken on this
-machine (library cfg failed to load)`). Because both-skip reasons stay strict
-by design, that case would still hard-fail the gate on the second machine —
-accepted for now (reason-strictness is deliberately not weakened further);
-the mitigation if it ever bites is to **re-baseline from CI**
-(`-Update -Since <build-start>` on a green runner) and record the rationale
-on the ticket.
+test with *differently-worded* environment reasons (hypothetical example:
+`tool not on this machine` vs `tool install is broken on this machine` — the
+pre-T-209 cppcheck wording pair once quoted here was canonicalized into a
+single per-method skip constant, so it no longer exists in source). Because
+both-skip reasons stay strict by design, that case would still hard-fail the
+gate on the second machine — accepted for now (reason-strictness is
+deliberately not weakened further); the mitigation if it ever bites is to
+**re-baseline from CI** (`-Update -Since <build-start>` on a green runner)
+and record the rationale on the ticket.
 
 ## Clean architecture — the dependency rules
 

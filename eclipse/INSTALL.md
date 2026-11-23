@@ -211,7 +211,7 @@ one-time setup:
    (log line: `eclipse-build MCP listening on http://127.0.0.1:<port>/mcp`) exposing
    cmake build/test, run, gdb-batch debug, clang-tidy/cppcheck lint and clang-format tools
    across the detected toolchains (MSVC + MSYS2 clang64/mingw64/ucrt64), **plus the
-   `task_*` tool pack** (the same 22 tools the `tasks` stdio server serves).
+   `task_*` tool pack** (the same 20 tools the `tasks` stdio server serves).
 
 ## Connection modes at a glance
 

@@ -2,10 +2,17 @@
 
 ## About this document
 
+- **RETIRED (2026-11-14):** the fleet this record documents — `FleetView`,
+  `FleetTree`, `FleetJob*` — was removed in the U-110 arc (evidence: ticket
+  U-111 AE-6), so every row below naming those symbols (the fleet tree, the
+  tree model, job diffs, live activity text) is history, not a current
+  surface. Still current under this marker: `SessionDetailsView` and its
+  Session Details sections, the read-only `MessageConsole` output tails, and
+  the Eclipse construct analysis (prime rule + platform verdicts).
 - **Kind:** `doc` / as-built record of the fleet observability layer: which
   Eclipse constructs the shipped UI reuses, which platform options were
   rejected, and what is genuinely custom.
-- **Read by:** maintainers of `FleetView` / `SessionDetailsView` and anyone
+- **Read by:** maintainers of `SessionDetailsView` and anyone
   extending fleet observability.
 - **Related:** `eclipse/ARCHITECTURE.md`, `fleet-job-activity.md` (the data
   source), `opencode-v2-adoption.md` (the reuse policy).

@@ -12,7 +12,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 /**
  * Validates (and with {@code -Dopencode.tasks.fix=true} normalizes) every project of the opencode
  * task store: frontmatter schema, {@code _meta.json} counter consistency, LF line endings, unique
- * ids, sprint references. Has no default phase — invoke it directly as {@code mvn
+ * ids, codec round-trip stability. Has no default phase — invoke it directly as {@code mvn
  * opencode-tasks:sync}.
  */
 @Mojo(name = "sync")

@@ -61,8 +61,8 @@ cannot see.
    winning over every derived root; the tasks-root preference is the
    fallback), configure its own `remote.origin` push access.
 3. Rhythm: **pull → claim → push** — press *Sync store* before claiming
-   (dispatch actions claim), sync again after a sprint-planning or
-   bulk-edit change; pull conflicts are rebase conflicts — abort, pull fresh,
+   (dispatch actions claim), sync again after a bulk-edit or
+   ticket-creation change; pull conflicts are rebase conflicts — abort, pull fresh,
    redo the claim.
 4. Never edit tickets on two machines simultaneously and expect git to merge
    meaningfully — the store is line-oriented Markdown; simultaneous edits to

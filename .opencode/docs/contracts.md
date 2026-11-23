@@ -77,16 +77,20 @@ New/Reset project actions and the fleet's doubt routing), not `task_*` MCP tools
 
 ### Tool surface (`pm_*` → `task_*`)
 
-19 tools (T-032 consolidation): `task_create`, `task_get`, `task_list` (returns the
+20 tools (T-032 consolidation; the stage-agent pair followed under U-104): `task_create`,
+`task_get`, `task_list` (returns the
 prioritized order for `status=ready`),
-`task_update`, `task_set_blocked`, `task_clear_blocked`, `task_claim`, `task_release`,
+`task_update`, `task_set_blocked`, `task_clear_blocked`, `task_stage_agents` (the
+per-stage dispatch agent map), `task_set_stage_agent` (sets or clears one V stage's
+agent), `task_claim`, `task_release`,
 `task_add_comment`, `task_add_artifact`, `task_remove_artifact`, `task_todo`
 (`action=add/toggle/remove`), `task_board`,
 `task_archive_done`, `task_traceability`, `task_doctor`, `task_readiness`,
-`task_links` (the up/down/back link graph around a ticket). Served by the **`eclipse-build` MCP endpoint** when the Eclipse
-harness runs (plus the C++ tool pack) and by the stdio launchers for TUI-only sessions —
-The ``tasks`` stdio pack is served by ``eclipse/tasks-tools.ps1`` (the ``tasks`` MCP server; the retired ``fleet-tools.ps1`` launcher was removed with the fleet in U-110).
-`fleet` pack), both configured in `opencode.json` — one tool surface, two transports. Each
+`task_links` (the up/down/back link graph around a ticket). Served by the **`eclipse-build`
+MCP endpoint** when the Eclipse harness runs (plus the C++ tool pack) and, for TUI-only
+sessions, by the stdio `tasks` pack — `eclipse/tasks-tools.ps1`, declared in `opencode.json`
+as the `tasks` MCP server (the retired `fleet-tools.ps1` launcher was removed with the fleet
+in U-110). One tool surface, two transports. Each
 launcher stages a private copy of its resolved jars at start (B-005 staging), so a reactor
 rebuild can never rot a running server. Note: opencode prefixes tools with the server name, so
 TUI sessions see them as `tasks_task_*`; in-Eclipse agents as `eclipse-build_task_*`. There is

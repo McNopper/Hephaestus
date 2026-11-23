@@ -14,6 +14,13 @@
   (W1/W12/W13 adoption policy), `docs/research-epic-decomposition-2026-11.md`
   (scope vs derivation research; the scope field was removed 2026-11-19 - the
   basis chain up to the requirement carries both).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the seven-state model
+  (born ready/paused, claims ready-only). The micro-sprint narration
+  below (the Users entry, FR-014's kickoff/work/close record) is
+  historical - the ticker closes no per-stage record (the
+  `stage-pipeline` skill's step 6).
 
 ## Goal
 

@@ -76,8 +76,7 @@ Validates every project directory of the store and, with
 - **Counter consistency** — `_meta.json` `seq[prefix]` is at least the highest numeric
   suffix of existing ticket files; `counter` is at least the highest `S-NNN` sprint id.
 - **Line endings** — files must be LF; CRLF is a finding.
-- **Cross-checks** — no duplicate ids across files; sprint references on tickets exist in
-  `_meta.json` (warning only).
+- **Cross-checks** — no duplicate ids across files.
 
 Fixes (only with `-Dopencode.tasks.fix=true`): re-encode CRLF/non-canonical ticket files
 through the codec, and bump `_meta.json` counters through a Gson `JsonObject` so unknown
@@ -97,20 +96,20 @@ basedir; when none exists and `opencode.tasks.root` is unset, the goal skips wit
 
 ## opencode-tasks:plan
 
-Renders the sprint board of every project into `board.md` and `board.html` (standalone
+Renders the task board of every project into `board.md` and `board.html` (standalone
 page, inline CSS, escaped content) under `-Dopencode.tasks.out`
-(default `target/opencode-tasks/`). Both files show the sprint goal and status, all six
-status columns in canonical order (paused included) with counts, ticket lines
-(`[id] title — role, points, assignee, ⚠ blocked: reason`) and a totals line (total/done points). The store is only read.
+(default `target/opencode-tasks/`). Both files show a per-project heading and all seven
+status columns in canonical order (paused and blocked included) with counts, ticket lines
+(`[id] title - role, N points, assignee, ? blocked: reason`) and a totals line (total/done points). The store is only read.
 
 ```bash
-mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan  # latest active sprint per project
-mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan -Dopencode.tasks.sprint=S-01
+mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan  # every project's full board
 mvn com.opencode.ide:opencode-tasks:0.1.0-SNAPSHOT:plan -Dopencode.tasks.out=target/board
 ```
 
-With no `-Dopencode.tasks.sprint`, the most recently created **active** sprint is shown;
-when a project has none, the "(no sprint)" scope (tickets with `sprint: null`) is rendered.
+There is no sprint scope and no sprint flag: `PlanMojo` declares exactly three parameters
+(`opencode.tasks.root`, `opencode.tasks.out`, `${project.basedir}`) and every ticket of a
+project renders (owner model 2026-11-20: seven status columns, no sprint scope).
 
 ## Building / testing
 

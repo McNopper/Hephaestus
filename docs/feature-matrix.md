@@ -85,7 +85,7 @@
 | Watch a running job's session live; fleet diff in Eclipse compare editor | ✅ | U-015/U-019 |
 | Columnar cards + consistent icons in every Group-by | 🔶 | U-065 |
 | Emoji consistency across harness UI | 🔶 | U-074 (pairs with U-093) |
-| WIP indicators / bug decorations / sprint selection | ✅ **gate-verified; live pass pending (T-002)** | U-005/U-006/U-028 |
+| WIP indicators / bug decorations / ~~sprint selection~~ | ✅ **gate-verified; live pass pending (T-002)** | U-005/U-006/U-028; ~~sprint selection~~ removed (T-202) — superseded by the Board's stage filter (`BoardView.stageFilterAction`) |
 
 ## 6. Fleet engine
 

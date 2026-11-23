@@ -20,13 +20,12 @@ import java.util.Map;
  * The task-board pack of the {@code eclipse-build} MCP server: the {@code task_*} tools over the
  * {@link TaskStore} (one Markdown file per task under {@code <root>/<project>/}). Tool-per-tool
  * these replace the retired Python {@code pm} MCP server ({@code pm_*} tools) with identical
- * semantics - claim ordering and null-when-empty, lax update rules, sprint force-set on plan,
- * close-sprint returns, traceability pairing - so worker agents and the {@code pm-*} skills keep
- * working after a pure rename. The pipeline is the LINKED stage graph (U-110): tickets are born in
- * their stage, {@code task_create} links them to their basis ({@code basis} = the upstream work
- * product), and completing a ticket divides it into linked downstream tickets. {@code
- * task_readiness} exposes the {@link StageReadiness} dispatch verdicts so the stage tickers can ask
- * what's runnable right now.
+ * semantics - claim ordering and null-when-empty, lax update rules, traceability pairing - so
+ * worker agents and the {@code pm-*} skills keep working after a pure rename. The pipeline is the
+ * LINKED stage graph (U-110): tickets are born in their stage, {@code task_create} links them to
+ * their basis ({@code basis} = the upstream work product), and completing a ticket divides it into
+ * linked downstream tickets. {@code task_readiness} exposes the {@link StageReadiness} dispatch
+ * verdicts so the stage tickers can ask what's runnable right now.
  *
  * <p>Parameter names keep the historical {@code ticket_id}/{@code project} spellings for
  * compatibility with existing agent prose ("task" and "ticket" name the same thing; the store calls

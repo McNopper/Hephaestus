@@ -144,4 +144,4 @@ When a spend cap is given (e.g. "~$X today", `run.budget_cap_usd`):
 
 - Task tiering/ordering/execution → hand off to `project-manager-orchestrate-execution`.
 - Ambiguous lifecycle routing → hand off to `project-manager-route-request`.
-- Ticket / wave budgeting in the ticket workflow (`sprint` field = wave) → hand off to the `project-manager` agent (tickets carry `story_points`; a `cost` field can be added later to feed actuals).
+- Ticket / wave budgeting in the ticket workflow → hand off to the `project-manager` agent (tickets carry `story_points`; a `cost` field can be added later to feed actuals).
