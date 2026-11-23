@@ -7,8 +7,23 @@
 # plain maven-surefire and tycho-surefire write the same TEST-<class>.xml into
 # target/surefire-reports) plus each test's state and skip reason, normalizes
 # it to a sorted, lane-agnostic text manifest, and diffs it against the
-# committed baseline releng/coverage-manifest-baseline.txt. Any drift (a test
-# id that vanished, appeared, or changed skip reason) fails the build.
+# committed baseline releng/coverage-manifest-baseline.txt.
+#
+# DIFF SEMANTICS (T-209; the contract is also stated in QUALITY.md):
+#   - The ID SET is the env-independent coverage contract (every id compiles
+#     from src/main/java): a MISSING (baseline, absent from run) or EXTRA (run,
+#     absent from baseline) id fails the build.
+#   - A state FLIP (baseline pass -> run skip, or baseline skip -> run pass) is
+#     an environment FACT, not drift: whether a machine-dependent test ran or
+#     skipped differs legitimately across dev/ubuntu/windows. Flips are printed
+#     as a VISIBLE "[manifest] ENV-DRIFT (state flip tolerated ...)" warning
+#     block and do NOT fail the build (exit 0 for flips alone).
+#   - Both sides skipping with DIFFERENT reason strings still fails (the T-208
+#     tamper case (c)): reasons are compared strictly whenever a test is
+#     skipped on both sides. Known accepted edge (documented in QUALITY.md):
+#     two machines may skip the same test with differently-worded env reasons
+#     ('cppcheck not present on this machine' vs 'cppcheck install is broken
+#     ...'), which would hard-fail - mitigate by re-baselining from CI.
 #
 # -Since marks the build start: ONLY reports written at/after it count, so
 # stale leftovers from earlier runs (a test class deleted since the last
@@ -111,14 +126,43 @@ $missing = @($baseMap.Keys | Where-Object { -not $runMap.ContainsKey($_) } | Sor
 $extra = @($runMap.Keys | Where-Object { -not $baseMap.ContainsKey($_) } | Sort-Object)
 $changed = @($baseMap.Keys | Where-Object { $runMap.ContainsKey($_) -and $runMap[$_] -ne $baseMap[$_] } | Sort-Object)
 
+# Split CHANGED into tolerated state FLIPS (pass<->skip: an environment fact)
+# and hard changes (both-skip reason mismatches - the T-208 tamper case - plus
+# anything touching a 'fail' state). See the header comment for the contract.
+function Get-LineState([string]$line) { ($line -split '\|', 4)[2] }
+$flips = @()
+$hard = @()
+foreach ($k in $changed) {
+    $bs = Get-LineState $baseMap[$k]
+    $rs = Get-LineState $runMap[$k]
+    if (($bs -eq 'pass' -and $rs -eq 'skip') -or ($bs -eq 'skip' -and $rs -eq 'pass')) {
+        $flips += $k
+    } else {
+        $hard += $k
+    }
+}
+
 if ($missing.Count -eq 0 -and $extra.Count -eq 0 -and $changed.Count -eq 0) {
     Write-Host "[manifest] CLEAN: $($sorted.Count) test ids + skip reasons match the baseline (reports: $seenFiles, stale ignored: $staleFiles)"
+    exit 0
+}
+
+# Flips alone are tolerated: same CHANGED detail, VISIBLE warning, exit 0.
+if ($missing.Count -eq 0 -and $extra.Count -eq 0 -and $hard.Count -eq 0) {
+    Write-Host "[manifest] ENV-DRIFT (state flip tolerated - environment-dependent test): $($flips.Count) pass<->skip state flip(s) vs baseline - ids match, this is not a failure" -ForegroundColor Yellow
+    foreach ($k in $flips) { Write-Host "  CHANGED: $k`n    baseline: $($baseMap[$k])`n    run:      $($runMap[$k])" -ForegroundColor Yellow }
+    Write-Host "[manifest] TOLERATED: $($sorted.Count) test ids match the baseline (state flips tolerated: $($flips.Count), reports: $seenFiles, stale ignored: $staleFiles)" -ForegroundColor Yellow
     exit 0
 }
 
 Write-Host "[manifest] DRIFT against $baseline" -ForegroundColor Red
 foreach ($k in $missing) { Write-Host "  MISSING (in baseline, not in this build): $($baseMap[$k])" -ForegroundColor Red }
 foreach ($k in $extra) { Write-Host "  EXTRA (in this build, not in baseline): $($runMap[$k])" -ForegroundColor Red }
-foreach ($k in $changed) { Write-Host "  CHANGED: $k`n    baseline: $($baseMap[$k])`n    run:      $($runMap[$k])" -ForegroundColor Red }
+foreach ($k in $hard) { Write-Host "  CHANGED: $k`n    baseline: $($baseMap[$k])`n    run:      $($runMap[$k])" -ForegroundColor Red }
+if ($flips.Count -gt 0) {
+    # tolerated flips are still shown (visible), they just never cause this exit
+    Write-Host "[manifest] ENV-DRIFT (state flip tolerated - environment-dependent test): $($flips.Count) pass<->skip flip(s) tolerated (not the reason for this failure)" -ForegroundColor Yellow
+    foreach ($k in $flips) { Write-Host "  CHANGED: $k`n    baseline: $($baseMap[$k])`n    run:      $($runMap[$k])" -ForegroundColor Yellow }
+}
 Write-Host "[manifest] re-baseline intentionally with: eclipse\releng\coverage-manifest.ps1 -Update -Since <build-start>" -ForegroundColor Yellow
 exit 1

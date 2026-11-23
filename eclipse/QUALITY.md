@@ -21,7 +21,7 @@
 | Bug patterns | SpotBugs (`-Pquality`, effort Max / threshold High) | `verify -Pquality` | no — report-only for now |
 | Coverage | JaCoCo (`0.8.15`, report-only — no failing threshold) | every `verify`; HTML per module at `*/target/site/jacoco/index.html`; test-module execs carry the full-run instrumentation (production-bundle HTML aggregation: `-Pcoverage`, see the Coverage gate row below) | no — report lane |
 | Coverage gate (opt-in) | JaCoCo check rule (`-Pcoverage`, 55% line at bundle scope on production bundles, aggregate report at target/site/jacoco-aggregate) | on demand: `.\build.ps1 verify -Pcoverage` | yes, when the profile is on |
-| Coverage manifest (test ids + skip reasons) | `releng/coverage-manifest.ps1` diff of this build's surefire XML reports against `releng/coverage-manifest-baseline.txt` (both lanes) | after every successful `verify`/`install`/`deploy` through `build.ps1` (CI + pre-push ride that path; `-Update -Since <build-start>` re-baselines) | **yes** (any id/skip drift fails the gate) |
+| Coverage manifest (test ids + skip reasons) | `releng/coverage-manifest.ps1` diff of this build's surefire XML reports against `releng/coverage-manifest-baseline.txt` (both lanes) | after every successful `verify`/`install`/`deploy` through `build.ps1` (CI + pre-push ride that path; `-Update -Since <build-start>` re-baselines) | **yes** for the coverage contract (missing/extra ids and both-skip reason mismatches); **no** for pass↔skip state flips — tolerated with a visible `[manifest] ENV-DRIFT (state flip tolerated …)` warning (T-209) |
 | PowerShell lint | PSScriptAnalyzer (`PSScriptAnalyzerSettings.psd1`; Write-Host excluded with rationale — console scripts' interface) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
 | Markdown lint | markdownlint-cli2 (`.markdownlint-cli2.yaml`; MD013/MD060 trimmed with rationale — repo voice; task store excluded) | every `verify` CI run; locally `.\releng\lint.ps1` | **yes** (any finding fails) |
 | Third-party license inventory (opt-in) | osv-scanner `--licenses` via `scan-deps.ps1 -Licenses` (the matrix-cited `license-maven-plugin` goal was removed from every maintained mycila version; osv is the free+reliable tool already pinned here) | on demand: `.\releng\scan-deps.ps1 -Licenses` | no — report-only. Landscape reviewed 2026-10-11: the "non-standard ×3" were osv metadata gaps on SNAPSHOT-parent poms, real licenses verified at Maven Central (ArchUnit = Apache-2.0, JUnit = EPL-1.0). **Policy: what WE introduce must be standard-permissive (MIT/Apache-2.0/BSD/ISC/0BSD); Eclipse-platform licenses accepted as-is.** Allowlist enforcement stays deferred until osv resolves license metadata through local parents |
@@ -90,7 +90,9 @@ surefire off) without touching the OSGi-native bundles. Run it weekly in the
 maintenance pass and before any release: both lanes write the same
 `target/surefire-reports`, the coverage manifest is lane-agnostic, and the
 manifest must stay CLEAN (byte-identical test ids + skip reasons against the
-baseline). A DRIFT means the plain lane and the OSGi runtime no longer agree.
+baseline; a pass↔skip state flip between the lanes is only a visible tolerated
+ENV-DRIFT warning — see the semantics below — while id or both-skip reason
+drift stays a DRIFT). A DRIFT means the plain lane and the OSGi runtime no longer agree.
 This is also the MANIFEST fidelity proof — the OSGi boot honors
 `Require-Bundle`/`Import-Package` only if the manifests still describe what
 the tests actually load, while the plain lane runs on Tycho's manifest-resolved
@@ -102,12 +104,46 @@ check the T-008 acceptance criteria allow.)
 `TEST-*.xml` from every test-bearing module of THIS build — `-Since <build
 start>` (stamped by `build.ps1` before mvnw) excludes stale leftovers, so a
 test deleted since the last `clean` shows up as a MISSING id instead of being
-masked by an old report. Gate modes: diff (default, exit 1 on drift) and
+masked by an old report. Gate modes: diff (default) and
 `-Update` (re-baseline; do it consciously in the same change that adds,
 removes or re-skips tests, and cite the rationale on the ticket). Partial
 reactor runs (`-pl`/`-am`/`-rf`/`-N`) and test-skipped commands
 (`-DskipTests`, `-Dmaven.test.skip`) skip the diff with a loud console note —
 never silently.
+
+**Diff semantics (T-209).** Three different kinds of difference, three
+different verdicts:
+
+- **Test ids — the hard coverage contract.** The id set (`bundle|class#method`)
+  is environment-independent (every test compiles from `src/main/java`), so a
+  **MISSING** id (in the baseline, absent from this build) or an **EXTRA** id
+  (in this build, absent from the baseline) fails the gate, always.
+- **State flips — tolerated, visibly.** A `pass`→`skip` or `skip`→`pass`
+  flip is an environment fact (a machine-dependent test ran on one runner and
+  skipped on another), not drift. The gate prints a visible
+  `[manifest] ENV-DRIFT (state flip tolerated - environment-dependent test):`
+  block with the same `CHANGED` detail lines and **exits 0** for flips alone.
+- **Both-skip reasons — strict.** When a test is skipped on both sides, the
+  reason strings are compared strictly: different wording is a CHANGED line
+  and **fails** (the T-208 tamper case), because a changed reason can mean the
+  test changed what it waits for, not just where it ran. A missing baseline
+  also fails (fail-closed bootstrap).
+
+*Skip-reason provenance (the AC2 documentation gap):* the reason strings the
+gate compares are the **source tests' own `assumeTrue(…)` literals / framework
+skip messages** captured from the surefire XML — they are authored in the test
+code, not invented by the gate (the 5-row baseline↔source mapping lives on
+ticket T-208).
+
+*Known accepted edge (cross-env wording):* two machines can skip the *same*
+test with *differently-worded* environment reasons (e.g.
+`cppcheck not present on this machine` vs `cppcheck install is broken on this
+machine (library cfg failed to load)`). Because both-skip reasons stay strict
+by design, that case would still hard-fail the gate on the second machine —
+accepted for now (reason-strictness is deliberately not weakened further);
+the mitigation if it ever bites is to **re-baseline from CI**
+(`-Update -Since <build-start>` on a green runner) and record the rationale
+on the ticket.
 
 ## Clean architecture — the dependency rules
 
