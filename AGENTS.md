@@ -140,8 +140,8 @@ store and engine form a single system - after behavior changes, the
 corresponding skills/agents/docs are revisited in the same flow (coherence
 passes run as tickets, e.g. U-030). Divergence between what the engine does and
 what the skills prescribe is a defect, not cosmetics. Known divergences that are
-not fixed yet are listed in `ROADMAP.md` (*Coherence debt*) - where an entry there
-contradicts this file, the entry is right.
+not fixed yet are tracked as tickets in the store - where a store record
+contradicts this file, the record is right.
 
 **Autonomy target:** waves run themselves on a
 recurring basis — agents execute, review, accept and advance; the maintainer's
@@ -401,7 +401,7 @@ servers/skills)/Providers/Board
 views, the MCP build-tools endpoint `eclipse-build`, and the tasks Board (stage
 columns over the linked ticket graph). It is a Maven/Tycho reactor — **Maven plans, CMake builds**.
 
-- **v2 in this client (last live cross-check: v2.4.0, 2026-11-23; see `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
+- **v2 in this client (last live cross-check recorded in `docs/opencode-v2-adoption.md`).** The client speaks the v2 API: `/api` paths with
   Basic auth, `{data:[…]}` envelopes, async `POST /session/:id/prompt` + reply polling, the
   single `/api/event` stream (v2 event names; `location.directory` scopes client-side). The
   interactive connection **attaches to the shared background service** by default

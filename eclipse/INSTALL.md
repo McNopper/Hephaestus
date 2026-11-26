@@ -15,7 +15,7 @@ Source lives in the repo's `eclipse/` folder.
 
 ## Prerequisites
 
-- **opencode** installed and on PATH (`opencode --version` → 2.x). Pinned and endpoint-verified against 2.4.0 (see `ServerVersionPin`; last live cross-check 2026-11-23).
+- **opencode** installed and on PATH (`opencode --version` → 2.x). Pinned and endpoint-verified against 2.4.2 (see `ServerVersionPin`; last live cross-check 2026-11-26).
 - A JDK 21+ on the machine (the `build.ps1` wrapper auto-detects one;
   `JAVA_HOME` does not have to be valid).
 - **PowerShell 7 (`pwsh`) on PATH** — required by the build itself (the

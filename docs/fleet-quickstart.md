@@ -56,7 +56,7 @@ docs/design-stage-pipeline.md and the stage-pipeline skill instead.
 |---|---|---|
 | JDK 21+ | `java -version` | On PATH or via `JAVA_HOME` — **both** stdio servers require it: `tasks-tools.ps1` and `fleet-tools.ps1` throw without a JDK 21+ (the bundles are JavaSE-21). |
 | git | `git --version` | Creates the worktrees/branches and, if you use store sync, the store's git repo. |
-| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.4.0 (endpoint-verified against the v2 API - on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
+| opencode binary | `opencode --version` | The engine spawns `opencode serve` on first dispatch. Version is pinned to 2.4.2 (endpoint-verified against the v2 API - on upgrade, rerun the endpoint smoke, then bump the pin in `ServerVersionPin`); a mismatch warns, never fails. |
 | pwsh 7+ | `pwsh --version` | The MCP launchers are PowerShell scripts. |
 | Built jars | see below | The stdio servers load jars from `eclipse/bundles/*/target/`. |
 

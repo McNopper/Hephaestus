@@ -354,7 +354,8 @@ its green gate suggested:
   archive-aware readiness, auto-archive on close, the `inputs changed:`
   markers); the fleet MCP server ships disabled while the docs present it as
   ready; AGENTS.md, the audit skill and the tool define traceability three
-  different ways. The open work is in ROADMAP.md (*Coherence debt*) and the
+  different ways. The open work is in ROADMAP.md (*Coherence debt*) [that
+  section was removed in 7ee665b, 2026-11-18 - all rows resolved] and the
   store.
 
 ## H13 - The coherence wave - 2026-10-02

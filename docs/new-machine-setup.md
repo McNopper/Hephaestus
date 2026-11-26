@@ -13,7 +13,7 @@
 |---|---|
 | JDK 21+ (`java` on PATH) | Eclipse plugin build + stdio MCP servers |
 | Git | everything |
-| opencode **v2** (pinned & endpoint-verified against **2.4.0**, see `ServerVersionPin`; a mismatch warns, never fails) | the agent harness itself |
+| opencode **v2** (pinned & endpoint-verified against **2.4.2**, see `ServerVersionPin`; a mismatch warns, never fails) | the agent harness itself |
 | Python 3 + pip | the `graphics` MCP server — `pip install -r mcp/graphics/requirements.txt` |
 | PowerShell 7 (`pwsh`) | **required** — the build itself fails without it (the tools/tasks Eclipse-import-ban scan runs through pwsh); also the deploy scripts and the `tasks`/`fleet` MCP stdio launchers. Install: `winget install Microsoft.PowerShell` |
 | Node.js | chat-web checks inside `mvn verify` |
