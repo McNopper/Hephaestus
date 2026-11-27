@@ -52,6 +52,39 @@ public class TaskStoreSemanticsTest {
         title, "", "task", role, "medium", 0, List.of(), List.of(), "T");
   }
 
+  /**
+   * The divided-left-leg + joiner fixture shared by the archive-pool done-evidence flip and the
+   * verification-stage flip (both T-242): architecture done WITH its product, the design child on
+   * the architecture's basis (the division), the test-design verifier on the architecture's basis
+   * (the join-back). Returns the joiner - the ticket both flips then close bare or archive; the
+   * left-leg ids stay fixture-internal (neither test names them after the prologue).
+   */
+  private Task createDividedLeftLegWithVerifier() {
+    Task arch = store.create("p", specWithRole("architecture", "architect"), "architecture");
+    store.addArtifact("p", arch.id, "doc", "docs/architecture-product.md", "stage product", "dev");
+    store.update("p", arch.id, Map.of("status", "done"));
+    Task design = store.create("p", specWithRole("design child", "developer"), "design");
+    store.update("p", design.id, Map.of("basis", arch.id)); // I1: division to the next stage
+    Task verifier = store.create("p", specWithRole("right leg evidence", "tester"), "test-design");
+    store.update("p", verifier.id, Map.of("basis", arch.id)); // I3: the join-back
+    return verifier;
+  }
+
+  /**
+   * The archived-sweep fixture shared by the file-stem fork flip (T-226) and the out-of-enum
+   * archived twin (T-253): a done "sweep me" ticket, archived quiet with the baseline asserted.
+   * Returns the ticket - each caller resolves its file under {@code _archive} itself (the second
+   * flip still names the ticket id in its finding messages) and reads the original content for the
+   * hand edit.
+   */
+  private Task archiveQuietSweepTicket() {
+    Task t = store.create("p", TaskStore.CreateSpec.of("sweep me"));
+    store.update("p", t.id, Map.of("status", "done"));
+    store.archive("p", t.id, "wave close");
+    assertEquals("baseline: the archived fixture is quiet", List.of(), store.inconsistencies("p"));
+    return t;
+  }
+
   @Test
   public void archiveDoneIsChainSafeScopedAndRecencyAware() {
     // chain-protected: a LIVE parent blocks archiving its done child
@@ -559,11 +592,7 @@ public class TaskStoreSemanticsTest {
    */
   @Test
   public void doctorReportsAFileStemForkInsideTheArchivePool() throws IOException {
-    Task t = store.create("p", TaskStore.CreateSpec.of("sweep me"));
-    store.update("p", t.id, Map.of("status", "done"));
-    store.archive("p", t.id, "wave close");
-    assertEquals("baseline: the archived fixture is quiet", List.of(), store.inconsistencies("p"));
-
+    Task t = archiveQuietSweepTicket();
     Path archivedFile = store.root().resolve("p").resolve("_archive").resolve(t.id + ".md");
     String original = Files.readString(archivedFile);
     Files.writeString(archivedFile, original.replace("id: T-001", "id: T-007"));
@@ -612,13 +641,7 @@ public class TaskStoreSemanticsTest {
    */
   @Test
   public void doctorScansTheArchivePoolForDoneTicketsWithoutArtifacts() throws IOException {
-    Task arch = store.create("p", specWithRole("architecture", "architect"), "architecture");
-    store.addArtifact("p", arch.id, "doc", "docs/architecture-product.md", "stage product", "dev");
-    store.update("p", arch.id, Map.of("status", "done"));
-    Task design = store.create("p", specWithRole("design child", "developer"), "design");
-    store.update("p", design.id, Map.of("basis", arch.id));
-    Task verifier = store.create("p", specWithRole("right leg evidence", "tester"), "test-design");
-    store.update("p", verifier.id, Map.of("basis", arch.id));
+    Task verifier = createDividedLeftLegWithVerifier();
     store.addArtifact(
         "p", verifier.id, "doc", "docs/test-design-product.md", "test evidence", "dev");
     store.update("p", verifier.id, Map.of("status", "done"));
@@ -732,11 +755,7 @@ public class TaskStoreSemanticsTest {
    */
   @Test
   public void doctorScansTheArchivePoolForOutOfEnumPriorityAndType() throws IOException {
-    Task t = store.create("p", TaskStore.CreateSpec.of("sweep me"));
-    store.update("p", t.id, Map.of("status", "done"));
-    store.archive("p", t.id, "wave close");
-    assertEquals("baseline: the archived fixture is quiet", List.of(), store.inconsistencies("p"));
-
+    Task t = archiveQuietSweepTicket();
     Path archivedFile = store.root().resolve("p").resolve("_archive").resolve(t.id + ".md");
     String original = Files.readString(archivedFile);
 
@@ -1054,13 +1073,7 @@ public class TaskStoreSemanticsTest {
   @Test
   public void doctorFlagsAVerificationStageDoneWithoutItsProductAndQuietsWhenHealed() {
     // baseline: a divided + joined left leg WITH its product, the joiner still open - quiet
-    Task arch = store.create("p", specWithRole("architecture", "architect"), "architecture");
-    store.addArtifact("p", arch.id, "doc", "docs/architecture-product.md", "stage product", "dev");
-    store.update("p", arch.id, Map.of("status", "done"));
-    Task design = store.create("p", specWithRole("design child", "developer"), "design");
-    store.update("p", design.id, Map.of("basis", arch.id)); // I1: division to the next stage
-    Task verifier = store.create("p", specWithRole("right leg evidence", "tester"), "test-design");
-    store.update("p", verifier.id, Map.of("basis", arch.id)); // I3: the join-back
+    Task verifier = createDividedLeftLegWithVerifier();
     assertEquals("baseline: doctor ok:true", List.of(), store.inconsistencies("p"));
 
     // the flip: close the right leg BARE - the write guard allows it (verification is exempt),

@@ -33,7 +33,31 @@ try {
             Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -Confirm:$false -AllowClobber
         }
     }
-    $findings = Invoke-ScriptAnalyzer -Path $repo -Recurse -Settings $settings
+    # T-260: Invoke-ScriptAnalyzer cannot exclude paths at all (-Path is one
+    # non-pipeline string, there is no -Exclude parameter, and the settings
+    # file has no ExcludePath), so `-Recurse` from the repo root walks the
+    # reactor's churn zones (eclipse/**/target/, npm's node_modules/.bin/*.ps1)
+    # and dies mid-run with 'Unable to find the specified file' - exit 1 with
+    # NO findings, a false-red gate. Bound the recursion ourselves: enumerate
+    # the script file set explicitly and skip exactly the gitignored build
+    # outputs (.markdownlint-cli2.yaml already ignores target, node_modules,
+    # cpp/build-* for the markdown lane; .gitignore adds __pycache__, .venv,
+    # mcp/graphics/data). Excluded paths never reach the analyzer, so build
+    # writes/deletes cannot change the result; every real source file is
+    # analyzed once, same rules/settings as before - only the file set is
+    # bounded.
+    $excludeRe = '(^|\\)(target|node_modules|__pycache__|\.venv|\.git)\\'
+    # -ErrorAction SilentlyContinue on the walk: an output dir deleted
+    # mid-enumeration is the very race being fixed; its entries are excluded
+    # anyway, so dropping the walk error is safe (source files are the output).
+    $scriptFiles = @(Get-ChildItem -Path $repo -Recurse -File -Include *.ps1, *.psm1, *.psd1 -ErrorAction SilentlyContinue |
+        Where-Object {
+            $rel = $_.FullName.Substring($repo.Length + 1)
+            ($rel -notmatch $excludeRe) -and
+            ($rel -notmatch '^cpp\\build[^\\]*\\') -and
+            ($rel -notmatch '^mcp\\graphics\\data\\')
+        } | Sort-Object FullName)
+    $findings = @(foreach ($file in $scriptFiles) { Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings })
     if ($findings.Count -gt 0) {
         $findings | Format-Table Severity, RuleName, ScriptName, Line -AutoSize | Out-String | Write-Output
         Write-Error "PSScriptAnalyzer: $($findings.Count) finding(s)"

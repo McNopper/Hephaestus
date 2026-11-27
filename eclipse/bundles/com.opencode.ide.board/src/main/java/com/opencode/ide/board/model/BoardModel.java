@@ -327,7 +327,9 @@ public final class BoardModel {
         row == null || row.effectiveStage() == null
             ? -1
             : VStages.STAGES.indexOf(row.effectiveStage());
-    int to = targetStage == null ? -1 : VStages.STAGES.indexOf(targetStage);
+    // no nullcheck here: the entry guard above already refused a null targetStage,
+    // so it is non-null from here (and indexOf still yields -1 for an unknown stage)
+    int to = VStages.STAGES.indexOf(targetStage);
     boolean backward = row != null && from >= 0 && to >= 0 && to < from;
     if (backward && (reason == null || reason.isBlank())) {
       return "Moving "
