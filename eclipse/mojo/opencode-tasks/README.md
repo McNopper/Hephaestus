@@ -43,12 +43,12 @@ the goal once instead of once per reactor module, and the store root is found
 by walking up from the basedir:
 
 ```bash
-.\build.ps1 -N com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:sync
-.\build.ps1 -N com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:plan
+.\build.ps1 -N com.opencode.ide:opencode-tasks:1.0.0:sync
+.\build.ps1 -N com.opencode.ide:opencode-tasks:1.0.0:plan
 ```
 
 Optionally, add the plugin group to your `~/.m2/settings.xml` so the short
-prefix used in the examples below resolves to the locally installed snapshot:
+prefix used in the examples below resolves to the locally installed plugin:
 
 ```xml
 <settings>
@@ -85,10 +85,10 @@ fail it only with `-Dopencode.tasks.strict=true` (default: warn). Fixes never de
 rename ticket files and never write outside the store root.
 
 ```bash
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:sync  # validate, warn on fixables
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:sync -Dopencode.tasks.strict=true  # ... and fail on fixables
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:sync -Dopencode.tasks.fix=true
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:sync -Dopencode.tasks.root=C:/path/.harness/tasks
+mvn com.opencode.ide:opencode-tasks:1.0.0:sync  # validate, warn on fixables
+mvn com.opencode.ide:opencode-tasks:1.0.0:sync -Dopencode.tasks.strict=true  # ... and fail on fixables
+mvn com.opencode.ide:opencode-tasks:1.0.0:sync -Dopencode.tasks.fix=true
+mvn com.opencode.ide:opencode-tasks:1.0.0:sync -Dopencode.tasks.root=C:/path/.harness/tasks
 ```
 
 The default root is the nearest `.harness/tasks` found walking up from the module
@@ -103,8 +103,8 @@ status columns in canonical order (paused and blocked included) with counts, tic
 (`[id] title - role, N points, assignee, ? blocked: reason`) and a totals line (total/done points). The store is only read.
 
 ```bash
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:plan  # every project's full board
-mvn com.opencode.ide:opencode-tasks:0.4.7-SNAPSHOT:plan -Dopencode.tasks.out=target/board
+mvn com.opencode.ide:opencode-tasks:1.0.0:plan  # every project's full board
+mvn com.opencode.ide:opencode-tasks:1.0.0:plan -Dopencode.tasks.out=target/board
 ```
 
 There is no sprint scope and no sprint flag: `PlanMojo` declares exactly three parameters

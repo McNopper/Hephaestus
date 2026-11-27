@@ -1,24 +1,24 @@
-# release.ps1 - the D-002 release sequence for the Eclipse reactor:
-# set the release version -> verify (quality gate) -> tag -> bump to the next -SNAPSHOT.
-# The version change spans the whole reactor (poms, bundle MANIFESTs, feature.xml) via
-# tycho-versions:set-version. The tree must be clean and on the release branch before
+# release.ps1 - the D-002 release sequence for the Eclipse reactor: set the release version
+# -> verify (quality gate) -> commit + tag. The post-tag bump to the next -SNAPSHOT is ON-DEMAND
+# (owner directive 2026-11-27: the bump happens on demand): the default run ENDS after the tag
+# + release commit - the reactor stays at the released version - and -BumpNext opts into the
+# bump commit. The version change spans the whole reactor (poms, bundle MANIFESTs, feature.xml)
+# via tycho-versions:set-version. The tree must be clean and on the release branch before
 # anything runs; a failed gate reverts the version bump and aborts before any commit.
-#
+# Policy: decision D-002. Pushing is opt-in (-Push) - push only on the owner's explicit go.
 # Usage (from anywhere inside the repository):
 #   eclipse\releng\release.ps1 -ReleaseVersion 0.1.10            # full release, no push
 #   eclipse\releng\release.ps1 -ReleaseVersion 0.1.10 -Push      # release and push branch + tag
-#   eclipse\releng\release.ps1 -ReleaseVersion 0.1.10 -DryRun    # prove the mechanics in a
-#                                                                # scratch worktree, touch nothing
-#   -SkipBuild re-runs the git phase without the gate (only after a green run).
-#
-# Policy: decision D-002. Pushing is opt-in (-Push) - the standing rule is push only on
-# the owner's explicit go.
+#   eclipse\releng\release.ps1 -ReleaseVersion 0.1.10 -BumpNext  # also bump to 0.1.11-SNAPSHOT
+#   eclipse\releng\release.ps1 -ReleaseVersion 0.1.10 -DryRun    # rehearse in a scratch worktree,
+#       touch nothing; -SkipBuild re-runs the git phase without the gate (after a green run)
 param(
     [Parameter(Mandatory = $true)]
     [string]$ReleaseVersion,
     [switch]$DryRun,
     [switch]$SkipBuild,
     [switch]$Push,
+    [switch]$BumpNext,
     [string]$Branch = "main"
 )
 
@@ -99,11 +99,16 @@ if ($DryRun) {
         Show-VersionState $scratch "release"
         Step "STEP 2/5 quality gate: eclipse\build.ps1 clean verify -Pquality (skipped in the dry run)"
         Step "STEP 3/5 git commit 'Release v$ReleaseVersion' + git tag -a v$ReleaseVersion (printed, not run)"
-        Step "STEP 4/5 set-version -> $nextVersion-SNAPSHOT (executed in the worktree)"
-        Invoke-SetVersion $scratch "$nextVersion-SNAPSHOT"
-        Show-VersionState $scratch "bump"
+        if ($BumpNext) {
+            Step "STEP 4/5 set-version -> $nextVersion-SNAPSHOT (-BumpNext; executed in the worktree)"
+            Invoke-SetVersion $scratch "$nextVersion-SNAPSHOT"
+            Show-VersionState $scratch "bump"
+        } else {
+            Step "STEP 4/5 bump SKIPPED (-BumpNext absent - owner directive 2026-11-27: the bump happens on demand)"
+        }
         $pushNote = if ($Push) { " + git push origin $Branch --follow-tags" } else { " (no push: -Push absent)" }
-        Step "STEP 5/5 git commit 'Prepare $nextVersion-SNAPSHOT'$pushNote (printed, not run)"
+        $bumpNote = if ($BumpNext) { "git commit 'Prepare $nextVersion-SNAPSHOT'" } else { "no bump commit (stays at $ReleaseVersion)" }
+        Step "STEP 5/5 $bumpNote$pushNote (printed, not run)"
         Step "DRY RUN OK - the version mechanics verified, no manual edits needed"
     } finally {
         git worktree remove --force $scratch *> $null
@@ -138,12 +143,17 @@ git -C $repoRoot tag -a "v$ReleaseVersion" -m "v$ReleaseVersion"
 $releaseSha = (git rev-parse --short HEAD).Trim()
 Step "  tagged v$ReleaseVersion at $releaseSha"
 
-Step "STEP 4/5 set-version -> $nextVersion-SNAPSHOT"
-Invoke-SetVersion $repoRoot "$nextVersion-SNAPSHOT"
-Show-VersionState $repoRoot "bump"
-git -C $repoRoot add -A
-git -C $repoRoot commit -q -m "Prepare $nextVersion-SNAPSHOT"
-Step "  development continues at $nextVersion-SNAPSHOT"
+if ($BumpNext) {
+    Step "STEP 4/5 set-version -> $nextVersion-SNAPSHOT (-BumpNext)"
+    Invoke-SetVersion $repoRoot "$nextVersion-SNAPSHOT"
+    Show-VersionState $repoRoot "bump"
+    git -C $repoRoot add -A
+    git -C $repoRoot commit -q -m "Prepare $nextVersion-SNAPSHOT"
+    Step "  development continues at $nextVersion-SNAPSHOT"
+} else {
+    Step "STEP 4/5 bump SKIPPED (-BumpNext absent - owner directive 2026-11-27: the bump happens on demand)"
+    Step "  reactor stays at $ReleaseVersion - rerun with -BumpNext when the owner demands the bump"
+}
 
 if ($Push) {
     Step "STEP 5/5 push $Branch + tag"
@@ -154,4 +164,5 @@ if ($Push) {
     Step "STEP 5/5 push SKIPPED (-Push absent) - commits + tag are local only"
 }
 
-Step "DONE: v$ReleaseVersion tagged at $releaseSha, reactor at $nextVersion-SNAPSHOT"
+$finalState = if ($BumpNext) { "reactor at $nextVersion-SNAPSHOT" } else { "reactor stays at $ReleaseVersion" }
+Step "DONE: v$ReleaseVersion tagged at $releaseSha, $finalState"
