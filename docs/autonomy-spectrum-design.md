@@ -75,7 +75,7 @@ doctrine load (E5).
 
 - **C-C1-1 `classify(ownerMessage) -> goalRegistration | ticketRegistration | answer`**
   — the intake classification ([PO] loop step 1). Inputs: the owner's
-  message. Outputs: a stageless GOAL root for a whole objective, a
+  message. Outputs: a GOAL root (`stage: requirements`) for a whole objective, a
   staged ticket (requirement or `type: bug`) otherwise, or an
   evidence-backed answer for a question. Errors: ambiguous input →
   clarification round-trips to the owner, **bounded at two** ([PO]'s
@@ -302,8 +302,8 @@ How any stage ticker resolves "the run position" for its stage (the
 read side of DS-1; consumed by C-C3-1 at every tick's kickoff):
 
 1. **Resolve the root:** from the stage's tickets, walk the `basis` chain
-   to its root — the stageless GOAL root (DD-05; [PO]
-   step 1 registers whole objectives as stageless roots). A staged
+   to its root — the GOAL root (`stage: requirements`; DD-05; [PO]
+   step 1 registers whole objectives as requirements-stage roots). A staged
    ticket with no chain root has no owner goal → step 3.
 2. **Read and parse:** `task_get` the root; if its description carries
    a DS-1 record that parses against the grammar → the horizon (and
@@ -361,7 +361,7 @@ F-1..F-4, exactly as [ARCH §Guarantee flows] traces them to G-1..G-4.
 ### W-1 · Goal intake writes the position (F-1 → G-1; executor: C1)
 
 1. **Classify** (C-C1-1) — the owner's message is a whole objective → a
-   stageless GOAL root; ambiguous → bounded clarification
+   GOAL root (`stage: requirements`); ambiguous → bounded clarification
    (two round-trips, [PO]).
 2. **Ask** (C-C1-3, E5) — the dials when the owner leaves them
    unstated; silence → openQuestions, never a block.

@@ -14,6 +14,7 @@ mode: primary
 - **Kind:** agent (coordination)
 - **Read by:** auto-loaded agents / the PM; **written by:** maintainers
 - **Related:** part of the lean agent set in .opencode/agent/; dispatched via the task workflow.
+- **Availability (T-250, 2026-11-26):** `cpp-tools`, `graphics-expert` and the `graphics-*` skills/tools named below are **setup-supplied** - curated out of this repo 2026-10-15 (root `AGENTS.md`, *C++ and graphics tooling lives outside the repo*), so they resolve only if the maintainer's setup carries them.
 
 You are the **orchestrator** — the single coordination point for this repository's
 agentic workflow. You **do not edit production code**; you use `edit` only for the

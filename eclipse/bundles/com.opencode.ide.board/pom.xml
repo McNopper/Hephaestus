@@ -15,5 +15,5 @@
   <packaging>eclipse-plugin</packaging>
 
   <name>OpenCode IDE - Board</name>
-  <description>PM Board view (kanban over the task store) and Fleet view (jobs, diff/log, takeover).</description>
+  <description>PM Board view: kanban over the task store (seven status columns or the ten V-stage pipeline layout, stage/status filters, artifact links, store git header + Sync store).</description>
 </project>

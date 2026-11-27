@@ -1,11 +1,14 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -89,5 +92,74 @@ public class PmImportTest {
     assertEquals(5, store.list("test", null, null, null).size());
     // a claim made earlier in another test project does not leak
     assertEquals("T-003", store.get("test", "T-003").id);
+  }
+
+  /**
+   * T-242 (AC5, folded in by T-226's verb sweep): the per-ticket overwrite in {@code importPmJson}
+   * used to be UNGUARDED - {@code data.tasks.put()} replaced any existing record blindly, so a pm
+   * doc imported over a done id silently un-terminated it (the S4 class T-225 closed in
+   * update/setPaused, T-226 in routeReviewDoubt). Now guarded VERDICT-based: a terminal verdict
+   * refuses, an ARCHIVED id refuses (the same defect against the history pool - importing it would
+   * fork the id across pools, T-240), while a live record re-imports and a fresh id always imports
+   * - exactly what legitimate pm migration needs. This is the verb-grep table's "REPORTED, NOT
+   * FIXED" row for importPmJson moving to "GUARDED" (table started on T-226's evidence comment).
+   */
+  @Test
+  public void importRefusesToReplaceATerminalOrArchivedRecordButKeepsLiveAndFreshImports() {
+    // (1) LIVE record: a re-import over a ready row works (migration refresh, idempotent)
+    int liveCount =
+        store.importPmJson(
+            "test",
+            "{\"tickets\":{\"T-003\":{\"id\":\"T-003\",\"title\":\"refreshed\",\"status\":\"ready\"}}}");
+    assertEquals(1, liveCount);
+    assertEquals("refreshed", store.get("test", "T-003").title);
+
+    // (2) FRESH id: the migration's core need - still imports, pm backlog maps to ready
+    int freshCount =
+        store.importPmJson(
+            "test",
+            "{\"tickets\":{\"T-900\":{\"id\":\"T-900\",\"title\":\"fresh arrival\","
+                + "\"status\":\"product-backlog\"}}}");
+    assertEquals(1, freshCount);
+    assertEquals("ready", store.get("test", "T-900").status);
+
+    // (3) TERMINAL verdict: over a done record -> Invalid, the record stays untouched
+    store.update("test", "T-001", Map.of("status", "done"));
+    try {
+      store.importPmJson(
+          "test",
+          "{\"tickets\":{\"T-001\":{\"id\":\"T-001\",\"title\":\"clobbered\",\"status\":\"ready\"}}}");
+      fail("import over a done record must refuse (it would replace/un-terminal the record)");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(
+          "the refusal names the ticket and its verdict: " + expected.getMessage(),
+          expected.getMessage().contains("cannot import over ticket T-001")
+              && expected.getMessage().contains("'done'"));
+    }
+    Task stillDone = store.get("test", "T-001");
+    assertEquals("the done record is untouched after the refusal", "done", stillDone.status);
+    assertEquals(
+        "and was never clobbered with the pm title",
+        "Capture requirements for demo tracker",
+        stillDone.title);
+
+    // (4) ARCHIVED id: same defect class against the history pool -> Invalid; the id never
+    // reappears in the LIVE pool (a fork across both pools is what the guard prevents)
+    store.update("test", "T-002", Map.of("status", "done"));
+    store.archive("test", "T-002", "wave close");
+    try {
+      store.importPmJson(
+          "test",
+          "{\"tickets\":{\"T-002\":{\"id\":\"T-002\",\"title\":\"clobbered\",\"status\":\"ready\"}}}");
+      fail("import over an archived record must refuse (it would fork the id across pools)");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(
+          "the refusal names the archive: " + expected.getMessage(),
+          expected.getMessage().contains("cannot import over ticket T-002")
+              && expected.getMessage().contains("it is archived"));
+    }
+    assertFalse(
+        "the refused import never resurrects the archived id in the live pool",
+        store.list("test", null, null, null).stream().anyMatch(t -> t.id.equals("T-002")));
   }
 }

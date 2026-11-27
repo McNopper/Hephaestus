@@ -31,7 +31,7 @@ therefore **live-observation integration tests**: each criterion is decided
 by (a) reading the system artifact against its governing FRs, and (b) where
 cheap and safe, running read-only observations against live reality —
 `task_get` / `task_readiness` store reads, the store's sprint record
-(`.opencode/tasks/hephaestus/_meta.json`), and the opencode service's
+(`.harness/tasks/hephaestus/_meta.json`), and the opencode service's
 schedule/session listing (`GET /api/experimental/schedule?sessionID=…`,
 `GET /api/session?directory=…`, read-only GETs). Nothing was compiled; no
 script was executed (the prototype was read). Run 2026-11-15 ~09:00–09:15Z
@@ -57,7 +57,7 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
   resume). Live: three sessions titled `ticker-v` exist, all children of the
   repo-rooted root session `ses_f37a21973ffeZeCwmRTC7KSOvY` ("Hephaestus")
   — C-C (config inheritance) confirmed live; the script's tick prompt
-  (`ticker-setup.ps1` L83–99) matches FR-002's one-pass description and the
+  (`ticker-setup.ps1`'s `$prompt` block) matches FR-002's one-pass description and the
   SKILL.md procedure step for step.
 
 ## IT-2 — Canonical ten-stage order, consistent everywhere (T-055 AC1; FR-005)
@@ -69,7 +69,8 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
 - **PASS.** requirements → system → architecture → design → implementation
   → test-implementation → test-design → test-architecture → test-system →
   test-requirements is identical in FR-005, the system doc's "The tick"
-  section, the script's `$stages` (L82) and SKILL.md (L17–20). Live: T-035
+  section, the script's `$stages` string and SKILL.md's canonical stage
+  list. Live: T-035
   (requirements) reached done 08:44:48.768Z and its division children T-055
   (system) and T-056 (paired test-system) were created at 08:44:48.835/.901Z
   — same epic U-112, basis = the done ticket; the implementation stage's
@@ -105,7 +106,8 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
   concurrent subagents), stops counting a child at its delivery, and S-5
   makes the cap global across ticks (carry-over workers reduce free slots).
   The script interpolates `$Cap` and "check your running subagents first —
-  never exceed it" into the prompt (L94–96), i.e. arm-time delivery (C-F).
+  never exceed it" into the prompt (the `$Cap … never exceed it` sentence),
+  i.e. arm-time delivery (C-F).
   S-3 carries the re-arm hazard (fresh steward counts at zero) into Route A
   as a constraint on Q-002 — the one place the invariant could silently
   break is owned. The live counter itself is steward-context state (by
@@ -117,7 +119,7 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
 - **Criterion:** one rolling record `ticker-v` reused across ticks (never a
   record per tick or per stage); reopen semantics keep it rolling; it never
   closes while work is claimed/in flight.
-- **Oracle:** the store's sprint records (`.opencode/tasks/hephaestus/
+- **Oracle:** the store's sprint records (`.harness/tasks/hephaestus/
   _meta.json`) and the record's members' statuses — live.
 - **PASS.** Exactly one `ticker-v` record exists: `status: active`,
   `created_at: 2026-11-15T07:53:53.455Z`, no closed timestamp — while its
@@ -140,10 +142,12 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
   delta #1; the script text (live hazard confirmed); live steward-session
   accumulation.
 - **PASS.** The doc states the required outcome, marks the prototype's
-  present violation honestly (it POSTs unconditionally — script L79/L106
-  have no lookup and no retire), and routes the fix with its constraint.
+  present violation honestly (as read on the 2026-11-15 run: it POSTed
+  unconditionally - script L79/L106 had no lookup and no retire; the
+  re-arm guard landed 2026-11-16, re-verified 2026-11-26), and routes the
+  fix with its constraint.
   Live confirms the delta is real and the hazard analysis correct: three
-  `ticker-v` steward session records have accumulated from today's
+  `ticker-v` steward session records have accumulated from that run's
   re-arms/steward recreations (758 min / 19 min / 3 min old) — Q-002's
   accumulation concern made visible; and the duplicate hazard is
   service-lifetime-scoped (after a restart zero schedules exist, so a
@@ -196,14 +200,17 @@ Verdict summary: **APPROVE-WITH-NOTES** — all ten criteria PASS; six notes
   named route with an owning leg and file lane; open questions ride with
   them; no delta unowned.
 - **Oracle:** requirements §Prototype deltas (deltas 1–4) vs the doc's
-  Routes A/B/C; the prototype files' actual text (deltas verified real).
+  Routes A/B/C; the prototype files' actual text (deltas verified real on
+  the 2026-11-15 run; deltas #1-#3 landed 2026-11-16, re-verified
+  2026-11-26).
 - **PASS.** Delta #1 (re-arm guard) and delta #3 (`$Password` vs `$Token` —
-  script L25 tests the never-defined `$Password`, param is `$Token` at L18,
-  so explicit `-BaseUrl`/`-Token` overrides are always clobbered) share
+  script L25 tested the never-defined `$Password` at that run, param was
+  `$Token` at L18,
+  so explicit `-BaseUrl`/`-Token` overrides were always clobbered) share
   Route A: one implementation-leg ticket, one file lane
   (`ticker-setup.ps1`), carrying Q-001 and Q-002 with S-3's constraint —
   correct chunking (same file, same behavior). Delta #2 (SKILL.md L126–127
-  still says "re-run `ticker-setup.ps1` with the same `-Stages`"; the
+  then said "re-run `ticker-setup.ps1` with the same `-Stages`"; the
   unified script has no `-Stages` param) rides Route B, the skill lane.
   Delta #4 rides Route C (the `subagent_depth >= 2` constraint stays
   documented, setup-local per D-004) with the prose-coherence half assigned

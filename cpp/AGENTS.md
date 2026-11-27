@@ -3,8 +3,8 @@
 ## About this document
 
 - **Kind:** `doc` / C++ subtree workflow convention (loaded when working under `cpp/`)
-- **Read by:** the `cpp-tools` agent and any agent doing C++ work; **written by:** maintainers
-- **Related:** pairs with `cpp/README.md`; driven by the `cpp-tools` skill and `cpp-tools` agent
+- **Read by:** the `cpp-tools` agent (setup-supplied - not shipped in this repo, see *Related*) and any agent doing C++ work; **written by:** maintainers
+- **Related:** pairs with `cpp/README.md`; driven by the `cpp-tools` skill and `cpp-tools` agent - both **setup-supplied**: curated out of this repo 2026-10-15 (root `AGENTS.md`, *C++ and graphics tooling lives outside the repo*), so a stock clone has neither under `.opencode/skills/` / `.opencode/agent/` and this file is the in-repo contract.
 
 Canonical commands and conventions for AI agents working in this template.
 Run everything from this directory (the one containing `CMakeLists.txt`).

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -134,6 +135,102 @@ public class ReviewDoubtTest {
     } catch (TaskStore.Invalid expected) {
       assertTrue(expected.getMessage().contains("reason"));
     }
+  }
+
+  // T-226 (T-225 review follow-up 1): the terminal guard routeReviewDoubt was missing - both of
+  // its status writes (the ready retry and the escalation's enterBlocked) must never EXIT a
+  // terminal verdict, judged by T-225's verdictStatus so a chain-blocked hop reads resume_to.
+
+  @Test
+  public void aDoneTicketCannotTakeAReviewDoubt() {
+    Task t = staged("design");
+    store.update(PROJECT, t.id, Map.of("status", "done"));
+
+    try {
+      store.routeReviewDoubt(PROJECT, t.id, "still doubtful", "reviewer");
+      throw new AssertionError("expected Invalid for a done ticket");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage(), expected.getMessage().contains(t.id));
+      assertTrue(expected.getMessage(), expected.getMessage().contains("'done'"));
+      assertTrue(expected.getMessage(), expected.getMessage().contains("terminal"));
+    }
+    assertEquals(
+        "the terminal verdict survives the refusal", "done", store.get(PROJECT, t.id).status);
+    assertFalse(
+        "no doubt round-trip was recorded",
+        store.get(PROJECT, t.id).history.stream()
+            .anyMatch(h -> h.action().startsWith("review doubt")));
+  }
+
+  @Test
+  public void aNotImplementedTicketCannotTakeAReviewDoubt() {
+    Task t = staged("design");
+    store.update(PROJECT, t.id, Map.of("status", "not-implemented"));
+
+    try {
+      store.routeReviewDoubt(PROJECT, t.id, "still doubtful", "reviewer");
+      throw new AssertionError("expected Invalid for a not-implemented ticket");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage(), expected.getMessage().contains("not-implemented"));
+    }
+    assertEquals("not-implemented survives", "not-implemented", store.get(PROJECT, t.id).status);
+  }
+
+  @Test
+  public void aPausedTicketCannotTakeAReviewDoubt() {
+    Task t = staged("design");
+    store.setPaused(PROJECT, t.id, "branch maintenance", "pm");
+
+    try {
+      store.routeReviewDoubt(PROJECT, t.id, "doubt on a parked ticket", "reviewer");
+      throw new AssertionError("expected Invalid for a paused ticket");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(expected.getMessage(), expected.getMessage().contains("paused"));
+      assertTrue(expected.getMessage(), expected.getMessage().contains("resume"));
+    }
+    assertEquals(
+        "the dependency wait survives - only the resume path moves paused",
+        "paused",
+        store.get(PROJECT, t.id).status);
+  }
+
+  @Test
+  public void aChainBlockedDoneHopIsJudgedByItsResumeToVerdict() {
+    Task upstream = staged("architecture");
+    store.update(PROJECT, upstream.id, Map.of("status", "done"));
+    Task child = staged("design");
+    store.update(PROJECT, child.id, Map.of("basis", upstream.id));
+    // T-221: setBlocked's chain walk re-opens the done hop - status blocked, verdict in resume_to
+    store.setBlocked(PROJECT, child.id, "upstream needs rework", "reviewer");
+    assertEquals("blocked", store.get(PROJECT, upstream.id).status);
+    assertEquals("done", store.get(PROJECT, upstream.id).resumeTo);
+
+    try {
+      store.routeReviewDoubt(PROJECT, upstream.id, "doubt on a chain hop", "reviewer");
+      throw new AssertionError("expected Invalid for a chain-blocked done hop");
+    } catch (TaskStore.Invalid expected) {
+      assertTrue(
+          "the refusal judges resume_to, not the blocked status: " + expected.getMessage(),
+          expected.getMessage().contains("'done'"));
+    }
+    assertEquals(
+        "the chain hop keeps its T-221 blocked state (ChainBlockTest's pin)",
+        "blocked",
+        store.get(PROJECT, upstream.id).status);
+    assertEquals("done", store.get(PROJECT, upstream.id).resumeTo);
+  }
+
+  @Test
+  public void anInReviewTicketStillRoundTripsItsDoubtToTheOriginator() {
+    Task t = staged("implementation");
+    store.update(PROJECT, t.id, Map.of("status", "in-review"));
+
+    Task after = store.routeReviewDoubt(PROJECT, t.id, "cannot determine X", "reviewer");
+
+    assertEquals("the normal round-trip is untouched", "ready", after.status);
+    assertNull(after.assignee);
+    assertTrue(
+        after.history.stream().anyMatch(h -> h.action().startsWith("review doubt retry (1/1)")));
   }
 
   /** FR-006: the store-side evidence window sees run writes, never bookkeeping before it. */

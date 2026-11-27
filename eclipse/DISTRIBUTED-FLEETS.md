@@ -1,70 +1,54 @@
-# Distributed fleets — one board, many machines
+# Distributed fleets - one board, many machines
 
 ## About this document
 
+- **PARKED - done-and-dormant (mode parked 2026-11-14 with the U-110
+  de-fleet; procedure body retired 2026-11-26, T-233):** what it was - the
+  design note for the distributed-fleet operating mode: several opencode
+  servers on different machines sharing ONE task store through its git
+  history, each machine serving its own `eclipse-build` endpoint and its own
+  worktree sessions against a local clone of the code repo. Built and
+  recorded, not actively used.
+- **Park record:** `../ROADMAP.md`, section "Parked / non-goals" - "distributed
+  fleets are done-and-dormant" (the mention was dropped by the 2026-11-14
+  ROADMAP rewrite and restored 2026-11-26 by T-233 so this pointer lands on
+  a section that actually names the mode). Only the owner re-opens it.
 - **Kind:** doc / design note for the distributed-fleet operating mode.
-- **Read by:** anyone planning to run Hephaestus with several opencode servers on different machines against one task store; **written by:** maintainers.
-- **Related:** `../ROADMAP.md` ("Parked / non-goals": distributed fleets are done-and-dormant), `README.md` (bundle map), `ARCHITECTURE.md` (single-machine architecture). Records the sharding-vs-single-repo decision and the sync discipline the tooling implements.
+- **Read by:** anyone planning to run Hephaestus with several opencode
+  servers on different machines against one task store; **written by:**
+  maintainers.
+- **Related:** `../ROADMAP.md` ("Parked / non-goals": distributed fleets are
+  done-and-dormant), `README.md` (bundle map), `ARCHITECTURE.md`
+  (single-machine architecture).
+- **Original record:** in-repo since 2026-10-31 (earliest reachable commit;
+  the repository's history was single-commit squashed that day); the
+  procedure body was removed 2026-11-26 (T-233, docs consolidation lane T-d)
+  and survives in git history (`git log -- eclipse/DISTRIBUTED-FLEETS.md`).
 
-## The model
+## What moved where (successors)
 
-The task store (`.harness/tasks/`, one Markdown file per ticket) is **plain
-git-versioned text** — that is the entire distribution mechanism. Two layouts are
-supported: the store as a **subtree of the host repo** (the Hephaestus default — all
-store git discipline is path-scoped to `.harness/tasks` and can never sweep the
-host repo's own WIP into a store commit) or a **dedicated store repo** whose root
-*is* the store. N machines run one Eclipse + opencode server each; they share the
-board by sharing the store's git history. The store is the **only** shared state:
+- **The mechanism still lives in the library:** the store is plain
+  git-versioned text and the sync discipline is implemented and unit-tested -
+  see `ARCHITECTURE.md` (the `git` bundle row: `StoreGitStatus`/`StoreSync`,
+  path-scoped commit → pull-rebase → push with recover; the Board row's
+  *Sync store* action) and `README.md` (the Board and git bundle rows).
+- **The multi-machine operating procedure** (bare repo, per-machine clones,
+  the *pull → claim → push* rhythm, the simultaneous-edit guidance): parked
+  with the mode - no live successor by design; recover it from git history
+  when the mode is re-opened.
 
-- each machine serves its own `eclipse-build` MCP endpoint and runs its own
-  worktree sessions against its local clone of the *code* repo;
-- tickets are claimed atomically **within one machine's store view** — across
-  machines, claim semantics are **git discipline**: *pull → claim → push*;
-- a push conflict means someone else claimed first: re-pull, re-claim.
+## The decision it recorded (kept)
 
-## What the tooling gives you
+**Single shared store repo (chosen):** all projects, all machines, one
+repository. The store's value is *the* global queue - readiness gating
+(`task_readiness`) and cross-machine traceability assume one linear history;
+one linear history makes "what's runnable right now" one `git pull` away,
+keeps claim conflicts detectable by git itself, and needs no infrastructure
+beyond one bare repo. Accepted costs at hobby scale: interleaved store
+commits, a wedged clone blocking only that machine, monotonically growing
+store size (text - fine for years).
 
-| Piece | Where | Behavior |
-|---|---|---|
-| Store status in the Board header | Board view | `store main · ahead 2 · 3 changed` (from `StoreGitStatus.load`, one `git status -b --porcelain`) — refreshes with the board |
-| *Sync store* action | Board view toolbar | commit local ticket changes (**scoped to `.harness/tasks`**) → `pull --rebase` → `push` (`StoreSync.sync`); a pull conflict never auto-resolves — it offers `recover()` (abort the rebase, local commits intact) or manual git |
-| `StoreGitStatus` / `StoreSync` | `com.opencode.ide.git` (Eclipse-free) | The primitives, unit-tested against real git in temp repos |
-
-## Sharding vs single repo — the decision
-
-**Single shared store repo (chosen).** All projects, all machines, one repository.
-
-Why: the store's value is *the* global queue — readiness gating
-(`task_readiness`), cross-machine traceability audits all assume
-one linear history; a single repo makes "what's runnable right now" one
-`git pull` away, keeps claim conflicts detectable by git itself, and needs zero
-extra infrastructure (no hosting beyond one bare repo, no sync service).
-
-The costs, accepted at hobby scale: one machine's noisy store commits
-(invalidations, actuals) interleave with everyone's (pull often, commit small);
-a wedged clone blocks only that machine; store size grows monotonically (it's
-text — fine for years).
-
-**When to shard instead:** if machine count grows past "fits in one standup" or
-projects want independent write policies, split *per project* (the store is
-already subdirectory-scoped: `.harness/tasks/<project>/`) — each project dir
-becomes its own repo, the Board's project selector picks the repo, and nothing
-else changes. Shard by **project, never by V-stage**: stages of one requirement chain must
-share a queue or the dataflow pipeline (H6) stalls on cross-repo staleness it
-cannot see.
-
-## Operating checklist
-
-1. One bare repo (any git host or a shared drive) holding `.harness/tasks/`.
-2. Each machine: clone it, point the Board's *Store* input at the clone (the
-   recommended per-machine setting — an explicit override, honored as-is and
-   winning over every derived root; the tasks-root preference is the
-   fallback), configure its own `remote.origin` push access.
-3. Rhythm: **pull → claim → push** — press *Sync store* before claiming
-   (dispatch actions claim), sync again after a bulk-edit or
-   ticket-creation change; pull conflicts are rebase conflicts — abort, pull fresh,
-   redo the claim.
-4. Never edit tickets on two machines simultaneously and expect git to merge
-   meaningfully — the store is line-oriented Markdown; simultaneous edits to
-   *different* tickets merge cleanly, edits to *one* ticket are last-writer
-   wins after rebase.
+**When to shard instead:** machine count past "fits in one standup", or
+projects wanting independent write policies - split **per project, never by
+V-stage**: stages of one requirement chain must share a queue or the
+dataflow pipeline (H6) stalls on cross-repo staleness it cannot see.

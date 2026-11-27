@@ -5,6 +5,12 @@ description: Execute the linked stage pipeline as a stage agent - the abstract t
 
 # Stage pipeline (U-110)
 
+## About this document
+
+- **Kind:** `skill` (the live ticker procedure - the abstract tick pass over the whole V and the per-ticket fulfillment loop)
+- **Read by:** the steward session that loads it on every tick; humans operating the ticker; **written by:** maintainers
+- **Related:** pairs with `ticker-setup.ps1` (the arm-time tick-prompt carriage) and `docs/design-stage-pipeline.md` / `docs/autonomy-spectrum-design.md`; linked from `AGENTS.md`.
+
 You are a stage agent in the linked stage pipeline. The procedure is ABSTRACT
 and identical for every stage; only your stage's data differs (its division
 map, its discipline skill, its artifacts). Tickets are STATIONARY: they are
@@ -18,7 +24,7 @@ Run this loop exactly. Do not improvise steps or order. ONE schedule
 (DS-003), not a per-stage sub-pass: for each stage in canonical order —
 requirements, system, architecture, design, implementation,
 test-implementation, test-design, test-architecture, test-system,
-test-requirements — run steps 1-4, then step 5 once.
+test-requirements — run steps 1-4b, then step 5 once.
 
 **Pass preamble - reconcile (S-2, DS-004):** before the stage loop,
 classify every claimed ticket over the spawn ledger (your own bookkeeping:
@@ -43,15 +49,17 @@ release happens only when no live child of any lifetime can still be
 executing (never double-spawn). Conservative fallback: job list
 unavailable → every ledger entry without a completion report counts as
 live - reconciliation may under-release, never double-spawn; stragglers
-resolve when the surface recovers. Re-check the liveness sweep at step 5.
+resolve when the surface recovers. Re-check the liveness sweep at steps 4b
+and 5.
 The preamble only releases claims; it never writes stage business state,
 and the stage loop's order below is untouched.
 
 **Kickoff horizon read (DS-2 / C-C3-1, `docs/autonomy-spectrum-design.md` §2.3 -
 the pump's one dial touchpoint, run before the stage loop):** resolve the
 run's position once per pass: from a staged ticket of the run, walk the
-`basis` chain to its root, the
-stageless GOAL root (a staged ticket with no chain root has no position -
+`basis` chain to its root, the GOAL root (a `stage: requirements` ticket,
+as `GoalIntake.java:17-18`, `50-74` registers it - never stageless; a
+staged ticket with no chain root has no position -
 fall through); `task_get` (E2) the root and parse its dial record's
 `goal horizon` line - and ONLY that line (DD-03): the review-cadence dial
 has no pump edge, no step below takes a dial parameter, and the five steps
@@ -179,7 +187,53 @@ Per stage:
    update - NEVER re-created (the title scan would see the created
    ticket and dedup would skip the mint, leaving the state wrong). Do
    NOT claim the instance, do NOT spawn a worker for it (DR-3).
-5. READY → KICKOFF: **claim, then spawn** - READY tickets born from
+4b. STALE → RE-RUN (the consistency consumer -
+   `docs/design-stage-pipeline.md` §3 "consistency is always-on"): rows with
+   readiness kind STALE are PRODUCED by the store (the readiness tick's
+   `recordInvalidations` leaves the `inputs changed:` marker) but no step ever
+   CONSUMED them - a re-run-needed ticket sat unclaimed forever, and its
+   markers accumulated as silent noise. Act on EVERY kind-STALE row of this
+   stage, by the row's status:
+   - status `ready` + unassigned → RE-DISPATCH: claim it directly (the
+     Field-observations targeted claim: status `in-progress` + assignee
+     `ticker-v:<id>` in one `task_update`, pre-checked unassigned - a
+     foreign claim is untouched), then spawn ONE background subagent with
+     the stage's agent (STAGE-AGENT MAP) and the step-5 fulfillment brief
+     PLUS the re-run note as the ticket's first instruction: the basis
+     changed after this ticket's last run (the readiness reason names the
+     basis id and both stamps) - re-read the CURRENT basis artifacts and
+     revise every claim of your stage product that no longer holds. STALE
+     outranks READY in the engine's own report (severity order), so these
+     dispatch BEFORE step 5's fresh kickoff; the cap, ledger and
+     liveness-sweep accounting are step 5's, unchanged.
+   - status `done` → REPORT-ONLY: a terminal done-state ticket is never
+     dispatchable (AGENTS.md H6) and re-opening completed work is the
+     Product Owner's call - never claim, never block, never spawn. Name
+     them in the pass digest (step 6) as ONE count line,
+     `stale-done: <n> report-only rows`, so the accumulated markers surface
+     every pass instead of sitting silent; the markers stay as the ASPICE
+     consistency evidence.
+   - `paused` → never claimed directly (AGENTS.md: only the resume path
+     moves it); it flows through this step the pass after the pump resumes
+     it.
+
+   Policy: RE-DISPATCH, not escalate-to-basis. STALE means the upstream
+   ALREADY changed after this ticket ran - the rework happened there, the
+   inconsistent product is THIS ticket's, so this ticket re-runs; an
+   escalation would push the wrong side (and a direct `task_set_blocked`
+   entry on a `done` basis is refused by the store - the chain walk that
+   re-opens done hops is escalation's motion from below, not dispatch's).
+   Nothing is held to release either: a claimed row reads RUNNING, never
+   STALE.
+5. READY → KICKOFF: **pre-check, claim, then spawn** - before any
+   `task_claim`, re-check the candidate against step 1's readiness row and
+   claim only ids whose row read kind READY there (the verb HAS filtered
+   readiness since T-226: TaskStore.claim() evaluates StageReadiness inside
+   the claim transaction and skips a basis-linked candidate whose verdict
+   reads WAIT_UPSTREAM or STALE, while a basis-less flow-WAIT_UPSTREAM
+   stays claimable (T-220's loop pin) - keep your own pre-check anyway:
+   skip any id the (4b) list named, never scoop it blind). READY tickets
+   born from
    division are claimable directly (the birth rule lands them `ready`):
    claim under the spawn cap (`task_claim`), then spawn ONE
    background subagent per claimed ticket **with the stage's agent** (U-104,
@@ -194,9 +248,10 @@ Per stage:
    entry `completed` on the child's completion report; spawn failure after
    a successful claim → release the claim immediately. Never spawn two
    subagents whose file lanes overlap; when lanes overlap, serialize within
-   the stage. **A landed markdown doc must be
-   lint-clean** (`releng/lint.ps1` over the touched files — CI's markdown
-   gate runs on every push and a lint-broken doc turns CI red).
+   the stage. A landed markdown doc must be lint-clean under the
+   repository's own verification gate - the gate its AGENTS.md/README
+   documents (docs/own-project.md step 4): run that gate before landing the
+   touched files; no push-time CI is assumed.
 
    **STAGE-AGENT MAP** (U-104; every row overridable store-side via
   `task_set_stage_agent` / readable with `task_stage_agents` — settable from
@@ -353,10 +408,21 @@ product define done.
 - **Reliable enable/disable (T-052 mitigation, the watchdog):** the
   T-052 cycling eats session-bound schedules stochastically, so a bare
   `ticker-setup.ps1` arming is NOT durable. The self-healing layer:
-  `.harness/ticker-watchdog.ps1` (a scheduled task, `HephaestusTickerWatchdog`,
-  every 5 min, survives reboots) reconciles the ticker-v schedule with the
+  `.harness/ticker-watchdog.ps1` (a scheduled task, every 5 min, survives
+  reboots) reconciles the ticker-v schedule with the
   desired-state flag `.harness/ticker-state.json` (`{"enabled": true|false}`).
-  ENABLE: set the flag true + run `ticker-setup.ps1` (the watchdog re-arms
+  **Nothing machine-specific is hardcoded (T-223)** - the watchdog derives what
+  it drives, so the same file works in any checkout/machine: the repo root is
+  the script's own git root (the `ticker-setup.ps1:70-80` pattern), the base
+  URL is the running service's `url` from `~/.local/state/opencode/service.json`
+  (port `28894` only as last-resort fallback), and the **scheduled-task name is
+  derived per repo: `<repo folder>TickerWatchdog`** - this checkout resolves to
+  `HephaestusTickerWatchdog` (the name its task is registered under), another
+  repo to `<yourrepo>TickerWatchdog`; register it under the derived name.
+  `-Repo` / `-BaseUrl` / `-TaskName` override any of the three, and `-DryRun`
+  prints the resolved triple plus the ready-to-run `schtasks` registration
+  command without reading state or touching the service. ENABLE: set the flag
+  true + run `ticker-setup.ps1` (the watchdog re-arms
   within 5 min if the cycling eats the schedule). DISABLE: set the flag
   false + delete every ticker-v schedule + terminate the ticker-v sessions
   (the durable disable - the watchdog will not re-arm against a false flag).

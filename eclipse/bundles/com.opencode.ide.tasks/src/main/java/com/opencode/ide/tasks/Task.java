@@ -32,13 +32,19 @@ public final class Task {
    * {@code not-implemented} (task complete, feature deliberately not built); {@code blocked} is a
    * STATE that escalates up the basis chain to the requirement, {@code paused} is the dependency
    * wait (U-067: {@link #resumeTo} remembers where clearing returns it). Update is deliberately lax
-   * (any of these, no transition graph), as in the pm server. This order is the Board's column
-   * order.
+   * on ENTRY (any of these status values - no ENTRY transition graph), as in the pm server, but an
+   * update never moves a ticket OUT of a terminal state (that exit is refused, T-225). This order
+   * is the Board's column order.
    */
   public static final List<String> VALID_STATUSES =
       List.of("ready", "in-progress", "in-review", "done", "not-implemented", "paused", "blocked");
 
-  /** Priority weight for claim/backlog ordering (higher = first). */
+  /**
+   * Priority weight for claim ordering (higher = first): the claim candidate sort in {@code
+   * TaskStore.claim} and the task_list(status=ready) queue in {@code TaskStore.prioritized()}. The
+   * key set is also the accepted priority values (validated on create and update - both verbs call
+   * {@code TaskStore.requirePriority}).
+   */
   public static final Map<String, Integer> PRIORITY_ORDER =
       Map.of("low", 0, "medium", 1, "high", 2, "critical", 3);
 
@@ -49,9 +55,13 @@ public final class Task {
   public static final Set<String> VERIFICATION_ROLES = Set.of("tester");
 
   /**
-   * Pinned timestamp format: UTC, millisecond precision, always {@code Z}. Lexicographic order
-   * equals chronological order, which the claim/backlog sorts rely on when files are merged from
-   * mixed writers.
+   * Pinned timestamp format: UTC, millisecond precision, always {@code Z} - the shape every
+   * serialized stamp carries: {@link #toJson}'s created_at/updated_at/inputs_changed_at and record
+   * ts fields, the file codec's frontmatter and record sections, the staleness messages, the
+   * Board's ticket markdown. Stamps stay sortable as text (same width, always Z), but ordering
+   * never uses that: readers parse the string back to {@link Instant} (TaskFileCodec.parseInstant,
+   * TaskStore.instantOrNull) and the claim sort / {@code TaskStore.prioritized()} compare the
+   * parsed createdAt.
    */
   public static final DateTimeFormatter TS_FORMAT =
       DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);

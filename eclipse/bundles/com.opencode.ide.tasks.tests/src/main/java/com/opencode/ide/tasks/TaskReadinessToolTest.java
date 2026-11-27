@@ -144,6 +144,22 @@ public class TaskReadinessToolTest extends ToolRpcHarness {
     assertEquals(0, callArray("task_readiness", "{\"project\":\"empty\"}").size());
   }
 
+  // T-226 (N1): readiness is a READ - a project that does not exist reads as zero rows and
+  // creates NOTHING (the documented invariant at TaskStore's read entry points: get/list/doctor
+  // already guarded; readiness used to fall through to transaction() -> Files.createDirectories
+  // and leave a phantom directory + .lock behind).
+
+  @Test
+  public void readinessOnAMissingProjectNeverMaterializesIt() {
+    java.nio.file.Path ghost = root.resolve("ghost-readiness");
+    assertFalse("baseline: no directory before the call", java.nio.file.Files.isDirectory(ghost));
+
+    JsonArray rows = callArray("task_readiness", "{\"project\":\"ghost-readiness\"}");
+
+    assertEquals("a missing project reads as zero rows", 0, rows.size());
+    assertFalse("the read created NOTHING (T-226 N1)", java.nio.file.Files.isDirectory(ghost));
+  }
+
   @Test
   public void missingProjectParameterIsJsonRpc32602() {
     JsonObject response =

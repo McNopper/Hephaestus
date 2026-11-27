@@ -83,7 +83,7 @@ component set collapses from ten tickers to one steward.
 | **C5 `worker`** | execution | One background subagent per claimed ticket (FR-008); its world is exactly the fulfillment brief: ticket + direct basis artifacts + its stage's discipline skill + lane constraints. Store footprint is exactly its own ticket: record the artifact, set `in-review`, comment, block when stuck. Never `done`, never another ticket, never spawns. | native background subagents (spawn returns immediately, reports on idle) | [SYS §Major parts "worker subagents"; I-2; DSG §5] |
 | **C6 `reviewer`** | governance | One read-only subagent per `in-review` ticket per stage visit (FR-006 step 2); judges the ticket + its recorded artifacts (and runs acceptance/lint gates via bash; file edits denied) and DELIVERS the engine verdict: PASS → `done`, FAIL → blocked, UNCLEAR → one retry round-trip. Delivers only — the verdict WRITE is the steward's, in the tick's fixed write order (I-3; AD-005). | the `reviewer` agent (`.opencode/agent/reviewer.md`, `edit: deny`; "the engine applies it, you stay read-only") | [SYS §Major parts "reviewer subagents"; I-2; I-3] |
 | **C7 `process`** | knowledge (static) | The procedure and discipline knowledge: the common `stage-pipeline` skill (the tick procedure + the fulfillment loop + boundaries) parameterized by the per-stage discipline skills (`software-*`, `test-software-*`). Loaded by actors; never an active process. | `.opencode/skills/stage-pipeline/` + the discipline skill family | [DSG §6] |
-| **C8 `arming`** | setup | The ONLY path that mutates runtime topology: `ticker-setup.ps1` creates/looks up the steward session (child of a repo-rooted parent) and the `ticker-v` schedule, with arm-time parameters (`-IntervalMinutes` default 15, `-Cap` default 4 — C-F) interpolated into the tick prompt; resume = re-running it alone (FR-015). REQUIRED behavior: exactly ONE schedule and ONE steward on re-arm (the guard — Route A); never touches store business state; no per-stage mode. | `.opencode/skills/stage-pipeline/ticker-setup.ps1` (prototype: it POSTs unconditionally today — delta #1; hardening is Route A's content, not re-specified here) | [SYS I-1; S-3/S-4; §Route A] |
+| **C8 `arming`** | setup | The ONLY path that mutates runtime topology: `ticker-setup.ps1` creates/looks up the steward session (child of a repo-rooted parent) and the `ticker-v` schedule, with arm-time parameters (`-IntervalMinutes` default 5, `-Cap` default 4 — C-F; the interval default was 15 at the 2026-11-15 read and the owner set 5 on 2026-11-16) interpolated into the tick prompt; resume = re-running it alone (FR-015). REQUIRED behavior: exactly ONE schedule and ONE steward on re-arm (the guard — Route A); never touches store business state; no per-stage mode. | `.opencode/skills/stage-pipeline/ticker-setup.ps1` (prototype at the 2026-11-15 read: it POSTed unconditionally — delta #1, since landed 2026-11-16; hardening was Route A's content, not re-specified here) | [SYS I-1; S-3/S-4; §Route A] |
 
 ```text
  [C7 process]   (static knowledge: stage-pipeline + discipline skills)
@@ -205,8 +205,8 @@ rules, not conventions):
 - **Any path → per-stage schedules**: the ten `ticker-<stage>` schedules
   stay retired; no arming or teardown path recreates them (FR-004, INV-7).
   C8 has no per-stage mode by construction — there is exactly one arming
-  path and it cannot express ten schedules (Route B reconciles the doc
-  leftover that still says otherwise).
+  path and it cannot express ten schedules (Route B reconciled the doc
+  leftover that said otherwise - landed 2026-11-16).
 
 Direction consistency: C1 and C7 have **zero outgoing edges**; C2's only
 relations are hosting (E1/E2/E4 target its surfaces; it originates nothing).
@@ -456,7 +456,7 @@ architecture adds only constraints, never answers:
 | Q-001 idempotency mechanism (reuse vs retire-and-recreate by name) | Route A — decided at design/implementation against the actual schedule API | E1's observable contract: exactly ONE schedule and ONE steward after any re-arm (INV-1/INV-2), whatever the mechanism |
 | Q-002 steward-session accumulation (reuse vs fresh) | Route A — decided at design, constrained by S-3 | INV-3 must survive steward replacement: reuse keeps the cap count; fresh requires a drain rule so old children cannot blow the cap |
 | Q-003 one-tick context fit at deep-V scale | design decision; flagged for the paired test (T-035 AC-2) | the contract never depends on one pass fitting the window — C1 carries all state; the fallback shape (a store-carried stage cursor + per-stage sub-passes) is a design-stage decision, not structure here |
-| Q-004 cadence/cap defaults (`-IntervalMinutes 15`, `-Cap 4`) | owner call at arm time (C-F) | parameters of E1/E2 only — changing them is a re-arm, never a new edge |
+| Q-004 cadence/cap defaults (`-IntervalMinutes 5` at HEAD; 15 at the 2026-11-15 read — owner set 5 on 2026-11-16, `-Cap 4`) | owner call at arm time (C-F) | parameters of E1/E2 only - changing them is a re-arm, never a new edge |
 | Dead-claim detection (bounded staleness vs session-existence probe) | design leg, per [SYS S-2] | the contract is fixed: orphaned claims are released and re-queued, never silently left `in-progress` forever, never double-spawned while the worker might still be alive |
 
 Prototype deltas keep their Route A/B/C destinations [SYS §Downstream routes

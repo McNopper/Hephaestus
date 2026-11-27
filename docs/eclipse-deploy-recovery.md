@@ -14,7 +14,7 @@
 ```powershell
 cd eclipse
 .\build.ps1 verify          # or clean verify
-.\deploy-dev.ps1            # [-EclipseRoot C:\eclipse-cpp]
+.\deploy-dev.ps1            # [-EclipseRoot C:\eclipse-cpp | $env:ECLIPSE_HOME]
 ```
 
 `deploy-dev.ps1` wipes the `dropins\opencode-ide` folder and copies the fresh
@@ -49,6 +49,11 @@ unset in some launcher flows and every preferences-touching bundle degrades.
 dies with "Unable to acquire application service". The first start after a
 deploy is slower (cache rebuild + p2 reconciliation); let it finish.
 
+**If views or the perspective don't update after a deploy**, run Eclipse once
+with `-clean`: add `-clean` on its own line near the top of `eclipse.ini`
+(above `-vmargs`), then remove it after one launch — exactly the hint
+`deploy-dev.ps1` prints on exit.
+
 ## Install recovery (damaged p2 profile)
 
 Symptoms: instant "Unable to acquire application service" exits,
@@ -64,9 +69,13 @@ Recovery (in order):
    **absolute, escaped** URL:
    `osgi.bundles=reference\:file\:C\:/eclipse-cpp/plugins/org.eclipse.equinox.simpleconfigurator_<ver>.jar@1\:start`
    plus `osgi.bundles.defaultStartLevel=4`, `osgi.framework`, and the
-   `eclipse.*` product keys. (Relative `reference:file:` entries resolve
-   against an area where the jar is not — that form is what a broken
-   reconciliation had written.)
+   `eclipse.*` product keys. (Use the absolute URL when restoring: it
+   resolves no matter what a damaged file pointed at. A healthy install's own
+   `osgi.bundles` line is the bare relative form —
+   `reference\:file\:org.eclipse.equinox.simpleconfigurator_<ver>.jar@1\:start`,
+   as framework-admin itself writes it — so relative is not the damage by
+   itself; the breakage is an entry that does not resolve, which is what
+   leaves `bundles.info` never read and the workbench missing.)
 2. **Regenerate `bundles.info` from the actual `plugins/` content.** Two kinds
    of entries exist and both must be present:
    - every `*.jar`: `<id>,<version>,file:plugins/<name>.jar,<level>,<started>`
@@ -96,16 +105,22 @@ themselves are ordinary dropins again afterwards.
 
 ## Developing the plugin inside Eclipse
 
-The install carries m2e plus the m2e-PDE integration (Tycho/OSGi support), and
-the bundle directories carry PDE metadata (`.project`, `.classpath`,
-`.settings/`) — either import style works in ONE workspace:
+The bundle directories carry PDE metadata (`.project`, `.classpath`,
+`.settings/`) — all but the headless `com.opencode.ide.arch.tests`, which the
+reactor builds from its `pom.xml` — so both import styles work in ONE
+workspace:
 
-- *File → Import → Maven → Existing Maven Projects* → root `eclipse/pom.xml`
-  → import all (preferred; m2e-PDE maps the Tycho packaging to PDE natures and
-  resolves workspace OSGi dependencies).
 - *File → Import → General → Existing Projects into Workspace* → root
   `eclipse/bundles` (plain PDE import; dependencies resolve against the
   running Eclipse, which contains every bundle via the dropins).
+  **Works on a stock install — the safe default.**
+- *File → Import → Maven → Existing Maven Projects* → root `eclipse/pom.xml`
+  → import all (preferred where m2e exists: m2e-PDE maps the Tycho packaging
+  to PDE natures and resolves workspace OSGi dependencies). **The default EPP
+  CDT install ships no m2e** — verified 2026-11-26 against `C:\eclipse-cpp`:
+  zero `org.eclipse.m2e*` bundles under `plugins\` or `dropins\`, so this
+  import entry does not appear until m2e (plus the m2e-PDE integration) is
+  installed from the Marketplace.
 
 Eclipse's command-line `-import` flag proved unreliable for this (silently
 no-ops on a workspace with existing UI state; the batch import only took on a

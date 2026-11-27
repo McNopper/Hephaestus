@@ -15,6 +15,7 @@ description: >
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the `project-manager-*` domain set; standalone (no lifecycle pair).
+- **Availability (T-250, 2026-11-26):** where the tables below name `graphics-expert`, `cpp-tools` or `mcp.graphics`, those lanes are **setup-supplied** - curated out of this repo 2026-10-15 (root `AGENTS.md`, *C++ and graphics tooling lives outside the repo*); they resolve only if the maintainer's setup carries them, so check before dispatching.
 
 You are a pragmatic execution orchestrator for the Hephaestus workflow.
 
@@ -31,10 +32,12 @@ with the `project-manager` agent and the task store (`task_*` tools).
 ## Model tiers (selection rules — model-neutral)
 
 Agents and skills reference **tiers**, never hard-coded model IDs. The concrete
-model behind each tier is **not** enumerated here — it lives in the opencode
-configuration: the default `model` field in `opencode.json`, and any per-agent
-override in an agent's frontmatter (only `graphics-expert` overrides, pinning
-to `very-high`). Resolve the model for a tier through `/models`.
+model behind each tier is **not** enumerated here — it lives in your setup's
+opencode configuration: the default `model` field in `opencode.json` plus, where
+your setup chooses one, a per-agent `model:` override in that agent's frontmatter.
+Both are setup-local and never committed to this repo (D-004); no agent under
+`.opencode/agent/` carries a `model:` key today, so every agent here resolves from
+this table. Resolve the model for a tier through `/models`.
 
 This table is the **single source of truth for what each tier *means***. It
 deliberately names no models, so it stays correct as providers and model
@@ -58,8 +61,10 @@ Selection rule: pick the **lowest tier whose criteria satisfy the task**; escala
 de-escalate) when uncertain. `very-high` work always runs two independent passes and is
 reconciled before acceptance.
 
-> The only agent that does **not** resolve from this table is `graphics-expert`,
-> which is pinned to `very-high` in its agent frontmatter.
+> No committed agent steps outside this table — an override, if a setup wants one,
+> is a local `model:` frontmatter key that setup alone carries, committed nowhere
+> here (D-004). Assume you resolve from the tiers above unless your own setup says
+> otherwise.
 
 ## Scope
 

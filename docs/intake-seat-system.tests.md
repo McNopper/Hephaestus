@@ -15,6 +15,15 @@
   seat `.opencode/agent/product-owner.md`. Verification ran 2026-11-15 against
   the tree at `0e7d2e8` (main). Read-only: no verified file, no code, no store
   write outside ticket T-084 was touched.
+- **Currency (T-251, 2026-11-27):** the IC-4 coherence observations below (§5)
+  quote the docs as they stood at this run's tree (`0e7d2e8`, 2026-11-15): the
+  Board schedules switch (Auto/Tickers) and *Auto ▶* named there do not exist at
+  HEAD - `BoardView` carries no schedules/Auto control (deviation LT-011,
+  `docs/intake-seat-architecture.tests.md`); arming/disarming is chat-side via
+  `.opencode/skills/stage-pipeline/ticker-setup.ps1`, and AGENTS.md's H6/H7
+  auto-dispatcher wording was corrected by T-251 (the run's "matches AGENTS.md's
+  auto-dispatcher description" is as-of `0e7d2e8`). The run's verdicts stand as
+  recorded on their dates.
 
 ## 1. Criteria (1:1 with T-083's acceptance criteria)
 
@@ -36,11 +45,11 @@ mechanism. Git confirms the switch pointer is live-maintained (`7f77b52`
 opencode-external code — the repo-verifiable claim (frontmatter mode +
 documented route) holds. **PASS.**
 
-**D-2 (Eclipse guarded agent combo).** `ChatView.java` line 139 declares
-`agentCombo`; lines 422–425 create it `SWT.DROP_DOWN | SWT.READ_ONLY` and wire
+**D-2 (Eclipse guarded agent combo).** `ChatView.java`'s `agentCombo` field;
+the selector-row setup creates it `SWT.DROP_DOWN | SWT.READ_ONLY` and wires
 `agentGuard = wireGuardedCombo(agentCombo, text -> selectors.selectAgent(text))`
-— the agent combo is guarded by the SAME `wireGuardedCombo` as model/variant
-(lines 891–925): commit only on armed pick (mouse-down opened dropdown) or Enter
+— the agent combo is guarded by the SAME `wireGuardedCombo` factory as
+model/variant: commit only on armed pick (mouse-down opened dropdown) or Enter
 (`SWT.DefaultSelection`); un-armed drift reverts via
 `combo.setText(guard.committed())`. The semantics live in SWT-free
 `SelectorGuard.java` (javadoc: "silently flipped agent/model/variant … A change
@@ -53,20 +62,21 @@ command `com.opencode.ide.chat.openChat` with optional parameter
 `com.opencode.ide.chat.openChat.agentId`; handler bound lines 51–54.
 `OpenChatHandler.java` reads the parameter (line 23) and calls
 `chat.preselectAgent(agentId)` on a NEW chat (line 31–33); `ChatView.preselectAgent`
-(lines 1000–1007) calls `selectors.selectAgent(agentId)` and selects the combo
-index. Caller side: `ServerView.java` line 528 passes
+calls `selectors.selectAgent(agentId)` and selects the combo
+index. Caller side: `ServerView`'s new-chat action passes
 `openChatParameter("agentId", agent.id())` ("v2 wants the id, not the display
 name") resolving the command via the core constant
-`SessionViewIds.CHAT_OPEN_COMMAND_ID` (line 1121) — grep finds NO
+`SessionViewIds.CHAT_OPEN_COMMAND_ID` - grep finds NO
 `import com.opencode.ide.chat.` in `ServerView.java`, so the no-compile-
 dependency claim holds (ui → core constant → Eclipse command mechanism → chat
-handler). `ChatSelectorState.selectAgent` (line 85) stores `requestedAgent`
+handler). `ChatSelectorState.selectAgent` stores `requestedAgent`
 unconditionally and commits `agent` on list membership — the selection request
 survives an async agents-list load. **PASS.**
 
 Note (non-blocking): the combo-index selection in `preselectAgent` is
 best-effort — `agentCombo.indexOf(agentId)` selects only if the id is present in
-the already-loaded list; the session-level selection (line 1001) is
+the already-loaded list; the session-level selection
+(`selectors.selectAgent(agentId)`, the first statement of `preselectAgent`) is
 unconditional. Cosmetic timing nuance, not a dispatch failure.
 
 ## 3. IC-2 — spot-check dry runs (S-1/S-2/S-3)

@@ -5,7 +5,9 @@
 - **Kind:** `doc` / setup runbook for bringing a fresh machine up.
 - **Read by:** the maintainer on a new PC, or any agent bootstrapping one.
 - **Related:** `eclipse/INSTALL.md` (build/deploy detail), root `AGENTS.md`
-  (workflow), `ROADMAP.md` (where work resumes), `docs/HISTORY.md` (the archive).
+  (workflow), `ROADMAP.md` (where work resumes), `docs/HISTORY.md` (the archive),
+  `TESTING.md` (once this file has the machine up: exercise it — §1 setup, §3
+  headless path).
 
 ## Prerequisites
 
@@ -14,11 +16,18 @@
 | JDK 21+ (`java` on PATH) | Eclipse plugin build + stdio MCP servers |
 | Git | everything |
 | opencode **v2** (pinned & endpoint-verified against **2.4.2**, see `ServerVersionPin`; a mismatch warns, never fails) | the agent harness itself |
-| Python 3 + pip | the `graphics` MCP server — `pip install -r mcp/graphics/requirements.txt` |
-| PowerShell 7 (`pwsh`) | **required** — the build itself fails without it (the tools/tasks Eclipse-import-ban scan runs through pwsh); also the deploy scripts and the `tasks`/`fleet` MCP stdio launchers. Install: `winget install Microsoft.PowerShell` |
+| PowerShell 7 (`pwsh`) | **required** — the build itself fails without it (the tools/tasks Eclipse-import-ban scan runs through pwsh); also the deploy scripts and the `tasks` MCP stdio launcher. Install: `winget install Microsoft.PowerShell` |
 | Node.js | chat-web checks inside `mvn verify` |
 | MSYS2 `clang64` on PATH (`cmake`, `ninja`, clang tools) | `cpp/` presets + `verify` |
 | Eclipse CDT (default `C:\eclipse-cpp`) | the IDE harness (optional for TUI-only work) |
+
+This table is the **canonical prerequisite list** for the repo — `docs/TESTING.md`
+links here instead of restating it. One thing deliberately has **no** row:
+**Python** — this repo tracks no `mcp/` contents (`git ls-files mcp/` is empty;
+the `graphics` server was curated out on 2026-10-15 and is setup-supplied, see
+`own-project.md` step 0), and the single tracked `.py` file
+(`eclipse/bundles/com.opencode.ide.core/generate-action-icons.py`) is a manual
+icon generator.
 
 ## Bring-up
 
@@ -26,7 +35,7 @@
    with it; **the board state is in the repo, so it survives the switch**.
 2. Build + gate: `cd eclipse; .\build.ps1 clean verify` (Java 21, Tycho).
    This also populates the Tycho p2 cache (`~/.m2/repository/p2/`) that the
-   stdio MCP launchers resolve gson from — the `tasks`/`fleet` servers cannot
+   stdio MCP launcher resolves gson from — the `tasks` server cannot
    start before one successful build.
 3. C++ gate (optional): `cd cpp; cmake --preset clang64` from an MSYS2 CLANG64
    shell, then `cmake --build build-clang64 --target verify`. With native LLVM
@@ -35,7 +44,7 @@
    (`clang64` → `build-clang64`, `default` → `build`) — pair them, never mix.
 4. Eclipse harness (optional): install CDT, close Eclipse,
    `cd eclipse; .\deploy-dev.ps1`, restart Eclipse. Set `ECLIPSE_HOME` when
-   Eclipse lives elsewhere — `deploy-dev.ps1` and the stdio launchers
+   Eclipse lives elsewhere — `deploy-dev.ps1` and the `tasks` stdio launcher
    (optional gson source) honor it; no script hardcodes an install path.
    `deploy-dev.ps1` also pins the repo into `eclipse.ini`
    (`-Dopencode.repo=<repo>` in the vmargs) — **when set it wins over every
@@ -52,24 +61,31 @@
    self-registers (`~/.local/state/opencode/service.json`, generated per
    machine; `~/.config/opencode/` is the legacy password fallback).
    Re-connect providers (`/connect`) — credentials are machine-local.
-   If the TUI shows `tasks`/`fleet` as failed (`Connection closed`), they were
-   spawned before pwsh or the built jars existed. The MCP servers belong to
-   the shared background service, so a TUI restart alone keeps the stale
-   state — reconnect per server instead:
-   `POST /api/experimental/mcp/<name>/connect?location[directory]=<repo>`
+   If the TUI shows `tasks` as failed (`Connection closed`), it was spawned
+   before pwsh or the built jars existed. The MCP server belongs to the
+   shared background service, so a TUI restart alone keeps the stale
+   state — reconnect it instead:
+   `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`
    (Basic auth; password in `~/.local/state/opencode/service.json`), or kill
-   the service so the next client start respawns it. The launchers need pwsh,
+   the service so the next client start respawns it. The launcher needs pwsh,
    java 21+ on PATH, the built jars (step 2) and gson from the Tycho cache.
+6. **Exercise it.** Once the server answers, walk `docs/TESTING.md` — §1 is
+   this same bring-up, §2 is the surface checklist, §3 is the no-Eclipse
+   path. A fresh machine that gets through it is up.
 
 ## Machine-local state (never committed, re-created per machine)
 
 - `~/.local/state/opencode/` — service registration (`service.json`: port +
   generated password), logs; `~/.local/share/opencode/` — provider
   credentials; `~/.config/opencode/` — legacy password fallback only.
-- `.git/opencode-fleet/` — fleet worktrees plus the staged launcher-jar
-  copies (`lib/`, refreshed per server start) and bookkeeping markers. No
-  pidfile (the detached daemon is retired); stale residue is reclaimed by
-  `fleet_reset`/dispatch, see AGENTS.md.
+- `.git/opencode-fleet/` — the worktree root of the agentic-git isolation
+  layer (`WorktreeManager`/`FleetGit` in `com.opencode.ide.git`: one worktree
+  per dispatched ticket, hidden from `git status`), plus the staged
+  launcher-jar copies (`lib/`, refreshed per server start). The directory name
+  predates the fleet's retirement (U-110) and stays: there is no daemon and
+  no pidfile, and stale residue is reclaimed automatically (`git worktree
+  prune` plus the worktree manager's reclaim, which refuses to auto-reclaim
+  residue that still carries commits main lacks).
 - Build output (`eclipse/**/target/`, `cpp/build-*`) — gitignored.
 
 **Public repo — hard rule:** no credentials, service passwords, tokens, or
@@ -88,26 +104,41 @@ repo is clean.
 
 ## MCP servers
 
-From `opencode.json`: `tasks` (store tools) and `graphics` enabled; **`fleet`
-is disabled by default** — the entry reads `"disabled": true` (no
-auto-started fleets; it eats tokens). Start fleet work deliberately:
+`opencode.json` (committed) declares exactly **one** MCP server — the whole
+`mcp.servers` block, quoted verbatim:
 
-- **Eclipse:** the Board's `Auto ▶` / `Waves ▶` toggles, or the Fleet view's
-  *Enable Fleet* button (that button lives in the Fleet view only).
-- **Chat/TUI:** flip the fleet entry to `"disabled": false`. v2's config
-  schema knows `disabled`, not the legacy `enabled` key — the v2 config
-  normalizer silently drops unknown keys, so `"enabled": true` does nothing
-  (root cause archived in `docs/HISTORY.md`, T-003). Then connect the server
-  scoped to this repo:
-  `POST /api/experimental/mcp/fleet/connect?location[directory]=<repo>`
-  (Basic auth; password in `~/.local/state/opencode/service.json`). The
+```json
+"mcp": {
+  "servers": {
+    "tasks": {
+      "type": "local",
+      "command": ["pwsh", "-NoProfile", "-File", "eclipse/tasks-tools.ps1"]
+    }
+  }
+}
+```
+
+- **`tasks`** — the `task_*` store tools (tickets, readiness, doctor). It is
+  launched through `pwsh` from the repo root and needs pwsh + Java 21 on PATH,
+  the built jars (step 2) and gson from the Tycho cache. When the Eclipse
+  harness runs, the same tools are served by the Eclipse-hosted `eclipse-build`
+  endpoint instead: TUI sessions see them prefixed `tasks_task_*`, in-Eclipse
+  agents `eclipse-build_task_*` (`.opencode/docs/contracts.md`, *Tool surface*).
+- **There is no `fleet` entry and no `graphics` entry** — and nothing to
+  enable. The `fleet` MCP server, its `fleet-tools.ps1` launcher and the Fleet
+  view's *Enable Fleet* button were removed with the fleet in U-110; the Board
+  has no `Auto ▶`/`Waves ▶` pump either (retired fleet surfaces inventoried in
+  `docs/eclipse-gui-review-2026-11-15.md` §2.3). The old advice to flip
+  `"disabled": false` died with the entry — this config has no `disabled` key
+  at all (the `enabled`-vs-`disabled` normalizer story, T-003, is archive in
+  `docs/HISTORY.md`).
+- **Check / reconnect:** `GET /api/mcp?location[directory]=<repo>` shows the
+  per-server state; `POST /api/experimental/mcp/tasks/connect?location[directory]=<repo>`
+  (Basic auth; password in `~/.local/state/opencode/service.json`) connects or
+  reconnects the server, and the matching `.../disconnect` stops the launcher
+  (in-memory only — the next service restart re-reads `opencode.json`). The
   `location[directory]` **deepObject** query scopes the call to THIS repo's
   MCP instance — a bare `?directory=` resolves to the home location.
-- To check what is actually running:
-  `GET /api/mcp?location[directory]=<repo>` shows the per-server state; the
-  matching `POST /api/experimental/mcp/<name>/disconnect?location[directory]=<repo>`
-  stops a running launcher (in-memory only — the next service restart re-reads
-  `opencode.json`).
 
 ## Where work resumes
 

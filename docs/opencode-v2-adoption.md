@@ -1,4 +1,4 @@
-# opencode-v2-adoption.md - the strict reuse policy and the v2 adoption matrix
+# opencode-v2-adoption.md - the strict reuse policy and the v2 adoption matrix (two lifetimes: DURABLE policy sections vs AS-OF record sections, each stamped with its date)
 
 ## About this document
 
@@ -6,15 +6,15 @@
   v2 alignment review, user direction: "what new features opencode v2 support, we
   need them in hephaestus as well ... strict policy: if opencode supports this
   feature, we use opencode. then, use Eclipse features and do not reinvent the
-  wheel").
+  wheel") - two lifetimes: the DURABLE sections (policy) bind; the AS-OF sections (matrix, watch list, cross-check) are stamped with the date they reflect.
 - **Read by:** every agent or human changing Hephaestus code; the PM when
   scoping tickets.
 - **Related:** `AGENTS.md` (host discipline), `eclipse/ARCHITECTURE.md`
   (bundle layout), `ROADMAP.md` (the feature backlog), the live contract:
-  `GET /openapi.json` of the running service (last cross-check: v2.4.2,
+  `GET /openapi.json` of the running service (an AS-OF record: last cross-check v2.4.2,
   188 operations, 2026-11-26 - see the cross-check section below).
 
-## The strict policy
+## The strict policy (DURABLE)
 
 When Hephaestus needs a capability, the implementation MUST come from the
 first tier that provides it. Writing our own mechanism is a defect, not an
@@ -59,7 +59,7 @@ fork, background, snapshots, forms, permissions, shells, context usage) into
 the chat panel and the harness; we never rebuild the TUI's interface inside
 Eclipse.
 
-## Justified exceptions
+## Justified exceptions (DURABLE)
 
 | Our mechanism | Why not v2 / Eclipse |
 |---|---|
@@ -72,7 +72,7 @@ Eclipse.
 | `TextDialog` exists twice: `ui.session` (public) and `board.views` (package-private) | the bundles share no dependency edge (board does not require ui), so consolidation needs either a new bundle dependency or a move into `com.opencode.ide.core`; deferred to the dependency-graph cleanup, untracked |
 | `GitWorktreeManager` worktree writes (git CLI) | the guarded create (reclaim stale residue, refuse unmerged/dirty work) is store bookkeeping over git-level checks the v2 worktree API does not expose; v2 has no worktree-remove verb at all (only `worktree.list/create/refresh` - `listWorktrees`/`createWorktree`/`refreshWorktrees` landed, see below). Untracked shrink: route the raw creates through `worktree.create` where the guarded semantics allow |
 
-## The adoption matrix (live contract vs Hephaestus)
+## The adoption matrix (AS OF 2026-11-26 - live contract vs Hephaestus)
 
 ### Adopted (verb landed AND a production consumer calls it)
 
@@ -141,7 +141,7 @@ consumer in the table above would be a lie.
 |---|---|---|
 | **Interactive PTY host** | over the adopted read-only surface + the WebSocket `GET /api/pty/{id}/connect` stream | an Eclipse TM Terminal widget - the only remaining PTY piece; the capability, the read-only screen and the lifecycle verbs are in (`org.eclipse.tm.terminal` is absent from the 2026-06 target, so the interactive host is parked on target-platform work) |
 
-### Contract notes (live-probed, current)
+### Contract notes (live-probed, current as of 2026-11-26)
 
 - `worktree.list` requires `projectID` as a query parameter;
   `worktree/refresh` requires it in the request body (the id comes from
@@ -173,7 +173,7 @@ integration - enterprise/server config, we consume the catalog).
 `experimental.fs.write` (POST; the harness edits files locally - a
 server-side write verb has no consumer here).
 
-## Compliance status
+## Compliance status (AS OF 2026-11-26)
 
 Every capability is in exactly one bucket: adopted with a consumer, verb
 landed waiting for one, adopt-next, justified exception, or rejected. The
@@ -181,7 +181,7 @@ strict policy and the panel review above are the audit trail; the store is
 the place to track new adoption work (nothing in "Adopt next" or the
 no-consumer list has a ticket today).
 
-## Current contract cross-check (live v2.4.2, 188 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.4.2.txt` next to this file - the 2.4.0, 2.3.2, 2.3.0, 2.2.7, 2.2.6, 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
+## Current contract cross-check (AS OF 2026-11-26: live v2.4.2, 188 operations; the per-operation baseline snapshot is `opencode-v2-surface-2.4.2.txt` next to this file - the 2.4.0, 2.3.2, 2.3.0, 2.2.7, 2.2.6, 2.2.5, 2.2.2, 2.2.1, 2.2.0, 2.1.3, 2.1.0, 2.0.30, 2.0.29, 2.0.28, 2.0.27 and 2.0.21 snapshots stay for the diff history)
 
 The probe rule ("check `GET /openapi.json` first") is a STANDING step - run it
 every wave and diff it against this matrix (the committed snapshot makes the
@@ -221,7 +221,7 @@ surfaces), `experimental/session/{id}/export|log|wait|skill|import`,
 the shipped feature transport, watched here, and migrate when upstream
 stabilizes them. New code must not add to this set.
 
-### Experimental watch list (tracked; never consumed, never re-implemented in parallel)
+### Experimental watch list (tracked; never consumed, never re-implemented in parallel; rows as of 2026-11-26)
 
 The contract-level rule above, made operational. Every upstream surface
 marked `experimental` goes on this list with its **parallel-implementation

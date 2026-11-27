@@ -3,8 +3,9 @@
 ## About this document
 
 - **Kind:** `doc` / evaluation — the requirements-stage artifact of ticket T-036
-  (basis U-112): it evaluates the dedicated intake agent in design (definition,
-  prompt, boundary enforcement) and states a build/defer recommendation.
+  (owner requirement **2026-11-14**; basis U-112): it evaluates the dedicated
+  intake agent in design (definition, prompt, boundary enforcement) and states
+  a build/defer recommendation.
 - **Read by:** the maintainer (owns the build/defer call), the PM and the tickers
   (intake dispatch), any agent touching the chat-first control plane.
 - **Related:** `AGENTS.md` §Chat-first control plane (the intake-discipline
@@ -120,7 +121,7 @@ review window:
    worker/ticker sessions, never a chat-side session (`task_get`,
    `task_board` provide the evidence).
 3. Git history on implementation lanes shows changes arriving as
-   fleet/worktree merge-back commits, not as direct chat-session commits.
+   worktree merge-back commits, not as direct chat-session commits.
 
 Run it as part of an acceptance review or retro; a hit means rework through
 the store plus a doctrine reminder — not a silent pass.

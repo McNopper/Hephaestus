@@ -202,15 +202,15 @@ Requires Node.js on PATH (only for the checks — the component itself is
 build-free):
 
 ```text
-node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render (58 checks)
+node renderer-check.mjs   # assets present; markdown-it/KaTeX/hljs really render (75 checks)
 node bridge-check.mjs     # executes chat.js in a VM with a DOM shim (move-semantics
                           # appendChild, innerHTML serialization of appended trees)
                           # and drives the bridge exactly as a host would
-                          # (194 checks, incl. tool lines, copy-code, block-level
+                          # (255 checks, incl. tool lines, copy-code, block-level
                           # progressive streaming, the thinking indicator, the
                           # stream-done stop path, the session-inbox queue row,
                           # the @-alias autocomplete groups and the U-014 form cards)
-node mermaid-check.mjs    # renders real diagrams in headless Edge (8 checks;
+node mermaid-check.mjs    # renders real diagrams in headless Edge (12 checks;
                           # SKIPs when Edge/puppeteer-core are absent)
 ```
 

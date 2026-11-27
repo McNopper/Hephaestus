@@ -300,10 +300,12 @@ public final class StageReadiness {
 
   /**
    * The ticket's own flow-history evidence that it left {@code upstream} through a quality gate:
-   * the {@code advanced to next(upstream)} event (the store only writes it from in-review/done) or
-   * the U-029 pass event {@code stage <N> passed: <reason>} for that same ladder rung - a recorded
-   * pass is a completed stage, so it satisfies the downstream exactly like an advance (U-058,
-   * FR-011); {@code null} when the history proves nothing.
+   * the {@code advanced to next(upstream)} event (a PARSED record - no live writer produces it: the
+   * advance verb died with the U-110 arc, e888abe; the readers still parse the string from stored
+   * history - the board's {@code StageJourney}, {@code TaskStore.isStageTransition} and this
+   * method) or the U-029 pass event {@code stage <N> passed: <reason>} for that same ladder rung -
+   * a recorded pass is a completed stage, so it satisfies the downstream exactly like an advance
+   * (U-058, FR-011); {@code null} when the history proves nothing.
    *
    * @return the matching history action, or {@code null}
    */

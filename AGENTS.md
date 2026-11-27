@@ -4,7 +4,7 @@
 
 - **Kind:** `doc` / repo-level workflow convention (auto-loaded by opencode from the git root).
 - **Read by:** any agent operating in this repo; **written by:** maintainers.
-- **Related:** pairs with `README.md`; tiers and selection rules live in the `project-manager-orchestrate-execution` skill; concrete models are setup-local (`opencode.json` default + agent frontmatter — none committed).
+- **Related:** pairs with `README.md`; the field/state/tool/review **contract truth** lives in `.opencode/docs/contracts.md` - this file links there, never restates the fields; tiers and selection rules live in the `project-manager-orchestrate-execution` skill; concrete models are setup-local (`opencode.json` default + agent frontmatter — none committed).
 
 Repository-level conventions for agentic work in this repository. Hephaestus is an
 **opencode-native**, **domain-organized** system: skills and agents are flat under
@@ -69,6 +69,11 @@ not from Hephaestus (quarantine: `C:\Temp\Hephaestus`).
 
 ## The ticket workflow (the PM)
 
+**One contract source.** `.opencode/docs/contracts.md` is the single source of truth for
+field-, state-, tool- and review-level contract semantics (ticket shape, seven states,
+claim/artifact/review rules, readiness verdicts); what follows is the DOCTRINE in plain
+language - every contract detail links there instead of restating it.
+
 **Paired verification:** when a ticket ENTERS a
 definition stage, its paired verification criteria are created and LINKED in
 the same motion - requirements -> acceptance criteria, system -> integration
@@ -76,16 +81,11 @@ criteria, architecture -> library tests, design -> component tests,
 implementation -> unit tests - so that by the time the V reaches the right
 leg, the tests already exist and decide done / not-done. The pair is written
 at stage ENTRY, not at review time: link the criteria as artifacts on the
-ticket (`task_add_artifact`). `task_traceability` pairs with THREE signals
-(D-001, implemented as U-070): the **role + basis link** (`tester` verifying a
-definition), its **own journey when it walked both legs** (a definition entry
-then a `test-*` stage - `advance()` flips the role on entry to the test leg,
-so the wandered ticket pairs with itself), and a
-**test-shaped artifact** (`*.tests/` path) - `pm` requirements count as
-definitions; the row reports `via`/`self_verified` so a genuine pair is
-distinguishable from inflation, and a definition with no signal still reports
-as an orphan (the `project-manager-audit-traceability` skill drives the
-manual artifact-level audit). A definition
+ticket (`task_add_artifact`). Whether a pair exists is engine-scored:
+`task_traceability` reports `via`/`self_verified` per ticket from three
+signals (role + basis link, the ticket's own journey across both legs, a
+`*.tests/` artifact) - the exact semantics live in contracts.md →
+Traceability pairing. A definition
 stage without its linked verification counterpart is incomplete work.
 Live-in-Eclipse verification (console checks, UI passes, panel round trips)
 is ACCEPTANCE verification (owner requirement 2026-11-15, ticket T-039): it
@@ -111,14 +111,14 @@ evidence without reading code, and escalates (NEEDS-HUMAN) only when the
 round-trips are exhausted.
 
 **V-model execution (U-110, linked stage pipeline):** tickets are
-**stationary** — born in one stage, never moved. The pipeline is the LINK
+**stationary** — born in one stage, never moved; the pipeline is the LINK
 GRAPH: completing an upstream ticket divides it into linked downstream
-tickets (`basis` = the derivation edge; the basis chain up to the
-requirement IS the scope - the epic field is gone, owner rule 2026-11-19).
-`stage:` is immutable ownership set at
-creation. Division is performed by the stage's ticker/agent on completion;
-the downstream stage's ticker discovers the new tickets via readiness at its
-next tick (the tick boundary is the only synchronization point). Design:
+tickets, and the chain up to the requirement is that ticket's scope
+(field-level contract - `stage` immutability, `basis` as the derivation edge,
+readiness gating of the children: contracts.md → Ticket contract). Division
+is performed by the stage's ticker/agent on completion; the downstream stage's
+ticker discovers the new tickets via readiness at its next tick (the tick
+boundary is the only synchronization point). Design:
 `docs/design-stage-pipeline.md`; live acceptance evidence: ticket `U-111`
 (AE-6 comment — requirements T-031 → linked system child A-001, engine
 verdicts throughout).
@@ -183,17 +183,16 @@ owner's review and acceptance cut release `v0.2.0`.
 The **task store** stores **tickets**, scoped per **project** (one
 subdirectory of `.harness/tasks/` each, so several independent projects run at once).
 **The store is the ground truth — the single coordination blackboard.** The Eclipse Board
-is a projection of it, and every agent (a user's chat session, a fleet worker, the
-auto-dispatcher) is a *peer* that reads and writes the store; no agent owns or messages
+is a projection of it, and every agent (a user's chat session, a
+ticker-dispatched worker session, the steward session) is a *peer* that reads and writes the store; no agent owns or messages
 another. Coordination is store-mediated — claim a ticket, record the artifact, move the
 state — so several agents and several users can work the same project **in parallel
 without blocking each other**: the atomic `task_claim` is the only serialization point,
-and it serializes tickets, not people. The store is served as `task_*` MCP tools — by
-the Eclipse harness's `eclipse-build` endpoint when Eclipse runs, and by the `tasks`
-stdio launcher (`eclipse/tasks-tools.ps1`, configured in `opencode.json`) for TUI-only
-sessions (both launchers resolve the built jars from the **main checkout** when invoked
-inside a fleet worktree — worktrees carry no `target/` build output); opencode prefixes them with the server name (`tasks_task_*` /
-`eclipse-build_task_*`) — the tool/wire names stay `task_*`. States:
+and it serializes tickets, not people. File layout, serving transports, and the
+concurrency rules: contracts.md → The store / Tool surface / Concurrency contract.
+States (field-level truth - the full seven-state contract, `resume_to` chain rules,
+refusal semantics - lives in contracts.md → Mental model + Ticket contract; this diagram
+is the operational flow):
 
 ```text
 ready --claim--> in-progress --verify--> in-review --accept--> done
@@ -202,22 +201,24 @@ paused = dependency wait: born paused while the basis is open; auto-resumes paus
    moment the basis completes (the pump); never claimed directly - only the resume path moves it
 blocked = a STATE (status:blocked + resume_to:str + blocker:str) that PROPAGATES UP the basis
    chain to the requirement; clearing walks back down to resume_to (fallback ready);
-   done and paused can never be blocked
+   direct ENTRY refuses done/not-implemented/paused (the setBlocked verb throws:
+   Task.isTerminal() or paused), but the CHAIN walk deliberately re-opens them: a done,
+   not-implemented or paused hop joins the chain with its pre-block state kept in
+   resume_to (setBlocked's chain-walk loop has no terminal/paused check; pinned by
+   ChainBlockTest's paused-hop pin)
 stage = immutable V-pipeline ownership (U-110): set at creation, never rewritten - the ticket's permanent stage. The pipeline FLOWS by links: completing an upstream ticket divides it into linked downstream tickets (basis = the completing ticket; the chain to the requirement is the scope); task_readiness gates the children on their basis (WAIT_UPSTREAM until done, then READY)
 ```
 
 **The stage is encoded in the name (owner directive 2026-11-17, T-175).** A staged ticket's
-`title` carries a leading `[stage]` tag (`[implementation] Encode the stage in the ticket
-name`), so the lane is visible wherever the name shows - chat listings, the Board, comments -
-without opening the frontmatter. The **store owns the tag** at every write point (create, title
-update, stage override): it is re-derived, never doubled, follows a stage move, is stripped when
-the stage clears, and never appears on a stageless ticket. **Don't hand-write it** when filing;
-existing tickets pick it up on their next title/stage write.
+`title` carries a leading `[stage]` tag, so the lane is visible wherever the name shows - chat
+listings, the Board, comments - without opening the frontmatter. **Don't hand-write it** when
+filing: the store owns the tag at every write point - contracts.md → Ticket contract (`title`).
 
 **Write discipline.** Store writes go through the `task_*` tools (or the engine API),
-never through scripts or bulk hand edits: the engine keeps the invariants (a done ticket
-is never blocked, every change leaves a history event, every ticket file stays
-parseable) that direct writes silently break - `task_doctor` reports unparsable ticket
+never through scripts or bulk hand edits: the engine keeps the invariants (a done or
+not-implemented ticket is never blocked by DIRECT entry - only the CHAIN walk re-opens
+it, per the states block above; every change leaves a history event, every ticket file
+stays parseable) that direct writes silently break - `task_doctor` reports unparsable ticket
 files. Where the API has no verb (correcting a wrong artifact ref), make the smallest
 hand edit, verify it with `task_get` + `task_doctor`, and record a comment on the
 ticket. Text files are UTF-8: never round-trip them through Windows PowerShell 5.1
@@ -230,32 +231,32 @@ concerns, split it — smaller chunks are easier to track, verify, review and re
 Todos list the steps *within* one change; they are not a substitute for decomposition.
 
 Readiness machinery (H6 dataflow): `task_readiness` reports, per ticket, whether its
-stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE (no stage,
-or done - with fresh inputs, or having entered the pipeline with no upstream ticket at
-all; never re-dispatched). READY means upstream done AND inputs unchanged since the last
-run; STALE means an upstream (basis chain) had a STRUCTURED input write after the
-downstream ran - status/stage/basis/role, the artifact list, the claim status moves
-(D-003 option B: comments and bookkeeping never stale completed downstream work), decided
-per side on the `inputs_changed_at` stamp with a legacy fallback to `updated_at`. Each
-STALE verdict found by a production readiness tick leaves exactly one `inputs changed:`
-history marker on the downstream ticket (idempotent - later ticks append nothing until the
-input changes again; U-052). The PM agent can use it to ask "what's
-runnable right now"; the Eclipse Board mirrors it as an opt-in auto-dispatcher
-(*Auto ▶*: launches every runnable ready-state ticket under a concurrency + cost-budget cap).
+stage is READY / WAIT_UPSTREAM / STALE / BLOCKED / RUNNING / NOT_APPLICABLE - in plain
+terms: READY = upstream done and nothing changed since your last run; WAIT_UPSTREAM =
+your basis is still open; STALE = an upstream changed after you ran (re-dispatched
+first); BLOCKED = needs a human; RUNNING = claimed; NOT_APPLICABLE = no stage, done with
+fresh inputs, or no upstream at all - never re-dispatched. Exact field semantics (the
+input-change rules, `inputs_changed_at`, the idempotent `inputs changed:` marker):
+contracts.md → Tool surface (readiness verdict semantics). The PM agent can use it to ask "what's
+runnable right now"; the Eclipse Board mirrors it read-only (readiness chips + counts,
+no dispatch control, no *Auto ▶* switch), while the opt-in launcher is the `ticker-v`
+schedule, armed from chat via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
+(launches every runnable ready-state ticket under a concurrency + cost-budget cap).
 
-- A worker **self-claims** by role: `task_claim(role=…)` atomically finds the next
-  matching **ready** ticket (unassigned, readiness READY), moves it to `in-progress`, sets
-  `assignee`. Two agents never get the same ticket. A returned ticket (`task_release`) can
-  be picked up by a *different* agent.
+- A worker **self-claims** by role: `task_claim(role=…)` atomically hands the next matching
+  ready ticket to exactly one agent (moves it to `in-progress`, sets `assignee`) - two
+  agents never get the same ticket; a returned ticket (`task_release`) can be claimed by a
+  *different* agent. Contract: contracts.md → Concurrency contract.
 - When a worker produces an artifact (file, git commit/branch, doc), it records it with
   `task_add_artifact(kind=file|git|path|url|doc, ref=…)` **before** moving to `in-review` —
-  the ticket is the hand-off contract.
+  the ticket is the hand-off contract (kinds + rule: contracts.md → Artifact kinds).
 - A review FAIL blocks the ticket **in its own stage** (`task_set_blocked`
   with the reviewer's reasons — the maintainer-escalation signal) and, under
   U-110, the blockage escalates to the ticket's **basis** (the upstream link):
   the upstream stage's ticker re-opens or reworks the basis. An UNCLEAR
   verdict round-trips the doubt to the originator (one retry per
-  stage visit); an unstaged ticket stays in `in-review` with the doubt as a comment.
+  stage visit); an unstaged ticket stays in `in-review` with the doubt as a comment
+  (routing contract: contracts.md → Review contract).
 - See `project-manager-operating-model` for Scrum events, the Definition of Done, and the
   bubble-up → escalation rule; `project-manager-create-ticket` for how to fill a ticket; `project-manager-route-request`
   when the next step is ambiguous; `project-manager-audit-traceability` for the definition→verification matrix.
@@ -368,8 +369,15 @@ Concretely, the chat agent — the PO's **kickoff assistant** — can:
 - **arm and disarm the ticker** via `.opencode/skills/stage-pipeline/ticker-setup.ps1`
   (ONE steward session + ONE `experimental.automations` automation - `ticker-v` - W1,
   adopted; each tick walks all stages in canonical V order under the global
-  spawn cap, and the tick prompt is thin glue over the `stage-pipeline` skill),
-  or flip the Board's schedules switch (chunk 5: re-labeled Auto/Tickers);
+  spawn cap, and the tick prompt is thin glue over the `stage-pipeline` skill);
+  the planned chunk-5 Board schedules switch ("Auto/Tickers") was never built -
+  this script stays the only arm/disarm mechanism and the chat/steward route
+  stays the only human one: the sole other caller is
+  `.harness/ticker-watchdog.ps1` (a Windows scheduled task, ~5 min), which
+  re-arms by invoking this same script - and only while
+  `.harness/ticker-state.json` has `enabled: true` with no active `ticker-v`
+  automation found anywhere (disable stays durable: nothing re-arms against a
+  false flag);
 - **file intake tickets** (goal intake, U-105 flow): the PO posts
   **requirements and bugs** in chat - requirements become GOAL/requirements
   tickets (process rules land in the governing docs), bugs become

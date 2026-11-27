@@ -143,7 +143,8 @@ ICONS = {
         f'<rect x="9.6" y="10.6" width="4.6" height="3.6" rx="1" {OPEN}/>',
         f'<path d="M4.1 5.4V9h5.5v1.6" {OPEN}/>',
     ],
-    # fleet view
+    # former fleet view (removed in U-110): no icon("...") call references these entries today;
+    # kept so the generated PNG/SVG set stays stable
     "watch": [
         f'<path d="M1.8 8C3.7 4.8 5.8 3.2 8 3.2s4.3 1.6 6.2 4.8c-1.9 3.2-4 4.8-6.2 4.8S3.7 11.2 1.8 8z" {OPEN}/>',
         f'<circle cx="8" cy="8" r="2" {OPEN}/>',

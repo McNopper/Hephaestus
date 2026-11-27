@@ -31,6 +31,13 @@
   `docs/acceptance-run-design.tests.md` (the format and method precedent)
   and `docs/live-in-eclipse-recurrence-flow.tests.md`; tickets T-119 (under
   verification) and T-120 (this record's ticket).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records, the product-backlog /
+  sprint-backlog statuses and the wave instance (R2) are gone; the store
+  is the seven-state model (born ready/paused, claims ready-only). The
+  sprint-record and R2-mint mechanics observed below are the run-date
+  record - their verdicts stand as recorded on their dates
+  (re-verified 2026-11-26).
 
 ## Scope: what "component level" verifies here
 

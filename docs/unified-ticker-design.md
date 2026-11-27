@@ -277,11 +277,13 @@ business state (denied C8 → C1 edge; AD-006). Route A owns the script file
 and the Q-001 mechanics; this contract fixes the behavior Route A must
 implement:
 
-- `arm(-BaseUrl?, -Token?, -IntervalMinutes = 15, -Cap = 4)
+- `arm(-BaseUrl?, -Token?, -IntervalMinutes = 5, -Cap = 4)
   -> ArmResult {scheduleId, stewardSessionId, reused}` — steps:
+  (the interval default read 15 at design time; the owner set the cadence
+  to 1 fire / 5 minutes on 2026-11-16 - `ticker-setup.ps1` today);
   1. resolve service url + token: explicit overrides win over
-     `service.json` (the precedence the delta #3 fix restores; the fix
-     itself is Route A content);
+     `service.json` (the precedence the delta #3 fix restores - Route A
+     content, landed 2026-11-16);
   2. `scheduleGet("ticker-v")`:
      - **found (live re-arm, S-3):** REUSE the binding — the same
        `sessionID`, refreshed interval and prompt (DS-002). The

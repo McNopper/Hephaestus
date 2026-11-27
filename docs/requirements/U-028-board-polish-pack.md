@@ -7,6 +7,7 @@
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
 - **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the code landed inside the system-stage run; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** U-018 (origin — the rubberduck-review follow-ups whose slices 1+2 landed; "V chevron connectors, WIP limits" were the deferred remainder), U-016 (the V board layout these features polish), **U-026 (v-flow visibility — this ticket is explicitly secondary to it, see *Scope & Priority*)**, and the current-behavior baseline in `eclipse/bundles/com.opencode.ide.board` (`BoardView`, `BoardModel`/`BoardSnapshot`, `StageColumn`, `VStageLayout`, `TicketRow`). This file is the **what and why** — placement, styling and code are the later stages' work.
+- **Currency (T-250, 2026-11-26):** two vocabularies in this record are gone - the `sprint-backlog` status (sprint model removed T-202, release v0.4.5; the board counts `in-progress` over the seven-state model) and the **Fleet view** the first user story says not to switch to (removed with the fleet, U-110). The WIP-count and chevron features below are live on the Board.
 
 ## Goal
 

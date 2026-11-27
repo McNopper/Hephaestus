@@ -7,6 +7,7 @@
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
 - **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** user direction 2026-09-19 ("they should wander from 1 to 10; sometimes no need to change something on architecture level; however, V-model execution"); `.opencode/docs/contracts.md` (ticket/stage contract); `VStages`/`TaskStore.advance`/`StageReadiness` in `eclipse/bundles/com.opencode.ide.tasks` and `WavePlanner`/`FleetRunner`/`ReviewVerdict` (U-021 autonomous acceptance) in `eclipse/bundles/com.opencode.ide.fleet` (current behavior baseline). **Baseline note (2026-11-17):** the `com.opencode.ide.fleet` bundle and its classes were removed with the fleet engine in U-110 — autonomous acceptance now rides the store's stage states (`VStages`/`StageReadiness` above) plus the stage-pipeline ticker and the reviewer agent; the `tasks`-bundle half of this baseline is unchanged. U-026 (flow trace - consumes the data this feature produces); U-027 (the "verdict-neutral bookkeeping" and "uniform across every consumer" doctrines reused below). This file is the **what and why** - tool shape, storage and code are the next stages' work.
+- **Currency (T-250, 2026-11-26):** stage pass-through itself was **retired with the U-110 arc** - `task_pass_stage` and the `pass-declare:` path are gone, superseded by the linked stage pipeline (see the `~~Stage pass-through~~ ... retired (U-110)` row in `docs/feature-matrix.md`) - and the `product-backlog` status the passes below move tickets into was removed by T-202. Its undelivered-FR tickets (U-057/U-058) were purged with the wave-era work, so nothing in this record is queued; it stays as the definition the pair above reads.
 
 **Terminology guard (read this first).** A **stage pass** (this feature) is a recorded pass-through of one V stage. It is *not* the U-021 review verdict `VERDICT: PASS` (acceptance of a finished stage) and *not* the readiness kind `NOT_APPLICABLE` (unstaged/done tickets). Where the review machinery is meant, this doc says **review acceptance**.
 
@@ -92,18 +93,20 @@ Exactly three declaring authorities, in order of preference (earlier = cheaper):
 
 ## Delivery status (per FR)
 
-The pass transition exists at **library level only**: `TaskStore.passStage`
-(TaskStore.java:458-480; rejects the V tip and blank reasons, records the
-literal `stage <N> passed: <reason>` at :480) is tested by `StageRoutingTest`
-but has **no `task_*` tool and no production caller** — a staged ticket still
-needs a full dispatch at each stage. Completion is tracked by U-049 —
+The pass transition was delivered at **library level only**: `TaskStore.passStage`
+(lived at TaskStore.java:458-480; rejected the V tip and blank reasons, recorded
+the literal `stage <N> passed: <reason>` at :480) was tested by `StageRoutingTest`
+but had **no `task_*` tool and no production caller** — a staged ticket still
+needed a full dispatch at each stage. The method and its suite are gone:
+**removed with the U-110 arc, superseded by the linked stage pipeline** (the
+currency note above). Completion is tracked by U-049 —
 decomposed (nothing implemented there) into **U-057** (expose
 `task_pass_stage` as a store tool) and **U-058** (let the pump pass a stage
 without launching a session); both in the product backlog.
 
 | FR | Status | Note |
 |---|---|---|
-| FR-001, FR-002, FR-003, FR-008 | Delivered (library level) | `TaskStore.passStage` — one-stage transition, tip/blank rejection, the auditable history event; unreachable in production until U-057/U-058 |
+| FR-001, FR-002, FR-003, FR-008 | Delivered (library level, at the time — since retired per the currency note) | `TaskStore.passStage` as it then stood: one-stage transition, tip/blank rejection, the auditable history event; unreachable in production until U-057/U-058 |
 | FR-004, FR-005 | **Not delivered** | no forward-declaration mechanism exists — U-049 → U-057/U-058 |
 | FR-006, FR-007 | **Not delivered** | no reviewer pass path, no at-stage pass recording — U-049 → U-057/U-058 |
 | FR-009 | Delivered | the flow trace counts a passed stage as visited and lists the pass (StageJourney; the codec recognizes the event, TaskStore.java:684) |

@@ -38,7 +38,18 @@ Nine steps, in order - the seat's contract surface (design C-1,
 
 1. **Classify** the input:
    - **requirement** → a ticket that walks the V (`task_create`, `stage: requirements`
-     unless it is a whole objective - then a stageless GOAL root),
+     unless it is a whole objective - then a **GOAL root that is itself `stage:
+     requirements`**, never a stageless root: no stage reads `NOT_APPLICABLE` at
+     readiness (`StageReadiness.java:153-154`) and the ticker's stageless lane is
+     verdict-only (never divided, never claimed, never kicked off), so a stageless
+     GOAL root sits inert and **the pipeline never starts**. The shape is the
+     `/goal` seam's (`GoalIntake.java:17-18`, `50-74`): the objective VERBATIM -
+     first line as title (the store prefixes `[requirements]`), whole text as
+     description - `type: task`, labels `[goal]`, stage `requirements`
+     (that seam passes `role: developer`; a `task_create` registration must pass
+     `role: pm` explicitly - the tool defaults to `developer` when `role` is
+     omitted (TaskToolProvider.java:88); the live GOALs `T-217` and `U-112`
+     carry it - both `stage: requirements`, `role: pm`)),
    - **bug** → `task_create` with `type: bug` (reproduction + observed vs expected in
      the description; the owner's wording is quoted, your distillation is labeled),
    - **process rule / directive** → a ticket whose fulfillment lands the rule in the
@@ -74,7 +85,9 @@ Nine steps, in order - the seat's contract surface (design C-1,
    owner's queue with *what is needed*, never *how to build it*.
 
 **The two dials (goal intake - the autonomy spectrum).** When the requirement
-is a whole objective (a stageless GOAL root), record its run position on
+is a whole objective (the GOAL root - a `stage: requirements` ticket, exactly as
+loop step 1 registers it; never a stageless root, which no lane ever claims),
+record its run position on
 the autonomy spectrum (`AGENTS.md`, the operating model) on the ticket as two
 dials, asking when the owner leaves them unstated: the **goal horizon** -
 time-boxed (the harness works a fixed time and its result is the final
@@ -138,11 +151,13 @@ Grammar rules that hold with it:
   queue; say what decision is needed, not how to build it.
 - Machine-keeping operations ARE yours (they keep the pipeline alive, they do not
   build product) - and they are **outcomes, verified by read-back, never by tool
-  identity**: tickers armed (the schedules' state as the Board shows it), the
+  identity**: tickers armed (the `ticker-v` automation record or
+  `.harness/ticker-state.json`), the
   `tasks` server connected (the `task_*` tools answering again), a steward's
   shell-bound duty done (the outcome re-read, not the delegate's word). The
-  non-shell routes: the Board schedules switch (Auto/Tickers), the MCP connect
-  endpoint (`POST /api/experimental/mcp/tasks/connect`). A shell-bound duty (the
+  non-shell route: the MCP connect endpoint (`POST /api/experimental/mcp/tasks/connect`);
+  the Board schedules switch (Auto/Tickers) does not exist (chunk-5 scope, never
+  built). A shell-bound duty (the
   boot-time `ticker-setup.ps1`) goes to a shell-capable **steward session** - you
   specify the outcome, you never shell out yourself. A route unavailable → the
   duty stays **unmet**: surface it honestly (which duty, which act or decision is

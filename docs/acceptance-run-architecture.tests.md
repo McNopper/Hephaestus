@@ -53,7 +53,9 @@ APPROVE-WITH-NOTES) is advisory to the engine review pass, which alone sets
 - Evidence: **0 matches.**
 - Residual-`actor` audit: 24 substring matches, classified — 1 substring
   false positive (`re`**`actor`**``, M4 row's `eclipse/QUALITY.md` reactor
-  reference); run-participant sense (lines 49, 56, 57, 70, 92, 97, 146, 160,
+  reference); run-participant sense (lines as of the audit's index
+  `6f7e7b3` — the doc has since grown ~5 lines, so the same 24 hits now
+  sit later; the COUNT still reads 24, re-verified 2026-11-26: lines 49, 56, 57, 70, 92, 97, 146, 160,
   202, 207, 275, 289 — including the verbatim [SYS §Overview] quote "task
   store plus four actors around it"); true claim/artifact stamping, which
   [SYS §Interfaces 1] confirms (lines 100, 174, 220, 226, 228, 256); explicit

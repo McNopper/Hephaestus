@@ -18,13 +18,16 @@ import org.junit.Test;
 public class VWalkDoctorTest extends StoreTestHarness {
 
   private Task create(String title, String stage, String basis) {
+    // T-224: the doctor now reports role != VStages.roleOf(stage), so the fixture builds
+    // tickets the way the pipeline means them - the stage's owning role (the helper used to
+    // hardcode "developer" for every stage).
     return store.create(
         "p",
         new TaskStore.CreateSpec(
             title,
             "d",
             "task",
-            "developer",
+            VStages.roleOf(stage),
             "high",
             3,
             List.of(),

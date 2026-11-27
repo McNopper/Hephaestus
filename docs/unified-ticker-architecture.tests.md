@@ -110,8 +110,9 @@
   a ticket itself and never accepts one" ([SYS] verbatim); the worker's
   store footprint is the four own-ticket verbs ([SYS I-2]); the reviewer is
   "one per in-review ticket per stage visit" ([SYS §Major parts verbatim,
-  FR-006 step 2); C8's defaults `-IntervalMinutes 15` / `-Cap 4` observed in
-  [SETUP] lines 15–16 and its `name = "ticker-v"` at line 103.
+  FR-006 step 2); C8's defaults `-IntervalMinutes 5` / `-Cap 4` observed in
+  [SETUP]'s `param(...)` block (the interval default read 15 at this run -
+  the owner set 5 on 2026-11-16) and its `name = "ticker-v"` arm payload.
 - **LT-004 PASS.** The layer rule ("dependencies point toward the substrate,
   static knowledge or platform only... Default deny: an edge exists only if
   listed here") is stated. E1..E11 enumerate exactly the basis's
@@ -183,7 +184,8 @@
   Route A → the ticker-v arc's implementation stage, file lane the script
   only, content deltas #1 + #3; Route B → a skill-lane ticket, SKILL.md only,
   delta #2; Route C → the coherence-documentation lanes, delta #4's
-  constraint half. Observed instances (all read-only):
+  constraint half. Observed instances (all read-only, at the 2026-11-15
+  run - deltas #1-#3 have since landed, re-verified 2026-11-26):
   - delta #1 — [SETUP] line 107 POSTs `/api/experimental/schedule`
     unconditionally (no list/lookup-by-name guard anywhere in the script):
     the duplicate-on-re-arm defect Route A's guard removes, exactly as [ARCH]
@@ -235,14 +237,15 @@
   in-review before engine done: AC-3 holds.
 - **LT-015 PASS.** Machinery anchors observed: `.harness/tasks/hephaestus/`
   exists (`Test-Path` → True; one Markdown file per ticket, e.g. T-104.md) —
-  C1's anchor; the `service.json` url+token discovery is the pattern [SETUP]
-  lines 26–33 use — C2's anchor; [REV] `edit: deny` plus the exact quoted
+  C1's anchor; the `service.json` url+token discovery is the pattern [SETUP]'s
+  `service.json` fallback block uses - C2's anchor; [REV] `edit: deny` plus the exact quoted
   sentence ("the engine applies it, you stay read-only", [REV] line 61) —
   C6's anchor; `.opencode/skills/stage-pipeline/` with SKILL.md and
-  ticker-setup.ps1 — C7/C8's anchors. Store claim observed: `_meta.json`
-  sprints contains exactly ONE `ticker-v` record
-  (`status: active, created 2026-11-15T07:53:53.455Z`) — the ONE rolling
-  record of C1/I-5, matching [ARCH]'s store claims.
+  ticker-setup.ps1 - C7/C8's anchors. Store claim observed (at the
+  2026-11-15 run): `_meta.json` sprints contained exactly ONE `ticker-v`
+  record (`status: active, created 2026-11-15T07:53:53.455Z`) - the ONE
+  rolling record of C1/I-5, matching [ARCH]'s store claims (the sprint
+  model and the `_meta.json` `sprints` key were removed by T-202).
 - **LT-016 PASS.** Nothing invented in parallel to [DSG]: the only
   superseded [DSG] content is the ten→one scheduling point ([SYS
   §Supersession]'s exact scope — LT-012); the carried-over sections appear as

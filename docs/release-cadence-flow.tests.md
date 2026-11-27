@@ -26,6 +26,13 @@
   `docs/live-in-eclipse-recurrence-flow.tests.md` (T-086 — same shape).
 - **Verdict recording:** this file carries the full evidence; the ticket
   comment (or the ticker's re-recording of it) is the hand-off contract.
+- **Currency (T-202, owner model 2026-11-20):** the sprint model is gone -
+  no sprint records, no waves, no wave instances; the cadence unit is the
+  pass's **completed work** (`done` / `not-implemented` tickets), and the
+  sibling's wave instance (R2) retired with the model. The sprint-record,
+  wave and R2-mint mechanics observed below are the 2026-11-15 run-date
+  record - the verdicts stand as recorded on their dates (re-verified
+  2026-11-26).
 
 ## System under test
 
@@ -54,7 +61,7 @@ live task store — not against a model of them.
 | ID | Rule / contract | Oracle | Result |
 |---|---|---|---|
 | ITS-001 | The evaluation point (tick step 6, after the sibling's R2 mint) is real in SKILL.md's procedure; the ordering composes — one sweep, two extensions | SKILL.md step 6 text; sibling §5.1 STEP 6 EXTENSION; cadence §4.1 wording; order trace | **PASS** (note TN-1) |
-| ITS-002 | The artifact cites the ROADMAP standing rule faithfully; runtime state stays out of ROADMAP | ROADMAP.md lines 177–190 vs cadence §1/§4.3; AGENTS.md §autonomy-spectrum, §intake | **PASS** |
+| ITS-002 | The artifact cites the ROADMAP standing rule faithfully; runtime state stays out of ROADMAP | ROADMAP.md's T-041 standing-rule bullet (section-named now; then lines 177–190 at this run) vs cadence §1/§4.3; AGENTS.md §autonomy-spectrum, §intake | **PASS** |
 | ITS-003 | The human-review oracle is decidable, conservative, store/git-verifiable — and was RUN on a real record | `task_list(sprint=ticker-v)` + `task_get` × 51 + `git tag`/`git log`; identity table + content floor | **PASS** — live result: PENDING REVIEW (release parked, not cut) |
 | ITS-004 | Both outcome paths end in the standing rule's stated results and name real machinery | release.ps1 guard/sequence text vs cadence §4.2; live pom version + git tags; sibling mint + T-040 for the parked surface | **PASS** (notes TN-4, TN-5) |
 | ITS-005 | Non-blocking guarantees N1–N6 hold against the machinery | Extension wording vs store verbs; script Die paths; live verdict-vs-evidence demonstration | **PASS** (note TN-3) |
@@ -63,12 +70,15 @@ live task store — not against a model of them.
 
 ### ITS-001 — the evaluation point and the ordering (T-093 AC1, actor)
 
-**The sweep is real.** SKILL.md's tick procedure, step 6 (lines 61–63):
+**The sweep is real.** SKILL.md's tick procedure, step 6 (as read on the
+2026-11-15 run, then lines 61-63):
 "CLOSE the pass: reopen the `ticker-v` sprint record with the digest
 (U-108 reopen semantics keep the record rolling) and close it." The close
 sweep the cadence doc claims as its evaluation point EXISTS, and SKILL.md
 binds the pass to it ("Run this loop exactly. Do not improvise steps or
-order").
+order"). (Rekeyed since: SKILL.md step 6 today runs the RELEASE-CADENCE
+EVALUATION on pass close; the sprint-record reopen went with the sprint
+model, T-202 - re-verified 2026-11-26.)
 
 **The ordering composes — one sweep, two extensions.** Trace of the
 stated order at tick step 6:
@@ -94,20 +104,25 @@ convergence flips it later if evidence arrives. No circularity, no
 read-before-write.
 
 **Note TN-1 (for the reviewer):** SKILL.md itself carries the sibling's
-governing sentence in step 4 (lines 43–52, the T-039 recurrence rule) but
-has NO anchor sentence for the cadence evaluation anywhere — the ticker's
+governing sentence in step 4 (the T-039 recurrence rule) but at this run
+had NO anchor sentence for the cadence evaluation anywhere - the ticker's
 discovery path for this extension is the cadence doc's own "Read by: the
 stage ticker pass" pointer and its §4.1 wording ("The wording the next
 ticker pass applies"). That is the same doc-supplies-the-wording pattern
 the sibling uses for its own STEP 6 EXTENSION text (only its step-4
 sentence lives in SKILL.md), so it is consistent, not contradictory — but
-the cadence extension is currently one doc-read away from the literal
+the cadence extension was then one doc-read away from the literal
 SKILL.md loop. A one-sentence anchor in SKILL.md step 6, when the
 extensions are next revisited, would close it. Out of this ticket's lane.
+**Resolved since:** SKILL.md step 6 now carries the anchor - "The close
+runs the RELEASE-CADENCE EVALUATION (owner requirement 2026-11-15, T-041;
+rekeyed from wave to pass, once per pass)" (re-verified 2026-11-26).
 
 ### ITS-002 — the ROADMAP standing rule citation (T-093 AC1)
 
-ROADMAP.md lines 177–190 (verified in this session): completed wave →
+ROADMAP.md's T-041 standing-rule paragraph (then lines 177-190 at this
+run; section-named now so a ROADMAP edit cannot strand it - re-verified
+2026-11-26): completed wave →
 commit + push always; "The version is cut only when the wave's work
 carries a human review: cut it via `eclipse/releng/release.ps1` (tag per
 D-002, bump to the next `-SNAPSHOT`)"; "the release stays pending until a
@@ -120,9 +135,11 @@ recurring live-in-Eclipse acceptance hardens the work without gating it
 The cadence doc's §1 restates every element 1:1 and adds nothing that
 changes the rule; §4.3 explicitly keeps the runtime state OUT of ROADMAP
 ("ROADMAP holds the rule, this flow holds the state" — matching ROADMAP's
-own history discipline, lines 191–192). AGENTS.md carries the autonomy
-spectrum (review cadence set at goal intake, line 156ff) and the intake
-discipline (owner input = requirement or bug, line 322) exactly as the
+own History discipline bullet, section-named now). AGENTS.md carries the autonomy
+spectrum (review cadence set at goal intake - "The autonomy spectrum"
+paragraph) and the intake
+discipline (owner input = requirement or bug - "Intake discipline"
+paragraph) exactly as the
 cadence doc cites them (the fallback evaluator's authority; the
 review-cadence dial in §4.4). PASS.
 
@@ -216,21 +233,28 @@ go; the ticker never runs it).
 **Version = current `-SNAPSHOT` stripped.** The script's format guard
 rejects suffixed versions, so the caller MUST pass the stripped number —
 the flow's "never invented in chat" is backed by the script refusing
-anything else. Live: `eclipse/pom.xml` reactor version is
-`0.2.1-SNAPSHOT` (line 9) → stripped = 0.2.1; existing tags are
-v0.1.10 / v0.1.11 / v0.2.0, so v0.2.1 does not exist and the next legal
-cut is `v0.2.1` → `0.2.2-SNAPSHOT` (script lines 58–59 increment the
-patch). Consistent end to end.
+anything else. Live at the 2026-11-15 run: `eclipse/pom.xml` reactor version was
+`0.2.1-SNAPSHOT` (line 9) → stripped = 0.2.1; existing tags were
+v0.1.10 / v0.1.11 / v0.2.0, so v0.2.1 did not exist and the next legal
+cut was `v0.2.1` → `0.2.2-SNAPSHOT` (script lines 58-59 increment the
+patch). Consistent end to end. (Today, re-verified 2026-11-26: the reactor
+reads `0.4.7-SNAPSHOT` at line 9, tags run v0.1.10…v0.4.6, and the same
+script lines still increment the patch - the rule, not the numbers, is
+what the criterion pins.)
 
 **Parked path — the Board-visible surface.** The open acceptance instance
 mechanism exists: the sibling flow mints it (§5.1 STEP 6 EXTENSION step 3:
 `in-progress` + `owner-acceptance`, never planned into a record; §5.2
 calls it "a visible 'the live pass awaits the owner' state on the Board"),
 and the cadence §4.3 correctly reads that state as the pending-release
-marker, findable by scanning open `(wave …)` titles. Live: T-040 exists
+marker, findable by scanning open `(wave …)` titles. Live at the
+2026-11-15 run: T-040 existed
 as the pre-flow instance (title token `(U-009 AC4)`, pairing shape;
-status `sprint-backlog`, unassigned — the sibling's §7 documents exactly
-this state and its one-time transition). No `(wave …)`-token instance has
+status `sprint-backlog`, unassigned — the sibling's §7 documented exactly
+this state and its one-time transition). (Today T-040 is `blocked` under
+the owner's eclipse-build deprecation note with `resume_to: ready`, and
+`sprint-backlog` went with the sprint model, T-202 — re-verified
+2026-11-26.) No `(wave …)`-token instance has
 been minted yet anywhere (store scan: T-040, B-007, U-026…U-029 are the
 only `test-requirements` tickets; none carries a wave token) — consistent
 with the mint being next-pass wording and no substantive wave having
@@ -283,8 +307,10 @@ completed under the scheme yet. PASS (notes TN-4, TN-5).
 
 - **Wave detection shared VERBATIM:** sibling R2 ("a sprint record whose
   id does NOT start with `ticker-` holds at least one ticket and zero
-  open tickets", paused keeps the wave open) = cadence §1's carve-out;
-  both derive the `ticker-*` exclusion from ROADMAP's own sentence. Same
+  open tickets", paused keeps the wave open) — the wording as read on the
+  2026-11-15 run (R2 is RETIRED since T-202: [REC §4] now strikes the row
+  — "no sprint records, no waves" — re-verified 2026-11-26) = cadence §1's carve-out;
+  both derived the `ticker-*` exclusion from ROADMAP's own sentence. Same
   detection, same micro-record exclusion, no drift.
 - **One sweep, two extensions, fixed order:** verified in ITS-001 — both
   extensions attach at the same named points (after digest, before
@@ -337,7 +363,10 @@ and invariants — AC1's content requirements met.
   itself. Same doc-supplies-the-wording pattern as the sibling's own
   STEP 6 extension; consistent, not contradictory. Suggested follow-up
   (out of lane): one anchor sentence in SKILL.md step 6 at the next
-  revision.
+  revision. **Resolved since (re-verified 2026-11-26):** SKILL.md step 6
+  now opens "The close runs the RELEASE-CADENCE EVALUATION (owner
+  requirement 2026-11-15, T-041; rekeyed from wave to pass, once per
+  pass)" - the anchor landed; the note stands as recorded.
 - **TN-2 — G5 wording tension** ("No release step reads acceptance
   instances" vs the close-sweep evaluation reading them). Resolvable by
   the seam definitions; no behavioral contradiction; one-line tightening
@@ -349,8 +378,12 @@ and invariants — AC1's content requirements met.
   semantics are verified. The doc should be read as specifying executor
   behavior there, which it does (§4.2 "Recording the release", N4's
   framing).
-- **TN-4 — T-040's transition is still pending** (`sprint-backlog`,
-  unassigned, planned into the ticker-v record — pre-flow shape). The
+- **TN-4 — T-040's transition was pending at this run** (then
+  `sprint-backlog`,
+  unassigned, planned into the ticker-v record — pre-flow shape; today
+  T-040 is `blocked` under the owner's eclipse-build deprecation note,
+  `resume_to: ready`, and `sprint-backlog` is retired — T-202; re-verified
+  2026-11-26). The
   sibling's §7 prescribes the one-time `task_update`; out of T-085's,
   T-086's and this ticket's lane. The cadence query handles ANY open
   instance correctly (non-done → no owner evidence → PENDING), so the
@@ -387,7 +420,8 @@ floor, result **PENDING REVIEW → release parked, not cut**, with the
 positive control (U-111/U-112 `owner-acceptance` evidence → UNLOCKED)
 proving the oracle's other polarity (ITS-003); both outcome paths end in
 the standing rule's stated results against the real script guards, the
-real D-002 sequence and the real version rule (0.2.1-SNAPSHOT → v0.2.1)
+real D-002 sequence and the real version rule as observed at this run
+(0.2.1-SNAPSHOT → v0.2.1; the reactor reads 0.4.7-SNAPSHOT today)
 (ITS-004); N1–N6 hold against the machinery, with N6 demonstrated live
 (green verdicts, still pending) (ITS-005); the two flow docs read as ONE
 ruleset with shared detection, explicit seams and no behavioral

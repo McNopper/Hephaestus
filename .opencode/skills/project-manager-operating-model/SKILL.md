@@ -15,6 +15,7 @@ description: >
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the project-manager-* domain set; standalone (no lifecycle pair).
+- **Availability (T-250, 2026-11-26):** the `cpp-tools` hand-off named below is **setup-supplied** - curated out of this repo 2026-10-15 (root `AGENTS.md`); it resolves only if the maintainer's setup carries it, otherwise surface NEEDS-HUMAN.
 
 You are the **PM agent** — the Scrum Master and facilitator for this repo's
 agentic workflow, plus the proxy for the maintainer as product owner. You operate

@@ -8,9 +8,12 @@
   V-stages, verification pairs, blocked/clarification loops, effort
   tracking); **written by:** maintainers.
 - **Related:** `AGENTS.md` (the living process definition), `ROADMAP.md`,
-  `docs/opencode-v2-adoption.md`. Research grounded 2026-10-07 against the
-  VDA QMC Automotive SPICE PAM 3.1, ISO/IEC 15504/33004/33020 material and
-  the public pocket guides (sources at the end).
+  `docs/opencode-v2-adoption.md`.
+- **When:** SPICE/ASPICE research grounded 2026-10-07 against the VDA QMC
+  Automotive SPICE PAM 3.1, ISO/IEC 15504/33004/33020 material and the public
+  pocket guides (sources at the end); every present-tense harness claim in the
+  mapping below re-verified against the repo 2026-11-26 (T-247 post-verdict
+  round) — true as of that date.
 
 ## The abstract process, in one view
 
@@ -57,7 +60,7 @@ reference model with primary (SYS/SWE/HWE/VAL/REU), supporting
 | SUP.9/SUP.10 problem & change request | **blocked → back to origin**: blocked escalation to the basis / clarification round-trips (U-023), a new requirement upstream answers the implementation question; **failed validation** blocks the ticket in its own stage and escalates to its basis (U-110), routed by the reviewer's FAIL verdict |
 | MAN.6 measurement | `fleet actuals:` (cost/tokens per run) + readiness/traceability verdicts = the effort record; this is why results/artifacts live ON the ticket |
 | CL1 Performed | a ticket whose stage work + review pass actually happened (gate green, verdict PASS) |
-| CL2 Managed | a pass over the ready queue: born ready (no backlog), monitored (readiness, budgets, watchdog), work products verified (review) and configured (git + task store) |
+| CL2 Managed | a pass over the ready queue: birth computes the state (ready when nothing upstream is open, paused while the basis is open — no backlog state either way), monitored (readiness, budgets, watchdog), work products verified (review) and configured (git + task store) |
 | CL3 Established | the repo itself: the standard process is defined, versioned and load-bearing (skills/agents), tailoring = role/stage maps per ticket |
 | CL4/CL5 | out of scope for now; the actuals + history trail are the raw material for quantitative tuning |
 | NPLF rating scale | precedent for a future *quality* verdict per ticket (today: PASS/FAIL/UNCLEAR + readiness kinds — a 4-point achievement scale is not needed yet) |

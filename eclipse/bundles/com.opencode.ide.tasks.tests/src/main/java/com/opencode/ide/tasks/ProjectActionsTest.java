@@ -119,4 +119,36 @@ public class ProjectActionsTest {
       assertTrue(expected.getMessage(), expected.getMessage().contains("does not exist"));
     }
   }
+
+  // T-226 (N2): _meta.json counts as project evidence - newProject writes exactly that sidecar,
+  // so a scaffolded project must appear in projects() before its first ticket lands.
+
+  @Test
+  public void aScaffoldedProjectWithoutTicketsAppearsInProjects() {
+    assertFalse("baseline: no phantom projects", store.projects().contains("fresh"));
+
+    store.newProject("fresh", "chat-session");
+
+    assertTrue(
+        "the scaffolded project lists before its first ticket (only _meta.json exists)",
+        store.projects().contains("fresh"));
+    assertEquals("still ticketless", 0, store.list("fresh", null, null, null).size());
+    assertFalse(
+        "a directory that was never created stays invisible",
+        store.projects().contains("never-created"));
+  }
+
+  @Test
+  public void aResetProjectStaysVisibleBecauseItsSidecarSurvives() {
+    store.newProject("fresh", "chat-session");
+    ticket("fresh", "work being wiped");
+    assertTrue(store.projects().contains("fresh"));
+
+    store.resetProject("fresh", "chat-session");
+
+    assertTrue(
+        "the reset leaves only _meta.json - the project still exists on disk and must list"
+            + " (it cannot be re-created: newProject refuses an existing directory)",
+        store.projects().contains("fresh"));
+  }
 }

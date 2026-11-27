@@ -77,13 +77,13 @@ import org.eclipse.ui.part.ViewPart;
  * on the UI thread, failures become a status message — never an exception. A toolbar toggle
  * auto-refreshes every 5s while the view is open.
  *
- * <p>Openers that cannot see this bundle's classes (the board bundle's Fleet view opens this view
- * by plain id, U-015 "Watch live") pass the live-watch parameter through the secondary id: an id
- * built by {@code SessionViewIds.secondaryId(sessionId, true)} ends in the live-watch segment, and
- * {@link #createPartControl} parses it back into the explicit (session, auto-refresh) pair. A view
- * opened that way starts with Auto Refresh checked (the 5s insurance on top of the always-on SSE
- * reloads); the user can toggle it off once the watched job settles. The parameter lives in the
- * view's OWN secondary id, so it can never reach an unrelated view.
+ * <p>Openers pass the live-watch parameter through the secondary id (today only the Server view
+ * opens live-watched, via {@code SessionViewIds.secondaryId(sessionId, true)}; every opener lives
+ * in this bundle): the id ends in the live-watch segment, and {@link #createPartControl} parses it
+ * back into the explicit (session, auto-refresh) pair. A view opened that way starts with Auto
+ * Refresh checked (the 5s insurance on top of the always-on SSE reloads); the user can toggle it
+ * off once the watched job settles. The parameter lives in the view's OWN secondary id, so it can
+ * never reach an unrelated view.
  *
  * <p>Live updates: the view subscribes to the primary connection's {@code /event} SSE fan-out and
  * reloads (debounced, see {@link #EVENT_REFRESH_DEBOUNCE_MILLIS}) when an event affects THIS

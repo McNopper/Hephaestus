@@ -309,7 +309,7 @@ ticket); usage rules per field group; invariants enforced by M1:
 | Identity | `id`, `title`, `type`, `description` | set at creation; description carries the scope + governing definitions (the brief's anchor) |
 | Stage ownership | `stage` | set at creation, **never rewritten** (M1 refuses); `null` legal for non-pipeline tickets [DSG §2] |
 | Links | `epic`, `basis` | set at creation by division (C-M1-7); `epic` = scope container, `basis` = derivation edge — no third relation [DSG §3] |
-| Status machine | `status`, `blocked`, `resume_to`, `blocker` | the ordinary walk within the stage (`product-backlog → sprint-backlog → in-progress → in-review → done`); `blocked` is a state with `resume_to` (default sprint-backlog) + `blocker` reason; done/paused can never be blocked |
+| Status machine | `status`, `blocked`, `resume_to`, `blocker` | the ordinary walk within the stage (`product-backlog → sprint-backlog → in-progress → in-review → done`); `blocked` is a state with `resume_to` (default sprint-backlog) + `blocker` reason; direct entry refuses done/not-implemented/paused (only the basis-chain walk re-opens them, keeping `resume_to`) |
 | Assignment | `assignee` | set only by the atomic claim (C-M1-2); survives tick boundaries and sprint closes |
 | Planning | `sprint`, `story_points`, `priority`, `role`, `model` | `sprint` = record membership (DS-2); `role` steers dispatch (stage → role → skill); `model` optional cost lever — a local setting, never a committed value |
 | Stage product | `acceptance_criteria`, `artifacts[]` | criteria set at creation/division (the paired verification derives from them); `artifacts[]` is the store-side index, appended only (C-M1-6); ≥1 artifact required before a definition-stage `done` |

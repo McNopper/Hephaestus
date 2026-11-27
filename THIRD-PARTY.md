@@ -1,10 +1,18 @@
 # Third-Party Licenses
 
+## About this document
+
+- **Kind:** `doc` (third-party license notices / legal artifact)
+- **Read by:** downstream recipients and compliance auditors, plus the maintainers who ship bundled deps; **written by:** maintainers (logo/icon sections refreshed by `fetch-logos.ps1` / `generate-action-icons.py`)
+- **Related:** linked from `README.md` and `AGENTS.md` (provider-catalog attribution); stands beside `LICENSE`.
+
 This file aggregates the licenses and copyright notices of the third-party
-libraries **redistributed with** the Hephaestus template: runtime dependencies
-of its bundled MCP servers, vendored web assets shipped inside the Eclipse chat
-plugin, and vendored trademark logo assets. Hephaestus itself is
-distributed under the **MIT License** — see [`LICENSE`](LICENSE).
+libraries **redistributed with** the Hephaestus template: vendored web assets
+shipped inside the Eclipse chat plugin and vendored trademark logo assets. The
+Pillow/NumPy sections document the graphics MCP server's Python dependencies -
+that server is user-supplied since the 2026-10-15 curation (see the note under
+Pillow). Hephaestus itself is distributed under the **MIT License** — see
+[`LICENSE`](LICENSE).
 
 All listed dependencies are permissive and fully compatible with the MIT
 project license.
@@ -12,7 +20,7 @@ project license.
 > The license texts and copyright holders below are the canonical SPDX texts with
 > the best-known copyright holders. The authoritative source for each is the
 > upstream package; regenerate this file at install time with
-> `pip-licenses --from=mixed --with-license-file --format=markdown` against the `mcp/*/requirements.txt` files if you want a verified, environment-specific copy.
+> `pip-licenses --from=mixed --with-license-file --format=markdown` against the requirements file of whatever you ship (the graphics MCP's lives outside this repository) if you want a verified, environment-specific copy.
 
 ---
 
@@ -20,7 +28,7 @@ project license.
 
 - **License:** HPND (Historical Permission Notice and Disclaimer)
 - **Upstream:** <https://python-pillow.org> / <https://github.com/python-pillow/Pillow>
-- **Used by:** `mcp/graphics`
+- **Used by:** the graphics MCP server (`mcp.graphics`) — user-supplied since the 2026-10-15 curation; nothing in this repository ships it (`mcp/` carries nothing tracked — see `README.md`)
 - **Copyright:**
   - Copyright © 2010 by Jeffrey A. Crystal and contributors
   - Copyright © 1997-2011 by Secret Labs AB
@@ -48,7 +56,7 @@ SOFTWARE.
 
 - **License:** BSD-3-Clause
 - **Upstream:** <https://numpy.org> / <https://github.com/numpy/numpy>
-- **Used by:** `mcp/graphics`
+- **Used by:** the graphics MCP server (`mcp.graphics`) — user-supplied since the 2026-10-15 curation; nothing in this repository ships it (`mcp/` carries nothing tracked — see `README.md`)
 - **Copyright:** Copyright (c) 2005-2024, NumPy Developers. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -80,7 +88,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 - **What:** low-resolution provider identification logos used by the Eclipse
   Providers view (`eclipse/bundles/com.opencode.ide.ui`, see
-  `icons/providers/` and `ProviderLogos.java`).
+  `src/main/resources/icons/providers/` and `ProviderLogos.java`).
 - **Source:** Artificial Analysis, URL pattern
   `https://artificialanalysis.ai/img/logos/<slug>_small.svg`.
 - **Retrieved:** 2026-08-18 (via `eclipse/bundles/com.opencode.ide.ui/fetch-logos.ps1`,

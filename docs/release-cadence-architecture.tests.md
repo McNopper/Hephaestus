@@ -26,6 +26,12 @@
   (T-106 — the format reference for this doc family); `AGENTS.md` (write
   discipline, chat-first control plane H7); the store history of T-109
   (read via `task_get`).
+- **Currency (T-202, owner model 2026-11-20):** the sprint model is gone -
+  no sprint records, no waves, no wave instances; the cadence unit is the
+  pass's **completed work** and the sibling's wave instance (R2) retired
+  with the model. The sprint-record, wave and R2-mint mechanics observed
+  below are the run-date record - the verdicts stand as recorded on their
+  dates (re-verified 2026-11-26).
 
 ## Library under test
 

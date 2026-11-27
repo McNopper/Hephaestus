@@ -170,12 +170,29 @@ $prompt =
     "divide: create the linked downstream ticket(s) per the division map (task_create " +
     "with stage/basis - the basis chain to the requirement is the scope; " +
     "task_doctor reports missing divisions and missing right-leg joins) plus the " +
-    "paired test ticket; (5) READY tickets: claim them under the spawn cap of " +
+    "paired test ticket; (4b) STALE rows of this stage (readiness kind STALE, top " +
+    "of the engine's report): status ready + unassigned -> RE-DISPATCH: targeted " +
+    "claim (in-progress + assignee ticker-v:<id>) under the cap, spawn with the " +
+    "stage's agent and the fulfillment brief PLUS a re-run note: the basis changed " +
+    "after this ticket's last run - re-read the CURRENT basis artifacts and revise " +
+    "what no longer holds; done rows -> REPORT-ONLY (terminal: never claimed, " +
+    "never blocked, never spawned - one count line 'stale-done: <n> report-only " +
+    "rows' in the pass digest); paused -> never claimed (the pump's resume path " +
+    "only). STALE re-dispatches run BEFORE (5) and count against the same spawn " +
+    "cap. (5) READY tickets: claim only ids whose step-1 readiness row read " +
+    "kind READY (the verb HAS filtered readiness since T-226: TaskStore.claim() " +
+    "evaluates StageReadiness inside the claim transaction and skips a " +
+    "basis-linked candidate whose verdict reads WAIT_UPSTREAM or STALE, while a " +
+    "basis-less flow-WAIT_UPSTREAM stays claimable (T-220's loop pin) - keep " +
+    "your own pre-check anyway: skip any id the (4b) list named, never scoop " +
+    "it blind), under the spawn cap of " +
     "$Cap concurrent subagents (check your running subagents first - never exceed " +
     "it) and spawn one background subagent per claimed ticket with the fulfillment " +
     "brief: ticket + basis artifacts + skills, finish this exact ticket, record the " +
-    "artifact, set in-review - never done; a landed markdown doc must be lint-clean " +
-    "(releng/lint.ps1 over the touched files). Once for the whole pass BEFORE the close: " +
+    "artifact, set in-review - never done. A landed markdown doc must be lint-clean " +
+    "under the repository's own verification gate - the gate its AGENTS.md/README " +
+    "documents (docs/own-project.md step 4): run that gate before landing the touched " +
+    "files; no push-time CI is assumed. Once for the whole pass BEFORE the close: " +
     "STAGELESS in-review tickets (no stage - the per-stage scan reports them " +
     "NOT_APPLICABLE and never sees them) get the same engine verdict step, skipping " +
     "tickets owned by your running subagents and tickets with review:human (the owner's " +

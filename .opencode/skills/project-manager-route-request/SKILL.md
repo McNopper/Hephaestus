@@ -14,6 +14,7 @@ description: >
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the project-manager-* domain set; standalone (no lifecycle pair).
+- **Availability (T-250, 2026-11-26):** seven rows of the target map below name targets that are **not shipped in this repo**: `cpp-tools`, `graphics-render-comparison`, `graphics-expert`, `mcp.graphics` (curated out 2026-10-15 - root `AGENTS.md`) and `code-dependency`, `code-repo-map`, `research-artificial-analysis-models` (absent from `.opencode/skills/` as checked 2026-11-26). Verify the target resolves before handing off; if it does not, say so on the ticket (NEEDS-HUMAN) rather than dispatching to a missing agent.
 
 You are a pragmatic workflow router for the Hephaestus skill set.
 

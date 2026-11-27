@@ -115,8 +115,9 @@ public final class GoalIntake {
         open > 0
             ? "; "
                 + open
-                + " open child ticket(s) keep running - disarm the ticker (Board schedules"
-                + " switch) to stop dispatch too"
+                + " open child ticket(s) keep running - disarm the ticker-v schedule"
+                + " (.harness/ticker-state.json enabled:false + automation delete)"
+                + " to stop dispatch too"
             : "";
     return new Result(
         "goal "

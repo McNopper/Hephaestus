@@ -90,6 +90,15 @@ there the milestone groups the already-split issues.
 
 ## Recommendation (as adopted in design-stage-pipeline.md §3)
 
+> **Currency note (2026-11-26):** adopted as written on 2026-11-14 — and the
+> *shape* still governs `design-stage-pipeline.md` §3 — but two store fields
+> this section names were retired afterwards: the `epic` field (owner rule
+> 2026-11-19, `.opencode/docs/contracts.md`: "the `epic` field is gone") and
+> the `sprint` field/records (owner model 2026-11-20, T-202: "no sprints, no
+> backlogs"). Scope rides the `basis` chain and batching rides the stage
+> queues today. The bullets below keep their 2026-11-14 wording as the record
+> of the analysis.
+
 - **(a) Epic = scope-container-parent; derivation is its own relation
   (`basis`).** No framework overloads the epic field with derivation; Jira,
   GitLab and GitHub all keep hierarchy and derivation/link relations separate.

@@ -6,23 +6,24 @@
 - **Read by:** anyone adding a visible control, status text or doc illustration;
   **written by:** maintainers.
 - **Related:** U-065 (board card language), U-074 (the consistency ticket),
-  `docs/TESTING.md` (the checks), `TicketRow` (the code source of truth for
-  status/type/blocked).
+  `docs/TESTING.md` (the checks),
+  `eclipse/bundles/com.opencode.ide.client/src/main/java/com/opencode/ide/client/Emojis.java`
+  (the shared code home of every glyph, U-093 — `TicketRow.statusSymbol`/`typeEmoji` delegate to it).
 
-One concept = **one** emoji across every surface (board, chat, fleet, docs).
+One concept = **one** emoji across every surface (board, chat, docs).
 Where code renders it (`TicketRow.statusSymbol` / `typeEmoji` / the blocked
 marker), the code wins and this table mirrors it; nothing may introduce a
 second emoji for a concept already listed.
 
 | Concept | Emoji | Where it renders |
 |---|---|---|
-| ready | 🆕 | card status column, status headers, legend, fleet badges |
+| ready | 🆕 | card status column, status headers, legend, status filter menu |
 | not-implemented | ❌ | same |
 | in-progress | 🏃 | same |
 | in-review | 👀 | same |
 | done | ✅ | same |
 | paused | ⏸️ | same |
-| blocked | 🚫 | card title cell prefix |
+| blocked | 🚫 | card status cell (tinted red), status headers, legend, status filter menu |
 | type: bug | 🐞 | card type column |
 | type: story | 📖 | card type column |
 | type: task | 🛠️ | card type column |

@@ -150,8 +150,9 @@ outside every contract surface here; no contract attempts to prevent it.
 
 Substrate (architecture §2; AD-001). Its contracts are engine-owned and out
 of this design's scope: the state machine, the write discipline, history
-events with `by` provenance, the blocked invariant (`done` and `paused` can
-never be blocked), the claim walk (targets `sprint-backlog` only and
+events with `by` provenance, the blocked invariant (direct ENTRY refuses
+`done`/`not-implemented`/`paused`; the basis-chain walk re-opens them with
+`resume_to`), the claim walk (targets `sprint-backlog` only and
 pre-checks the candidate's assignee), readiness (`RUNNING`, never `READY`,
 for `in-progress` work), record ejection (`task_close_sprint` ejects only
 record members). Surfaces the contracts above consume — named so "every

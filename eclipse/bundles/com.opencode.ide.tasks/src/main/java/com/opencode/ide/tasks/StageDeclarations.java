@@ -6,8 +6,9 @@ import java.util.Map;
 
 /**
  * U-029 forward declarations (U-058, FR-004/FR-005): which V stages of a ticket have NO applicable
- * work, so the launch path can record a {@link TaskStore#passStage} pass instead of starting a
- * session.
+ * work, so the launch path could record a stage pass instead of starting a session. That pass verb
+ * itself is gone: {@code TaskStore.passStage} was removed with the U-110 arc, superseded by the
+ * linked stage pipeline.
  *
  * <p><b>The declaration source is a ticket comment</b> - this is the design decision of U-058. A
  * stage worker (or the reviewer, or the PM) names a downstream stage by adding a comment of the
@@ -31,13 +32,19 @@ import java.util.Map;
  *       unattributable pass, and the safe default of an unhonored declaration is a dispatched
  *       worker (FR-005 - the machinery never invents a pass);
  *   <li>the stage token must be a valid {@link VStages} name; the reason must be non-blank - the
- *       blank-reason rejection belongs to {@link TaskStore#passStage} (FR-003), the parser keeps
- *       such lines out before they can reach it.
+ *       blank-reason rejection belonged to the pass verb (FR-003; {@code TaskStore.passStage},
+ *       removed with the U-110 arc); the parser rejects such lines before they could reach it.
  * </ul>
  *
  * <p>The launch side historically lived in the fleet engine (removed in U-110 - the ticker-v
- * schedule and the spawned workers are the dispatch paths now); the stage declarations through);
- * this class is pure parsing over store data - no I/O, no clock.
+ * schedule and the spawned workers are the dispatch paths now); the stage declarations go through
+ * this class, which is pure parsing over store data - no I/O, no clock.
+ *
+ * <p><b>Currency (T-255):</b> ownership framing, not a live path - {@link #forStage} has no
+ * production caller today (only {@code StageDeclarationsTest}), and {@code parseDeclare} is
+ * reachable only through it: the pass-declare pump path retired with U-110 when {@code
+ * TaskStore.passStage} was removed (e888abe). The class is retained as the parsing contract for
+ * that comment convention.
  */
 public final class StageDeclarations {
 

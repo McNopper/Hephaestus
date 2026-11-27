@@ -4,7 +4,8 @@
 
 - **Kind:** verification report (test-implementation leg) — evidence record, not a definition.
 - **Read by:** the reviewer/gate for ticket T-051 (project `hephaestus`), and whoever reworks basis W-008.
-- **Related:** T-051 (this re-verification, status blocked on FAIL), W-008 (basis, the implementation under test), W-005 (design the code must match), W-006 (STALE predecessor verdict — **not used as evidence here**).
+- **Dated:** 2026-11-15 — this run's probes (evidence record of one day). Superseded the same day by `docs/w008-reverification-pass-2026-11-15.md` after T-054's re-delivery; this file stays the FAILED-run evidence.
+- **Related:** T-051 (this re-verification — blocked on FAIL at the time; the ticket later closed **done** on the PASS record above), W-008 (basis, the implementation under test), W-005 (design the code must match), W-006 (STALE predecessor verdict — **not used as evidence here**).
 - **Verdict:** FAILED VALIDATION. `scratch/fleet-regression/editor/EditorCore.java` does not exist in the working tree, in git history, or anywhere on this machine — AC 1 fails outright and ACs 2–5 have no subject to verify. Basis rework (re-delivery of the W-008 implementation) is required.
 
 ## Context

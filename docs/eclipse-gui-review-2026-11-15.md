@@ -282,13 +282,16 @@ evidence):
 6. **TaskStore.prepareAutoDispatch fleet-era residue** — F-39 (public store API with
    no live caller after the Board pump removal; remove or explicitly re-purpose).
 
-**Tickets specified: 6. Minting status: pending** — the `tasks` MCP server (the store
-engine JVM) went down during this review run, so the `task_create` calls for these six
+**Tickets specified: 6. The store was down during this review run** — the `tasks` MCP
+server (the store engine JVM) went out mid-run, so the `task_create` calls for these six
 tickets and the close-out writes on T-038 (artifact record + `in-review`) could not be
-made from this session. The six ticket descriptions above carry everything needed to
-mint them via `task_create({ project: "hephaestus", type: "bug", ... })` as soon as the
-store is reachable again; §3 holds their file:line evidence verbatim. Everything else
-in §2–§4 is evidence on T-038.
+made from THIS session. The outage did not outlast the morning: T-038's artifact was
+recorded at 08:20 UTC and all six were minted the same day — manually as **T-045..T-050**
+(08:23) and again by T-038's division as **T-087..T-092** (08:49, the ids the engine's
+PASS comment names). Every one of them is now done and archived: the fixes executed and
+pushed 2026-11-16 (`3fa0299`/`2c16543`, `cb6b66c`, `4a802f2`, `6066b67`, `8f16e67`,
+`c5dfb07`). The six descriptions above remain the specification, §3 their file:line
+evidence verbatim. Everything else in §2–§4 is evidence on T-038.
 
 ## 6. Acceptance criteria mapping
 

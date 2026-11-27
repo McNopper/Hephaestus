@@ -176,33 +176,44 @@ Every component anchor checked read-only at HEAD:
 
 - **C1** `.opencode/agent/product-owner.md`: frontmatter lines 9–13 —
   `tools:` `write: false`, `edit: false`, `patch: false`, `bash: false`
-  (the "write-denied for repo files" claim); line 53 carries the cited
-  section "The two dials (goal intake - the autonomy spectrum)"; lines
-  44–45 fix the bounded round-trips ("at most a couple of round-trips,
-  then register with the open questions recorded"); line 49 is the store-
-  proof sentence ("the store, not your memory, is the proof").
-- **C2** `.harness/tasks/hephaestus/` exists (333 ticket files, including
-  `T-113.md` and `T-114.md`); the `task_*` verb surface is real (this
+  (the "write-denied for repo files" claim); "The two dials (goal intake –
+  the autonomy spectrum)" carries the cited
+  section; the bounded round-trips ("at most a couple of round-trips,
+  then register with the open questions recorded") sit in its loop step; the store-
+  proof sentence ("the store, not your memory, is the proof") sits at
+  registration step 7 (all four re-verified 2026-11-26 – the section moved
+  off its old line numbers).
+- **C2** `.harness/tasks/hephaestus/` exists (239 ticket files today –
+  71 live + 168 in `_archive/` –
+  including
+  `T-113.md` and `T-114.md`, both archived since; it read 333 files at
+  this run's 2026-11-16 check); the `task_*` verb surface is real (this
   ticket's own bookkeeping runs on it); D-006 (store files git-versioned
-  Markdown) resolves at `ROADMAP.md` lines 114–115.
-- **C3** `.opencode/skills/stage-pipeline/ticker-setup.ps1` exists; line 13
-  documents `[-IntervalMinutes 15] [-Cap 4]`, line 10 requires
-  `"experimental": { "schedules": true }` — the schedule lane E6 names;
+  Markdown) resolves at `ROADMAP.md`'s decision-records paragraph
+  ("D-006: the store substrate stays git-versioned Markdown").
+- **C3** `.opencode/skills/stage-pipeline/ticker-setup.ps1` exists; its
+  Usage line documents `[-IntervalMinutes 5] [-Cap 4]` (it read 15 at the
+  2026-11-16 check — the owner set the cadence to 5 the same day), and its
+  requirements comment requires
+  `"experimental": { "automations": true }` (renamed from `schedules` in
+  2.3.1, flagless since 2.4.0) — the schedule lane E6 names;
   the `stage-pipeline` skill file exists beside it.
 - **C4** `eclipse/releng/release.ps1` exists (the release machinery
   reachable "only from the human-review context"); the engine-verdict side
   resolves in [AR] §Modules and layers M4 ("the ONLY `done` authority",
-  line 69).
+  the M4 `verdict` row).
 - **C5** the doctrine surfaces all exist: [AGENTS] "The autonomy spectrum
-  (the operating model, owner requirement 2026-11-15)" at `AGENTS.md`
-  line 156; `ROADMAP.md` Vision/**Product Goal** (lines 18/29); [PO]
-  (line 53); [DSG] §4 (lines 159–179).
+  (the operating model, owner requirement 2026-11-15)" — the paragraph of
+  that name; `ROADMAP.md` Vision/**Product Goal** (lines 18/29); [PO]
+  "The two dials (goal intake – the autonomy spectrum)"; [DSG] §4 (the
+  ticker-cadence section).
 
-Reuse mapping ([AR] §Modules and layers): **C2 ≡ M1** (line 66 — same
+Reuse mapping ([AR] §Modules and layers): **C2 ≡ M1** (the M1 `store` row — same
 substrate description: epic/basis links, readiness, append-only history,
-`.harness/tasks/hephaestus/` + `task_*` verbs), **C3 ≡ M2** (line 67 — same
+`.harness/tasks/hephaestus/` + `task_*` verbs), **C3 ≡ M2** (the M2
+`ticker` row — same
 fixed tick and the same steward/schedule/`ticker-setup.ps1` anchor), **C4 =
-M4 + the release boundary** (line 69). The mapping is reuse, not
+M4 + the release boundary** (the M4 `verdict` row). The mapping is reuse, not
 re-decision: the spectrum doc adds C1, the dial record as C2 data and the
 C5 parameter layer, exactly as AD-1 states.
 
@@ -212,7 +223,8 @@ Quote-and-consistency check of every machine-side claim:
 
 - **C3's tick is [DSG] §4 verbatim.** The doc's §Interfaces: "the tick is
   [DSG §4] verbatim — SCAN → BLOCKED → DONE → READY → CLOSE".
-  [DSG] §4's algorithm (lines 166–179) reads exactly: 1. SCAN, 2. BLOCKED
+  [DSG] §4's tick-algorithm subsection (always the same, every launch)
+  reads exactly: 1. SCAN, 2. BLOCKED
   → ESCALATE BACK, 3. DONE → PROCESS FORWARD, 4. READY → KICKOFF, 5.
   CLOSE; and [DSG]'s own framing — "The ticker has no decisions to make —
   the procedure is fixed, parameterized only by its stage" — is the same
@@ -238,9 +250,11 @@ Quote-and-consistency check of every machine-side claim:
   store-as-only-substrate rule restates [DSG]'s "Stages are decoupled
   through the store — never a direct handoff". The denied edges mirror
   standing doctrine: the write-discipline denial quotes [AGENTS] "Write
-  discipline" (line 200); the NEEDS-HUMAN escalation threshold is
-  [AGENTS] line 166; the dial vocabulary and safe-end defaults are
-  [AGENTS] lines 156–166 pass-through.
+  discipline" (the **Write discipline** paragraph); the NEEDS-HUMAN
+  escalation threshold is
+  the autonomy-spectrum paragraph's review-cadence line; the dial vocabulary and safe-end defaults are
+  that paragraph's pass-through (all three name-cited post-T-231 style,
+  re-verified 2026-11-26).
 
 ### LT-007 — store discipline on T-113 — **PASS**
 

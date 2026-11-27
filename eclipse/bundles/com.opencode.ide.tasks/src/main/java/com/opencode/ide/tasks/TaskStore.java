@@ -28,6 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * The Markdown task store: one directory per project under the configured root, one {@code <id>.md}
@@ -184,6 +185,15 @@ public final class TaskStore {
   /** Artifact kinds whose ref is a repo path task_doctor can check for existence. */
   private static final Set<String> PATH_ARTIFACT_KINDS = Set.of("file", "path");
 
+  /**
+   * A doc artifact ref shaped like a ticket id (T-224 check 5, rubberduck N4): uppercase prefix,
+   * dash, digits - the shape of every minted id ({@code T-224}, {@code A-001}, {@code AE-6}). Only
+   * such refs are validated as ticket references; paths, TEMP logs, git refs, urls and prose-like
+   * refs are not ticket ids and stay out of the check (the doctor checks paths as paths, not
+   * prose).
+   */
+  private static final Pattern TICKET_ID_REF = Pattern.compile("[A-Z]+-\\d+");
+
   private static final String INVALIDATION_BY = "h6";
 
   /** The readiness report's severity order: most urgent kind first. */
@@ -231,17 +241,8 @@ public final class TaskStore {
     if (spec.role() != null && (spec.role().isBlank())) {
       throw new Invalid("role must be a non-empty string, got '" + spec.role() + "'");
     }
-    if (spec.type() != null && !Task.VALID_TYPES.contains(spec.type())) {
-      throw new Invalid("type must be one of " + Task.VALID_TYPES + ", got '" + spec.type() + "'");
-    }
-    if (spec.priority() != null && !Task.PRIORITY_ORDER.containsKey(spec.priority())) {
-      throw new Invalid(
-          "priority must be one of "
-              + List.of("low", "medium", "high", "critical")
-              + ", got '"
-              + spec.priority()
-              + "'");
-    }
+    requireType(spec.type());
+    requirePriority(spec.priority());
     if (stage != null && !VStages.isValid(stage)) {
       throw new Invalid(
           "stage must be one of " + VStages.STAGES + " (or null), got '" + stage + "'");
@@ -324,6 +325,11 @@ public final class TaskStore {
   /**
    * Gets one task by id. A project that does not exist on disk is "no such ticket" - reads never
    * materialize the project directory (review S5).
+   *
+   * <p>T-240: the RETURNED ticket is the live pool (the working set - board/readiness/dispatch
+   * semantics are untouched), but the VERDICT is honest about WHY an id missed: an id parked in
+   * {@code _archive/} is history, not a hole, and names its archive file ({@link #notFound}). A
+   * genuinely absent id keeps the exact historical message.
    */
   public Task get(String project, String id) {
     if (projectDirectoryMissing(project)) {
@@ -334,7 +340,7 @@ public final class TaskStore {
         data -> {
           Task t = data.tasks.get(id);
           if (t == null) {
-            throw new NotFound("ticket " + id + " not found in project " + project);
+            throw notFound(data, project, id);
           }
           return t;
         });
@@ -342,8 +348,16 @@ public final class TaskStore {
 
   /**
    * The project subdirectory names of this store root (one per directory that looks like a project:
-   * contains at least one {@code .md} file). Sorted; never null; the empty store yields an empty
-   * list.
+   * contains at least one {@code .md} ticket file OR the store's own {@code _meta.json} sidecar).
+   * Sorted; never null; the empty store yields an empty list.
+   *
+   * <p>T-226 (N2): {@code _meta.json} counts as project evidence on purpose - {@link #newProject}
+   * writes exactly that sidecar (plus the directory) and {@link #resetProject} removes every ticket
+   * while KEEPING the sidecar, so the old {@code >=1 *.md} rule hid a freshly scaffolded project
+   * until its first ticket landed, and made a reset project vanish from the list even though it
+   * still exists on disk (and cannot be re-created - {@link #newProject} refuses an existing
+   * directory). A directory with neither marker (a stray folder, a phantom left by some old write)
+   * stays invisible.
    */
   public List<String> projects() {
     try (var stream = java.nio.file.Files.list(root)) {
@@ -352,7 +366,11 @@ public final class TaskStore {
           .filter(
               dir -> {
                 try (var files = java.nio.file.Files.list(dir)) {
-                  return files.anyMatch(p -> p.getFileName().toString().endsWith(".md"));
+                  return files.anyMatch(
+                      p -> {
+                        String name = p.getFileName().toString();
+                        return name.endsWith(".md") || "_meta.json".equals(name);
+                      });
                 } catch (Exception e) {
                   return false;
                 }
@@ -402,15 +420,62 @@ public final class TaskStore {
   }
 
   /**
+   * The ticket's VERDICT (T-225): its status, or - while it sits in the blocked state - the {@code
+   * resume_to} it remembers there. The chain walk deliberately re-opens terminal and paused hops
+   * (T-221: setBlocked's chain loop has no terminal/paused check, pinned by ChainBlockTest), so a
+   * chain-blocked done ticket is still a done ticket for the terminal guards below.
+   */
+  private static String verdictStatus(Task t) {
+    return t.isBlocked() && t.resumeTo != null ? t.resumeTo : t.status;
+  }
+
+  /** The terminal verdict pair (owner model 2026-11-20): {@code done} / {@code not-implemented}. */
+  private static boolean terminalStatus(String status) {
+    return "done".equals(status) || "not-implemented".equals(status);
+  }
+
+  /**
+   * T-226 (S1): whether the readiness verdict GATES this claim candidate on its basis. Only a
+   * basis-linked ticket can be gated: {@link StageReadiness} routes basis-linked rows to the
+   * derivation verdict (WAIT_UPSTREAM until the basis is done/in-review AND carries its artifact,
+   * STALE when the basis changed after this ticket ran), while a basis-less row's WAIT_UPSTREAM is
+   * the legacy flow-history signal - a scan concern, not a claim gate (see {@link #claim}). The
+   * remaining gate kinds never reach this predicate for a claim candidate: BLOCKED == isBlocked()
+   * (filtered before) and RUNNING needs a non-ready status (filtered before).
+   */
+  private static boolean basisGated(Task t, Map<String, StageReadiness.Readiness> verdicts) {
+    if (t.basis == null) {
+      return false;
+    }
+    StageReadiness.Readiness verdict = verdicts.get(t.id);
+    if (verdict == null) {
+      return false;
+    }
+    return verdict.kind() == StageReadiness.Kind.WAIT_UPSTREAM
+        || verdict.kind() == StageReadiness.Kind.STALE;
+  }
+
+  /**
    * Lax update of mutable fields, matching the pm server: protected fields ({@code id}, {@code
    * created_at}, {@code history}, {@code comments}) are silently dropped, explicit nulls clear the
-   * nullable fields, only {@code role} and {@code status} are validated, and no transition graph is
-   * enforced. One rule beyond validation: {@code status} and {@code blocked} move as ONE state
-   * transition (U-067) - blocked=true enters the blocked state (resume = the requested or current
-   * status), blocked=false leaves it, and a ticket left {@code done} can never be blocked
-   * (structural - live incidents W-006/W-007). Divergence: unknown fields are dropped rather than
-   * stored (the file format keeps unknown <em>keys</em> from hand edits, but tool updates cannot
-   * introduce new ones).
+   * nullable fields (a null {@code priority} restores the {@code medium} default and a null {@code
+   * type} the {@code task} default, like create), the constrained fields are validated ({@code
+   * role}, {@code status}, {@code priority} (T-249), {@code type} (T-253), {@code stage}, {@code
+   * review}, {@code basis}, integer {@code story_points}), and no ENTRY transition graph is
+   * enforced (any LIVE status may be requested - the enforced edges are the two refusals below).
+   * One rule beyond validation: {@code status} and {@code blocked} move as ONE state transition
+   * (U-067) - blocked=true enters the blocked state (resume = the requested or current status),
+   * blocked=false leaves it - and a ticket whose VERDICT ({@link #verdictStatus}) is {@code done}
+   * or {@code not-implemented} can never be blocked by DIRECT entry (structural - live incidents
+   * W-006/W-007) nor EXIT its terminal status (T-225: it would become claimable again,
+   * contradicting {@link Task#isTerminal()}). The chain walk remains the one deliberate exception:
+   * it re-opens terminal and paused hops, keeping their pre-block verdict in {@code resume_to}
+   * (T-221, pinned by ChainBlockTest). No caller re-opens a terminal ticket through this verb (grep
+   * 2026-11-26: task_update, the Board's setStatus/setStage drops and the /goal verbs only ENTER a
+   * terminal status, move a live one, or resume {@code paused -> ready}; there is no
+   * archive/restore verb) - if a reopen is ever needed it must be an explicit verb that records
+   * history. Divergence: unknown fields are dropped rather than stored (the file format keeps
+   * unknown <em>keys</em> from hand edits, but tool updates cannot introduce new ones).
    *
    * @param changes snake_case field name -> new value (String/Number/Boolean/List/JsonElement)
    */
@@ -436,11 +501,23 @@ public final class TaskStore {
                 applied.add(e.getKey());
               }
               case "type" -> {
-                t.type = string(e.getValue());
+                // T-253: the enum gate at the verb - create validated, update assigned as-is, so
+                // 'banana' reached the store through McpDispatcher (the inputSchema enum is
+                // declarative and never enforced there); now one shared gate, one message.
+                String type = string(e.getValue());
+                requireType(type);
+                // null follows create's default (never a `type: null` row on disk)
+                t.type = type == null ? "task" : type;
                 applied.add(e.getKey());
               }
               case "priority" -> {
-                t.priority = string(e.getValue());
+                // T-249: the enum gate at the verb - create validated, update used to assign
+                // as-is, so 'urgent' reached the store through McpDispatcher (the inputSchema
+                // enum is declarative and never enforced there) and sorted as weight 0.
+                String priority = string(e.getValue());
+                requirePriority(priority);
+                // null follows create's default (never a `priority: null` row on disk)
+                t.priority = priority == null ? "medium" : priority;
                 applied.add(e.getKey());
               }
               case "role" -> {
@@ -542,17 +619,22 @@ public final class TaskStore {
           // key order the caller used (enter with a retargeted resume, or
           // leave back to resume_to; a plain status move leaves cleanup to
           // the commit-time invariant)
+          // T-225: the VERDICT (status, or resume_to while blocked - the chain walk keeps a
+          // terminal hop's verdict there) decides the terminal guards below.
+          String verdict = verdictStatus(t);
           if (requestedBlocked != null && requestedBlocked) {
-            if (t.isTerminal()) {
+            if (terminalStatus(verdict)) {
               throw new Invalid(
                   "a "
-                      + t.status
-                      + " ticket is never blocked (U-067: done/not-implemented are terminal)");
+                      + verdict
+                      + " ticket is never blocked by direct entry (U-067:"
+                      + " done/not-implemented are terminal; the chain walk re-opens it with"
+                      + " resume_to)");
             }
             if ("paused".equals(t.status)) {
               throw new Invalid(
-                  "a paused ticket is never blocked (U-038: paused is the dependency wait"
-                      + " - resume it first)");
+                  "a paused ticket is never blocked by direct entry (U-038:"
+                      + " paused is the dependency wait - resume it first)");
             }
             String resume =
                 requestedStatus != null && !"blocked".equals(requestedStatus)
@@ -567,15 +649,32 @@ public final class TaskStore {
           } else if (requestedStatus != null) {
             // U-067/U-038: a bare status write may not enter the blocked STATE from a
             // terminal or parked status either - the invariant holds on every entry path,
-            // not only on task_set_blocked and the blocked-flag door above.
+            // not only on task_set_blocked and the blocked-flag door above. The verdict
+            // covers the chain-blocked hop too (its status reads "blocked"; its terminal
+            // verdict lives in resume_to).
             if ("blocked".equals(requestedStatus)
-                && (t.isTerminal() || "paused".equals(t.status))) {
+                && (terminalStatus(verdict) || "paused".equals(t.status))) {
               throw new Invalid(
                   "a "
-                      + t.status
-                      + " ticket is never blocked (U-067/U-038"
-                      + (t.isTerminal() ? ": terminal" : ": resume it first")
+                      + (terminalStatus(verdict) ? verdict : t.status)
+                      + " ticket is never blocked by direct entry (U-067/U-038"
+                      + (terminalStatus(verdict) ? ": terminal" : ": resume it first")
                       + ")");
+            }
+            // T-225 (S4): terminal is a one-way door through this verb - exiting a terminal
+            // verdict to a live status silently un-terminates the ticket (it becomes claimable
+            // again, contradicting Task.isTerminal: "neither is ever claimable"). ENTERING a
+            // terminal status from a live one and terminal -> terminal re-verdicts stay open.
+            if (terminalStatus(verdict) && !terminalStatus(requestedStatus)) {
+              throw new Invalid(
+                  "ticket "
+                      + id
+                      + " cannot exit terminal status '"
+                      + verdict
+                      + "' to '"
+                      + requestedStatus
+                      + "' (T-225: done/not-implemented are one-way through task_update -"
+                      + " reopening needs an explicit verb that records history)");
             }
             t.status = requestedStatus;
           }
@@ -640,6 +739,43 @@ public final class TaskStore {
           "review must be 'human' or 'ai' (absent = ai = engine verdict), got '" + review + "'");
     }
     return v;
+  }
+
+  /**
+   * The priority enum gate shared by {@link #create} and {@link #update} (T-249): any non-null
+   * value outside {@link Task#PRIORITY_ORDER}'s key set is refused with ONE message wording, so the
+   * two verbs cannot drift (the update side used to be a bare assignment - the T-241 probe
+   * persisted priority 'urgent' through McpDispatcher, where it then sorted as weight 0). The
+   * message lists the values explicitly instead of printing the key set because {@link
+   * Task#PRIORITY_ORDER} is a {@code Map.of} - keySet iteration order is unspecified. {@code null}
+   * passes through: create defaults it to {@code medium} at assignment, and update's case does the
+   * same, so no {@code priority: null} row can ever be written.
+   */
+  private static void requirePriority(String priority) {
+    if (priority != null && !Task.PRIORITY_ORDER.containsKey(priority)) {
+      throw new Invalid(
+          "priority must be one of "
+              + List.of("low", "medium", "high", "critical")
+              + ", got '"
+              + priority
+              + "'");
+    }
+  }
+
+  /**
+   * The type enum gate shared by {@link #create} and {@link #update} (T-253) - the exact twin of
+   * {@link #requirePriority}: create validated type at the mint point while update assigned it
+   * as-is, so the T-249 review's {@code type:'banana'} probe persisted through McpDispatcher (the
+   * inputSchema enum is declarative there, never enforced). The message is byte-identical to the
+   * check this call replaced inside create, so the two verbs cannot drift. {@link Task#VALID_TYPES}
+   * is an ordered {@code List} (unlike the {@code Map.of} behind {@link #requirePriority}), so
+   * printing it is stable. {@code null} passes through: create defaults it to {@code task} at
+   * assignment, and update's case does the same, so no {@code type: null} row can ever be written.
+   */
+  private static void requireType(String type) {
+    if (type != null && !Task.VALID_TYPES.contains(type)) {
+      throw new Invalid("type must be one of " + Task.VALID_TYPES + ", got '" + type + "'");
+    }
   }
 
   /**
@@ -723,7 +859,9 @@ public final class TaskStore {
    *
    * @param reason the reviewer's doubt or the checkpoint's refusal reason
    * @return the ticket after the routing (ready retry, or blocked)
-   * @throws Invalid when the ticket has no (valid) stored stage or the reason is blank
+   * @throws Invalid when the ticket has no (valid) stored stage, the reason is blank, or its
+   *     VERDICT is terminal or paused (T-226: both of this verb's writes - the {@code ready} retry
+   *     and the escalation's enterBlocked - would otherwise EXIT a non-open state)
    */
   public Task routeReviewDoubt(String project, String id, String reason, String by) {
     if (reason == null || reason.isBlank()) {
@@ -738,6 +876,35 @@ public final class TaskStore {
         project,
         data -> {
           Task t = require(data, project, id);
+          // T-226 (T-225 review follow-up 1): the terminal guard this verb was missing. Its two
+          // status writes - t.status = "ready" (the retry) and enterBlocked (the escalation) -
+          // used to be able to EXIT a terminal verdict when the verb was mis-invoked outside the
+          // in-review flow (today's callers only reach it at in-review, which is why no test ever
+          // hit it). Verdict-based via T-225's verdictStatus: a chain-blocked hop (the T-221 chain
+          // walk re-opens terminal hops, keeping their verdict in resume_to) is judged by
+          // resume_to - only THIS verb refuses; setBlocked's chain walk itself stays untouched.
+          String verdict = verdictStatus(t);
+          if (terminalStatus(verdict)) {
+            throw new Invalid(
+                "ticket "
+                    + id
+                    + " cannot take a review doubt while its verdict is '"
+                    + verdict
+                    + "' (T-226: routeReviewDoubt expects an OPEN ticket - the doubt round-trips"
+                    + " an in-review ticket back to its originator; done/not-implemented are"
+                    + " terminal - reopening needs an explicit verb that records history)");
+          }
+          // Same family as setBlocked's direct-entry refusals (U-038): a paused ticket parked for
+          // maintenance would silently unpark on the ready write, and the escalation branch would
+          // enterBlocked over the dependency wait - only the resume path moves paused.
+          if ("paused".equals(verdict)) {
+            throw new Invalid(
+                "ticket "
+                    + id
+                    + " cannot take a review doubt while it is paused (T-226:"
+                    + " routeReviewDoubt expects an OPEN ticket - paused is the dependency wait"
+                    + " (U-038): only the resume path moves it)");
+          }
           if (consumed >= REVIEW_DOUBT_RETRY_LIMIT) {
             t.enterBlocked(
                 "review doubt unresolved after "
@@ -927,15 +1094,32 @@ public final class TaskStore {
   }
 
   /**
-   * U-038: park a ticket for maintenance - status {@code paused} (visible, never blocked and never
-   * NEEDS-HUMAN), the reason in history. Resume is a plain status update back to {@code
+   * U-038: park a ticket for maintenance - status {@code paused} (visible, never blocked by direct
+   * entry - the chain walk can still re-open it, keeping the pre-block state in {@code resume_to} -
+   * and never NEEDS-HUMAN), the reason in history. Resume is a plain status update back to {@code
    * in-progress}: the branch and its checkpointed WIP survived the shutdown.
+   *
+   * @throws Invalid when the ticket's verdict is terminal (T-225: mirrors setBlocked's direct-entry
+   *     refusal - a done/not-implemented ticket is never paused)
    */
   public Task setPaused(String project, String id, String reason, String by) {
     return transaction(
         project,
         data -> {
           Task t = require(data, project, id);
+          // T-225 (S3): the mirror of setBlocked's terminal refusal (961-966) - pausing a
+          // terminal verdict would silently un-done it (the V-walk skips paused rows, so a
+          // division that already ran becomes invisible). The intake path stays intact:
+          // /goal pause early-returns on done (GoalIntake.java:106) and paused (:109), so it
+          // only ever reaches setPaused with an OPEN goal ticket.
+          String verdict = verdictStatus(t);
+          if (terminalStatus(verdict)) {
+            throw new Invalid(
+                "a "
+                    + verdict
+                    + " ticket is never paused (T-225: done/not-implemented are terminal -"
+                    + " setPaused mirrors setBlocked's direct-entry refusal)");
+          }
           t.status = "paused";
           t.assignee = null;
           t.updatedAt = now();
@@ -962,12 +1146,14 @@ public final class TaskStore {
             throw new Invalid(
                 "a "
                     + t.status
-                    + " ticket is never blocked (U-067: done/not-implemented are terminal)");
+                    + " ticket is never blocked by direct entry (U-067:"
+                    + " done/not-implemented are terminal; the chain walk re-opens it with"
+                    + " resume_to)");
           }
           if ("paused".equals(t.status)) {
             throw new Invalid(
-                "a paused ticket is never blocked (U-038: paused is the dependency wait"
-                    + " - resume it first)");
+                "a paused ticket is never blocked by direct entry (U-038:"
+                    + " paused is the dependency wait - resume it first)");
           }
           t.enterBlocked(blocker);
           t.updatedAt = now();
@@ -1023,6 +1209,31 @@ public final class TaskStore {
    * born ready, claimed into the pump - the assignee shields acceptance instances); ordering is
    * priority desc, then created_at asc, then id. Returns {@code null} when nothing is claimable
    * (worker loops stop on this).
+   *
+   * <p>T-226 (S1): the candidate set is additionally filtered by the SAME {@link
+   * StageReadiness#evaluate} verdict the ticker's step-1 scan reports. The verdicts are computed
+   * INSIDE this transaction - the in-JVM plus OS file lock already serializes claim against every
+   * reader/writer, so the evaluation and the claim commit in one critical section and no other
+   * actor can invalidate the verdicts between "scan" and "claim" (the atomicity argument: the lock
+   * makes filtering under it race-free by construction).
+   *
+   * <p>What gets skipped: a <em>basis-linked</em> candidate whose verdict is {@code WAIT_UPSTREAM}
+   * or {@code STALE}. This is the exact birth/readiness split S1 named - {@link #basisSatisfied}
+   * counts an in-review basis as satisfied with NO artifact check, while readiness requires the
+   * artifact (U-081), so such a child sits {@code status: ready} while its derivation gate says
+   * wait; a blind role-claim used to scoop it. {@code STALE} re-runs belong to the ticker's
+   * dedicated step 4b (targeted claim by id + the re-run brief), never to a blind claim without the
+   * brief. {@code BLOCKED} was never claimable ({@code !t.isBlocked()} below; readiness's {@code
+   * BLOCKED} == isBlocked) and {@code RUNNING} cannot occur (the status filter requires {@code
+   * ready}).
+   *
+   * <p>What stays claimable: a <em>basis-less</em> candidate whatever its flow-history verdict
+   * reads. It has no derivation gate to wait on - the legacy flow verdict ({@code no done/in-review
+   * ticket in upstream stage}) is a dispatch-scan signal, not a claim gate - and the dispatch
+   * doctrine still hands such work to its worker (AGENTS V-enforcement: "non-bug work with nothing
+   * above it at all is forced to write the missing abstraction first"). Pinned by T-220's
+   * doubt-loop fixture, which claims a fresh staged ticket through this verb. A stageless candidate
+   * ({@code NOT_APPLICABLE}) is outside the stage pipeline entirely and keeps its plain role-claim.
    */
   public Task claim(String project, String role, String status, String by) {
     String want = status == null ? "ready" : status;
@@ -1036,12 +1247,17 @@ public final class TaskStore {
     return transaction(
         project,
         data -> {
+          List<Task> tickets = new ArrayList<>(data.tasks.values());
+          // T-226 (S1): the ticker's own verdict, evaluated under the claim lock (see the javadoc)
+          Map<String, StageReadiness.Readiness> verdicts =
+              StageReadiness.evaluate(tickets, archived(project));
           List<Task> candidates = new ArrayList<>();
-          for (Task t : data.tasks.values()) {
+          for (Task t : tickets) {
             if (role.equals(t.role)
                 && want.equals(t.status)
                 && !t.isBlocked()
-                && t.assignee == null) {
+                && t.assignee == null
+                && !basisGated(t, verdicts)) {
               candidates.add(t);
             }
           }
@@ -1348,9 +1564,24 @@ public final class TaskStore {
    * (no cached state). up = the basis chain walked to the entry ticket (a basis pointing nowhere
    * reports {@code missing}); down = the direct derivation children (basis == this id); back = the
    * siblings (same basis, not this id).
+   *
+   * <p>T-240: the graph is the SCOPE view, so nodes resolve across the live pool AND {@code
+   * _archive/} - the chain to the requirement stays a chain where a hop was swept into history (the
+   * same live-or-archive rule {@link #linkExists} and task_doctor apply; before this the archived
+   * hop read {@code missing:true}, i.e. the same false negative as the old task_get verdict). An
+   * archived node carries {@code archived: true}; {@code missing: true} is reserved for an id that
+   * resolves NOWHERE, so the two verdicts stay distinguishable. The enumeration verbs that answer
+   * "what is on the board" ({@link #list}, {@link #board}, and task_get's RETURNED ticket) stay
+   * live-only on purpose.
    */
   public Map<String, Object> links(String project, String id) {
-    List<Task> all = list(project, null, null, null);
+    List<Task> live = list(project, null, null, null);
+    java.util.Set<String> liveIds = new java.util.HashSet<>();
+    for (Task t : live) {
+      liveIds.add(t.id);
+    }
+    List<Task> all = new ArrayList<>(live);
+    all.addAll(archived(project));
     Task self = all.stream().filter(t -> t.id.equals(id)).findFirst().orElse(null);
     if (self == null) {
       throw new NotFound("ticket " + id + " not found");
@@ -1370,24 +1601,27 @@ public final class TaskStore {
         up.add(m);
         break;
       }
-      up.add(linkRef(b));
+      up.add(nodeRef(b, liveIds));
       cur = b;
     }
     List<Map<String, Object>> down = new ArrayList<>();
     for (Task t : all) {
       if (id.equals(t.basis)) {
-        down.add(linkRef(t));
+        down.add(nodeRef(t, liveIds));
       }
     }
     List<Map<String, Object>> back = new ArrayList<>();
     if (self.basis != null) {
       for (Task t : all) {
         if (!t.id.equals(id) && self.basis.equals(t.basis)) {
-          back.add(linkRef(t));
+          back.add(nodeRef(t, liveIds));
         }
       }
     }
     out.put("id", self.id);
+    if (!liveIds.contains(self.id)) {
+      out.put("archived", true);
+    }
     out.put("up", up);
     out.put("down", down);
     out.put("back", back);
@@ -1402,6 +1636,19 @@ public final class TaskStore {
     m.put("status", t.status);
     if (t.stage != null) {
       m.put("stage", t.stage);
+    }
+    return m;
+  }
+
+  /**
+   * A graph node as {@link #linkRef} renders it, marked when it came from the archive pool (T-240)
+   * so a swept hop reads {@code archived: true} and only an id resolving nowhere reads {@code
+   * missing: true}.
+   */
+  private static Map<String, Object> nodeRef(Task t, java.util.Set<String> liveIds) {
+    Map<String, Object> m = linkRef(t);
+    if (!liveIds.contains(t.id)) {
+      m.put("archived", true);
     }
     return m;
   }
@@ -1432,9 +1679,13 @@ public final class TaskStore {
       List<String> verifiedBy = new ArrayList<>();
       List<String> via = new ArrayList<>();
       // signal 2: the ticket itself walked BOTH legs (a definition entry
-      // then a test-* stage). advance() rewrites the role on the way into
-      // the test leg, so this is a verification-role row pairing with its
-      // own definition history - not an orphan.
+      // then a test-* stage), read from its own history by the helpers
+      // below - enteredDefinitionLeg/reachedTestStage parse the stored
+      // 'advanced to <stage>' events, which nothing live writes anymore
+      // (the advance verb was removed with the U-110 arc, e888abe), and no
+      // stage move rewrites the role (role is set at create/update). The
+      // row is a verification-role pairing with its own definition history
+      // - not an orphan.
       boolean bothLegs = enteredDefinitionLeg(t) && reachedTestStage(t);
       if (Task.VERIFICATION_ROLES.contains(t.role)) {
         verifies =
@@ -1575,6 +1826,14 @@ public final class TaskStore {
    * @return the number of tickets newly marked (0 when nothing is stale).
    */
   public int recordInvalidations(String project) {
+    // T-226 (N1): a READ never materializes the project directory (the invariant every other read
+    // entry point guards - get/list/doctor): the readiness tick used to fall through to
+    // transaction() -> Files.createDirectories and leave a phantom directory + .lock behind for a
+    // project that never existed. Nothing can be marked without a directory, so return before the
+    // transaction can create one.
+    if (projectDirectoryMissing(project)) {
+      return 0;
+    }
     // U-059: the archive pool rides the production verdicts - an archived upstream can still
     // satisfy AND still stale its live downstream (read-only view; an absent archive = empty)
     List<Task> archivePool = archived(project);
@@ -1622,9 +1881,15 @@ public final class TaskStore {
    * {@code stage}, {@code kind}, {@code reason} from {@link StageReadiness#evaluate} (tickets
    * without a stage included as NOT_APPLICABLE with a null stage) - ordered by kind severity
    * (STALE, BLOCKED, WAIT_UPSTREAM, RUNNING, READY, NOT_APPLICABLE) then id, so "what's runnable
-   * right now" reads top-down.
+   * right now" reads top-down. A project whose directory does not exist reads as zero rows and
+   * creates NOTHING: readiness is a read (T-226 N1 - it used to materialize the directory through
+   * {@link #recordInvalidations}'s transaction).
    */
   public List<Map<String, Object>> readiness(String project) {
+    // T-226 (N1): the read-path guard, before anything can touch the transaction engine.
+    if (projectDirectoryMissing(project)) {
+      return new ArrayList<>();
+    }
     // U-052 (D-003): the PRODUCTION readiness tick records the invalidation markers - the ticker's
     // tick answers through this report (task_readiness), so a STALE verdict leaves its 'inputs
     // changed:' history event here, idempotently (the recorder's whole-history guard + freshness
@@ -1655,11 +1920,48 @@ public final class TaskStore {
    * combinations - ticket files the store cannot parse (every other read skips them, so a corrupted
    * file would otherwise vanish silently), tickets that are {@code done} but still carry the
    * blocked flag, {@code file}/{@code path} artifact refs that do not resolve under the repo root
-   * (U-053: two corrupted refs sat unnoticed for days), and - U-080 - done/in-review tickets parked
-   * on a DEFINITION stage without any recorded artifact (legacy rows the advance gate now refuses:
-   * "the architecture was not done"). Glob/ brace/enumerated/prose-like refs are skipped, and so is
-   * the whole resolution check when the repo root cannot be determined from the store root's layout
-   * - one report line per file or ticket, sorted; empty when the store is consistent. Read-only.
+   * (U-053: two corrupted refs sat unnoticed for days), and - U-080/T-242 - done/in-review tickets
+   * parked on ANY V stage without any recorded artifact: the definition legs the done-time guard
+   * refuses to close bare ("the architecture was not done") AND the test-* legs, which that write
+   * guard deliberately exempts (verification evidence is a scan-time concern - T-242), over the
+   * live pool first and the archive pool second, each with its own honest heal hint. Glob/ brace/
+   * enumerated/prose-like refs are skipped, and so is the whole resolution check when the repo root
+   * cannot be determined from the store root's layout - one report line per file or ticket, sorted;
+   * empty when the store is consistent. Read-only.
+   *
+   * <p>T-224 (rubberduck S2/S8/S9/N4) added the five HAND-EDIT blind spots, each with its own
+   * greppable message: (1) {@code unknown stage '<x>' (not in VStages)} - the codec reads stage
+   * with no validation, so a typo'd stage silently drops the ticket to NOT_APPLICABLE; (2) {@code
+   * file stem '<stem>' != frontmatter id '<id>'} - the load keys by frontmatter id only, so a
+   * hand-edited id forks identity (one record overwrites the other); (3) {@code stage title-tag
+   * drift} - a staged ticket's title must carry its store-owned leading {@code [stage]} tag
+   * (T-175); (4) {@code role '<r>' != VStages.roleOf(stage) '<expected>'} unless the override is
+   * recorded on the ticket as a non-blank {@code role_override:} frontmatter line; (5) {@code doc
+   * artifact ref '<ref>' does not resolve to a live-or-archived ticket} for ticket-id-shaped doc
+   * refs.
+   *
+   * <p>T-226 (T-224 follow-up): checks (2) and (5) scan BOTH pools now - the archive pool is not a
+   * write-only graveyard (task_get/link/doc-ref resolution read it), so an id/filename fork or a
+   * dangling ticket-id doc ref inside {@code _archive/} is reported too (the stem findings carry an
+   * {@code _archive/} prefix; both walks are read-only). The state/V-walk checks (1, 3, 4, the
+   * division/join invariants) stay LIVE-pool only on purpose: an archived ticket is a historical
+   * record - pre-T-175 titles, retired stages and unfinished legs are expected there, and
+   * re-running today's pipeline invariants over history would report every legacy sweep as damage.
+   * (T-242's done-evidence row is the FIRST deliberate exception to that live-only rule: a done
+   * ticket without its product is damage in EITHER pool - T-243 had to backfill exactly that shape
+   * out of the archive (T-190/T-191) - it was never era-expected, and the archived row's message
+   * names the hand-edit heal path because the write verbs refuse archived ids (T-240).)
+   *
+   * <p>T-253 adds the second and third exceptions, in T-242's twin style: {@code unknown priority}
+   * and {@code unknown type} scan BOTH pools, because an out-of-enum enum value was never
+   * era-expected in either (the codec defaults an absent value to {@code task}/{@code medium}, so
+   * every row that ever carried one was written out of band). The write verbs REFUSE an out-of-enum
+   * VALUE (T-249 priority, T-253 type), and they refuse archived ids too (T-240), so the two pools
+   * heal differently. In the ARCHIVE pool the two refusals stack and no verb can reach such a row,
+   * so the archived message names the hand-edit heal as the whole cure. In the LIVE pool the
+   * healing write is an in-enum {@code task_update <field>=<an allowed value>}: a verb refuses only
+   * the out-of-enum value being written, never an allowed value on a live ticket, so the live
+   * message names that working verb instead.
    */
   /**
    * A link target resolves in the live pool or in the archive pool (owner rule 2026-11-19): joins
@@ -1690,15 +1992,55 @@ public final class TaskStore {
                 project,
                 data -> {
                   tasks.addAll(data.tasks.values());
-                  return data.unparsable;
+                  List<String> report = new ArrayList<>(data.unparsable);
+                  report.addAll(fileStemIdMismatches(data));
+                  return report;
                 }));
     for (Task t : tasks) {
+      // T-224 (S2): the codec reads stage with NO VStages validation - a hand-edited stage
+      // silently drops the ticket to NOT_APPLICABLE in readiness ("ticket has no V stage") and
+      // it is never scanned/divided again, while the doctor used to stay ok:true.
+      if (t.stage != null && !VStages.isValid(t.stage)) {
+        out.add(t.id + ": unknown stage '" + t.stage + "' (not in VStages)");
+      }
       if (!Task.VALID_STATUSES.contains(t.status)) {
         out.add(t.id + ": unknown status '" + t.status + "' (not in " + Task.VALID_STATUSES + ")");
       }
+      // T-253: the DETECTION half of T-249's class. The codec reads priority/type with no enum
+      // validation, and the write verbs REFUSE an out-of-enum VALUE (T-249 priority, T-253 type)
+      // and archived ids too (T-240) - so a hand-edited bad row can no longer be WRITTEN through
+      // a verb, and this scan (plus its archived twin below) is the only place a stored bad row
+      // ever surfaces. The two pools heal differently: in the LIVE pool the healing write is an
+      // in-enum task_update <field>=<an allowed value> (a verb refuses only the out-of-enum value
+      // being written, never an allowed value on a live ticket); in the ARCHIVE pool no verb can
+      // reach such a row, so only a store-file hand edit heals. No era legitimately wrote an
+      // out-of-enum enum value, so unlike pre-T-175 titles it is damage, not history.
+      if (t.priority != null && !Task.PRIORITY_ORDER.containsKey(t.priority)) {
+        out.add(
+            t.id
+                + ": unknown priority '"
+                + t.priority
+                + "' (not in "
+                + List.of("low", "medium", "high", "critical")
+                + ") - heal by task_update priority=<an allowed value> (the stored out-of-enum"
+                + " value is replaced with an allowed one), then re-run task_doctor");
+      }
+      if (t.type != null && !Task.VALID_TYPES.contains(t.type)) {
+        out.add(
+            t.id
+                + ": unknown type '"
+                + t.type
+                + "' (not in "
+                + Task.VALID_TYPES
+                + ") - heal by task_update type=<an allowed value> (the stored out-of-enum value"
+                + " is replaced with an allowed one), then re-run task_doctor");
+      }
+      // U-080/T-242: done-evidence over ALL nine stages - the write guard exempts the test-* legs,
+      // so this scan (plus the archived twin further down) is the only place a bare closed
+      // ticket surfaces. done + in-review = the hand-off contract (artifact BEFORE the in-review
+      // flip, AGENTS write discipline).
       if (("done".equals(t.status) || "in-review".equals(t.status))
           && VStages.isValid(t.stage)
-          && !VStages.isVerification(t.stage)
           && (t.artifacts == null || t.artifacts.isEmpty())) {
         out.add(
             t.id
@@ -1707,6 +2049,46 @@ public final class TaskStore {
                 + " ("
                 + t.status
                 + ") has no recorded artifact (record the stage's product with task_add_artifact)");
+      }
+      // T-224 (S9): a staged ticket's own stage is validated above; its NAME and its ROLE must
+      // agree with that stage.
+      if (VStages.isValid(t.stage)) {
+        // (S9a) the [stage] tag is store-owned (T-175) but only re-derived at title/stage
+        // writes - a hand-edited title leaves the name contradicting the frontmatter (the
+        // 2026-11-18 heal needed a manual 137-ticket re-derivation, git 09cb97a).
+        String expectedTitle = encodeStageTag(t.title, t.stage);
+        // T-225 (T-224 review follow-up): defensive null title in the DONE GATE's shape
+        // ((t.artifacts == null || t.artifacts.isEmpty())) - codec orEmpty makes it
+        // unreachable today, but a null title would otherwise NPE on expectedTitle.equals().
+        if (t.title == null || !expectedTitle.equals(t.title)) {
+          out.add(
+              t.id
+                  + ": stage title-tag drift - title '"
+                  + t.title
+                  + "' does not carry the leading ["
+                  + t.stage
+                  + "] tag (expected '"
+                  + expectedTitle
+                  + "')");
+        }
+        // (S9b) role drives every role-claim/dispatch, but create/update/doctor never enforced
+        // role == VStages.roleOf(stage) - a wrong role means the stage's role-claim never
+        // matches and the ticket stays READY forever. An INTENTIONAL override is recorded ON
+        // THE TICKET (see roleOverrideRecorded): a non-blank `role_override:` frontmatter line
+        // saying why.
+        String owningRole = VStages.roleOf(t.stage);
+        if (owningRole != null && !owningRole.equals(t.role) && !roleOverrideRecorded(t)) {
+          out.add(
+              t.id
+                  + ": role '"
+                  + t.role
+                  + "' != VStages.roleOf(stage) '"
+                  + owningRole
+                  + "' (stage="
+                  + t.stage
+                  + "; if this override is intentional, record a non-blank role_override: line"
+                  + " on the ticket)");
+        }
       }
     }
     // ---- V-walk invariants (owner model 2026-11-19, deterministic check) ----
@@ -1717,7 +2099,8 @@ public final class TaskStore {
     // Shipped legacy work is exempt with a recorded "division SATISFIED" comment (SKILL
     // stage-pipeline: division-with-rationale) - never mint duplicate children for shipped work.
     List<Task> pool = new ArrayList<>(tasks);
-    pool.addAll(archived(project));
+    List<Task> archivedTasks = archived(project);
+    pool.addAll(archivedTasks);
     Map<String, Task> byId = new java.util.HashMap<>();
     Map<String, List<Task>> byBasis = new java.util.HashMap<>();
     for (Task x : pool) {
@@ -1729,6 +2112,82 @@ public final class TaskStore {
     for (Task x : pool) {
       if (x.basis != null && !byId.containsKey(x.basis)) {
         out.add(x.id + ": basis " + x.basis + " does not resolve (live or archive)");
+      }
+    }
+    // T-242: the done-evidence row's ARCHIVE twin (same stage set and statuses as the live row
+    // above - the split exists only so each message can name its honest heal path). Artifact-less
+    // history is damage, not era-typical (unlike pre-T-175 titles - see the javadoc): T-243 had to
+    // backfill exactly this shape out of the archive (archived T-190/T-191). The write verbs refuse
+    // archived ids (T-240), so task_add_artifact CANNOT heal an archived row - the message points
+    // at the documented smallest-hand-edit path instead of prescribing an impossible verb.
+    for (Task t : archivedTasks) {
+      if (("done".equals(t.status) || "in-review".equals(t.status))
+          && VStages.isValid(t.stage)
+          && (t.artifacts == null || t.artifacts.isEmpty())) {
+        out.add(
+            t.id
+                + ": stage="
+                + t.stage
+                + " ("
+                + t.status
+                + ") has no recorded artifact (ARCHIVED record - write verbs refuse archived ids"
+                + " (T-240): heal by the smallest hand edit of the archive file, then re-run"
+                + " task_doctor)");
+      }
+    }
+    // T-253: the enum rows' ARCHIVE twin (T-242's pattern, and for the same two reasons): the
+    // condition was never era-expected in EITHER pool (no era legitimately wrote an out-of-enum
+    // priority/type), and an archived record is out of every write verb's reach twice over - the
+    // verbs refuse archived ids (T-240) AND they refuse out-of-enum values (T-249/T-253), so the
+    // ONLY heal for a bad archived row is the same smallest hand edit of the archive file. Without
+    // this twin a hand-edited bad value in _archive/ would stay invisible forever.
+    for (Task t : archivedTasks) {
+      if (t.priority != null && !Task.PRIORITY_ORDER.containsKey(t.priority)) {
+        out.add(
+            t.id
+                + ": unknown priority '"
+                + t.priority
+                + "' (not in "
+                + List.of("low", "medium", "high", "critical")
+                + ") - ARCHIVED record: write verbs refuse archived ids (T-240) and out-of-enum"
+                + " values (T-249), so heal by the smallest hand edit of the archive file, then"
+                + " re-run task_doctor");
+      }
+      if (t.type != null && !Task.VALID_TYPES.contains(t.type)) {
+        out.add(
+            t.id
+                + ": unknown type '"
+                + t.type
+                + "' (not in "
+                + Task.VALID_TYPES
+                + ") - ARCHIVED record: write verbs refuse archived ids (T-240) and out-of-enum"
+                + " values (T-253), so heal by the smallest hand edit of the archive file, then"
+                + " re-run task_doctor");
+      }
+    }
+    // T-224 (N4): doc artifact refs were the one unchecked ref class - file/path kinds resolve
+    // against the repo root below, git/url have no offline ticket oracle, but a doc ref NAMING A
+    // TICKET that was deleted/renamed stayed silent forever. Only ticket-id-shaped doc refs are
+    // validated (refs that look like paths/TEMP logs/prose are not ticket ids), and they resolve
+    // in the live pool or the archive pool - the same rule basis links use (linkExists), scoped to
+    // this project like every other store link. T-226 (T-224 follow-up): the CHECKS ride the whole
+    // pool too - an archived ticket's own doc refs are validated against live+archive as well, so
+    // a dangling ticket-id ref inside _archive/ surfaces instead of waiting for a restore nobody
+    // performs (archived tickets ARE read: task_get/link/doc-ref resolution, the pool above).
+    for (Task t : pool) {
+      for (Task.Artifact a : t.artifacts) {
+        if (a.kind() == null
+            || !"doc".equals(a.kind())
+            || a.ref() == null
+            || !TICKET_ID_REF.matcher(a.ref()).matches()
+            || byId.containsKey(a.ref())) {
+          continue;
+        }
+        out.add(
+            t.id
+                + ": doc artifact ref '"
+                + a.ref()
+                + "' does not resolve to a live-or-archived ticket");
       }
     }
     for (Task t : tasks) {
@@ -1833,6 +2292,15 @@ public final class TaskStore {
   /**
    * One-shot migration from the retired Python pm store document (one JSON doc per project).
    * Imports tickets and per-prefix counters; returns the number of imported tasks.
+   *
+   * <p>T-242 (AC5, folded in by T-226's verb sweep): the per-ticket overwrite is GUARDED
+   * verdict-based - an id whose existing record's verdict is terminal ({@code done}/ {@code
+   * not-implemented}) is refused (the same S4 one-way-door class T-225 closed in {@code
+   * update}/{@code setPaused} and T-226 in {@code routeReviewDoubt}), and an id that exists only in
+   * the archive pool is refused too (importing it would fork the id across both pools - T-240's
+   * history-vs-hole). Legitimate migration keeps working: a FRESH id always imports, a live
+   * (non-terminal) record re-imports idempotently. Invalid rolls the WHOLE document back (the
+   * transaction persists only on success).
    */
   public int importPmJson(String project, String pmJson) {
     JsonElement parsed = JsonParser.parseString(pmJson);
@@ -1840,6 +2308,12 @@ public final class TaskStore {
       throw new Invalid("pm export must be a JSON object");
     }
     JsonObject doc = parsed.getAsJsonObject();
+    // T-242: the archive ids are resolved BEFORE the transaction (same read pattern readiness()
+    // uses) - an absent archive pool simply contributes no ids.
+    Set<String> archivedIds = new HashSet<>();
+    for (Task archivedTask : archived(project)) {
+      archivedIds.add(archivedTask.id);
+    }
     return transaction(
         project,
         data -> {
@@ -1854,6 +2328,36 @@ public final class TaskStore {
                         + "' has an unusable id '"
                         + t.id
                         + "'; ids double as file names");
+              }
+              // T-242 (AC5): the guard this verb was missing - data.tasks.put() used to REPLACE
+              // any existing record blindly, so importing a pm doc over a done id silently
+              // un-terminated it (the S4 class T-225/T-226 closed on update/setPaused/
+              // routeReviewDoubt). Verdict-based via T-225's verdictStatus: a chain-blocked done
+              // hop is judged by its resume_to verdict; only a TERMINAL verdict refuses - live
+              // rows re-import (idempotent refresh, PmImportTest) and fresh ids import (the
+              // migration's whole purpose).
+              Task prior = data.tasks.get(t.id);
+              if (prior != null) {
+                String verdict = verdictStatus(prior);
+                if (terminalStatus(verdict)) {
+                  throw new Invalid(
+                      "cannot import over ticket "
+                          + t.id
+                          + " - its verdict is '"
+                          + verdict
+                          + "' (T-242: pm-import REPLACES the record, done/not-implemented are"
+                          + " one-way - import under a fresh id, or reopen with an explicit verb"
+                          + " that records history first)");
+                }
+              } else if (archivedIds.contains(t.id)) {
+                // Same defect class against the archive pool: the live write would fork the id
+                // across pools (the archived twin shadows every archive-backed lookup afterwards).
+                throw new Invalid(
+                    "cannot import over ticket "
+                        + t.id
+                        + " - it is archived (T-240: history vs hole; pm-import would fork the id"
+                        + " across both pools - restore the archive record first, or import under"
+                        + " a fresh id)");
               }
               data.tasks.put(t.id, t);
               data.changed.add(t.id);
@@ -1984,6 +2488,82 @@ public final class TaskStore {
     } catch (java.nio.file.InvalidPathException e) {
       return false;
     }
+  }
+
+  /**
+   * T-224 check 2 (rubberduck S8): the load keys tickets by their frontmatter {@code id} with no
+   * filename comparison, so a hand-edited id silently forks identity - the sorted load lets one
+   * record overwrite the other, the orphaned ticket becomes NotFound while its file still exists,
+   * and doctor used to stay ok:true. Every ticket file's own stem is compared with its own parsed
+   * id (a fork can only exist when at least one file's id differs from its own stem), mirroring
+   * {@code load}'s file filter exactly (top-level {@code *.md}, never dot/underscore-prefixed, so
+   * {@code _meta}-style sidecars and {@code _goal}-style roots stay out); unparsable files are left
+   * to the unparsable report they already produce. Runs inside the doctor's transaction; read-only.
+   *
+   * <p>T-226 (T-224 follow-up): BOTH pools are scanned - the archive pool rides the same walk with
+   * an {@code _archive/} report prefix. Archived tickets are not historical write-only records:
+   * {@code task_get}/link resolution and the doc-ref check read them (the resolution pool below),
+   * so an id/filename fork parked in {@code _archive/} is live damage: the forked record can shadow
+   * or overwrite its twin in every archive-backed lookup. The walk is read-only and one directory
+   * deeper - cheap enough to run every doctor pass.
+   */
+  private static List<String> fileStemIdMismatches(ProjectData data) {
+    List<String> out = new ArrayList<>();
+    out.addAll(fileStemIdMismatchesIn(data.dir, ""));
+    out.addAll(fileStemIdMismatchesIn(data.dir.resolve("_archive"), "_archive/"));
+    return out;
+  }
+
+  /**
+   * The stem/id comparison over one directory of ticket files ({@code dir}); each finding is
+   * prefixed with {@code reportPrefix} so a fork in the archive pool can be told apart from its
+   * live twin. A missing directory (no archive yet) and unreadable listings yield nothing.
+   */
+  private static List<String> fileStemIdMismatchesIn(Path dir, String reportPrefix) {
+    List<String> out = new ArrayList<>();
+    List<Path> files = new ArrayList<>();
+    try (var stream = Files.list(dir)) {
+      stream
+          .filter(Files::isRegularFile)
+          .filter(
+              p -> {
+                String n = p.getFileName().toString();
+                return n.endsWith(".md") && !n.startsWith(".") && !n.startsWith("_");
+              })
+          .forEach(files::add);
+    } catch (IOException e) {
+      return out; // load() already surfaces listing failures; there is nothing to compare
+    }
+    for (Path p : files) {
+      String name = p.getFileName().toString();
+      String stem = name.substring(0, name.length() - ".md".length());
+      String id;
+      try {
+        id = TaskFileCodec.read(Files.readString(p, StandardCharsets.UTF_8)).id;
+      } catch (IOException | RuntimeException e) {
+        continue; // unparsable: reported through data.unparsable already (live) / the archive
+        // loader's WARNING log (archived)
+      }
+      if (stem.equals(id)) {
+        continue;
+      }
+      out.add(reportPrefix + name + ": file stem '" + stem + "' != frontmatter id '" + id + "'");
+    }
+    return out;
+  }
+
+  /**
+   * T-224 check 4's EXPLICIT override mechanism: a ticket whose role deliberately differs from
+   * {@link VStages#roleOf} records why ON THE TICKET - a non-blank {@code role_override:}
+   * frontmatter line naming the reason (the codec preserves unknown frontmatter keys verbatim, so
+   * the marker round-trips every rewrite without a schema or code change). Chosen over a code
+   * allow-list because the exemption then lives in the store next to the decision - reviewable in
+   * the ticket file itself, no rebuild per override, never hidden in a build artifact. A blank or
+   * {@code null} marker keeps the check strict.
+   */
+  private static boolean roleOverrideRecorded(Task t) {
+    String v = t.extraFrontmatter == null ? null : t.extraFrontmatter.get("role_override");
+    return v != null && !v.isBlank() && !"null".equals(v.strip());
   }
 
   private <T> T transaction(String project, Function<ProjectData, T> work) {
@@ -2171,12 +2751,53 @@ public final class TaskStore {
   // Helpers
   // ------------------------------------------------------------------
 
-  private static Task require(ProjectData data, String project, String id) {
+  /**
+   * The ticket a WRITE verb resolves - live pool only, so an archived ticket can never be mutated
+   * through the tools. T-240: the verdict is no longer a false "does not exist" - an archived id
+   * names its archive file (the write is refused either way), a genuinely absent id keeps the
+   * historical message.
+   */
+  private Task require(ProjectData data, String project, String id) {
     Task t = data.tasks.get(id);
     if (t == null) {
-      throw new NotFound("ticket " + id + " not found in project " + project);
+      throw notFound(data, project, id);
     }
     return t;
+  }
+
+  /**
+   * The one "no such ticket" verdict (T-240): an id parked in {@code _archive/} is HISTORY, not a
+   * hole - it names its archive file, so an archived id and a genuinely absent id stay
+   * distinguishable to every agent following a doc reference through the tool surface. The absent
+   * id keeps the exact historical message (pinned by {@code
+   * TaskStoreSemanticsTest#getMissingFailsWithPmMessage} and {@code TaskToolsDispatchTest}'s T-404
+   * shape), and the exception stays {@link NotFound} so every verb's error routing (the tool
+   * surface's {@code isError} text) is untouched.
+   */
+  private NotFound notFound(ProjectData data, String project, String id) {
+    if (TaskFileCodec.isValidId(id)
+        && Files.isRegularFile(data.dir.resolve("_archive").resolve(id + ".md"))) {
+      return new NotFound("ticket " + id + " is archived - see " + archiveRef(data, id));
+    }
+    return new NotFound("ticket " + id + " not found in project " + project);
+  }
+
+  /**
+   * Where the archive verdict points: repo-relative (the form docs and agents can follow - {@code
+   * .harness/tasks/<project>/_archive/<id>.md}) when the store sits in a known repo layout, the
+   * absolute file path otherwise (a temp fixture, a dedicated store repo outside any repo root).
+   */
+  private String archiveRef(ProjectData data, String id) {
+    Path file = data.dir.resolve("_archive").resolve(id + ".md").toAbsolutePath().normalize();
+    Path repoRoot = repoRootOrNull();
+    if (repoRoot != null) {
+      try {
+        return repoRoot.relativize(file).toString().replace('\\', '/');
+      } catch (IllegalArgumentException differentRoots) {
+        // not under the repo root after all - the absolute path still names the file
+      }
+    }
+    return file.toString().replace('\\', '/');
   }
 
   /**

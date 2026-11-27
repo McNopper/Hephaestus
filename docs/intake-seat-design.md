@@ -192,9 +192,12 @@ The non-shell routes that keep the pipeline alive (architecture §2 C-6; the
 bash-denied seat's governance duties, system §2). Contracts are specified as
 **outcomes**, verified by read-back — never by tool identity (DS-007, DR-5):
 
-- `setTickers(armed: bool) -> armed-state` — the Board schedules switch
-  (Auto/Tickers, host UI surface). Read-back: the schedules' state as shown by
-  the host.
+- `setTickers(armed: bool) -> armed-state` — the `ticker-v` automation armed
+  through `.opencode/skills/stage-pipeline/ticker-setup.ps1`, run by a
+  shell-capable session (chat/steward); no Board schedules switch exists
+  ("Auto/Tickers" was chunk-5 scope, never built), and the Board shows no arm
+  control. Read-back: the host's automation list — a `ticker-v` record with
+  `status: active` (armed) or none (disarmed).
 - `reconnectTasksServer() -> connection state` — the MCP connect endpoint
   (`POST /api/experimental/mcp/tasks/connect`). Read-back: the `task_*` tools
   answering again.
@@ -289,8 +292,8 @@ Upheld: DR-4 (read-only evidence), DR-7/AD-007 (candidates, not verdicts).
 
 1. Owner picks the seat **by name**: D-1 selector, D-2 guarded combo
    (commit requires the arming gesture), or D-3 `openChat` preselect.
-2. No machine-initiated route exists (DR-2/invariant 4): the Auto ▶
-   dispatcher maps stages → worker roles only; nothing addresses the seat.
+2. No machine-initiated route exists (DR-2/invariant 4): the `ticker-v`
+   launcher maps stages → worker roles only; nothing addresses the seat.
 3. Default-agent miss (a requirement lands in a plain session) → the doctrine
    layer governs (invariant 6): the chat agent registers + cites, does not
    implement, may suggest the switch; work performed anyway is a process

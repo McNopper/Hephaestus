@@ -5,6 +5,7 @@
 - **Kind:** `doc` / reference (part of `.opencode/docs/`).
 - **Read by:** agents and maintainers; **written by:** maintainers.
 - **Related:** complements `contracts.md`; the dispatch map is mirrored in `project-manager-orchestrate-execution`.
+- **Currency / availability (T-250, 2026-11-26):** the Examples column shows the *naming convention*, not an inventory. What actually ships in this repo: 19 skills under `.opencode/skills/` (`software-*`, `test-software-*`, `project-manager-*`, `stage-pipeline`) and 18 agents under `.opencode/agent/`. The `cpp-`/`graphics-` examples (`cpp-tools`, `graphics-expert`, `graphics-render-comparison`, `mcp.graphics`) were **curated out of this repo on 2026-10-15** and are setup-supplied (root `AGENTS.md` - *C++ and graphics tooling lives outside the repo*); `code-dependency`, `code-repo-map` and `research-artificial-analysis-models` are not under `.opencode/skills/` either - resolve a target before dispatching to it.
 
 Hephaestus organizes everything by **domain**, encoded in skill/agent **names**, not in
 folder trees. opencode discovers every `SKILL.md` under `.opencode/skills/*/` and every
@@ -31,8 +32,11 @@ match its folder name (opencode requirement). Name regex: `^[a-z0-9]+(-[a-z0-9]+
 
 Coordination agents are unprefixed: `orchestrator`, `manifest-author`, `executor`, `reviewer`,
 `rubberduck`, `research`, `project-manager`. Domain agents keep their prefix: `cpp-tools`, `graphics-expert`.
-All are model-neutral (reference a tier) **except** `graphics-expert`, which is pinned to
-the `very-high` model.
+All are model-neutral: each references a **tier**, never a hard-coded model ID. The
+concrete tier-to-model mapping is setup-local and never committed here (D-004) - the
+`opencode.json` default `model` field plus, where a setup chooses one, an
+agent-frontmatter `model:` override - and no agent under `.opencode/agent/` carries a
+`model:` key today.
 
 ## Why names, not folders
 

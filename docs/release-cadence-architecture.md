@@ -34,6 +34,12 @@
   example: the 2026-11-14 owner review that cut v0.2.0), T-094 (the
   paired system test whose engine verdict — APPROVE-WITH-NOTES — grounds
   this doc's claims in live evidence).
+- **Currency (T-202, owner model 2026-11-20):** the sprint model is gone -
+  no sprint records, no waves, no wave instances; the cadence unit is the
+  pass's **completed work** (`done` / `not-implemented` tickets), and the
+  sibling's wave instance (R2) retired with the model. The sprint-record,
+  wave and R2-mint mechanics narrated below are historical - the verdicts
+  stand as recorded on their dates (re-verified 2026-11-26).
 
 ## Scope
 

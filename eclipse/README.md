@@ -14,7 +14,8 @@ Python/other packs plug in later.
 - **Written by:** maintainers.
 - **Related:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (separation axes + review checklist),
   [`QUALITY.md`](QUALITY.md) (the quality gate), [`INSTALL.md`](INSTALL.md) (detailed install),
-  [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md) (one board across machines),
+  [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md) (parked record of the retired
+  one-board-across-machines mode),
   [`../ROADMAP.md`](../ROADMAP.md) (the repo-level roadmap — supersedes the retired
   `eclipse/ROADMAP.md`), [`../docs/HISTORY.md`](../docs/HISTORY.md) (the changelog).
 
@@ -32,9 +33,9 @@ for a second backend, extracted when one actually arrives).
 | `com.opencode.ide.client` | **opencode** | `com.google.gson` + the Eclipse **JobManager** runtime (`org.eclipse.core.jobs`, `org.eclipse.equinox.common`) — the one allowlisted exception in the build-time Eclipse-import ban; both run in a plain JVM | Pure-Java opencode HTTP client, DTOs (records mirroring the server's OpenAPI), `ChatRequests`/`McpRequests`, SSE parsing + event stream, server launcher, `ClientLog` seam. Reusable as a plain library outside Eclipse/OSGi. `WorkerPools` runs **every** background task as a Job in one `JobGroup` (the same work scheduler in every host — Eclipse, the stdio tool JVMs, tests); `RuntimeTuning` is its live knob set (poll sleep, stall timeout, ticket budget, worker threads). `Turns` owns the turn-end rule (see development rules). |
 | `com.opencode.ide.core` | **eclipse adapter** | `client` + `mcp` + Eclipse runtime/resources + `equinox.security` | Eclipse glue: preferences (remote-connection passwords go through `SecureRemoteCredentials` into Equinox **secure storage**, degrading to non-persisting in-memory storage when unavailable), activator (installs the Eclipse `ClientLog` adapter, bridges the tasksRoot preference into the MCP endpoint), `ProjectContext` service tracking, `OpencodeConnection` + `ConnectionsManager` (plural connections) lifecycle. |
 | `com.opencode.ide.ui` | **eclipse** | `core` + `client` + `tools` + gson + Eclipse UI (`ui`, `ui.ide`, `ui.console`, `jface.notifications`, swt) | The **OpenCode** perspective, the Server/Providers/**Repo**/**Session Details** views, the connection preference page. Server view: project/VCS header (dirty + cwd-mismatch warning) + *Working set* category + agent-nested live sessions (double-click = transcript, **live busy icons** refreshed from the server's session-status map); Session Details carries Fork/Summarize lifecycle actions plus revert/undo/commit (the two-phase truth), environment replace (full-replace stated), import-with-preview, **Attach skill**, **Suggest title**, mark-viewed, and subagent + shell-task sections (U-041; shell output opens in an Eclipse console), plus **Open message/transcript in Editor** (snapshot copy) and the server rows offer an **MCP servers…** dialog, **Saved permissions...** (remembered allow/deny: list + remove) and **Integrations...** (catalog + real command/key/oauth connect flows with abort, U-048) plus a v1-migration banner while a migration runs; the `ui.attention` package adds event-stream desktop notifications + sound (off by default; own preference page); the **Agent Tools console** streams every agent tool call (argument summary + output tail); Providers view shows auth state + *Connect…* (OAuth URL); Repo view = lazy workspace file tree + **fuzzy file search** (`GET /api/fs/find`) - search is file-name-only. |
-| `com.opencode.ide.chat` | **chat ui** | `core` + `client` + gson + SWT `Browser` (no `com.opencode.ide.ui` dependency) | Eclipse **host** for the chat-web component: `ChatPage` (browser facade) + `ChatSessionController` (SWT-free) + embedded `ChatWebServer` serving the component's assets. Composer carries the `/command` picker (`CommandComposer`), built-in slash commands (`/undo` `/redo` `/init` `/help` `/thinking`; `/share` `/unshare` show honest not-implemented notices - v2 sessions cannot be shared), `@`-file fuzzy references merged with `@alias` reference roots, answerable question-form cards and an in-chat permission dialog (U-014), and last-session/model continuity across restarts (`ChatViewSettings`); the transcript renders the TUI's compaction divider row (T-147) and the page footer carries the TUI prompt-footer **status strip** — context-window usage, session cost, session-goal chip with its in-page dialog (pause/resume/clear) (T-148/T-149); exported `ChatPermissionSink` seam routes chat-session permission asks into the shared queue. A capability **`system`** prompt tells models how to format for the view (the `isAdvertiseRendering` preference exists in code; **no preference-page control yet** — tracked by U-055). |
+| `com.opencode.ide.chat` | **chat ui** | `core` + `client` + `tasks` + gson + SWT `Browser` (no `com.opencode.ide.ui` dependency) | Eclipse **host** for the chat-web component: `ChatPage` (browser facade) + `ChatSessionController` (SWT-free) + embedded `ChatWebServer` serving the component's assets. Composer carries the `/command` picker (`CommandComposer`), built-in slash commands (`/undo` `/redo` `/init` `/help` `/thinking`; `/share` `/unshare` show honest not-implemented notices - v2 sessions cannot be shared), `@`-file fuzzy references merged with `@alias` reference roots, answerable question-form cards and an in-chat permission dialog (U-014), and last-session/model continuity across restarts (`ChatViewSettings`); the transcript renders the TUI's compaction divider row (T-147) and the page footer carries the TUI prompt-footer **status strip** — context-window usage, session cost, session-goal chip with its in-page dialog (pause/resume/clear) (T-148/T-149); exported `ChatPermissionSink` seam routes chat-session permission asks into the shared queue. A capability **`system`** prompt tells models how to format for the view (the `isAdvertiseRendering` preference, default ON, with its **Advertise rendering** checkbox on the connection preference page, U-055). |
 | `components/chat-web` | **non-Java** | — (static assets + node checks) | The standalone chat renderer (markdown + KaTeX + highlight.js + mermaid) with a documented bridge contract — hostable in any environment that serves files and calls JS. |
-| `com.opencode.ide.git` | **agentic git** | `client` (git CLI) — Eclipse-free | `WorktreeManager`: branch + worktree per agent task (under `.git/opencode-fleet/`), serial merge-back with clean conflict abort. Fleet isolation layer. `StoreGitStatus`/`StoreSync` = distributed-fleet store discipline (status summary; commit → pull-rebase → push with recover — see [`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md)). |
+| `com.opencode.ide.git` | **agentic git** | `client` (git CLI) — Eclipse-free | `WorktreeManager`: branch + worktree per agent task (under `.git/opencode-fleet/`), serial merge-back with clean conflict abort. Fleet isolation layer. `StoreGitStatus`/`StoreSync` = store sync discipline (status summary; commit → pull-rebase → push with recover — path-scoped to the store subtree, transient `.lock` excluded — see [`ARCHITECTURE.md`](ARCHITECTURE.md), `com.opencode.ide.git` row). |
 | `com.opencode.ide.tools` | **agent tools** | `com.google.gson` only - **Eclipse-free, build-enforced** | **`ToolProvider` SPI** + JSON-RPC/MCP dispatch (`McpDispatcher`, shared by every server surface incl. `ping`) + the built-in C++ tool pack (`tools.cpp`: toolchain detection + build, lint, format, debug). Future language packs = new providers depending on this bundle only. The stdio server loop (B-012 liveness) answers `-32603` on handler **Throwable**s and keeps serving (T-044: stale jars mid-flight / store contention never kill the server). |
 | `com.opencode.ide.tasks` | **task board** | `tools` + gson — **Eclipse-free, build-enforced** | The **task store** (`.harness/tasks/<project>/`, one Markdown file per ticket) + the **`task_*` tool pack** (create/claim/release/blocking/traceability/readiness/doctor/invalidations) + `StageReadiness` (the pure dataflow-readiness function behind `task_readiness`). Also ships `TasksStdioMain` — the same tools over stdio via `eclipse/tasks-tools.ps1` for TUI-only sessions. |
 | `com.opencode.ide.board` | **board ui** | `core` + `client` + `tasks` + `git` + `chat` + gson + Eclipse UI | **PM Board view** (kanban over the task store: **seven status columns (the owner’s 2026-11-20 model: ready, in-progress, in-review, done, not-implemented, paused, blocked)** — or the ten V-stage pipeline layout, blocked flags, artifact links with markdown/diagram rendering, stage filter, stage-journey trace (U-026), Needs-me/Bugs-only/stage/status filters, refresh + an `updated HH:mm:ss` freshness stamp, ticket details dialog, store git header + *Sync store*, new/reset/adopt project actions, archive action). SWT-free model (`BoardModel`, `TaskStoreWatcher`, `VStageLayout`, `StageJourney`) is unit-tested. The fleet-era surfaces (Launch task/Take over, cost overview, Auto/Waves pumps, the Fleet tree) were removed in U-110 — the orchestration moved to the ticker-v schedule. |
@@ -42,7 +43,7 @@ for a second backend, extracted when one actually arrives).
 | `com.opencode.ide.mcp` | **agent endpoint** | `tools` + `tasks` + `client` + gson | Local **MCP server** (stateless Streamable HTTP on 127.0.0.1, **per-start token auth** — the registered `?token=` URL or a `Bearer` header; 401 otherwise, G-003): OSGi DS lifecycle + HTTP endpoint only; tool implementations live in `tools`/`tasks`. Service-driven activation — the endpoint comes up when core binds it, after the tasksRoot preference was bridged. |
 | `com.opencode.ide.cdt` | **C++/CDT** | `core` + CDT bundles | Implements the `ProjectContext` seam (`CdtProjectContext`: active `ICProject` → spawn cwd) + `DiagnosticsMarkers`/`MarkerApplier` (opencode diagnostics → CDT markers). |
 
-Dependency rules (enforced in the manifests, plus **build-time Eclipse-import bans in five
+Dependency rules (enforced in the manifests, plus **build-time Eclipse-import bans in four
 bundles** — `client`, `tools`, `git` and `tasks` fail the build on any
 `org.eclipse.*`/`org.osgi.*` reference under `src/main/java`; the `client` ban's allowlist
 admits exactly `org.eclipse.core.jobs` + `org.eclipse.equinox.common`): **layering runs
@@ -53,8 +54,9 @@ interface (defined in core's context package), implemented as an OSGi service in
 bundle. `git`, `tools` and `components/chat-web` have no Eclipse dependencies at all — agents
 run headless; the IDE is the maintainer's overview + takeover surface. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the four separation axes and the review checklist, and
-[`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md) for running one shared board across several
-machines (store git status + *Sync store* in the Board view).
+[`DISTRIBUTED-FLEETS.md`](DISTRIBUTED-FLEETS.md) for the parked multi-machine record
+(one shared board across several machines — the operating procedure body is
+in git history; the store's git status + *Sync store* live in the Board view).
 
 ```text
 eclipse/
@@ -68,7 +70,7 @@ eclipse/
 ├── plugin_customization.ini       # recommended Eclipse instance settings
 ├── components/
 │   └── chat-web/                  # standalone chat renderer (web assets + node checks + README)
-├── bundles/
+├── bundles/                      # 21 dirs: 10 bundles + their .tests siblings + com.opencode.ide.arch.tests (ArchUnit gate; QUALITY.md)
 │   ├── com.opencode.ide.client    # + client.tests — pure-Java opencode client (Eclipse-free)
 │   ├── com.opencode.ide.core      # + core.tests — Eclipse adapter (preferences, activator, connection)
 │   ├── com.opencode.ide.ui        # + ui.tests — views, perspective, session details
@@ -142,6 +144,11 @@ Apply these to every change so the plugin stays consistent:
   `-am`. If you scope, include what you touched **and its `.tests` sibling** — e.g.
   `.\build.ps1 -pl bundles/com.opencode.ide.ui -pl bundles/com.opencode.ide.ui.tests -am clean verify`.
   Use repeated `-pl a -pl b`, not `-pl a,b` (comma is an arg separator under `cmd.exe`).
+- **Stale-jar trap (why `-am` is not optional):** a bare `mvnw test -pl <tests bundle>` (no `-am`)
+  compiles the tests fresh but resolves the PRODUCTION bundle from the local-m2 install, so the
+  fresh tests run against the stale classes in that old jar (T-225's reviewer reproduced it: 239
+  run / 2 fail, exact `nothing was thrown`). Always add `-am` - or run the full reactor - so the
+  production bundle is rebuilt from source in the same session.
 - **dropins dev deploy uses the `plugins/` layout:** `<eclipse-install>\dropins\opencode-ide\plugins\*.jar`
   (a folder of loose JARs is rejected by p2 with "No repository found"). `deploy-dev.ps1` handles this.
 - **Eclipse must be closed** before `deploy-dev.ps1` (the bundle jars are locked while Eclipse runs).
@@ -156,8 +163,8 @@ Apply these to every change so the plugin stays consistent:
   `opencode serve --service` when absent — with the private-spawn path as fallback
   (preference *Attach to the shared opencode service (v2)*, default ON). Two v2 realities shape
   the views: **session state is global per user** (every server lists every session), so the
-  Server view scopes its list via `GET /session?directory=…`; **event streams stay per-process**,
-    password, a killable budget). Chat is async in v2: `POST /session/:id/prompt`
+  Server view scopes its list via `GET /session?directory=…`; **event streams stay per-process**
+    (only the events of the connected server process arrive). Chat is async in v2: `POST /session/:id/prompt`
   (+`/agent` `/model` `/synthetic`) then poll `GET …/message` until `time.completed`;
   shell commands follow the same split.
 - **Server readiness ≠ health.** The spawn launcher must wait for `/api/info` **and** a data

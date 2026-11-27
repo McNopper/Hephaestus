@@ -61,9 +61,10 @@ system (actors, dedup keys, paused-keeps-open, digest note) → ITS-005.
 
 ### ITS-001 — the division-step wording (T-085 AC2)
 
-**Verbatim check.** SKILL.md tick step 4 (lines 43–52) carries the
-live-in-Eclipse rule; doc §5.1 quotes it. Compared word-for-word: the
-quoted body is IDENTICAL to SKILL.md's sentences ("a definition ticket
+**Verbatim check.** SKILL.md tick step 4 carries the
+live-in-Eclipse rule; doc §5.1 quotes it. Compared word-for-word at the
+2026-11-15 run: the
+quoted body was IDENTICAL to SKILL.md's sentences ("a definition ticket
 whose acceptance criteria include live-in-Eclipse checks (console checks,
 UI passes, panel round trips) divides with a paired test-requirements child
 carrying that live check … The child is the recurrence pattern,
@@ -75,7 +76,10 @@ it."). The quote drops only the "Live-in-Eclipse rule (owner requirement
 paired-verification paragraph carries the same classification (ACCEPTANCE =
 `test-requirements` leg, "a fresh, NON-BLOCKING test-requirements
 acceptance ticket per successful wave/release") — doc, SKILL.md and
-AGENTS.md agree.
+AGENTS.md agreed. (Rekeyed since T-202: SKILL.md and AGENTS.md now read
+"every done definition ticket with live-in-Eclipse checks" in place of
+"every successful wave/release" — same rule, wave wording retired;
+re-verified 2026-11-26.)
 
 **Exactly-one trace.** Sentence-by-sentence against the extensions (§5.1):
 
@@ -150,7 +154,7 @@ a claimable state.
 **Derivation edges (G2) — live link graph.** `task_links`: T-002 →
 `up:[]`, `down:[]`, `back:[]`; T-040 → `up:[]`, `down:[]`, `back:[]`;
 T-085 → `down:[]` (last stage; empty division map). Store-wide grep of
-`.opencode/tasks/hephaestus/` for `basis: T-002` / `basis: T-040`: ZERO
+`.harness/tasks/hephaestus/` for `basis: T-002` / `basis: T-040`: ZERO
 matches — no ticket in the project derives from an acceptance instance, so
 no readiness edge can traverse one. The instance's own basis (pairing: D,
 done) points OUT of it; the store refuses blocking a done ticket
@@ -185,7 +189,9 @@ in doc §6). No third ticket's verdict path reads an instance.
 
 ### ITS-004 — release composition and the bounded backfill
 
-ROADMAP.md T-041 standing rule (lines 177–190): a completed wave commits +
+ROADMAP.md T-041 standing-rule paragraph (then lines 177–190 at this run;
+section-named now so a ROADMAP edit cannot strand it — re-verified
+2026-11-26): a completed wave commits +
 pushes; "the version is cut only when the wave's work carries a human
 review"; "The wave, not the calendar, is the release cadence — and the
 human review, not the wave alone, is the release trigger. The recurring
@@ -215,7 +221,7 @@ instance exists, open or done)", mints ONE instance, by the kickoff
 assistant, same template, announced in chat; token `(release vN.N.N)` is
 deduped like any other. It cannot fire when a wave instance covers the
 release, and cannot repeat. Retroactive check: v0.2.0's live pass EXISTS
-(T-002, done — named in ROADMAP's release definition item 6, line 76), so
+(T-002, done — named in ROADMAP's release definition item 6, "Live pass"), so
 the backfill correctly would not fire for it. The exception exists so no
 release ships without at least one minted instance — bounded and
 well-motivated.
@@ -242,15 +248,19 @@ well-motivated.
   missed gate) — the correct polarity for a non-blocking mechanism. A
   dedup miss (token typo) degrades the same way. Coherent.
 - **Paused-keeps-open.** R2: open = any status except done → a `paused`
-  ticket (U-038: parked for maintenance, visible, never blocked) keeps the
+  ticket (U-038: parked for maintenance, visible; direct entry refuses to
+  block it, though a basis-chain walk may re-open it with `resume_to`) keeps the
   wave open, so no acceptance instance is minted for a parked wave; when
   the pause clears and the wave completes, the sweep mints then. Matches
   close semantics: at mint time the record holds only done tickets, and
   the minted instance is not a member, so `task_close_sprint` has nothing
   to eject. Coherent.
 - **Digest note.** STEP 6 item 4 notes the mint in the pass digest (U-061);
-  SKILL.md step 6 reopens the `ticker-v` record with the digest (U-108
-  reopen semantics). Combined with the store's history events ("the store's
+  SKILL.md step 6 reopened the `ticker-v` record with the digest (U-108
+  reopen semantics) as read on the 2026-11-15 run — the reopen went with
+  the sprint model, T-202; step 6 today runs the release-cadence
+  evaluation instead (re-verified 2026-11-26). Combined with the store's
+  history events ("the store's
   history events record who minted", §9), every mint leaves two audit
   traces. Coherent.
 

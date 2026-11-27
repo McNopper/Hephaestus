@@ -150,19 +150,19 @@ instances:
   into Build explicitly", line 7) anchors invariant 5.
 - **D-3 `openChat` path**: `OpenChatHandler.java:16` (class), `:23` reads
   parameter `com.opencode.ide.chat.openChat.agentId`, `:33` calls
-  `chat.preselectAgent(agentId)`; `ChatView.java:1058–1059` —
+  `chat.preselectAgent(agentId)`; `ChatView.java`'s
   `preselectAgent(String agentId)` → `selectors.selectAgent(agentId)`;
-  `ServerView.java:528` — `openChatParameter("agentId", agent.id()) // v2
-  wants the id, not the display name`; `ServerView.java:1121` gets the
+  `ServerView.java` - `openChatParameter("agentId", agent.id()) // v2
+  wants the id, not the display name`; `ServerView.java:1227` gets the
   command via the constant.
 - **One seam (DR-3/AD-005)**: `SessionViewIds.CHAT_OPEN_COMMAND_ID =
   "com.opencode.ide.chat.openChat"` lives in the **core** bundle
   (`SessionViewIds.java:38`, B-017 comment at `:11`); the pinning test
   AD-005 cites exists — `SessionViewIdsTest.java:76` asserts the constant.
-- **D-2 guarded combo (AD-004)**: `ChatView.java:438` —
+- **D-2 guarded combo (AD-004)**: `ChatView.java` -
   `agentGuard = wireGuardedCombo(agentCombo, text -> selectors.selectAgent(text))`
   (the agent combo reuses the same guard as the model/variant combos wired
-  at `:444`/`:458`); `wireGuardedCombo` factory at `ChatView.java:957`;
+  at `:493`/`:509`); `wireGuardedCombo` factory in `ChatView.java`;
   `SelectorGuard.java:7–10` javadoc states exactly the claimed semantics —
   commit only when armed (dropdown opened by mouse-down, or Enter), un-armed
   drift returns `null` so the caller reverts to `committed()` (`attempt()`,
@@ -231,18 +231,18 @@ substance holds; T-106 does not touch T-105's status.
 ### LT-011 — C-6 machine-keeping anchors at HEAD — **PASS, one recorded deviation**
 
 - **MCP connect endpoint: verified.** The generic surface is
-  `POST /api/experimental/mcp/:server/connect` (`OpencodeClient.java:411–424`
-  javadoc; `HttpOpencodeClient.java:622` builds the path; the client
+  `POST /api/experimental/mcp/:server/connect` (`OpencodeClient.connectMcp`
+  javadoc; `HttpOpencodeClient.connectMcp` builds the path; the client
   component test asserts the wire shape,
-  `HttpOpencodeClientComponentTest.java:650–667`); `opencode.json:8`
+  `HttpOpencodeClientComponentTest.formsAndMcpManagementUseTheV2Verbs`); `opencode.json:8`
   registers the `tasks` server — so the architecture's
   `POST /api/experimental/mcp/tasks/connect` is the real instantiation.
 - **Steward-session rule: verified.** AGENTS.md doctrine (chat-first control
   plane; ticker arming via `ticker-setup.ps1` by a shell-capable steward) —
   DR-5's route exists as doctrine today.
 - **Board schedules switch (Auto/Tickers): NOT present at HEAD.**
-  `BoardView.java` carries only `untrackedToggle` (`:171`/`:484`) and
-  `archiveToggle` (`:180`/`:523`); the toolbar inventory of the GUI review
+  `BoardView.java` carries only `archiveToggle` (`:166`/`:398`; the
+  `untrackedToggle` went with the seven-state rekey, T-202); the toolbar inventory of the GUI review
   dated today (`docs/eclipse-gui-review-2026-11-15.md`, "post-fleet state,
   all verified live") records the retired fleet surfaces absent — "no
   Auto ▶ pump, no Waves ▶ toggle". The switch is the machine design's

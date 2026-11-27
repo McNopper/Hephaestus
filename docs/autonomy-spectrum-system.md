@@ -53,8 +53,9 @@ no machinery, and they never stall a wave.
 ## Major Parts
 
 - **Goal intake — the product-owner agent** (`.opencode/agent/product-owner.md`,
-  U-105 lineage): when the owner's message is a whole objective (a
-  stageless GOAL root), it records the run position on the ticket as
+  U-105 lineage): when the owner's message is a whole objective (the
+  GOAL root — `stage: requirements`, never stageless), it records the run
+  position on the ticket as
   the two dials — asking when the owner leaves them unstated (bounded
   round-trips, then register with the open question recorded). The dials
   are run parameters recorded on the ticket, not acceptance criteria.

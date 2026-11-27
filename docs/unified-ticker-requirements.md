@@ -193,7 +193,9 @@ resolving NEEDS-HUMAN.
 - **C-E:** Store writes go through the `task_*` tools only; text files are
   UTF-8 (AGENTS.md write discipline).
 - **C-F:** Cadence and cap are arm-time parameters (`-IntervalMinutes`
-  default 15, `-Cap` default 4) — owner-tunable at each arming.
+  default 5, `-Cap` default 4) - owner-tunable at each arming (the default
+  was 15 at the 2026-11-15 requirements run; the owner set the cadence to
+  1 fire / 5 minutes on 2026-11-16 - `ticker-setup.ps1` today).
 
 ## Prototype deltas (found while verifying, 2026-11-15)
 
@@ -222,6 +224,13 @@ implementation leg hardens exactly these, honestly:
    ticker strategy; this document is the requirements for the amendment.
    The repo-level coherence pass (AGENTS.md: engine behavior and skill/doc
    text must not diverge) belongs to the queued lanes that own those files.
+
+**Landed since (re-verified 2026-11-26):** all four deltas are fixed - the
+re-arm lookup/retire guard and the `$Password` → `$Token` auth check are in
+`ticker-setup.ps1` (2026-11-16), the stale `-Stages` line is gone from
+`SKILL.md` (T-130, 2026-11-16), and the per-stage coherence text was
+reconciled by the ticker-v arc. The findings above stand as the
+2026-11-15 record of what the prototype then read.
 
 ## Acceptance Criteria
 
@@ -268,6 +277,8 @@ resume proof, the retirement check).
 - **Q-003:** Does ONE tick's ten-stage walk fit one subagent's context window
   at deep-V scale (many tickets per stage)? If not, what carries the
   stage-cursor state between ticks — flagged for AC-002's coherence check.
-- **Q-004:** Are the defaults (`-IntervalMinutes 15`, `-Cap 4`) the right
+- **Q-004:** Are the defaults (`-IntervalMinutes 5` at HEAD - the owner's
+  2026-11-16 cadence call; it read 15 when this question was posed -
+  `-Cap 4`) the right
   standing values for the unified ticker, or does one ticker walking all ten
   stages want a longer interval? Owner call at arm time.

@@ -33,11 +33,11 @@ objective into one ticket, division expands it into the derivation tree.
 
 One repository. Intelligence lives in `.opencode/` (agents, skills) and MCP
 servers; the Eclipse plugin (`eclipse/`) is the harness: it hosts, services,
-and observes agents working through the linked stage pipeline — stationary
-tickets, the unified ticker-v schedule, store-mediated coordination. The maintainer uses
-Eclipse as PM + reviewer; agents self-organize via the task store. **Prime
-rule: never build in the plugin what Hephaestus or upstream opencode already
-provides.** For a simple project the plain opencode TUI suffices — this
+and observes agents working through the linked stage pipeline — stationary tickets,
+the ticker-v schedule (halted since 2026-11-17), store-mediated coordination. The
+maintainer uses Eclipse as PM + reviewer; agents self-organize via the task store.
+**Prime rule: never build in the plugin what Hephaestus or upstream opencode
+already provides.** For a simple project the plain opencode TUI suffices — this
 harness is deliberate weight for complex projects, chosen on purpose.
 
 ## The durable core (D-005, amended by U-110)
@@ -49,8 +49,8 @@ retry/resume, model selection, scheduling, background-job accounting, the
 permission-reply protocol — is adopted from upstream as it lands, never
 rebuilt (evidence and per-vendor verdicts:
 `docs/fleet-redundancy-review-2026-11.md`). The fleet engine was removed
-outright in U-110; the live `WorktreeManager` keeps the server-worktree-API
-usage for the `/worktrees` feature.
+outright in U-110; what is left of the worktree layer is the git-CLI `WorktreeManager`
+(only tests call it) and the client's `listWorktrees`/`createWorktree`/`refreshWorktrees` verbs (the service's `/worktree` API).
 
 ## Release definition — the initial release
 
@@ -98,7 +98,7 @@ when all of the following hold:
 | T-008 | ✅ done: build perf phase 2 - hybrid test lane + coverage manifest (plain-surefire lane + coverage-manifest gate; accepted 2026-11-23 - no deferral to record) |
 | T-027 | ✅ resolved: CI runs `verify.yml` on push (owner directive 2026-11-14, `61b9434`) |
 | T-177 | ✅ done: build guard - concurrent-build cap + commit-headroom floor in `build.ps1` (owner directive 2026-11-17, landed so the gate and the cut can run without starving the machine) |
-| - | store steady state (condition 1): `_archive/` exists with exactly the 4 chain-traversed nodes kept by the owner-directed purge of 200 archive entries (A-001, U-075, W-001, W-008; `6248c00`) - the `auto_archive` sweep is still owed for the 185 done tickets in the working set |
+| - | store steady state (condition 1): `_archive/` holds the 4 chain-traversed nodes kept by the owner-directed purge of 200 archive entries (A-001, U-075, W-001, W-008; `6248c00`) plus the first chain-safe `task_archive_done` sweep of 2026-11-26 (T-217, `55fac09`: done work archived, `chain-needed` nodes skipped). The condition is judged against the store itself - a `task_archive_done` / `task_doctor` run and a `task_list` read of the working set - never against a count written in this file: the earlier "sweep still owed for the 185 done tickets" wording was obsolete the same morning it was written |
 | U-110 / U-111 | ✅ the stage-pipeline arc closed: engine verdicts landed (U-111 done) |
 | T-002 | the owner's live Eclipse verification pass (recurring, T-039 - non-blocking pattern) |
 | - | release cut via `eclipse/releng/release.ps1` (**human-only edge**, DENY-5: no machine actor runs it; owner runs e.g. `eclipse\releng\release.ps1 -ReleaseVersion 0.4.1` once the quality gate below is green on a clean tree) - then **deploy** via `eclipse/deploy-dev.ps1` (definition step 9, owner directive 2026-11-17) |
@@ -137,8 +137,8 @@ Still open in this lane:
 
 ## Active product lanes (pointers into the store)
 
-The store is the status source; these are the lanes the open tickets cluster
-into, so "what is still to do" is readable here without re-counting tickets:
+The store is the status source; these are the lanes the open tickets cluster into, so "what is still to do" is readable here without re-counting tickets.
+They are the durable lanes only - the working set beyond them (the v1.0.0 goal `T-217` and the tickets it branches into) is read from the store (`task_list` / the Board):
 
 - **Chat TUI parity** — ✅ implementation lane closed: `T-059…T-070` (CP-04…CP-14) all **done** with their paired unit tests `T-071…T-082` (CP-01/T-057 and CP-02/T-058 landed earlier); their criteria tickets `T-170` / `T-172` (CP-03 `/btw`, CP-13 PTY probes) were built and are now **done**. *TUI parity is the floor* (Standing rules).
 - **Acceptance-run / autonomy spectrum** — ✅ closed: `T-132`/`T-134`/`T-136`/`T-138` done with their test pairs `T-133`/`T-135`/`T-137`/`T-139` and the criteria tickets `T-108`, `T-124`, `T-126`, `T-128`, `T-131` - all nine FAIL round-trips reworked and re-verdicted PASS 2026-11-17.
@@ -146,26 +146,27 @@ into, so "what is still to do" is readable here without re-counting tickets:
 - **Docs de-fleet & coherence** — ✅ closed: `T-087…T-092` all **done** (T-091 accepted after the ticker halt), `T-037` closed (rework PASS), umbrella `E-006` accepted (7ee665b: 47/47 children done, coherence rows resolved).
 - **Gaps still to ticket** — G2 (assistant footer parity), G3 (subagent/shell live counts) from `docs/tui-visible-surface-review.md`.
 - **Owner-gated** — T-040 (blocked; disposition per its own blocker: the owner retires T-040 together with the eclipse-build deprecation, or a NEW Agent-Tools design revives the checklist - T-176 will not land), T-156 (interactive instrumentation), U-098 (paused), U-013 (paused), the six `owner-acceptance` instances (T-161/T-162/T-165/T-167/T-171/T-173).
-- **Awaiting a verdict** (store `in-review`) - the live set is read from the store (`task_list(status=in-review)` or the Board's in-review column), never from a count in this file: a snapshot here went stale within days (21 on 2026-11-17, 6 on 2026-11-26 - the six owner-acceptance instances on the Owner-gated row above) - verdicts resume with the next armed pass or an owner-directed review.
+- **Awaiting a verdict** (store `in-review`) - the live set belongs to the store (`task_list(status=in-review)` or the Board's in-review column), not to this file: a snapshot here went stale within days (21 on 2026-11-17) and every count written since moved again within hours, so no figure is restated. The stable part of the set is the six `owner-acceptance` instances named on the Owner-gated row above; how many sit in review *right now* is the store's answer, and verdicts resume with the next armed pass or an owner-directed review.
 
 ## Decisions
 
 All decision records are settled (D-001..D-006, U-043, U-078..U-082) and
-live in `AGENTS.md`, `docs/HISTORY.md` and the tickets (D-006: the store
-substrate stays git-versioned Markdown; SQLite rejected as source of
-record). New decisions get a `D-xxx` ticket and a record in the same
-places; this file only lists the one currently open question: none.
+live in `AGENTS.md`, `docs/HISTORY.md`, `docs/fleet-redundancy-review-2026-11.md`
+and the tickets (D-006: the store substrate stays git-versioned Markdown;
+SQLite rejected as source of record). A new decision becomes a `D-xxx`
+ticket recorded in the same places; this file lists no open question.
 
 ## Parked / non-goals
 
 - **U-098** (upstream model-fallback chains) — parked by the owner
-  2026-10-31: "on hold, not ready, will not be implemented"; only the owner
+  2026-10-30: "on hold, not ready, will not be implemented"; only the owner
   re-opens it.
 - No public GitHub Pages landing site (README suffices).
 - No sandboxing beyond permission gating; no further remote-access
-  investment; no M4 CodingAgent port; no `tools.cpp` bundle extraction; no
-  multi-level board rollup; no cpp stdio tool pack (the cpp-tools agent runs
-  commands via bash).
+  investment (distributed fleets are done-and-dormant — record:
+  `eclipse/DISTRIBUTED-FLEETS.md`); no M4 CodingAgent port; no `tools.cpp`
+  bundle extraction; no multi-level board rollup; no cpp stdio tool pack
+  (the cpp-tools agent is setup-supplied - the 2026-10-15 curation, from the user, not this repo - and runs commands via bash).
 - The retired machinery (fleet engine, dispatch waves, the wandering-V
   verbs) stays retired; its history is in `docs/HISTORY.md` and the
   archive, not here.
@@ -186,17 +187,20 @@ places; this file only lists the one currently open question: none.
   `/openapi.json`); parked until upstream exposes one - the chat's capability
   map reports it as upstream-blocked, and no workaround was improvised (the
   FR's IF/THEN makes the recording the outcome).
-- Interactive PTY host - stdin is **metadata-only over REST** (live 2.3.0 probe
-  2026-11-17: `PUT /api/pty/{ptyID}` body = `title`/resize fields), and
-  interactive input rides the ticket-gated stream `GET /api/pty/{ptyID}/connect`
-  (query `cursor`/`ticket`) - **the live frame-protocol probe is DONE**
-  (T-173, 2026-11-20: a self-created PTY round-tripped `echo PROBE_INPUT_OK`
-  over the WS stream - echoed and executed - and `DELETE` answered 204;
-  the sibling `POST .../connect-token` handshake answered 403 without a live
-  ticket, recorded as a side note). What remains is the **client-side
-  WebSocket transport piece in the Eclipse client**, NOT the terminal widget -
-  the earlier claim that `org.eclipse.tm.terminal` was absent is stale:
-  `org.eclipse.terminal.feature.feature.group` is declared in
+- Interactive PTY host - **no longer upstream-blocked**: the input path the
+  2026-11-17 probe found missing (REST `PUT /api/pty/{ptyID}` carried only
+  `title`/resize fields) shipped upstream in 2.3.2 and was live-proven here
+  on 2026-11-20 (T-173: a self-created PTY round-tripped
+  `echo PROBE_INPUT_OK` over the `GET /api/pty/{ptyID}/connect` WS stream -
+  echoed and executed - and `DELETE` answered 204; the sibling
+  `POST .../connect-token` handshake answered 403 without a live ticket,
+  recorded as a side note). The Eclipse side then landed: T-201 (done
+  2026-11-23) added the client's WebSocket transport (`PtyStream`,
+  `HttpPtyStream`, `PtyLink`) and wired interactive stdin into the terminal
+  console (the live contract marks `GET /api/pty/{ptyID}/connect`
+  `x-websocket: true`). What is still open is the owner's verdict on T-173,
+  which sits `in-review` as of 2026-11-26. The terminal widget was never the
+  gap - `org.eclipse.terminal.feature.feature.group` is declared in
   `eclipse/releng/opencode-eclipse.target`.
   (pairs with T-007/T-008 for the pane work)
 
@@ -246,5 +250,5 @@ SSE event-type enum carries `form.created`, mapped by T-067.)*
   necessary for a release, never sufficient. Ticker micro-records (the
   per-stage rolling records) are not waves in this sense; substantive
   planned waves are.
-- **History discipline:** past events are recorded only in
-  `docs/HISTORY.md` — this file carries open work only.
+- **History discipline:** past events belong in `docs/HISTORY.md` — this file
+  carries the open work; the dated notes here are context, never the record.

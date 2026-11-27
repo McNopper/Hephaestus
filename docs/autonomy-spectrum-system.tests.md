@@ -46,7 +46,8 @@ blocking T-101's done.
 
 - **Criterion:** the system artifact names ONE intake actor for the run
   position — the product-owner agent at goal intake — and its procedure
-  (classify a whole objective as a stageless GOAL/epic root, ask when the
+  (classify a whole objective as a GOAL/epic root that is itself `stage:
+  requirements`, never stageless, ask when the
   owner leaves the dials unstated with bounded round-trips, record the dials
   on the ticket as run parameters, cite the ticket id back) is consistent
   with `product-owner.md`'s own procedure and `AGENTS.md`'s doctrine; it
@@ -54,21 +55,24 @@ blocking T-101's done.
 - **Oracle:** textual cross-check of `docs/autonomy-spectrum-system.md`
   (Major Parts "Goal intake", F-1, Technology choices "Intake actor") against
   `.opencode/agent/product-owner.md` "The two dials (goal intake)" and its
-  loop, and `AGENTS.md` L162–164; file-existence probe on the agent file.
+  loop, and `AGENTS.md` "The autonomy spectrum" paragraph; file-existence probe on the agent file.
 - **PASS.** The doc's intake actor is exactly the agent the doctrine names:
-  `AGENTS.md` L162–163 — "The owner sets each run's position at goal intake
-  (U-105) with two dials"; `product-owner.md` L53–61 — "When the requirement
-  is a whole objective (a stageless GOAL/epic root), record its run position
+  `AGENTS.md` "The autonomy spectrum" paragraph — "The owner sets each run's position at goal
+  intake (U-105) with two dials"; `product-owner.md` L87–92 (quote re-synced to its
+  post-T-221 wording) — "When the requirement is a whole objective (the GOAL
+  root - a `stage: requirements` ticket, exactly as loop step 1 registers it;
+  never a stageless root, which no lane ever claims), record its run position
   … as two dials, asking when the owner leaves them unstated". The doc's
   "bounded round-trips, then register with the open question recorded" is
-  the agent file's own loop rule (L44–45: "at most a couple of round-trips,
-  then register with the open questions recorded on the ticket"), and F-1's
+  the agent file's own loop rule "at most a couple of round-trips,
+  then register with the open questions recorded on the ticket", and F-1's
   "cites the ticket id back" is loop step 4 with its store-not-memory proof.
   The doc's "The dials are run parameters recorded on the ticket, not
   acceptance criteria" matches the agent file's closing sentence verbatim in
-  substance (L60–61). Technology choice "the owner's seat, build-denied"
+  substance ("they are recorded on the ticket, not as acceptance
+  criteria"). Technology choice "the owner's seat, build-denied"
   matches the agent's frontmatter (`write`/`edit`/`patch`/`bash` all false,
-  L9–13). The agent file exists and carries the cited section. No second
+  lines 9–13). The agent file exists and carries the cited section. No second
   intake actor appears anywhere in the doc.
 
 ## IT-2 — The run position's only home is the GOAL/epic-root ticket file (T-101 AC1 + AC2: run-position home)
@@ -83,7 +87,9 @@ blocking T-101's done.
 - **PASS.** Every claim checks against live reality:
   - The store directory exists, is git-tracked, and is the REAL path:
     `git ls-files .harness/tasks/hephaestus/` → **315 tracked ticket files**
-    (D-006 confirmed: `ROADMAP.md` L114–115 names D-006 as the store being
+    at this run's 2026-11-15 read (211 tracked today — the done-sweep moved
+    the rest into `_archive/`; re-verified 2026-11-26)
+    (D-006 confirmed: `ROADMAP.md`'s **Decisions** section names D-006 as the store being
     git-versioned Markdown). `git log --follow` on the GOAL root's file
     shows real commit history (`ebac994`, `7741667`, `93b412e`) — the
     provenance oracle works.
@@ -113,7 +119,8 @@ blocking T-101's done.
 - **PASS.** Design §4 fixes the procedure: "The ticker has no decisions to
   make — the procedure is fixed, parameterized only by its stage" with
   TICK(stage) = SCAN → BLOCKED → DONE → READY/KICKOFF → CLOSE
-  (design-stage-pipeline.md L159–179). The doc's claim — "the horizon
+  (design-stage-pipeline.md §4 — the ticker-cadence section's tick
+  algorithm). The doc's claim — "the horizon
   decides only whether kickoff keeps launching" — is exactly a stop
   condition on step 4 (READY → KICKOFF), not a new procedure; "The cadence
   dial changes nothing inside the pump" holds because T-039's recurrence is
@@ -145,7 +152,7 @@ blocking T-101's done.
   releases without human review; NEEDS-HUMAN as the escalation threshold)
   is fixed.
 - **Oracle:** cross-check of the doc's dial section and F-3 against
-  `AGENTS.md` L156–168 and `ROADMAP.md` L18–27; the standing rules' carrier
+  `AGENTS.md` "The autonomy spectrum" paragraph and `ROADMAP.md` L18–27; the standing rules' carrier
   tickets in the store; file-existence probe on the release script.
 - **PASS.** All carriers are real and done: `.harness/tasks/hephaestus/T-041.md`
   (status `done`, epic U-113, engine verdict PASS at 09:03:47.272Z — the
@@ -155,10 +162,12 @@ blocking T-101's done.
   successful wave/release produces a fresh test-requirements acceptance
   ticket … never gates"). The doc's wave-close interface names
   `eclipse/releng/release.ps1` (tag per D-002, `-SNAPSHOT` bump) — the file
-  exists (`Test-Path` → True) and `ROADMAP.md` L58/L182 confirm the D-002
+  exists (`Test-Path` → True) and `ROADMAP.md`'s release-path bullet (L58)
+  and its T-041 standing-rule paragraph confirm the D-002
   tagging rule. The doc's fixed floor ("no setting releases without a human
   review (T-041 is a standing rule, not a dial value), and NEEDS-HUMAN is
-  the escalation threshold at every setting") is `AGENTS.md` L158 + L166
+  the escalation threshold at every setting") is `AGENTS.md` "The autonomy spectrum"
+  paragraph (its T-041 review-cuts-release line + its NEEDS-HUMAN threshold line)
   restated, not new policy. F-3's "at every cadence setting" for the T-039
   recurrence matches T-039's own non-blocking rule. `ROADMAP.md` L23–27
   (Product Goal) is fully covered by the doc's two dials: horizon
@@ -174,13 +183,14 @@ blocking T-101's done.
   tool-surface probes on the named verbs; the doc's own trade-offs checked
   against the doctrine's defaults.
 - **PASS.** Citations verified in place: `AGENTS.md` "The autonomy spectrum
-  (the operating model, owner requirement 2026-11-15)" exists (L156–168);
-  `ROADMAP.md` Vision / Product Goal paragraph exists (L18–27);
-  `product-owner.md` "The two dials (goal intake)" exists (L53–61);
-  `docs/design-stage-pipeline.md` §4 exists (L137–205). Named surfaces
+  (the operating model, owner requirement 2026-11-15)" exists (named-paragraph cite - the old L156-168 span went off-by-one after T-231's block rewrite, so no line number is kept; re-verified 2026-11-26);
+  `ROADMAP.md` Vision / Product Goal paragraph exists (section `## Vision`, the **Product Goal.** paragraph - re-verified 2026-11-26: the span still reads L18-27, but the cite is now section-named so a future ROADMAP edit cannot strand it);
+  `product-owner.md` "The two dials (goal intake)" exists (L87–97);
+  `docs/design-stage-pipeline.md` §4 (the ticker-cadence section) exists. Named surfaces
   verified real: `.opencode/agent/product-owner.md` (exists, build-denied
   frontmatter); `.harness/tasks/hephaestus/<GOAL-id>.md` (exists, 315
-  tracked files); `task_get` / `task_board` / `task_readiness` /
+  tracked files at this run's 2026-11-15 read — 211 tracked today, re-verified
+  2026-11-26); `task_get` / `task_board` / `task_readiness` /
   `task_links` (the read surfaces — exercised LIVE by this verification,
   see Provenance); `task_create` / `task_update` / `task_set_blocked` (the
   write surfaces — the store's own verbs, the same MCP namespace this
@@ -256,8 +266,11 @@ Does the flow hold as one system — intake → store → pump → gates?
   assertion — the dials are advisory defaults read at kickoff, so no dial
   state can precondition a claim, a verdict, a wave close, or a commit; the
   safe-end defaults are the doctrine's own defaults.
-- **Doctrine scan:** no statement of the doc contradicts `AGENTS.md`
-  L156–168, `ROADMAP.md` L18–27, `product-owner.md` L53–61, or design §4;
+- **Doctrine scan:** no statement of the doc contradicts `AGENTS.md`'s
+  "The autonomy spectrum" paragraph (name-cited post-T-231: the old L156-168
+  span went off-by-one, so no line number is kept), `ROADMAP.md`'s Vision /
+  Product Goal paragraph (was L18-27, now section-named - it still reads L18-27
+  as of 2026-11-26), `product-owner.md` L87–97, or design §4;
   every doc element anchors to one of them.
 
 **Verdict: APPROVE-WITH-NOTES.** T-101's artifact satisfies all three of its
@@ -305,8 +318,9 @@ done.
   `?? docs/autonomy-spectrum-system.md`; `Test-Path
   eclipse/releng/release.ps1` → True.
 - Text (read, not executed): `docs/autonomy-spectrum-system.md`;
-  `AGENTS.md` L156–168; `ROADMAP.md` L16–32, L114–115, L182;
-  `.opencode/agent/product-owner.md` L1–82; `docs/design-stage-pipeline.md`
-  §1–§6 (tick algorithm L159–184); store files
+  `AGENTS.md` "The autonomy spectrum" paragraph; `ROADMAP.md`'s **Vision**
+  section, its **Decisions** paragraph (D-006) and its release-path bullet;
+  `.opencode/agent/product-owner.md` L1–97; `docs/design-stage-pipeline.md`
+  §1–§6 (the **The tick algorithm** subsection of §4); store files
   `.harness/tasks/hephaestus/U-113.md`, `T-101.md`, `T-102.md`, `T-041.md`,
   `T-039.md`; pattern reference `docs/unified-ticker-system.tests.md`.

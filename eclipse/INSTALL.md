@@ -10,8 +10,11 @@ Source lives in the repo's `eclipse/` folder.
 - **Kind:** `doc` / install & run guide for the `eclipse/` plugin.
 - **Read by:** anyone building or running the plugin (or the `tasks`
   stdio launchers); **written by:** maintainers.
-- **Related:** `README.md` (bundle map), `ARCHITECTURE.md` (layer rules),
-  `QUALITY.md` (the quality gate), `DISTRIBUTED-FLEETS.md` (multi-machine stores).
+- **Related:** `README.md` (bundle map), `ARCHITECTURE.md` (layer rules; its
+  `com.opencode.ide.git` row carries the store sync discipline — `StoreGitStatus`/
+  `StoreSync`, path-scoped to the store subtree),
+  `QUALITY.md` (the quality gate), `DISTRIBUTED-FLEETS.md` (parked record of the
+  multi-machine store mode).
 
 ## Prerequisites
 
@@ -63,9 +66,9 @@ Scoped build during iteration (repeat `-pl`, never commas; adjust to the modules
             -pl bundles/com.opencode.ide.mcp -pl bundles/com.opencode.ide.mcp.tests clean verify
 ```
 
-Both run the Java test suites (1913 `@Test` methods across the 11 test
-fragments, plus 16 in the `opencode-tasks` mojo module); `verify` also runs
-the 260 Node checks (58 renderer + 194 bridge + 8 mermaid against
+Both run the Java test suites (1721 `@Test` methods across the 11 test
+fragments, plus 44 in the `opencode-tasks` mojo module); `verify` also runs
+the 342 Node checks (75 renderer + 255 bridge + 12 mermaid against
 `components/chat-web`) when Node is available (`-DskipNodeChecks=true` to skip).
 Produces plugin JARs in
 `bundles\<name>\target\` and (full build) a p2 update site in
@@ -81,7 +84,7 @@ Copies the freshly built plugin JARs straight into the Eclipse dropins folder.
 
 ```powershell
 .\build.ps1 clean verify
-.\deploy-dev.ps1            # copies the 11 JARs to <eclipse-install>\dropins\opencode-ide\plugins\
+.\deploy-dev.ps1            # copies the 10 JARs to <eclipse-install>\dropins\opencode-ide\plugins\
 ```
 
 Then **(re)start Eclipse CDT** and open the **OpenCode** perspective.
@@ -167,7 +170,7 @@ one-time setup:
     **Skills** categories (virtualized for scale). The **Providers** view
     lists all models with filter + column sorting (virtualized; provider logos with
     letter-badge fallback). The **Repo** view is a lazy file tree plus fuzzy
-    file/symbol/text search over the server's file endpoints; the **Background** view is
+    file search over the server's file endpoints (file/directory names only); the **Background** view is
     the "what is going on" cockpit (every session and subagent with live activity, shells
     with their output, pending permission asks answerable once/always/reject). A session's
     context menu offers **Session details** — a per-session transcript view (messages,
@@ -211,7 +214,7 @@ one-time setup:
    (log line: `eclipse-build MCP listening on http://127.0.0.1:<port>/mcp`) exposing
    cmake build/test, run, gdb-batch debug, clang-tidy/cppcheck lint and clang-format tools
    across the detected toolchains (MSVC + MSYS2 clang64/mingw64/ucrt64), **plus the
-   `task_*` tool pack** (the same 20 tools the `tasks` stdio server serves).
+   `task_*` tool pack** (the same 21 tools the `tasks` stdio server serves).
 
 ## Connection modes at a glance
 

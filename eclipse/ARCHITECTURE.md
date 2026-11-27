@@ -60,7 +60,7 @@ the `ToolProvider` SPI.
 |---|---|---|
 | `com.opencode.ide.client` (+ tests) | gson + the JobManager runtime (`org.eclipse.core.jobs`, `org.eclipse.equinox.common`) | opencode REST/SSE client, DTOs, `ChatRequests`/`McpRequests`, `OpencodeEventStream`, server launcher; hardened error semantics; `RuntimeTuning` (live poll/stall/budget/worker knobs) + `WorkerPools` (one bounded shared worker pool over the JobManager — no thread per call) |
 | `com.opencode.ide.tools` (+ tests) | gson | `ToolProvider` SPI + `McpDispatcher` (JSON-RPC) — language-agnostic; the C++ pack lives beside it (tier 3) |
-| `com.opencode.ide.tasks` (+ tests) | tools, gson | the Markdown task store (`.harness/tasks/`) - stationary tickets, the `basis` link graph, done-time artifact guard, basis-chain readiness (`StageReadiness`), `recordInvalidations` (upstream-changed history markers), the reduced `task_*` tool pack (20 tools; wandering verbs retired U-110, todos/backlog consolidated + `task_links` added in T-032, opt-in `auto_archive` U-060), `TasksStdioMain` (stdio transport) |
+| `com.opencode.ide.tasks` (+ tests) | tools, gson | the Markdown task store (`.harness/tasks/`) - stationary tickets, the `basis` link graph, done-time artifact guard, basis-chain readiness (`StageReadiness`), `recordInvalidations` (upstream-changed history markers), the reduced `task_*` tool pack (21 tools; wandering verbs retired U-110, todos/backlog consolidated + `task_links` added in T-032, opt-in `auto_archive` U-060, `task_route_review_doubt` added in T-220), `TasksStdioMain` (stdio transport) |
 | `com.opencode.ide.git` (+ tests) | client | `WorktreeManager` + `FleetGit` conventions (branch/worktree naming, `STORE_PATH`) over the git CLI; `RepoGate` (repo-root-keyed single-writer gate serializing ALL main-tree mutations — create/commit/merge/sync — across every engine in the process); `StoreGitStatus`/`StoreSync` (distributed-fleet store status + commit→pull-rebase→push discipline, **path-scoped to the store subtree, transient `.lock` excluded**) |
 | `mojo/opencode-tasks` (plain maven-plugin, not OSGi) | tasks (plain jar), gson, maven-api | `opencode-tasks:sync` / `:plan` over the same store — Maven plans, CMake builds |
 
@@ -93,7 +93,7 @@ git    → client
 mcp    → tools, tasks, client, gson
 core   → client, mcp, {runtime, resources, equinox.security}
 ui     → client, core, tools, gson, {workbench}
-chat   → client, core, gson, {workbench}   ← no ui edge
+chat   → client, core, tasks, gson, {workbench}   ← no ui edge
 board  → client, core, tasks, git, chat, gson, {workbench, compare}   ← no ui edge
 cdt    → core, {cdt.core, resources, ui, ui.ide}
 mojo   → tasks (plain jar), gson, maven-api (provided)
@@ -131,6 +131,37 @@ tracked invocation**), and the **active-files map** — a file (first non-blank 
 COMPLETED/ERROR. Snapshots are immutable; listeners fire only on real changes. The ui Server
 view renders `thinking…` / `tool: <name> — <file>` labels and the "Active files" node from it.
 
+## Session Details rendering — Eclipse constructs reused (moved content)
+
+Preserved from the retired as-built record
+`../docs/fleet-observability-eclipse-reuse.md` (RETIRED 2026-11-14; T-215's
+marker kept this part current, T-233 moved it here on 2026-11-26 when the
+record was reduced to a pointer). It answers, for the surviving Session Details
+view and its consoles, the same question this document answers for the bundles:
+which Eclipse constructs are reused instead of custom code, and which platform
+options were rejected.
+
+**Prime rule applied:** never build in the plugin what the platform already
+provides. Every observability need maps to an Eclipse construct that
+already solves it, or is called out as genuinely custom.
+
+| Need | Eclipse construct reused | Where it lives |
+|---|---|---|
+| Transcript drill-down for any session node | `SessionDetailsView` (`allowMultiple`, Auto Refresh) | serves any ordinary session of its server, chat sessions included (the `SessionDetailsView` class javadoc: "serves chat sessions and fleet worker sessions - both are ordinary sessions of their server") |
+| Transcript viewing (one message or the whole transcript) | the workbench's default text editor over a `FileStoreEditorInput` (EFS file store; the modern workbench removed `IStorageEditorInput`) | read-only snapshot: edits change only the delete-on-exit temp copy, never the session; no live follow (the `SessionDetailsView` class javadoc, Batch C paragraph; `SessionTranscript`/`SessionTranscriptFiles`) |
+| Shell-task output | a real Eclipse console per task (`org.eclipse.ui.console`) | `ShellTasksConsole` from Session Details (the `SessionDetailsView` class javadoc, U-041 paragraph), generalizing the `AgentToolsConsole` pattern (U-009) |
+| Subagent nesting | `parentID`-driven sections above the transcript | Session Details live sections (U-041) |
+| Progress/busy | the Jobs API (`ViewLoadSupport` / `Job.create`, `setSystem(true)`) | long view operations (transcript loads, lifecycle actions) run as background `Job`s off the UI thread - system jobs by design, so they never surface in the Progress view |
+
+Platform decisions (verdicts as built):
+
+| Option | Verdict |
+|---|---|
+| **Debug platform** (`ILaunch`, Debug view) for a session/job tree | **Rejected**: drags in launch configs, debug-model semantics and new dependencies for zero user gain over a plain `TreeViewer` + console |
+| CNF (Common Navigator) for the session tree | **Rejected**: CNF serves resource navigators; a session/job tree is a model tree — plain `TreeViewer` is simpler |
+| `org.eclipse.ui.console` for task output | **Adopted** (see the table above) |
+| TM Terminal for interactive PTY input | **Parked**: read-only output tails ship in consoles/`MessageConsole`; the interactive host is the remaining "Adopt next" item in `opencode-v2-adoption.md` |
+
 ## The web bridge contract (chat-web's public API)
 
 The renderer is hostable anywhere that can (a) serve static files over HTTP and (b) call JS with
@@ -140,7 +171,7 @@ doc-mode surfaces), the payload forms, and the rendering rules that ARE the cont
 extracted before markdown, the mermaid fallback chain, XSS hardening) — lives in, and is
 versioned with, the component: **`components/chat-web/README.md`** (the consumer doc). It is
 enforced by the component's checks inside the chat bundle's `mvn verify`:
-`renderer-check.mjs` (58) + `bridge-check.mjs` (194) + `mermaid-check.mjs` (8 — drives the
+`renderer-check.mjs` (75) + `bridge-check.mjs` (255) + `mermaid-check.mjs` (12 - drives the
 real page in headless Microsoft Edge via `puppeteer-core`; SKIPs when Edge/puppeteer-core are
 absent); `-DskipNodeChecks=true` skips them, and `bridge-check.mjs` honours a `WEB_DIR` env
 override.

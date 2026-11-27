@@ -9,6 +9,11 @@
   *visible status surface* those two inventories skip: what the user can SEE at a glance),
   `docs/opencode-v2-adoption.md` (route/pin context), `ROADMAP.md` *Standing rules* ("TUI parity is
   the floor, not the goal").
+- **Canonical ownership (one of three chat-surface inventories):** THIS file is the canonical
+  **visible status surface** inventory (§1-§7 wording, T-148) plus the **probed wire contracts**
+  behind it (`[PROBE]` rows). For **capability parity** and the FR-CP gap → ticket list see
+  `docs/chat-parity-requirements.md` (T-034); for the **executable per-ticket check rows** see
+  `docs/TESTING.md` §2.
 - **Scope guard:** the owner's clarification (2026-11-16) fixes the mapping: **the chat view IS the
   Eclipse counterpart of the opencode TUI/GUI** — its visible status surface belongs in the chat;
   the harness's extras (Board, Session Details, Server view, Fleet) come from the tabs and views and
@@ -181,7 +186,8 @@ channel → the residual parity sweep parked before this requirement.
 - **A1:** every §1/§2/§3/§5 element carries a `[TUI] packages/...:line` citation into the
   2026-11-16 clone; every Eclipse-state cell carries a repo citation or `[LANE]`/`[ADOPT]` ref.
 - **A2:** every wire-contract row carries `[PROBE]` evidence from 2026-11-16 (no unprobed call
-  reaches T-149 — standing rule `ROADMAP.md` L153-161).
+  reaches T-149 — standing rule `ROADMAP.md` L212-220, the
+  upstream-cross-check bullet; was cited L153-161, re-pointed 2026-11-26).
 - **A3:** the gap table maps each gap to a ticket id; G1's child exists and is basis-linked.
 - **A4:** `docs/chat-parity-requirements.md` reconciled per R1/R2 (same flow, coherence rule).
 - **A5:** recorded via `task_add_artifact` before `in-review`.

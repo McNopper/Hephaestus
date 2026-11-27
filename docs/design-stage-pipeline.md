@@ -4,14 +4,24 @@
   stage pipeline, per-stage schedule tickers spawning goal-driven subagents,
   and the retirement of the fleet and the wandering-V machinery. It is the
   governing definition for every implementation chunk of U-110; chunks cite
-  sections of this file. **Status: draft for implementation** — the model
-  decisions are owner-directed (2026-11-13/14 conversation, recorded on the
-  ticket); the sections marked OPEN get their final values during the chunks.
+  sections of this file. **Status: implemented - the U-110 arc landed** -
+  U-111 was closed by owner acceptance on 2026-11-14 (that acceptance cut
+  release v0.2.0 from the arc) and U-110 closed 2026-11-15 with release
+  evidence; both tickets are `done` - U-111 in the store's archive, U-110
+  per its last git record (its file was purged from the archive in 6248c00).
+  The model decisions were owner-directed (2026-11-13/14
+  conversation, recorded on the tickets), the sections once marked OPEN took
+  their final values during the chunks (no OPEN markers remain), and what
+  follows stands as the rationale record for the landed pipeline - read it
+  with the currency note below.
 - **Read by:** every agent implementing a U-110 chunk; the maintainer.
 - **Related:** `docs/opencode-v2-adoption.md` (the experimental-surface policy
   this design applies - W1 and W12 are adopted by it), `docs/fleet-redundancy-review-2026-11.md`
   (the research that showed the execution primitives are native), ticket
-  `.harness/tasks/hephaestus/U-110.md` (the full decision trail).
+  U-110 (the full decision trail; its file was purged from the store -
+  archived by `30282cb`, deleted with the old archive by `6248c00` - so the
+  trail is read from git history: the close evidence is commit `93b412e`, and
+  the surviving arc record is `.harness/tasks/hephaestus/_archive/U-111.md`).
 - **Currency (ten→one supersession, T-037):** parts of this draft predate the
   owner's ten→one unification (2026-11-14). Where this draft still says
   *per-stage schedule tickers* / *one steward session per stage*, the LIVE model
@@ -298,7 +308,7 @@ adding a stage = adding its division map + skill, nothing else.
 | `task_advance` / `task_pass_stage` / `task_report_horizontal` / wandering `send_back` | division + link creation; send-back-as-movement becomes rework (a failed downstream blocks/stales its upstream link) | Chunk 5, after tickers hold parity live |
 | RecurringWaves (batch waves) | per-stage ticker kickoffs | Chunk 5 |
 | FleetRunner, `fleet_*` MCP tools, fleet bundle + board fleet views | ticker-spawned subagents + the spawn cap | **Last** — only after live parity evidence (the acceptance run, ex-U-037, validates the whole loop) |
-| **Board's Fleet on/off toggle** | kept — becomes the **enable/disable switch for the tickers' schedules**: ON = schedules armed (ticker passes run), OFF = dormant. Re-labeled (e.g. Auto/Tickers) in Chunk 5; the same panel gains the owner-adjustable spawn cap and interval fields | Chunk 5 |
+| **Board's Fleet on/off toggle** | kept — becomes the **enable/disable switch for the tickers' schedules**: ON = schedules armed (ticker passes run), OFF = dormant. Re-labeled (e.g. Auto/Tickers) in Chunk 5; the same panel gains the owner-adjustable spawn cap and interval fields | Chunk 5 — **not built (2026-11-27: no schedules switch in `BoardView`)** |
 | `send_back` as clarification routing (`clarification:` → originator, U-023) | kept — routing, not movement | stays |
 
 ## 10. Migration of live state

@@ -24,7 +24,7 @@ The seat sits between the owner and the machine. Four parts, three interfaces:
 ```text
 owner chat ──> [product-owner seat] ──> task store ──> stage tickers ──> workers ──> engine verdicts
                      │  ^                        │
-                     │  └── store evidence       └── Board (schedules switch, Auto ▶)
+                     │  └── store evidence       └── Board (read-only mirror: chips + counts, no Auto ▶ switch)
                      └──── machine-keeping surfaces (non-shell)
 ```
 
@@ -48,9 +48,12 @@ owner chat ──> [product-owner seat] ──> task store ──> stage tickers
    verdicts are the engine's.
 3. The seat never spawns fulfillment workers — spawn capacity belongs to the
    tickers (global spawn cap).
-4. Nothing in the harness dispatches TO the seat automatically. The Board's
-   Auto ▶ dispatcher launches *sprint tickets* per the stage → role → skill
-   mapping (worker roles: pm/architect/developer/tester); the product-owner
+4. Nothing in the harness dispatches TO the seat automatically. The opt-in
+   launcher — the `ticker-v` schedule, armed from chat via
+   `.opencode/skills/stage-pipeline/ticker-setup.ps1` — launches *sprint
+   tickets* per the stage → role → skill mapping (worker roles:
+   pm/architect/developer/tester); there is no Board Auto ▶ dispatcher (the
+   switch was chunk-5 scope, never built). The product-owner
    seat is a chat-side primary agent, not a dispatch target. The only route
    in is the owner switching to it (§2).
 5. Owner override intact: the rule binds the machine and its agents, not the
@@ -80,13 +83,14 @@ re-enters through the store — it is not shipped as chat edits.
 
 **Machine-keeping dispatch (the bash-denied seat):** the seat's governance
 duties include keeping the tickers armed and the tasks server connected, but
-`ticker-setup.ps1` needs a shell — which the seat denies itself. The
-seat-compatible routes are the non-shell ones: the Board's schedules switch
-(Auto/Tickers) flips the tickers, and the tasks-server reconnect goes through
-the MCP connect endpoint (`POST /api/experimental/mcp/tasks/connect`). Where a
-shell is unavoidable (boot-time `ticker-setup.ps1`), the seat directs a
-shell-capable **steward session** — the duty is the outcome (tickers armed),
-not the tool.
+`ticker-setup.ps1` needs a shell — which the seat denies itself. Arming has
+exactly one mechanism — that script, run from chat via
+`.opencode/skills/stage-pipeline/ticker-setup.ps1` (there is no Board
+schedules switch; "Auto/Tickers" was chunk-5 scope, never built) — so where a
+shell is unavoidable the seat directs a shell-capable **steward session**.
+The tasks-server reconnect keeps its non-shell route: the MCP connect endpoint
+(`POST /api/experimental/mcp/tasks/connect`). Either way the duty is the
+outcome (tickers armed), not the tool.
 
 ## 3. Model/cost position (a cost lever, D-004-safe)
 

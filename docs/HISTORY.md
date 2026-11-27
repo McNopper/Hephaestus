@@ -413,6 +413,11 @@ per-FR delivery status (delivered / not delivered with ticket / amended).
   area existed (fixed with lazy OSGi ServiceFactory registrations). The full
   four-bug list is preserved on ticket T-018; the recovery steps live on in
   `docs/eclipse-deploy-recovery.md`.
+  (Cross-note 2026-11-26: the relative `reference:file:` entries above were
+  not the damage per se - a bare relative `osgi.bundles` line is what
+  framework-admin itself writes and it boots (live-verified 2026-11-23;
+  `docs/eclipse-deploy-recovery.md` step 1); what broke was an entry that did
+  not resolve, so `bundles.info` was never read.)
 - **2026-09-23 quality campaign** (from QUALITY.md): SpotBugs found the
   weak-randomness trio (MCP token, spawn password, fleet password), a
   hash-absolute-value hazard, floating-point equality, platform-default

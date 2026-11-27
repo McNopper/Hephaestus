@@ -5,6 +5,7 @@
 - **Kind:** `doc` / C++ subtree README
 - **Read by:** humans adopting the C++ skeleton; **written by:** maintainers
 - **Related:** pairs with `cpp/AGENTS.md` (command manifest)
+- **Availability (T-250, 2026-11-26):** the `cpp-tools` **agent** and **skill** the *C++ execution* section below drives the work with are **setup-supplied** - curated out of this repo 2026-10-15 (root `AGENTS.md`), so a stock clone has neither; in-repo the conventions live in `cpp/AGENTS.md`, and the commands run through bash or the `eclipse-build` MCP tools (`cmake_configure`, `cmake_build`, `ctest_run`, ...).
 
 A lean, modern C++23 project skeleton whose tooling is configured to emit
 **structured, machine-readable information** that an AI agent can use to

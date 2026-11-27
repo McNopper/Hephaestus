@@ -7,6 +7,7 @@
 - **Written by:** the requirements-stage worker (role `pm`, skill `software-requirements`).
 - **Chain state:** the V chain entered the `system` stage and the ticket was accepted done from there — this document is the stage-1 artifact; the later stages were not dispatched. The per-FR delivery status below says what actually shipped.
 - **Related:** commit `deff2d1` (store-level `_archive/`, manual Archive action, wave-close auto-archiving deliberately withheld — there is no U-025 ticket; the commit is the record); `.opencode/docs/contracts.md` (ticket/stage contract); `StageReadiness`/`TaskStore` in `eclipse/bundles/com.opencode.ide.tasks` (current behavior baseline). This file is the **what and why** — solution shape, structure and code are the next stages' work.
+- **Currency (T-250, 2026-11-26):** written against the sprint-era store - `task_close_sprint`, the wave/sprint-close path and the `product-backlog` / `closed` sprint statuses no longer exist (sprint model removed T-202; seven-state model: `ready`, `in-progress`, `in-review`, `done`, `not-implemented`, `paused`, `blocked`). The archive semantics below are unchanged and live (`task_archive_done`, `<project>/_archive/`); read the wave-close vocabulary as the old model's.
 
 ## Goal
 

@@ -22,6 +22,13 @@
   library-level verification this component level sits inside) and
   `docs/unified-ticker-system.tests.md`; tickets T-117 (under verification)
   and T-118 (this record's ticket).
+- **Currency (T-202, release v0.4.5):** the sprint model is removed -
+  plan/close-sprint steps, sprint records and the product-backlog /
+  sprint-backlog statuses are gone; the store is the
+  seven-state model (born ready/paused, claims ready-only). The
+  plan/close steps and sprint-record mechanics quoted below are historical
+  - their verdicts stand as recorded on their dates (re-verified
+  2026-11-26).
 
 ## Scope: what "component level" verifies here
 

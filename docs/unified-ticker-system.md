@@ -73,7 +73,9 @@ recreatable by re-running one script (`ticker-setup.ps1`).
   prompt: <tick prompt>}`, plus the service-maintained `runCount` /
   `lastOutcome` health fields. It is a per-session timer primitive (W1): it
   re-sends its prompt to its bound session. Its name is the system's identity
-  key (INV-1). Arm-time parameters (C-F): `-IntervalMinutes` (default 15) and
+  key (INV-1). Arm-time parameters (C-F): `-IntervalMinutes` (default 5 -
+  the owner's 2026-11-16 cadence call; it read 15 when this system record
+  was written) and
   `-Cap` (default 4).
 - **The steward session** — one session titled `ticker-v`, created as a CHILD
   of a repo-rooted parent (C-C: children inherit the parent's project context
@@ -124,9 +126,10 @@ the governing FRs, and the invariant it must preserve.
   single identity key. Arming when a `ticker-v` schedule already exists on
   the running service MUST leave exactly ONE schedule and exactly one steward
   session afterwards (reuse or replace — never duplicate). The prototype
-  violates this today (it POSTs unconditionally); the required behavior and
+  violated this at the 2026-11-15 read (it POSTed unconditionally - the
+  re-arm guard landed 2026-11-16); the required behavior and
   its mechanism (lookup-by-name reuse vs retire-and-recreate — Open Question
-  Q-001) are routed to the implementation leg in
+  Q-001) were routed to the implementation leg in
   [Route A](#route-a--implementation-leg-hardening-ticker-setupps1).
 - **Lifetime**: the schedule is service-runtime state and dies with the
   service (FR-015's premise). The steward session's *record* persists in
@@ -357,6 +360,10 @@ the prototype files.
 
 ### Route A — implementation-leg hardening (`ticker-setup.ps1`)
 
+- **Status (re-verified 2026-11-26): LANDED** - both deltas are in
+  `ticker-setup.ps1` (2026-11-16): the lookup/retire re-arm guard precedes
+  the create, and the auth check tests `$Token`. The content below is the
+  route as specified.
 - **Owning stage/leg:** the implementation stage of the ticker-v arc (role
   developer; file lane: `.opencode/skills/stage-pipeline/ticker-setup.ps1`
   only).
@@ -369,10 +376,10 @@ the prototype files.
      surface, and Q-002 (steward reuse vs fresh) with S-3's cap-drain
      constraint: fresh-steward recreation must not let old children blow the
      cap.
-  2. **`$Password` → `$Token` param fix** — delta #3: line 25 tests
-     `$Password`, which is never defined (the parameter is `$Token`), so the
-     fallback branch is always taken and explicit `-BaseUrl`/`-Token`
-     overrides are clobbered by `service.json`. Fix the condition to test
+  2. **`$Password` → `$Token` param fix** - delta #3: the auth condition
+     tested `$Password`, which was never defined (the parameter is `$Token`), so the
+     fallback branch was always taken and explicit `-BaseUrl`/`-Token`
+     overrides were clobbered by `service.json`. Fix the condition to test
      `$Token`.
 - **Verification pairing:** the paired `test-*` ticket for the implementation
   leg proves AC-004 (re-run yields exactly one schedule) and AC-005 (the ten
@@ -380,10 +387,14 @@ the prototype files.
 
 ### Route B — skill lane (`SKILL.md`)
 
+- **Status (re-verified 2026-11-26): LANDED** - `SKILL.md` no longer
+  carries the `-Stages` leftover (T-130, 2026-11-16); its pause/resume
+  observation now reads "re-run `ticker-setup.ps1` alone".
 - **Owning stage/leg:** a skill-lane ticket (role developer; file lane:
   `.opencode/skills/stage-pipeline/SKILL.md` only).
-- **Content:** delta #2 — the pause/resume field observation still says
-  "re-run `ticker-setup.ps1` with the same `-Stages`", a per-stage-era
+- **Content:** delta #2 - the pause/resume field observation said (at the
+  2026-11-15 read) "re-run `ticker-setup.ps1`
+  with the same `-Stages`", a per-stage-era
   leftover; the unified script has no `-Stages` parameter. Replace with the
   unified truth: resume = re-run `ticker-setup.ps1` (same interval/cap
   choices if desired — C-F), store is the memory. This document's

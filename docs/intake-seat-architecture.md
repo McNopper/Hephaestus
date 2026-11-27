@@ -66,7 +66,7 @@ structure.
 | C-3 | **Task store** | `.harness/tasks/hephaestus/` + the `task_*` API | the single coordination blackboard: tickets, sprints, claims, readiness, history events, engine invariants (done-time artifact guard, blocked state machine, write discipline) | — (substrate) |
 | C-4 | **Stage-pipeline machine** | `docs/design-stage-pipeline.md`: per-stage tickers (`stage-pipeline` skill), goal-driven workers, the engine's review pass + quality gate | consume intake tickets from C-3, divide + derive down the V, produce engine verdicts back into C-3; spawn capacity and done authority live here | C-3 only |
 | C-5 | **Evidence plane** | `task_board` / `task_readiness` / `task_get` / `task_doctor` + git history (`git log`, `git worktree list`, `git branch --contains`) | read-only observation of machine state for two consumers: the seat's verify step (C-1 loop step 5) and the spot-check reviewer (§5) | C-3 + git history, read-only |
-| C-6 | **Machine-keeping surfaces** | Board schedules switch (Auto/Tickers); the MCP connect endpoint (`POST /api/experimental/mcp/tasks/connect`); a shell-capable steward session for shell-bound duties | the non-shell routes that keep the pipeline alive (tickers armed, tasks server connected) — governance duties of the seat that need no shell | C-4's lifecycle via host endpoints, not via the store |
+| C-6 | **Machine-keeping surfaces** | the `ticker-v` schedule armed from chat via `.opencode/skills/stage-pipeline/ticker-setup.ps1` (the planned Board schedules switch, "Auto/Tickers", was never built — chunk-5 scope; the Board mirrors readiness read-only); the MCP connect endpoint (`POST /api/experimental/mcp/tasks/connect`); a shell-capable steward session for shell-bound duties | the non-shell routes that keep the pipeline alive (tickers armed, tasks server connected) — governance duties of the seat that need no shell | C-4's lifecycle via host endpoints, not via the store |
 
 ## 3. Dependency rules (explicit)
 
@@ -75,7 +75,9 @@ structure.
   dependency on C-4's internals — ticker schedules, spawn caps and worker
   sessions are invisible to the seat (and the seat is invisible to them).
 - **DR-2 — No machine → seat control edge.** Nothing dispatches TO the seat
-  (system doc invariant 4): the Board's Auto ▶ launches sprint tickets per the
+  (system doc invariant 4): the opt-in launcher — the `ticker-v` schedule,
+  armed from chat via `.opencode/skills/stage-pipeline/ticker-setup.ps1` —
+  launches sprint tickets per the
   stage → role → skill mapping (worker roles only); the only inbound edges to
   C-1 are owner-initiated through C-2. The overall direction is therefore
   acyclic: owner → seat → store → machine → verdicts → store → evidence →
@@ -251,7 +253,7 @@ here → the evidence it rests on:
 | §2 D-3 — `openChat` `agentId` path | C-2; AD-005 | `OpenChatHandler` (reads `agentId`, calls `preselectAgent`); `ChatView.preselectAgent` → `selectors.selectAgent`; `ServerView` passes `agentId` = the v2 id; `SessionViewIds.CHAT_OPEN_COMMAND_ID` (core bundle, one seam) |
 | §2 guarded switching semantics | C-2; AD-004 | `SelectorGuard` commit rule: opened-dropdown pick or Enter commits, un-armed drift reverts |
 | §2 default-agent miss → doctrine layer | C-1 + invariant 6 | system doc §2; AGENTS.md doctrine paragraph; §5 here as the detective control |
-| §2 machine-keeping dispatch (bash-denied seat) | C-6; DR-5 | Board schedules switch (Auto/Tickers); `POST /api/experimental/mcp/tasks/connect`; steward-session rule |
+| §2 machine-keeping dispatch (bash-denied seat) | C-6; DR-5 | `ticker-v` armed from chat via `ticker-setup.ps1` (no Board switch — chunk-5, never built); `POST /api/experimental/mcp/tasks/connect`; steward-session rule |
 | §3 no committed model (D-004) | C-1; DR-6; AD-006 | seat frontmatter carries no `model:`; D-004 |
 | §3 tier position | C-1 | tier-selection rule (lowest sufficient tier; never de-escalate uncertain) |
 | §3 ticket-level model lever | C-1 + C-3 | `task_create`/`task_update` `model` field; fleet intelligence reads session cost |

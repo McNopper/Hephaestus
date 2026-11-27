@@ -1,5 +1,10 @@
 # Fleet redundancy review - 2026-11-09 (is the fleet still required?)
 
+- **SUPERSEDED BY U-110 (label added 2026-11-26, T-233):** the fleet this
+  report evaluated was removed outright in the U-110 arc (2026-11-14); the
+  2026-11-09 verdicts below are dated research evidence, deliberately kept
+  unaltered - the report fed D-005 and the removal itself (ROADMAP, "The
+  durable core (D-005, amended by U-110)" cites this file as the evidence).
 - **About this document:** a dated research report (research agent, authoritative sources,
   fetched 2026-11-09) answering the owner's question: "is the fleet feature still required -
   it sounds like Claude Code / opencode do this automatically now?". It compares each fleet

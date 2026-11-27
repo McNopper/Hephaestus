@@ -6,8 +6,11 @@ import java.util.Optional;
 
 /**
  * The fleet's git naming conventions, in one place: the branch and worktree location every task
- * gets. The git bundle owns these strings — callers (the fleet engine, the board's launcher/diff,
- * views showing worktree locations) must never re-spell them.
+ * gets. The git bundle owns these strings — every caller is in this bundle or its tests and must
+ * never re-spell them: {@code internal.GitWorktreeManager} (branch names, worktree paths, {@link
+ * #STORE_PATH}), {@code RepoGate} and {@code FleetOwnership} (lock/owner paths under {@link
+ * #fleetRoot}), {@code FleetGitTest} and {@code GitWorktreeManagerTest}. No board or view code
+ * references this class.
  *
  * <p>Pure Java, no Eclipse/OSGi.
  */

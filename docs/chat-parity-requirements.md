@@ -13,6 +13,12 @@
   `docs/opencode-v2-adoption.md` (adoption matrix + the older parity-floor
   table this document supersedes in detail), `eclipse/components/chat-web/README.md`
   (the renderer bridge contract), `eclipse/ARCHITECTURE.md` (bundle layout).
+- **Canonical ownership (one of three chat-surface inventories):** THIS file
+  is the canonical **capability parity** inventory (Inventories A/B) and the
+  FR-CP **gap → ticket list** (T-034). For the **visible status surface**
+  (what the user can SEE at a glance) plus its probed wire contracts see
+  `docs/tui-visible-surface-review.md` (T-148); for the **executable
+  per-ticket check rows** see `docs/TESTING.md` §2.
 - **Scope guard:** capability parity, **not** UI simulation — the harness
   adopts what a session can *do*; it never rebuilds the TUI's interface
   inside Eclipse (`docs/opencode-v2-adoption.md`, "Alignment means capability
@@ -53,7 +59,7 @@ ticker can divide each gap into a child ticket.
 |---|---|---|
 | opencode **TUI** (v2 docs; repo pin 2.4.2) | the parity floor | <https://opencode.ai/docs/cli/tui/>, <https://opencode.ai/docs/cli/keybinds/>, <https://opencode.ai/docs/cli/commands/>, <https://opencode.ai/docs/permissions/>; V1 floor commands archived at <https://opencode.ai/docs/tui/> |
 | opencode **desktop client** | second reference where its behavior differs usefully | `docs/opencode-v2-adoption.md` release-note rows (cited inline below) — no local desktop source; repo/docs only per ticket scope |
-| **Standing rule** | "TUI parity is the floor, not the goal": hold "same or more features than the official TUI" and use the harness where it is genuinely better | `ROADMAP.md` L168-169 |
+| **Standing rule** | "TUI parity is the floor, not the goal": hold "same or more features than the official TUI" and use the harness where it is genuinely better | `ROADMAP.md` L227-228 (the "TUI parity is the floor" standing-rules bullet; was cited L168-169, re-pointed 2026-11-26) |
 | Doctrine | capability parity, not UI simulation; host tier (Eclipse editor/themes/keybindings/LSP) strictly reused | `docs/opencode-v2-adoption.md` L55-60, L352, L359 |
 
 Feature citations below use `[TUI]` for the v2 docs pages, `[V1]` for the
@@ -240,7 +246,8 @@ EARS syntax; "the chat" = the Eclipse chat view + its renderer. Each
 requirement names its evidence and the candidate child ticket a ticker
 can divide. Priorities: H = user-visible floor gap, M = useful parity, L =
 polish. Route-gated items MUST probe the live contract first (standing
-rule, `ROADMAP.md` L153-161: never adopt an unprobed call).
+rule, `ROADMAP.md` L212-220 - the upstream-cross-check bullet: "Never
+adopt an unprobed call"; was cited L153-161, re-pointed 2026-11-26).
 
 - **FR-CP-01 (H) — attachments.** WHEN the user attaches or pastes a file
   or image into the composer, THEN the chat SHALL send it with the prompt

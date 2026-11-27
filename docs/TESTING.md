@@ -11,15 +11,26 @@
   `.harness/tasks/hephaestus/` (where findings become tickets),
   `docs/live-in-eclipse-recurrence-flow.md` (the acceptance recurrence —
   §4 executes the instances it mints).
+- **Canonical ownership (one of three chat-surface inventories):** THIS
+  file's **§2 owns the executable per-ticket check rows** (every row a
+  shipped ticket). For the **capability parity** inventory and the FR-CP
+  gap → ticket list see `docs/chat-parity-requirements.md` (T-034); for the
+  **visible status surface** + probed wire contracts see
+  `docs/tui-visible-surface-review.md` (T-148).
 
 ## 1. Setup (once)
 
 1. **Clone + configure your model first.** No model ids are committed —
    set your own default in `opencode.json` (`"model": "<your provider>/<model>"`)
    for whichever opencode provider you use.
-2. Install **opencode** (`npm install -g @opencode/cli`), **Java 21**,
-   **PowerShell 7** (the launchers use `?.`), and for graphics: `pip install
-   mcp/graphics/requirements.txt`.
+2. **Install the tooling.** The canonical list is the *Prerequisites* table in
+   [`new-machine-setup.md`](new-machine-setup.md) — this guide does not restate
+   it. Short version for a tester: opencode v2 (`npm install -g @opencode/cli`),
+   Java 21, PowerShell 7 (`pwsh` on PATH — the launchers are PowerShell 7
+   scripts), git and Node (step 3's `verify -Pquality` runs the chat-web
+   checks). There is **no** graphics pip step: this repo tracks no
+   `mcp/` contents (`git ls-files mcp/` is empty; graphics is optional and
+   setup-supplied).
 3. **Build the harness:** `cd eclipse; .\build.ps1 verify -Pquality` —
    green (27 modules) is the baseline. First run downloads the Eclipse
    target platform (slow); later runs are ~5 minutes.
@@ -69,30 +80,40 @@ maps directly to a ticket.
 
 Every completed wave mints a `test-requirements` acceptance instance —
 `Acceptance (live in Eclipse): …` (owner requirement 2026-11-15, T-039;
-flow: `docs/live-in-eclipse-recurrence-flow.md`). Instances sit
-`in-progress`, assignee `owner-acceptance` — "awaits the owner" — and are
-NON-BLOCKING: no verdict, wave or release waits on them (the engine's
-review is their only `done` authority). One live pass evidences several
-open instances — the checklist is shared, the verdicts are separate:
+flow: `docs/live-in-eclipse-recurrence-flow.md`). Each instance is assigned
+`owner-acceptance` — "awaits the owner" — and is NON-BLOCKING: no verdict,
+wave or release waits on it (the engine's review is its only `done`
+authority). Their states are read from the store, never from this line —
+`task_list(project=hephaestus, status=in-review)` or the Board's *in-review*
+column (dated fact: on 2026-11-26 all six **instances** sat `in-review`, each
+with `review: human` — instances only: that verb also returns non-instance
+docs tickets in review, which carry `review: null`, so a raw row count runs
+past six). One live pass evidences several open
+instances — the checklist is shared, the verdicts are separate:
 
-1. **Execute:** work the instance's check lines (console checks, UI
-   passes, panel round trips) in Eclipse; record the evidence — a
-   screenshot or panel transcript reference — with `task_add_artifact`
-   on that instance; flip it to `in-review`.
-2. **File findings:** a failed check becomes a `type: bug` ticket (the
-   reporting rules below); findings ride the NEXT wave — finished work
-   is never re-opened.
-3. **Failed pass:** record the failed evidence on the instance first,
-   then block it (`task_set_blocked`, resume to `ready`) with
-   the blocker naming the finding tickets; when the findings land, clear
-   the blocker (only the owner does) and re-run the pass.
+1. **Run the checks.** Take the instance's check lines one at a time against
+   the running build in Eclipse — console checks, UI passes, panel round
+   trips. Good looks like every line exercised in *this* pass (not remembered
+   from the last one), each with something that would convince someone else: a
+   screenshot or a panel transcript reference. Attach that evidence to the
+   instance ticket and move the instance to *in-review* (from a chat session:
+   `task_add_artifact`, then `task_update`).
+2. **File what you found.** Anything that failed becomes a `type: bug` ticket
+   (reporting rules below); findings ride the NEXT wave — finished work is
+   never re-opened.
+3. **A failed pass goes back, not forward.** Put the failed evidence on the
+   instance first, then set it blocked with a blocker naming the finding
+   tickets (from a chat session: `task_set_blocked`) — the store records where
+   the instance resumes (`resume_to`, normally `ready`). Only the owner clears
+   the blocker, and once the findings land the pass runs again from the top.
 
 ## 5. Reporting feedback
 
-- **File it as a ticket** (preferred): `task_create` with `type: bug`,
-  a title that states the outcome, and steps-to-reproduce in the
-  description — or drop a comment on the related ticket. Findings become
-  store state; that is how this project tracks effort and evidence.
+- **File it as a ticket** (preferred): a `type: bug` ticket whose title states
+  the outcome and whose description carries the steps to reproduce — minted
+  from a chat session (`task_create`), or dropped as a comment on the ticket it
+  belongs to. Findings become store state; that is how this project tracks
+  effort and evidence.
 - Say what you **expected** vs what happened, and include the build time
   (`deploy-dev.ps1` output) if a UI behavior is involved.
 - Known-open work lives in `ROADMAP.md`; open decisions in its

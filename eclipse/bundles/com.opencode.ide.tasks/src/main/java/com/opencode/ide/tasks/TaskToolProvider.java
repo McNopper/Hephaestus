@@ -178,6 +178,15 @@ public final class TaskToolProvider implements ToolProvider {
             store
                 .clearBlocked(reqStr(a, "project"), reqStr(a, "ticket_id"), optStr(a, "by", null))
                 .toJson());
+      case "task_route_review_doubt":
+        return json(
+            store
+                .routeReviewDoubt(
+                    reqStr(a, "project"),
+                    reqStr(a, "ticket_id"),
+                    reqStr(a, "reason"),
+                    optStr(a, "by", null))
+                .toJson());
       case "task_stage_agents":
         return json(PRETTY.toJsonTree(store.stageAgents(reqStr(a, "project"))));
       case "task_set_stage_agent":
@@ -529,6 +538,21 @@ public final class TaskToolProvider implements ToolProvider {
                 obj -> {
                   obj.add("project", strP());
                   obj.add("ticket_id", strP());
+                  obj.add("by", strP());
+                })));
+    out.add(
+        new McpTool(
+            "task_route_review_doubt",
+            "Route an UNCLEAR review verdict back to the originator: the ticket returns to ready"
+                + " for one retry per stage visit ('review doubt retry (n/N)' history marker); a"
+                + " doubt recurring inside the same stage visit escalates it to blocked"
+                + " (needs-a-human). Requires a staged ticket.",
+            schema(
+                new String[] {"project", "ticket_id", "reason"},
+                obj -> {
+                  obj.add("project", strP());
+                  obj.add("ticket_id", strP());
+                  obj.add("reason", strP());
                   obj.add("by", strP());
                 })));
     out.add(

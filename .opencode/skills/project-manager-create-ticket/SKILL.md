@@ -14,6 +14,7 @@ description: >
 - **Kind:** skill (reusable capability, auto-loaded by opencode)
 - **Read by:** any agent matching its description; **written by:** maintainers
 - **Related:** part of the project-manager-* domain set; standalone (no lifecycle pair).
+- **Availability (T-250, 2026-11-26):** the `cpp-engineer` / `graphics-engineer` rows of the role table below point at setup-supplied targets - `cpp-tools`, `mcp.graphics`, `graphics-expert` and `graphics-render-comparison` were curated out of this repo 2026-10-15 (root `AGENTS.md`); they resolve only if the maintainer's setup carries them.
 
 You are the **ticket authoring guide** for Hephaestus. A good ticket is
 self-contained, verifiable, and traceable. Use it whenever you create a ticket
@@ -34,6 +35,7 @@ breaks. This skill keeps every ticket claimable and verifiable.
 | `type` | `story` (user value), `task` (internal), `bug`, `spike` (research). |
 | `role` | The **discipline that owns it** — see the role map below. This decides who claims it. **Set it explicitly:** `task_create` defaults a missing `role` to `developer`, which mis-routes non-developer work. |
 | `stage` | Optional V-model stage (`requirements` … `test-requirements`); null = the ticket is untracked by the V pipeline. When you set a stage, set its owning `role` too: `requirements` -> `pm`; `system` / `architecture` -> `architect`; `design` / `implementation` -> `developer`; `test-*` -> `tester` (the default `developer` would mis-claim it). |
+| `role_override` | When a ticket's role must deliberately differ from `VStages.roleOf(stage)`, record a non-blank `role_override: <why>` line in the ticket's frontmatter (an extra key the codec preserves verbatim; not a `task_*` field, so write it in the ticket file) - the store's role/stage check and `task_doctor` then stay quiet, and the override is visible on the ticket by design rather than hidden in a code allow-list. |
 | `priority` | `low`/`medium`/`high`/`critical`; drives claim order in the ready queue. |
 | `story_points` | Relative size (Fibonacci-ish: 1/2/3/5/8/13). Estimate, don't overthink; later `project-manager-estimate-costs` can feed a `cost` field. |
 | `model` | Optional fleet model override (`provider/model[#variant]`). The cost lever of decomposition: a small, well-specified ticket can run on a cheap model — pin one when the work is mechanical; leave null (server default) when it needs the strong default. |

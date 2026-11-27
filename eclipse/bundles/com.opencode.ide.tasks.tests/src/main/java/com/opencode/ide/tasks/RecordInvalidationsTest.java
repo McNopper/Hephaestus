@@ -1,6 +1,7 @@
 package com.opencode.ide.tasks;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -196,6 +197,9 @@ public class RecordInvalidationsTest {
   @Test
   public void emptyProjectMarksNothing() throws Exception {
     assertEquals(0, store.recordInvalidations("untouched-project"));
+    assertFalse(
+        "T-226 (N1): the read never materializes the project directory",
+        java.nio.file.Files.isDirectory(root.resolve("untouched-project")));
   }
 
   @Test
