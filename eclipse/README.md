@@ -215,20 +215,23 @@ Releases follow decision D-002 and are fully scripted by `releng/release.ps1`:
 the reactor is set to the release version (poms, bundle MANIFESTs, feature.xml,
 via `tycho-versions:set-version`), the quality gate runs (`clean verify
 -Pquality` — a failure reverts the bump and aborts before any commit), the
-release commit is tagged `vX.Y.Z`, and development continues on the next
-`X.Y.Z+1-SNAPSHOT`. Pushing is opt-in (`-Push`); the tree must be clean and on
-`main` before the script starts.
+release commit is tagged `vX.Y.Z`, and the default run ends there — the
+reactor stays at the released version; development only moves to the next
+`X.Y.Z+1-SNAPSHOT` when the bump is asked for explicitly (`-BumpNext`, owner
+directive 2026-11-27: the bump happens on demand). Pushing is opt-in (`-Push`);
+the tree must be clean and on `main` before the script starts.
 
 ```powershell
-.\releng\release.ps1 -ReleaseVersion 0.1.10 -Push   # from eclipse\ (or any dir inside the repo)
-.\releng\release.ps1 -ReleaseVersion 0.1.11 -DryRun # rehearse in a scratch worktree, touches nothing
+.\releng\release.ps1 -ReleaseVersion 0.1.10 -Push       # from eclipse\ (or any dir inside the repo)
+.\releng\release.ps1 -ReleaseVersion 0.1.11 -DryRun     # rehearse in a scratch worktree, touches nothing
+.\releng\release.ps1 -ReleaseVersion 0.1.11 -BumpNext   # opt in: also bump to the next -SNAPSHOT after the tag
 ```
 
 The release set freezes the OSGi version (`tycho-versions` strips
-`.qualifier`, so the deployed jars show exactly `0.1.10`) and the bump
-restores the qualifier for development — an install's About dialog identifies
-the release. Before D-002 every tag built as `0.1.0-SNAPSHOT` and nothing
-distinguished one jar from another.
+`.qualifier`, so the deployed jars show exactly the release version) and an
+opt-in `-BumpNext` run restores the qualifier for development — an install's
+About dialog identifies the release. Before D-002 every tag built as
+`0.1.0-SNAPSHOT` and nothing distinguished one jar from another.
 
 ## Install into Eclipse CDT
 

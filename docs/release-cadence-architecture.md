@@ -154,7 +154,7 @@ if listed here.**
 | E2 | C3 → C1 | The same query as fallback evaluation + outcome comment + chat announcement (H7); owner-speech re-recording (`owner-directive` comments quoting the owner's words); cut recording (git artifact + acceptance comment); script-failure comments (N4's executor half). | [SYS §3.2; §4.1; §4.2; N4] |
 | E3 | C3 → C4 | `release.ps1` invocation — preconditions: the owner's explicit go (the release decision, R5), between passes (quiet tree), version = the current `-SNAPSHOT` stripped (the script's format guard rejects everything else); `-Push` only on the explicit go. The exit result flows back to C3, which records it over E2. | [SYS §4.2; N3] |
 | E4 | owner → C4 | The owner may run the script personally (the owner can do anything; the worked example cut v0.2.0 from the acceptance session). | [SYS §4.2] |
-| E5 | C4 → repo tree | The D-002 mutation: set-version → quality gate → "Release vX.Y.Z" commit + annotated tag → next `-SNAPSHOT` bump → optional `-Push`, each step under the script's own guards; every `Die` aborts, the gate failure reverting pre-commit. | [SYS §4.2; N4] |
+| E5 | C4 → repo tree | The D-002 mutation: set-version → quality gate → "Release vX.Y.Z" commit + annotated tag → optional `-Push` — that is where the default run ends (the reactor stays at the release version); the next `-SNAPSHOT` bump is a separate on-demand motion behind `-BumpNext` (owner directive 2026-11-27: the bump happens on demand) — each step under the script's own guards; every `Die` aborts, the gate failure reverting pre-commit. | [SYS §4.2; N4] |
 | E6 | C6 → C1 | Engine verdict: reads + `done` for the wave's tickets; after a cut, the instance's own normal engine-verdict close (the [REC] lifecycle untouched). | [SYS §2 row 4; §4.2; N6; REC G3] |
 | E7 | C2 → C5 | Loads SKILL.md (the tick procedure it rides in) + the STEP 6 EXTENSION wording + the oracle spec it applies. | [DSG §4, §6; SYS §4.1] |
 | E8 | C3 → C5 | Loads the cadence doc (fallback evaluation + executor rules), the standing rule, and the sibling mint wording it composes with. | [SYS §2 row 2; §6; H7] |
@@ -299,9 +299,13 @@ its evidence.
    C4's own guards enforce everything else.
 5. C4 runs the D-002 sequence on the repo tree (E5): set-version →
    quality gate (a failure reverts, aborts pre-commit) → "Release
-   vX.Y.Z" commit + annotated tag → next `-SNAPSHOT` bump → optional
-   `-Push` on the explicit go. The version is the current `-SNAPSHOT`
-   stripped — never invented in chat.
+   vX.Y.Z" commit + annotated tag → optional `-Push` on the explicit
+   go — that is where the default run ends (the reactor stays at the
+   release version); the next `-SNAPSHOT` bump is a separate on-demand
+   motion behind `-BumpNext` (owner directive 2026-11-27: the bump
+   happens on demand). The release version is a plain `X.Y.Z`
+   — the script's format guard rejects any suffixed version — never
+   invented in chat.
 6. Results recorded back over E2: a git artifact (tag / release-commit
    refs), an acceptance comment on the instance, a HISTORY.md entry
    [R7]. Worked example, all store/git-verifiable: tag `v0.2.0` →

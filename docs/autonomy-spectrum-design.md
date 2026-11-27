@@ -201,7 +201,8 @@ context ([ARCH §Interfaces to the real code C4]).
   release decision's shape. Inputs: the wave's evidence read via E3
   (`task_get`/`task_traceability`: all tickets done with engine
   verdicts) plus the wave-close fact (commit + push landed). Outputs:
-  `released` — `release.ps1` runs (tag per D-002, `-SNAPSHOT` bump) —
+  `released` — `release.ps1` runs (tag per D-002; the `-SNAPSHOT` bump on
+  demand, `-BumpNext`) —
   **only in the human-review context**, on a human review that accepts;
   `pending` — without such a review, and pending is an **absence, not a
   datum** (DD-04, DS-4): no store field, no timer, no machine state, no
@@ -409,7 +410,7 @@ tickets carry no restatement.
    `pending`, an absence (DS-4), the wave ends at commit + push and
    nothing else happens — no timer, no machine retry. With one:
    `release.ps1` runs **in the human-review context only** (tag per
-   D-002, `-SNAPSHOT` bump). No dial setting can subtract the human
+   D-002; the `-SNAPSHOT` bump on demand, `-BumpNext`). No dial setting can subtract the human
    from the release ([ARCH] G-2; QA-4).
 
 ### W-4 · The safe-end default read (F-4 → G-4; executors: C1, C3; edges E1, E2, E5)

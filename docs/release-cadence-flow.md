@@ -38,8 +38,10 @@
 The standing rule (T-041, owner requirement 2026-11-15) fixes the cadence:
 completed work — every ticket `done` or `not-implemented` with engine
 verdicts — is always committed and pushed; the VERSION is cut
-(`eclipse/releng/release.ps1`, tag per D-002, bump to the next `-SNAPSHOT`)
-only when that work carries a HUMAN review. The pass, not the calendar, is
+(`eclipse/releng/release.ps1`, tag per D-002 — the default run ends at the
+tag + release commit; advancing to the next `-SNAPSHOT` happens only on
+demand, behind `-BumpNext`) only when that work carries a HUMAN review.
+The pass, not the calendar, is
 the release cadence; the human review, not the pass alone, is the release
 trigger. Engine verdicts are necessary for a release, never sufficient
 (T-039).
@@ -233,9 +235,13 @@ motion with a human in the loop:
   release version across the reactor -> the quality gate
   (`clean verify -Pquality`; a failure reverts and aborts before any
   commit) -> commit "Release vX.Y.Z" + annotated tag `vX.Y.Z` ->
-  set-version to the next `-SNAPSHOT` -> optional `-Push`
-  (branch + tag; only on the owner's explicit go). The version is the
-  current `-SNAPSHOT` with the suffix stripped — never invented in chat.
+  optional `-Push` (branch + tag; only on the owner's explicit go).
+  That is where the default run ENDS: the reactor stays at the release
+  version, and the bump to the next `-SNAPSHOT` is a separate on-demand
+  motion behind `-BumpNext` (owner directive 2026-11-27: the bump
+  happens on demand). The release version is a plain `X.Y.Z`
+  — the script's format guard rejects any suffixed version — never
+  invented in chat.
 - **Recording the release:** a `git` artifact (the tag / release-commit
   ref) and an acceptance comment on the goal root (when one exists);
   the event goes to `docs/HISTORY.md` (history discipline — past events
@@ -296,7 +302,7 @@ Six guarantees, each against a real dependency direction:
   escalation — that is the T-039 shape: acceptance hardens, never gates,
   and its absence gates even less.
 - **N3 — the cut never runs mid-pass.** `release.ps1` mutates the shared
-  tree (version bumps, commits, tag) and takes minutes at the gate; the
+  tree (set-version, release commit, tag) and takes minutes at the gate; the
   ticker never invokes it, and the kickoff assistant executes it between
   passes, on the owner's go, where the script's clean-tree guard is
   actually satisfiable. Ticket flow and the cut are serialized by the

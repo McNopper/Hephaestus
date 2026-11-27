@@ -138,8 +138,10 @@ about where the line is:
   (`eclipse/releng/release.ps1:32-36`), runs the Tycho quality gate
   (`clean verify -Pquality`), spans the version across the reactor (poms, bundle
   MANIFESTs, feature.xml via `tycho-versions:set-version`), tags `vX.Y.Z` and
-  bumps to the next `-SNAPSHOT`. In a repo without `eclipse/` it dies at that
-  first check **by design** - it is not a generic release tool.
+  stops there — the default run ends after the tag + release commit; a bump to
+  the next `-SNAPSHOT` is a separate on-demand act (`-BumpNext`, owner directive
+  2026-11-27: the bump happens on demand). In a repo without `eclipse/` it dies
+  at that first check **by design** - it is not a generic release tool.
 - **What you do instead:** define your own cut - the honest minimum needs
   nothing but git:
 
@@ -153,7 +155,7 @@ about where the line is:
 
   If you later want the automation, adapt `release.ps1` against YOUR gate: the
   reusable part is the pattern (clean-tree guard -> gate -> version -> tag ->
-  next-SNAPSHOT); the Tycho steps are not.
+  next-SNAPSHOT on demand); the Tycho steps are not.
 
 ## First Eclipse start (how Eclipse finds your repo)
 

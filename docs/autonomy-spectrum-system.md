@@ -90,7 +90,8 @@ no machinery, and they never stall a wave.
   ticket file (D-006); the position's provenance is `git log`-verifiable.
 - **Wave close (pump → release gate)** — a completed wave (all tickets
   done with engine verdicts) always ends in commit + push;
-  `eclipse/releng/release.ps1` (tag per D-002, `-SNAPSHOT` bump) runs
+  `eclipse/releng/release.ps1` (tag per D-002; the `-SNAPSHOT` bump happens
+  on demand, `-BumpNext`) runs
   only when the wave's work carries a human review that accepts.
 - **NEEDS-HUMAN (pump → owner)** — `task_set_blocked` with no live retry
   is the only unplanned stop a run-to-goal run takes; a time-boxed run

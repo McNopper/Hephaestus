@@ -234,7 +234,7 @@ SSE event-type enum carries `form.created`, mapped by T-067.)*
   when a wave completes — all its tickets done with engine verdicts — its
   result is committed and pushed. The version is cut only when the wave's
   work carries a human review: cut it via `eclipse/releng/release.ps1`
-  (tag per D-002, bump to the next `-SNAPSHOT`). Waves that complete
+  (tag per D-002; the `-SNAPSHOT` bump only on demand, `-BumpNext`). Waves that complete
   without a human review end at commit + push — no version, no tag; the
   release stays pending until a review unlocks it, and pending is an
   **absence, not a datum** (`docs/autonomy-spectrum-design.md` DS-4): no

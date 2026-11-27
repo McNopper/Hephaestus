@@ -211,11 +211,14 @@ however owner-shaped the text ([SYS §3.2]).
 guards are the single validation layer. This design adds only the
 invocation/result contract:
 
-- `release.ps1 [-Push]` — invoked from inside the repository, on the
-  release branch, clean tree; runs the D-002 sequence: set-version to the
+- `release.ps1 [-Push] [-BumpNext]` — invoked from inside the repository, on
+  the release branch, clean tree; runs the D-002 sequence: set-version to the
   release version across the reactor → the quality gate
   (`clean verify -Pquality`) → the "Release vX.Y.Z" commit + annotated tag
-  → set-version to the next `-SNAPSHOT` → optional `-Push` (branch + tag).
+  → optional `-Push` (branch + tag). The default run ends there — the
+  reactor stays at the release version; set-version to the next `-SNAPSHOT`
+  runs only on demand, behind `-BumpNext` (owner directive 2026-11-27: the
+  bump happens on demand).
 - errors — every one a `Die` that aborts before harm: repository check;
   build-wrapper check; X.Y.Z format (rejects ANY suffixed version — this is
   where an invented version dies, the second wall behind DS-003);
@@ -348,9 +351,12 @@ denial (no evaluation contract exists outside C2/C3).
    validation of its own).
 5. C4 runs the D-002 sequence on the repo tree (E5): set-version → quality
    gate (a failure reverts the bump, aborts pre-commit) → "Release vX.Y.Z"
-   commit + annotated tag → next `-SNAPSHOT` bump → optional `-Push` on
-   the explicit go. The version is the current `-SNAPSHOT` stripped —
-   never invented in chat (DS-003).
+   commit + annotated tag → optional `-Push` on the explicit go — that is
+   where the default run ends (the reactor stays at the release version);
+   the next `-SNAPSHOT` bump is a separate on-demand motion behind
+   `-BumpNext` (owner directive 2026-11-27: the bump happens on demand).
+   The release version is a plain `X.Y.Z` — the script's format
+   guard rejects any suffixed version — never invented in chat (DS-003).
 6. Results recorded back over E2 (C3) — or over E9 when the owner ran the
    cut personally (E4; the worked example, artifacts under
    `owner-acceptance`): the git artifact, the acceptance comment on the
